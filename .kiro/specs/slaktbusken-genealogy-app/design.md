@@ -127,6 +127,7 @@ slaktbusken/
 ├── persistence/
 │   ├── __init__.py
 │   ├── file_io.py           # Gzip JSON read/write with atomic save
+│   ├── migration.py         # MigrationManager: version detection, sequential upgrades, backup
 │   ├── serialization.py     # JSON serialization/deserialization
 │   ├── translation_io.py    # Translation file read/write
 │   └── settings_io.py       # Project settings read/write
@@ -489,7 +490,7 @@ class FilePersistence:
     @staticmethod
     def save(data: ProjectData, path: Path) -> None:
         """
-        1. Serialize ProjectData to JSON (UTF-8)
+        1. Serialize ProjectData to JSON (UTF-8) with format_version as first key
         2. Write to a temp file in the same directory
         3. Atomically replace the target file (os.replace)
         """
@@ -499,12 +500,70 @@ class FilePersistence:
     def load(path: Path) -> ProjectData:
         """
         1. Read and decompress .json.gz
-        2. Parse JSON
-        3. Validate required top-level sections
-        4. Deserialize into ProjectData
-        Raises: CorruptedFileError with specific problem description
+        2. Extract format_version from the first key
+        3. If version < CURRENT_VERSION: run MigrationManager.migrate()
+        4. If version > CURRENT_VERSION: raise UnsupportedVersionError
+        5. Parse and validate full JSON
+        6. Deserialize into ProjectData
+        Raises: CorruptedFileError, UnsupportedVersionError
         """
         ...
+```
+
+### MigrationManager
+
+Handles sequential data format upgrades from older versions to current.
+
+```python
+class MigrationManager:
+    """Manages sequential migrations between App_JSON format versions."""
+
+    CURRENT_VERSION: str = "0.1"
+
+    # Registry: maps source version → (target version, migration function)
+    _migrations: dict[str, tuple[str, Callable[[dict], dict]]] = {}
+
+    @classmethod
+    def register(cls, from_version: str, to_version: str) -> Callable:
+        """Decorator to register a migration function."""
+        ...
+
+    @classmethod
+    def migrate(cls, data: dict, from_version: str) -> dict:
+        """
+        Apply sequential migrations from from_version to CURRENT_VERSION.
+        1. Look up migration for from_version
+        2. Apply it, producing data at the next version
+        3. Repeat until data is at CURRENT_VERSION
+        Raises: MigrationError if no migration path exists
+        """
+        ...
+
+    @classmethod
+    def needs_migration(cls, version: str) -> bool:
+        """True if version < CURRENT_VERSION."""
+        ...
+
+    @classmethod
+    def is_too_new(cls, version: str) -> bool:
+        """True if version > CURRENT_VERSION."""
+        ...
+
+    @staticmethod
+    def create_backup(path: Path, old_version: str) -> Path:
+        """Create a backup copy with version suffix before migrating.
+        E.g., 'project.json.gz' → 'project_v0.1.json.gz'
+        """
+        ...
+
+
+# Example migration registration:
+@MigrationManager.register("0.1", "0.2")
+def _migrate_0_1_to_0_2(data: dict) -> dict:
+    """Example: add a new top-level section introduced in v0.2."""
+    data["new_section"] = []
+    data["format_version"] = "0.2"
+    return data
 ```
 
 ### GEDCOMImporter (low-level, used by ImportService)
@@ -565,7 +624,7 @@ class GEDCOMExporter:
 
     def _to_gedcom_id(self, app_id: str) -> str:
         """Deterministic GEDCOM ID from App_JSON ID.
-        E.g., 'person_001' → '@I1@', 'family_002' → '@F2@'
+        E.g., 'person_1' → '@I1@', 'family_42' → '@F42@'
         Uses numeric suffix extraction for stable mapping.
         """
         ...
@@ -736,10 +795,17 @@ class FamilyPartner:
     role: str          # 'father', 'mother', 'husband', 'wife', 'partner'
 
 @dataclass
+class ParentChildLink:
+    child_id: str
+    parent_id: str | None     # None when parentage_type is 'unknown_donor'
+    parentage_type: str       # 'biological', 'legal', 'adoptive', 'foster', 'step', 'unknown_donor'
+
+@dataclass
 class Family:
     id: str
     partners: list[FamilyPartner]
-    children: list[str]       # List of person_ids, order preserved
+    children: list[str]                    # Ordered list of child person_ids (preserves add order)
+    parent_child_links: list[ParentChildLink] = field(default_factory=list)  # Per-parent-child relationship types
     event_ids: list[str] = field(default_factory=list)
 
 @dataclass
@@ -988,7 +1054,7 @@ class ProjectData:
   "mappings": [
     {
       "gedcom_id": "@I1@",
-      "app_json_id": "person_001",
+      "app_json_id": "person_1",
       "entity_type": "person"
     },
     {

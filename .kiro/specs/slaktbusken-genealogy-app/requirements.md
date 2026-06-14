@@ -30,6 +30,7 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 - **Diagram_Panel**: The right panel in the UI displaying family, ancestry, or descendants views
 - **Edit_Window**: A modal or tabbed window for editing person data, events, photos, and DNA information
 - **Main_Person**: The designated central person in the genealogy project
+- **ParentChildLink**: A record linking a specific parent to a specific child within a Family, with a parentage_type indicating the nature of the relationship (biological, legal, adoptive, foster, step, or unknown_donor)
 
 ## Requirements
 
@@ -53,7 +54,7 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 1. THE App_JSON SHALL contain top-level sections for: format identifier, version, project metadata, persons, families, events, places, sources, media, dna_companies, dna_profiles, dna_matches, dna_segments, dna_clusters, dna_triangulations, and research_notes
 2. THE App_JSON SHALL store project metadata with fields for: title (max 200 characters), main_person_id, created_by, and language code
 3. THE App_JSON SHALL store Person records with fields for: unique ID, sex (one of: M, F, X, U), multiple names (each with type, given name, surname), profile media ID, and notes
-4. THE App_JSON SHALL store Family records with fields for: unique ID, list of partners (each with person_id and role), list of children (as person IDs), and linked event IDs
+4. THE App_JSON SHALL store Family records with fields for: unique ID, list of partners (each with person_id and role), ordered list of children (as person IDs), list of parent_child_links (each with child_id, parent_id or null, and parentage_type), and linked event IDs
 5. THE App_JSON SHALL store Event records with fields for: unique ID, type, list of participants (each with person_id and role), date (with value, precision, and source references), place (with place_id and source references), and media IDs
 6. THE App_JSON SHALL store Place records in a hierarchical structure with fields for: unique ID, type (country, county, parish, church, cemetery), name, parent_place_id, coordinates (latitude, longitude), and notes
 7. THE App_JSON SHALL store Source records with fields for: unique ID, provider, source_type, title, reference_text, provider_ref, short_note, free_note, structured_reference (type-specific fields), and media IDs
@@ -131,16 +132,20 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 
 ### Requirement 8: Family Management
 
-**User Story:** As a researcher, I want to create and edit family units with partners and children, so that I can represent both genetic and legal family relationships.
+**User Story:** As a researcher, I want to create and edit family units with partners and children with per-parent relationship types, so that I can accurately represent biological, legal, adoptive, and foster parentage including complex scenarios like IVF with known or unknown donors.
 
 #### Acceptance Criteria
 
 1. THE Släktbusken SHALL support Family records with two or more partners, each having a specified role (father, mother, husband, wife, partner)
 2. THE Släktbusken SHALL support same-sex partnerships by allowing any combination of partner roles
-3. WHEN a child is added to a Family, THE Släktbusken SHALL store the child's person_id in the family's children list, maintaining the order in which children were added
-4. THE Släktbusken SHALL support a Person belonging to multiple families to represent adoption, foster care, and biological parentage
-5. IF the user attempts to add a person_id as a partner or child that does not reference an existing Person record, THEN THE Släktbusken SHALL reject the operation and display an error message indicating the missing reference
-6. THE Släktbusken SHALL prevent adding the same person_id as a child to the same family more than once
+3. WHEN a child is added to a Family, THE Släktbusken SHALL store a ParentChildLink for each partner in the family, where each link contains: the child's person_id, the partner's person_id, and a parentage_type (one of: biological, legal, adoptive, foster, step, unknown_donor)
+4. THE Släktbusken SHALL allow different parentage_types for the same child across different partners within a single Family (e.g., one partner as biological and another as legal for the same child)
+5. THE Släktbusken SHALL support a Person belonging to multiple families to represent adoption, foster care, and biological parentage
+6. IF the user attempts to add a person_id as a partner or child that does not reference an existing Person record, THEN THE Släktbusken SHALL reject the operation and display an error message indicating the missing reference
+7. THE Släktbusken SHALL prevent adding the same person_id as a child to the same family more than once
+8. WHEN a partner's parentage_type for a child is set to unknown_donor, THE Släktbusken SHALL NOT require a person_id for that partner, allowing representation of anonymous donors without creating a placeholder Person record
+9. THE Släktbusken SHALL maintain the order in which children were added to the family
+10. THE Relationship_Calculator SHALL use parentage_type to distinguish biological relationships from legal/adoptive/foster relationships when computing kinship paths
 
 ### Requirement 9: Event Management
 
@@ -350,7 +355,7 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 
 #### Acceptance Criteria
 
-1. THE Släktbusken SHALL assign a globally unique ID to each entity (persons, families, events, places, sources, media, DNA records) at creation time, using a type-specific prefix followed by a unique suffix (e.g., "person_001", "family_002", "event_birth_001") such that no two entities share the same ID regardless of entity type
+1. THE Släktbusken SHALL assign a globally unique ID to each entity (persons, families, events, places, sources, media, DNA records) at creation time, using a type-specific prefix followed by an unpadded integer suffix with no digit limit (e.g., "person_1", "family_42", "event_3001") such that no two entities share the same ID regardless of entity type
 2. THE Släktbusken SHALL never reassign or modify an entity's ID after initial creation, preserving IDs unchanged across save/load cycles and all application operations
 3. IF an entity is deleted, THEN THE Släktbusken SHALL not reuse that entity's ID for any newly created entity
 4. WHEN the GEDCOM_Exporter generates GEDCOM IDs, THE GEDCOM_Exporter SHALL derive them deterministically from the App_JSON entity IDs, so that exporting the same App_JSON data produces identical GEDCOM IDs and identical GEDCOM output
@@ -376,3 +381,17 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 2. THE Släktbusken SHALL include a pyproject.toml specifying at minimum PySide6 and pytest as dependencies with pinned or minimum version constraints
 3. THE Släktbusken SHALL include a test directory with test modules named using the `test_*.py` convention, organized to mirror the source module structure so that each source module has a corresponding test module discoverable by pytest without additional configuration
 4. THE Släktbusken SHALL provide an entry point that allows launching the application via `python -m <package_name>` using a `__main__.py` module in the package root
+
+### Requirement 27: Data Format Versioning and Migration
+
+**User Story:** As a researcher, I want the application to handle format upgrades transparently when I open a project saved with an older version, so that I never lose data or have to manually convert files.
+
+#### Acceptance Criteria
+
+1. THE App_JSON SHALL place the format_version field as the first key in the top-level JSON object, so that it can be read without fully parsing the remainder of the file
+2. WHEN the user opens a project file, THE Släktbusken SHALL read the format_version before full deserialization and compare it to the application's current format version
+3. IF the file's format_version is older than the application's current format version, THEN THE Släktbusken SHALL apply sequential migration steps (from the file's version to the current version) to transform the data to the current schema before loading it into the data model
+4. WHEN a migration is applied, THE Släktbusken SHALL create a backup copy of the original file (appending the old version number to the filename, e.g., "project_v0.1.json.gz") before overwriting the file with the migrated data
+5. IF the file's format_version is newer than the application's current format version, THEN THE Släktbusken SHALL display a Swedish-language error message indicating that the file was created with a newer version of Släktbusken and cannot be opened, and shall not modify the file
+6. THE Släktbusken SHALL maintain a migration registry mapping each historical format version to a migration function that transforms data from that version to the next version, enabling chained upgrades (e.g., 0.1 → 0.2 → 0.3)
+7. WHEN saving a project, THE Släktbusken SHALL always write the current application format version as the format_version in the output file

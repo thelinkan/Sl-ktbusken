@@ -16,7 +16,7 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
 - [ ] 2. Core Data Model - Base Entities
   - [ ] 2.1 Implement `slaktbusken/model/id_generator.py` with the IDGenerator class supporting type-prefixed IDs, monotonically increasing numeric suffixes, tracking of used IDs, and non-reuse of deleted entity IDs
   - [ ] 2.2 Implement `slaktbusken/model/person.py` with Person and Name dataclasses (id, sex, names list, profile_media_id, notes; Name with type, given, surname)
-  - [ ] 2.3 Implement `slaktbusken/model/family.py` with Family, FamilyPartner dataclasses (id, partners list with person_id and role, children list, event_ids)
+  - [ ] 2.3 Implement `slaktbusken/model/family.py` with Family, FamilyPartner, ParentChildLink dataclasses (id, partners list with person_id and role, children list preserving order, parent_child_links list with child_id/parent_id/parentage_type, event_ids)
   - [ ] 2.4 Implement `slaktbusken/model/event.py` with Event, DateValue, PlaceRef, Participant, SourceRef dataclasses including support for custom event types and cause_of_death field
   - [ ] 2.5 Implement `slaktbusken/model/place.py` with Place dataclass (id, type, name, parent_place_id, latitude, longitude, notes)
   - [ ] 2.6 Implement `slaktbusken/model/source.py` with Source, StructuredReference, RepositoryRef, Repository dataclasses including source_type-specific structured references
@@ -28,7 +28,7 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
 
 - [ ] 3. Data Model Validators
   - [ ] 3.1 Implement `slaktbusken/model/validators.py` with validation functions for Person (requires at least one name, sex in {M,F,X,U}, given/surname max 100 chars)
-  - [ ] 3.2 Add validation for Family (partner roles valid, children reference existing persons, no duplicate children, person_id references exist)
+  - [ ] 3.2 Add validation for Family (partner roles valid, children reference existing persons, no duplicate children, person_id references exist, parent_child_links reference valid children and partners, parentage_type in {biological, legal, adoptive, foster, step, unknown_donor}, parent_id may be None only when parentage_type is unknown_donor)
   - [ ] 3.3 Add validation for Event (requires type, at least one participant, valid date format ISO 8601, valid precision, custom events require type_name)
   - [ ] 3.4 Add validation for Place (valid type, name 1-200 chars, valid parent hierarchy rules, latitude -90 to 90, longitude -180 to 180)
   - [ ] 3.5 Add validation for Source (valid source_type, structured_reference fields match type), Repository (valid type), and MediaItem (valid type, relative forward-slash path)
@@ -36,11 +36,12 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - **Requirements:** 7.5, 7.6, 8.5, 8.6, 9.3, 9.4, 9.7, 10.1, 10.3, 13.4, 13.6, 14.1, 14.4, 14.6, 25.2
 
 - [ ] 4. Persistence Layer - Serialization
-  - [ ] 4.1 Implement `slaktbusken/persistence/serialization.py` with functions to serialize ProjectData to JSON string (UTF-8) and deserialize JSON string back to ProjectData, handling all nested entity types
-  - [ ] 4.2 Implement `slaktbusken/persistence/file_io.py` with FilePersistence class: atomic save (write to temp file, os.replace), gzip read/write of .json.gz files, CorruptedFileError with specific problem description
-  - [ ] 4.3 Implement `slaktbusken/persistence/translation_io.py` with read/write for translation JSON files (sources.json, places.json, persons.json) following the defined mapping format
-  - [ ] 4.4 Implement `slaktbusken/persistence/settings_io.py` with read/write for project settings JSON file (person_box_config, diagram_settings, ui_state)
-  - **Requirements:** 2.1, 3.1, 3.2, 3.3, 3.4, 25.2, 25.3
+  - [ ] 4.1 Implement `slaktbusken/persistence/serialization.py` with functions to serialize ProjectData to JSON string (UTF-8) with format_version as the first key, and deserialize JSON string back to ProjectData, handling all nested entity types
+  - [ ] 4.2 Implement `slaktbusken/persistence/file_io.py` with FilePersistence class: atomic save (write to temp file, os.replace), gzip read/write of .json.gz files, version check before full deserialization, CorruptedFileError and UnsupportedVersionError with specific problem descriptions
+  - [ ] 4.3 Implement `slaktbusken/persistence/migration.py` with MigrationManager class: version comparison logic (needs_migration, is_too_new), migration registry (decorator-based registration of version→version migration functions), sequential migration application (chained upgrades from old version to current), and backup creation before migration (appending old version to filename)
+  - [ ] 4.4 Implement `slaktbusken/persistence/translation_io.py` with read/write for translation JSON files (sources.json, places.json, persons.json) following the defined mapping format
+  - [ ] 4.5 Implement `slaktbusken/persistence/settings_io.py` with read/write for project settings JSON file (person_box_config, diagram_settings, ui_state)
+  - **Requirements:** 2.1, 3.1, 3.2, 3.3, 3.4, 25.2, 25.3, 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7
 
 - [ ] 5. Property Tests - Serialization and ID Generation
   - [ ] 5.1 Write Hypothesis strategies in `tests/conftest.py` for generating valid instances of all dataclasses (Person, Family, Event, Place, Source, MediaItem, Repository, DNA entities, ResearchNote, ProjectData)
@@ -48,7 +49,9 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [ ] 5.3 Write property test for gzip persistence round-trip (Property 2): write to .json.gz then read back produces equal data with identical intermediate JSON bytes (`tests/test_persistence/test_file_io.py`)
   - [ ] 5.4 Write property test for ID generation uniqueness and non-reuse (Property 3): all generated IDs are unique, carry correct prefix, deleted IDs never reused (`tests/test_model/test_id_generator.py`)
   - [ ] 5.5 Write property test for media file paths (Property 14): all MediaItem file paths use forward slashes and are relative (`tests/test_persistence/test_serialization.py`)
-  - **Requirements:** 22.2, 24.1, 24.2, 24.3, 25.2
+  - [ ] 5.6 Write property test for migration correctness (Property 15): for any valid ProjectData at version N, migrating to version N+1 then deserializing produces valid ProjectData with no data loss; backup file is created with correct version suffix (`tests/test_persistence/test_migration.py`)
+  - [ ] 5.7 Write unit tests for version handling edge cases: file with current version loads without migration, file with older version triggers migration chain, file with newer version raises UnsupportedVersionError with Swedish message (`tests/test_persistence/test_migration.py`)
+  - **Requirements:** 22.2, 24.1, 24.2, 24.3, 25.2, 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7
 
 - [ ] 6. Property Tests - Validation
   - [ ] 6.1 Write property test for entity validation rejects invalid data (Property 6): invalid entities are rejected with specific errors (`tests/test_model/test_validators.py`)
