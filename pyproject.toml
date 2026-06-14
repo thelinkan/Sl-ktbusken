@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slaktbusken"
+version = "0.1.0"
+description = "A desktop genealogy application for Swedish genealogical research"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+dependencies = [
+    "PySide6>=6.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-qt>=4.2.0",
+    "hypothesis>=6.90.0",
+    "pytest-cov>=4.1.0",
+]
+
+[project.scripts]
+slaktbusken = "slaktbusken.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["slaktbusken*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+
+[tool.coverage.run]
+source = ["slaktbusken"]
+omit = ["slaktbusken/ui/generated/*"]

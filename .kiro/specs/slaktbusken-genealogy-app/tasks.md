@@ -6,11 +6,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
 
 ## Tasks
 
-- [ ] 1. Project Scaffolding and Build Configuration
-  - [ ] 1.1 Create the Python package structure with `slaktbusken/__init__.py`, `slaktbusken/__main__.py`, and all sub-package `__init__.py` files for model/, persistence/, services/, gedcom/, gedcom/translation/, relationship/, ui/, ui/generated/, ui/forms/, ui/resources/, ui/views/, ui/widgets/, ui/editors/, ui/dialogs/, and scripts/
-  - [ ] 1.2 Create `pyproject.toml` with project metadata, Python >=3.11 requirement, PySide6>=6.6.0 dependency, and dev dependencies (pytest>=7.4.0, pytest-qt>=4.2.0, hypothesis>=6.90.0, pytest-cov>=4.1.0)
-  - [ ] 1.3 Create the test directory structure mirroring source modules: tests/, tests/conftest.py, tests/test_model/, tests/test_persistence/, tests/test_services/, tests/test_gedcom/, tests/test_relationship/, tests/test_ui/ with corresponding `__init__.py` files
-  - [ ] 1.4 Create `slaktbusken/scripts/compile_ui.py` build script that compiles .ui files via pyside6-uic and .qrc files via pyside6-rcc
+- [x] 1. Project Scaffolding and Build Configuration
+  - [x] 1.1 Create the Python package structure with `slaktbusken/__init__.py`, `slaktbusken/__main__.py`, and all sub-package `__init__.py` files for model/, persistence/, services/, gedcom/, gedcom/translation/, relationship/, ui/, ui/generated/, ui/forms/, ui/resources/, ui/views/, ui/widgets/, ui/editors/, ui/dialogs/, and scripts/
+  - [x] 1.2 Create `pyproject.toml` with project metadata, Python >=3.11 requirement, PySide6>=6.6.0 dependency, and dev dependencies (pytest>=7.4.0, pytest-qt>=4.2.0, hypothesis>=6.90.0, pytest-cov>=4.1.0)
+  - [x] 1.3 Create the test directory structure mirroring source modules: tests/, tests/conftest.py, tests/test_model/, tests/test_persistence/, tests/test_services/, tests/test_gedcom/, tests/test_relationship/, tests/test_ui/ with corresponding `__init__.py` files
+  - [x] 1.4 Create `slaktbusken/scripts/compile_ui.py` build script that compiles .ui files via pyside6-uic and .qrc files via pyside6-rcc
   - **Requirements:** 26.1, 26.2, 26.3, 26.4
 
 - [ ] 2. Core Data Model - Base Entities
