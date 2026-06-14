@@ -18,6 +18,8 @@ The architecture separates concerns into distinct layers: a core data model, a p
 
 5. **Entity-first DNA model**: DNA companies, profiles, matches, segments, clusters, and triangulations are all first-class entities with their own IDs, enabling flexible many-to-many relationships without deep nesting.
 
+6. **Qt Designer .ui files with pyside6-uic compilation**: Form-based UI layouts (editors, dialogs, panels) are designed in Qt Designer and stored as .ui files. These are compiled to Python via `pyside6-uic` and committed to the repository. Custom graphics items (PersonBoxItem, PlaceholderBox, connection lines) and diagram views remain programmatic since they use QGraphicsView and don't benefit from form-based design. This gives visual layout editing, full type safety from generated code, and no runtime build dependency.
+
 ## Architecture
 
 ```mermaid
@@ -31,16 +33,27 @@ graph TB
     end
 
     subgraph Application Layer
-        PM[ProjectManager]
+        APP[app.py - thin shell]
+        subgraph Services
+            PS[ProjectService]
+            IS[ImportService]
+            ES[ExportService]
+            VS[ValidationService]
+            TS[TranslationService]
+            RS[ReportService]
+        end
         RC[RelationshipCalculator]
-        GI[GEDCOMImporter]
-        GE[GEDCOMExporter]
     end
 
     subgraph Domain Layer
         DM[DataModel]
         VA[Validators]
         IDG[IDGenerator]
+    end
+
+    subgraph GEDCOM Layer
+        GP[Parser]
+        GT[Translation Modules]
     end
 
     subgraph Persistence Layer
@@ -53,19 +66,31 @@ graph TB
     MW --> DP
     MW --> EW
     MW --> TE
-    PLP --> PM
-    DP --> PM
-    EW --> PM
-    TE --> PM
-    PM --> DM
-    PM --> FP
-    PM --> RC
-    PM --> GI
-    PM --> GE
-    GI --> TF
-    GE --> TF
+    PLP --> APP
+    DP --> APP
+    EW --> APP
+    TE --> APP
+    APP --> PS
+    APP --> IS
+    APP --> ES
+    APP --> TS
+    APP --> RC
+    PS --> FP
+    PS --> DM
+    PS --> SF
+    IS --> GP
+    IS --> GT
+    IS --> VS
+    IS --> TS
+    IS --> RS
+    ES --> GT
+    ES --> RS
+    VS --> DM
+    VS --> VA
+    TS --> TF
+    TS --> GT
+    RC --> DM
     FP --> DM
-    PM --> SF
     DM --> VA
     DM --> IDG
 ```
@@ -75,8 +100,9 @@ graph TB
 | Layer | Responsibility |
 |-------|---------------|
 | **UI Layer** | PySide6 widgets, user interaction, rendering diagrams, edit forms |
-| **Application Layer** | Orchestration of operations: project lifecycle, import/export, relationship computation |
+| **Application Layer** | Service layer orchestrating multi-step workflows: project lifecycle (`ProjectService`), import/export pipelines (`ImportService`, `ExportService`), cross-entity validation (`ValidationService`), translation management (`TranslationService`), and reporting (`ReportService`). `app.py` is a thin wiring shell connecting services to the UI. `RelationshipCalculator` remains a standalone algorithmic component. |
 | **Domain Layer** | Data classes (dataclasses), validation rules, ID generation |
+| **GEDCOM Layer** | Low-level GEDCOM parsing and entity-mapping logic (parser, translation modules) |
 | **Persistence Layer** | Gzip JSON read/write, translation file I/O, settings file I/O |
 
 ### Module Structure
@@ -104,12 +130,27 @@ slaktbusken/
 │   ├── serialization.py     # JSON serialization/deserialization
 │   ├── translation_io.py    # Translation file read/write
 │   └── settings_io.py       # Project settings read/write
+├── services/
+│   ├── __init__.py
+│   ├── project_service.py       # Project create/open/save/close lifecycle, folder structure setup
+│   ├── import_service.py        # Orchestrates GEDCOM import: parse → translate → validate → merge
+│   ├── export_service.py        # Orchestrates GEDCOM export: resolve IDs → build output → report omissions
+│   ├── validation_service.py    # Cross-entity referential integrity checks, pre-save validation
+│   ├── translation_service.py   # Translation file lifecycle: load/save/update, coordinates with gedcom/translation/
+│   └── report_service.py        # Generates summary messages (import results, export omissions, error reports)
 ├── gedcom/
 │   ├── __init__.py
 │   ├── importer.py          # GEDCOM → App_JSON conversion
 │   ├── exporter.py          # App_JSON → GEDCOM conversion
 │   ├── parser.py            # GEDCOM line-level parser
-│   └── translation.py       # Translation file management
+│   └── translation/
+│       ├── __init__.py          # Package init, exposes TranslationManager facade
+│       ├── place_translation.py     # GEDCOM place string → hierarchical Place mapping
+│       ├── source_translation.py    # GEDCOM source ID → structured Source mapping
+│       ├── citation_translation.py  # Building citation text from structured references
+│       ├── person_mapping.py        # GEDCOM INDI/FAM → person/family ID mapping
+│       ├── matcher.py              # Fuzzy/exact matching logic for finding existing entities during re-import
+│       └── models.py               # Shared dataclasses for translation entries
 ├── relationship/
 │   ├── __init__.py
 │   ├── calculator.py        # BFS-based relationship path finder
@@ -117,52 +158,164 @@ slaktbusken/
 │   └── graph_builder.py     # Relationship graph visualization data
 ├── ui/
 │   ├── __init__.py
-│   ├── main_window.py       # QMainWindow setup
+│   ├── main_window.py       # QMainWindow setup, loads generated UI
 │   ├── person_list_panel.py # Left panel: filterable person list
 │   ├── diagram_panel.py     # Right panel: QGraphicsView container
+│   ├── forms/                   # Qt Designer .ui source files (checked into git)
+│   │   ├── main_window.ui
+│   │   ├── person_editor.ui
+│   │   ├── event_editor.ui
+│   │   ├── source_editor.ui
+│   │   ├── place_editor.ui
+│   │   ├── media_editor.ui
+│   │   ├── dna_editor.ui
+│   │   ├── repository_editor.ui
+│   │   ├── translation_editor.ui
+│   │   ├── new_project_dialog.ui
+│   │   ├── relationship_dialog.ui
+│   │   ├── settings_dialog.ui
+│   │   └── person_list_panel.ui
+│   ├── generated/               # Python generated from .ui via pyside6-uic (committed to git)
+│   │   ├── __init__.py
+│   │   ├── ui_main_window.py
+│   │   ├── ui_person_editor.py
+│   │   ├── ui_event_editor.py
+│   │   ├── ui_source_editor.py
+│   │   ├── ui_place_editor.py
+│   │   ├── ui_media_editor.py
+│   │   ├── ui_dna_editor.py
+│   │   ├── ui_repository_editor.py
+│   │   ├── ui_translation_editor.py
+│   │   ├── ui_new_project_dialog.py
+│   │   ├── ui_relationship_dialog.py
+│   │   ├── ui_settings_dialog.py
+│   │   └── ui_person_list_panel.py
+│   ├── resources/               # .qrc resource files (icons, stylesheets)
+│   │   ├── resources.qrc
+│   │   ├── icons/
+│   │   └── styles/
 │   ├── views/
 │   │   ├── __init__.py
-│   │   ├── family_view.py       # Family diagram logic
-│   │   ├── ancestry_view.py     # Ancestry diagram logic
-│   │   └── descendants_view.py  # Descendants diagram logic
+│   │   ├── family_view.py       # Family diagram logic (programmatic QGraphicsView)
+│   │   ├── ancestry_view.py     # Ancestry diagram logic (programmatic QGraphicsView)
+│   │   └── descendants_view.py  # Descendants diagram logic (programmatic QGraphicsView)
 │   ├── widgets/
 │   │   ├── __init__.py
-│   │   ├── person_box.py       # QGraphicsItem for person box
-│   │   ├── placeholder_box.py  # Placeholder for missing relatives
-│   │   └── connection_line.py  # Lines connecting person boxes
+│   │   ├── person_box.py       # QGraphicsItem for person box (programmatic)
+│   │   ├── placeholder_box.py  # Placeholder for missing relatives (programmatic)
+│   │   └── connection_line.py  # Lines connecting person boxes (programmatic)
 │   ├── editors/
 │   │   ├── __init__.py
-│   │   ├── person_editor.py    # Edit person window (tabbed)
-│   │   ├── event_editor.py     # Event editor dialog
-│   │   ├── source_editor.py    # Source editor with type-specific fields
-│   │   ├── place_editor.py     # Place editor
-│   │   ├── media_editor.py     # Media item editor
-│   │   ├── dna_editor.py       # DNA profile/match/cluster editors
-│   │   ├── translation_editor.py  # Source/place translation editors
-│   │   └── repository_editor.py   # Repository editor
+│   │   ├── person_editor.py    # Edit person window - uses generated/ui_person_editor.py
+│   │   ├── event_editor.py     # Event editor - uses generated/ui_event_editor.py
+│   │   ├── source_editor.py    # Source editor - uses generated/ui_source_editor.py
+│   │   ├── place_editor.py     # Place editor - uses generated/ui_place_editor.py
+│   │   ├── media_editor.py     # Media editor - uses generated/ui_media_editor.py
+│   │   ├── dna_editor.py       # DNA editor - uses generated/ui_dna_editor.py
+│   │   ├── translation_editor.py  # Translation editor - uses generated/ui_translation_editor.py
+│   │   └── repository_editor.py   # Repository editor - uses generated/ui_repository_editor.py
 │   └── dialogs/
 │       ├── __init__.py
-│       ├── new_project_dialog.py
-│       ├── relationship_dialog.py
-│       └── settings_dialog.py
-└── app.py                   # Application singleton, project lifecycle
+│       ├── new_project_dialog.py   # Uses generated/ui_new_project_dialog.py
+│       ├── relationship_dialog.py  # Uses generated/ui_relationship_dialog.py
+│       └── settings_dialog.py      # Uses generated/ui_settings_dialog.py
+├── scripts/
+│   └── compile_ui.py           # Compiles .ui and .qrc files to Python
+└── app.py                   # Thin wiring shell: instantiates services, connects them to UI
 ```
+
+## UI Build Tooling
+
+### Qt Designer Workflow
+
+Form-based layouts are designed in Qt Designer and compiled to Python modules. The generated files are committed to git so running the app requires no build step.
+
+**Compilation commands:**
+```bash
+# Compile all .ui files to Python
+pyside6-uic ui/forms/main_window.ui -o ui/generated/ui_main_window.py
+pyside6-uic ui/forms/person_editor.ui -o ui/generated/ui_person_editor.py
+# ... (one command per .ui file)
+
+# Compile resource file
+pyside6-rcc ui/resources/resources.qrc -o ui/generated/resources_rc.py
+```
+
+**Build script** (`scripts/compile_ui.py`):
+```python
+"""Compile all .ui and .qrc files to Python modules."""
+import subprocess
+from pathlib import Path
+
+FORMS_DIR = Path("slaktbusken/ui/forms")
+GENERATED_DIR = Path("slaktbusken/ui/generated")
+RESOURCES_DIR = Path("slaktbusken/ui/resources")
+
+def compile_ui_files():
+    for ui_file in FORMS_DIR.glob("*.ui"):
+        output = GENERATED_DIR / f"ui_{ui_file.stem}.py"
+        subprocess.run(["pyside6-uic", str(ui_file), "-o", str(output)], check=True)
+        print(f"Compiled: {ui_file.name} → {output.name}")
+
+def compile_resources():
+    for qrc_file in RESOURCES_DIR.glob("*.qrc"):
+        output = GENERATED_DIR / f"{qrc_file.stem}_rc.py"
+        subprocess.run(["pyside6-rcc", str(qrc_file), "-o", str(output)], check=True)
+        print(f"Compiled: {qrc_file.name} → {output.name}")
+
+if __name__ == "__main__":
+    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+    compile_ui_files()
+    compile_resources()
+```
+
+**Usage in editor classes:**
+```python
+from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
+
+class PersonEditor(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.ui = Ui_PersonEditor()
+        self.ui.setupUi(self)
+        # Connect signals, add custom logic...
+```
+
+### What uses .ui files vs programmatic code
+
+| Component | Approach | Reason |
+|-----------|----------|--------|
+| Editors (person, event, source, place, media, DNA, repository, translation) | .ui files | Complex form layouts benefit from visual design |
+| Dialogs (new project, relationship, settings) | .ui files | Standard dialog layouts |
+| Person List Panel | .ui file | Filter form + list layout |
+| Main Window | .ui file | Menu bar, toolbar, panel arrangement |
+| Diagram views (family, ancestry, descendants) | Programmatic | QGraphicsView with dynamic item placement |
+| Custom widgets (PersonBoxItem, PlaceholderBox, ConnectionLine) | Programmatic | QGraphicsItem subclasses, not form-based |
 
 ## Components and Interfaces
 
-### ProjectManager
+### ProjectService (formerly ProjectManager)
 
-The central orchestrator that manages the currently open project.
+The services layer is the main orchestration point. `app.py` acts as a thin wiring shell that connects services to the UI—it holds service instances and forwards UI events to the appropriate service. Actual business logic lives in the services.
 
 ```python
-class ProjectManager:
-    """Manages project lifecycle: create, open, save, close."""
+class ProjectService:
+    """Manages project lifecycle: create, open, save, close.
+    Delegates import/export/validation to specialized services."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        import_service: "ImportService",
+        export_service: "ExportService",
+        validation_service: "ValidationService",
+    ) -> None:
         self._project_data: ProjectData | None = None
         self._project_path: Path | None = None
         self._settings: ProjectSettings | None = None
         self._dirty: bool = False
+        self._import_service = import_service
+        self._export_service = export_service
+        self._validation_service = validation_service
 
     def create_project(self, name: str, location: Path) -> ProjectData:
         """Create new project folder structure and empty data file."""
@@ -173,16 +326,20 @@ class ProjectManager:
         ...
 
     def save_project(self) -> None:
-        """Atomic save: write to temp file, then replace."""
+        """Validate via ValidationService, then atomic save."""
+        ...
+
+    def close_project(self) -> None:
+        """Close current project, prompting save if dirty."""
         ...
 
     def import_gedcom(self, gedcom_path: Path) -> ImportResult:
-        """Import GEDCOM file using translation layers."""
-        ...
+        """Delegates to ImportService."""
+        return self._import_service.run(self._project_data, gedcom_path, self._project_path)
 
     def export_gedcom(self, output_path: Path) -> ExportResult:
-        """Export to GEDCOM 5.5.1 format."""
-        ...
+        """Delegates to ExportService."""
+        return self._export_service.run(self._project_data, output_path, self._project_path)
 
     @property
     def data(self) -> ProjectData:
@@ -190,19 +347,136 @@ class ProjectManager:
         ...
 
     def add_person(self, person: Person) -> Person:
-        """Add a validated person to the project."""
+        """Validate then add a person to the project."""
         ...
 
     def add_family(self, family: Family) -> Family:
-        """Add a validated family to the project."""
-        ...
-
-    def add_event(self, event: Event) -> Event:
-        """Add a validated event to the project."""
+        """Validate then add a family to the project."""
         ...
 
     # ... similar methods for all entity types
 ```
+
+### ImportService
+
+```python
+class ImportService:
+    """Orchestrates GEDCOM import: parse → translate → validate → merge."""
+
+    def __init__(
+        self,
+        translation_service: "TranslationService",
+        validation_service: "ValidationService",
+        report_service: "ReportService",
+    ) -> None:
+        self._translation_service = translation_service
+        self._validation_service = validation_service
+        self._report_service = report_service
+
+    def run(self, project_data: ProjectData, gedcom_path: Path, project_path: Path) -> ImportResult:
+        """
+        1. Parse GEDCOM via gedcom.parser
+        2. Load translations via TranslationService
+        3. Map records to App_JSON entities using gedcom.translation modules
+        4. Validate new entities via ValidationService
+        5. Merge into project data
+        6. Persist updated translations
+        7. Generate report via ReportService
+        """
+        ...
+```
+
+### ExportService
+
+```python
+class ExportService:
+    """Orchestrates GEDCOM export: resolve IDs → build output → report omissions."""
+
+    def __init__(
+        self,
+        translation_service: "TranslationService",
+        report_service: "ReportService",
+    ) -> None:
+        self._translation_service = translation_service
+        self._report_service = report_service
+
+    def run(self, data: ProjectData, output_path: Path, project_path: Path) -> ExportResult:
+        """
+        1. Resolve App_JSON IDs → GEDCOM IDs (deterministic)
+        2. Build GEDCOM output using gedcom.exporter logic
+        3. Collect omissions (data that cannot be represented in GEDCOM 5.5.1)
+        4. Generate export report via ReportService
+        """
+        ...
+```
+
+### ValidationService
+
+```python
+class ValidationService:
+    """Cross-entity referential integrity checks, pre-save validation."""
+
+    def validate_entity(self, entity: Any, project_data: ProjectData) -> list[ValidationError]:
+        """Validate a single entity in the context of the full project."""
+        ...
+
+    def validate_project(self, project_data: ProjectData) -> list[ValidationError]:
+        """Run all validators across the entire project before save."""
+        ...
+```
+
+### TranslationService
+
+```python
+class TranslationService:
+    """Translation file lifecycle: load/save/update.
+
+    NOTE: This service orchestrates the *workflow* of translation—loading
+    translation files from disk, coordinating updates, and persisting
+    changes. The actual GEDCOM↔App_JSON mapping *logic* (how a GEDCOM
+    place string maps to a hierarchical Place, how a source ID maps to
+    a structured Source, etc.) lives in the gedcom/translation/ package.
+    """
+
+    def load_translations(self, project_path: Path) -> TranslationData:
+        """Load all translation files for the project."""
+        ...
+
+    def save_translations(self, data: TranslationData, project_path: Path) -> None:
+        """Persist updated translation data back to disk."""
+        ...
+
+    def update_mappings(self, new_mappings: list[TranslationEntry]) -> None:
+        """Register new GEDCOM↔App_JSON mappings discovered during import."""
+        ...
+```
+
+### ReportService
+
+```python
+class ReportService:
+    """Generates summary messages (import results, export omissions, error reports)."""
+
+    def format_import_result(self, result: ImportResult) -> str:
+        """Swedish-language summary of import operation."""
+        ...
+
+    def format_export_result(self, result: ExportResult) -> str:
+        """Swedish-language summary including omitted elements."""
+        ...
+
+    def format_validation_errors(self, errors: list[ValidationError]) -> str:
+        """Swedish-language error report for user display."""
+        ...
+```
+
+### Boundary: `translation_service.py` vs `gedcom/translation/`
+
+> **`services/translation_service.py`** handles the *workflow*: loading translation files from disk, coordinating when to persist updates, and providing a unified interface to other services.
+>
+> **`gedcom/translation/`** (the package) contains the low-level *mapping logic*: how to convert a GEDCOM place string into a hierarchical Place structure, how to match a GEDCOM source ID to a structured Source, fuzzy/exact matching heuristics for re-imports, and the data models for translation entries.
+>
+> The service calls into `gedcom/translation/` modules for the actual mapping work but owns the file lifecycle and orchestration concerns.
 
 ### FilePersistence
 
@@ -233,9 +507,9 @@ class FilePersistence:
         ...
 ```
 
-### GEDCOMImporter
+### GEDCOMImporter (low-level, used by ImportService)
 
-Parses GEDCOM 5.5.1 files and maps them to App_JSON entities using translation files.
+Parses GEDCOM 5.5.1 files and maps them to App_JSON entities using translation modules.
 
 ```python
 class GEDCOMImporter:
@@ -243,7 +517,7 @@ class GEDCOMImporter:
 
     def __init__(self, project_data: ProjectData, translation_dir: Path) -> None:
         self._data = project_data
-        self._translations = TranslationManager(translation_dir)
+        self._translations = TranslationManager(translation_dir)  # from gedcom.translation
 
     def import_file(self, gedcom_path: Path) -> ImportResult:
         """
@@ -269,7 +543,7 @@ class ImportResult:
     warnings: list[str]  # Swedish-language warnings for skipped records
 ```
 
-### GEDCOMExporter
+### GEDCOMExporter (low-level, used by ExportService)
 
 Exports App_JSON data to GEDCOM 5.5.1 format with stable IDs.
 
@@ -942,6 +1216,12 @@ tests/
 │   ├── test_serialization.py     # Property tests for round-trip
 │   ├── test_file_io.py           # Integration tests for gzip I/O
 │   └── test_translation_io.py
+├── test_services/
+│   ├── test_project_service.py   # Integration tests for project lifecycle
+│   ├── test_import_service.py    # Integration tests for import pipeline
+│   ├── test_export_service.py    # Integration tests for export pipeline
+│   ├── test_validation_service.py # Integration tests for cross-entity validation
+│   └── test_translation_service.py # Tests for translation file lifecycle
 ├── test_gedcom/
 │   ├── test_importer.py          # Integration + property tests
 │   ├── test_exporter.py          # Property tests for ID determinism, place resolution
@@ -1035,6 +1315,8 @@ name = "slaktbusken"
 requires-python = ">=3.11"
 dependencies = [
     "PySide6>=6.6.0",
+    # Note: pyside6-uic and pyside6-rcc are included in the PySide6 package.
+    # No extra dependency is needed for .ui/.qrc compilation.
 ]
 
 [project.optional-dependencies]
