@@ -98,13 +98,13 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 11.5 Write unit tests for GEDCOM import with sample GEDCOM files verifying correct entity creation and field mappings, including ArkivDigital repository detection (`tests/test_gedcom/test_importer.py`)
   - **Requirements:** 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 11.7, 22.3
 
-- [ ] 12. GEDCOM Exporter
-  - [ ] 12.1 Implement `slaktbusken/gedcom/exporter.py` with GEDCOMExporter class: export method producing GEDCOM 5.5.1-compliant UTF-8 output with HEAD, INDI, FAM, SOUR, TRLR records
-  - [ ] 12.2 Implement deterministic GEDCOM ID generation from App_JSON IDs (stable mapping, same input produces same output)
-  - [ ] 12.3 Implement place hierarchy resolution: walk up parent_place_id chain, produce comma-separated string from most specific to least specific
-  - [ ] 12.4 Implement source citation resolution: write inline GEDCOM source citations from reference_text or concatenated structured_reference fields
-  - [ ] 12.5 Implement omission tracking: identify App_JSON elements with no GEDCOM equivalent, collect counts by type
-  - [ ] 12.6 Write unit tests and property tests for GEDCOM export: deterministic IDs (Property 4), place hierarchy resolution (Property 5), valid GEDCOM output (`tests/test_gedcom/test_exporter.py`)
+- [x] 12. GEDCOM Exporter
+  - [x] 12.1 Implement `slaktbusken/gedcom/exporter.py` with GEDCOMExporter class: export method producing GEDCOM 5.5.1-compliant UTF-8 output with HEAD, INDI, FAM, SOUR, TRLR records
+  - [x] 12.2 Implement deterministic GEDCOM ID generation from App_JSON IDs (stable mapping, same input produces same output)
+  - [x] 12.3 Implement place hierarchy resolution: walk up parent_place_id chain, produce comma-separated string from most specific to least specific
+  - [x] 12.4 Implement source citation resolution: write inline GEDCOM source citations from reference_text or concatenated structured_reference fields
+  - [x] 12.5 Implement omission tracking: identify App_JSON elements with no GEDCOM equivalent, collect counts by type
+  - [x] 12.6 Write unit tests and property tests for GEDCOM export: deterministic IDs (Property 4), place hierarchy resolution (Property 5), valid GEDCOM output (`tests/test_gedcom/test_exporter.py`)
   - **Requirements:** 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 22.4, 24.4
 
 - [ ] 13. Import and Export Services
