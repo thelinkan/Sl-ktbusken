@@ -65,10 +65,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 7.4 Write unit tests for project creation (folder structure, empty data, settings, translations) and open/save/close lifecycle (`tests/test_services/test_project_service.py`)
   - **Requirements:** 1.1, 1.2, 1.3, 1.4, 3.1, 3.2
 
-- [ ] 8. Validation Service
-  - [ ] 8.1 Implement `slaktbusken/services/validation_service.py` with ValidationService class: validate_entity (single entity in context of project), validate_project (all entities pre-save)
-  - [ ] 8.2 Implement cross-entity referential integrity checks: person_id references in families, event participants, DNA profiles; place_id references in events; source_id references in source_refs; media_id references
-  - [ ] 8.3 Write unit tests for validation service including reference integrity failures (`tests/test_services/test_validation_service.py`)
+- [x] 8. Validation Service
+  - [x] 8.1 Implement `slaktbusken/services/validation_service.py` with ValidationService class: validate_entity (single entity in context of project), validate_project (all entities pre-save)
+  - [x] 8.2 Implement cross-entity referential integrity checks: person_id references in families, event participants, DNA profiles; place_id references in events; source_id references in source_refs; media_id references
+  - [x] 8.3 Write unit tests for validation service including reference integrity failures (`tests/test_services/test_validation_service.py`)
   - **Requirements:** 8.5, 13.6, 14.6
 
 - [ ] 9. GEDCOM Parser
