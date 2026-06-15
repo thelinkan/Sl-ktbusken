@@ -26,13 +26,13 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 2.10 Implement `slaktbusken/model/project.py` with ProjectMetadata and ProjectData (root container) dataclasses containing all top-level entity lists
   - **Requirements:** 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.12, 23.1, 23.2, 24.1, 24.2, 24.3
 
-- [ ] 3. Data Model Validators
-  - [ ] 3.1 Implement `slaktbusken/model/validators.py` with validation functions for Person (requires at least one name, sex in {M,F,X,U}, given/surname max 100 chars, optional title and occupation max 100 chars each, optional event_id on Name must reference an existing event if provided)
-  - [ ] 3.2 Add validation for Family (partner roles valid, children reference existing persons, no duplicate children, person_id references exist, parent_child_links reference valid children and partners, parentage_type in {biological, legal, adoptive, foster, step, unknown_donor}, parent_id may be None only when parentage_type is unknown_donor)
-  - [ ] 3.3 Add validation for Event (requires type, at least one participant, valid date format ISO 8601, valid precision, custom events require type_name)
-  - [ ] 3.4 Add validation for Place (valid type, name 1-200 chars, valid parent hierarchy rules, latitude -90 to 90, longitude -180 to 180)
-  - [ ] 3.5 Add validation for Source (valid source_type, structured_reference fields match type), Repository (valid type), and MediaItem (valid type, relative forward-slash path)
-  - [ ] 3.6 Add validation for DNA entities: DnaProfile (valid test_type, references exist), DnaMatch (shared_cm 0-7400, shared_percentage 0-100, segment_count 0-10000, largest_segment_cm 0-300), DnaSegment (valid chromosome, start < end, cm > 0, snp_count >= 0), DnaCluster (name 1-200), DnaTriangulation (>=2 segments, >=3 profiles)
+- [x] 3. Data Model Validators
+  - [x] 3.1 Implement `slaktbusken/model/validators.py` with validation functions for Person (requires at least one name, sex in {M,F,X,U}, given/surname max 100 chars, optional title and occupation max 100 chars each, optional event_id on Name must reference an existing event if provided)
+  - [x] 3.2 Add validation for Family (partner roles valid, children reference existing persons, no duplicate children, person_id references exist, parent_child_links reference valid children and partners, parentage_type in {biological, legal, adoptive, foster, step, unknown_donor}, parent_id may be None only when parentage_type is unknown_donor)
+  - [x] 3.3 Add validation for Event (requires type, at least one participant, valid date format ISO 8601, valid precision, custom events require type_name)
+  - [x] 3.4 Add validation for Place (valid type, name 1-200 chars, valid parent hierarchy rules, latitude -90 to 90, longitude -180 to 180)
+  - [x] 3.5 Add validation for Source (valid source_type, structured_reference fields match type), Repository (valid type), and MediaItem (valid type, relative forward-slash path)
+  - [x] 3.6 Add validation for DNA entities: DnaProfile (valid test_type, references exist), DnaMatch (shared_cm 0-7400, shared_percentage 0-100, segment_count 0-10000, largest_segment_cm 0-300), DnaSegment (valid chromosome, start < end, cm > 0, snp_count >= 0), DnaCluster (name 1-200), DnaTriangulation (>=2 segments, >=3 profiles)
   - **Requirements:** 7.5, 7.6, 8.5, 8.6, 9.3, 9.4, 9.7, 10.1, 10.3, 13.4, 13.6, 14.1, 14.4, 14.6, 25.2
 
 - [ ] 4. Persistence Layer - Serialization
@@ -94,8 +94,9 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [ ] 11.1 Implement `slaktbusken/gedcom/importer.py` with GEDCOMImporter class: import_file method parsing GEDCOM, mapping records to App_JSON entities via translation modules, returning ImportResult
   - [ ] 11.2 Add re-import support: use existing translation files to match GEDCOM IDs to previously assigned App_JSON IDs, update existing records, add only new entities
   - [ ] 11.3 Add warning accumulation for skipped records (unsupported tags, malformed data) with GEDCOM line number and tag in Swedish
-  - [ ] 11.4 Write unit tests for GEDCOM import with sample GEDCOM files verifying correct entity creation and field mappings (`tests/test_gedcom/test_importer.py`)
-  - **Requirements:** 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 22.3
+  - [ ] 11.4 Implement ArkivDigital repository detection: when a source citation begins with "ArkivDigital:" or matches the ArkivDigital structured pattern, create or reuse an "ArkivDigital" Repository record (type: digital_archive) and attach it to the Source via repository_ref
+  - [ ] 11.5 Write unit tests for GEDCOM import with sample GEDCOM files verifying correct entity creation and field mappings, including ArkivDigital repository detection (`tests/test_gedcom/test_importer.py`)
+  - **Requirements:** 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 11.7, 22.3
 
 - [ ] 12. GEDCOM Exporter
   - [ ] 12.1 Implement `slaktbusken/gedcom/exporter.py` with GEDCOMExporter class: export method producing GEDCOM 5.5.1-compliant UTF-8 output with HEAD, INDI, FAM, SOUR, TRLR records

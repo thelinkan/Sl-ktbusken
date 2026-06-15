@@ -16,6 +16,7 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 - **Event**: An occurrence (birth, death, marriage, etc.) with participants, date, place, sources, and media
 - **Place**: A geographical location in a hierarchical structure (country > county > parish > church/cemetery)
 - **Source**: Documentary evidence supporting genealogical facts, with provider, type, and structured references
+- **Church_Book_Series**: The series code identifying the type of Swedish church record (e.g., AI for Husförhörslängd, CI for Födelseboken, FI for Död- och begravningsbok). These codes vary slightly between parishes and time periods and are stored as free text.
 - **Media_Item**: A file (photo, source image, death notice, grave photo, logo, document) linked to entities
 - **DNA_Company**: A DNA testing company with name, notes, and logo
 - **DNA_Profile**: A DNA test linked to a person and a company, with kit details and admin info
@@ -183,9 +184,11 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 
 1. THE Släktbusken SHALL store Source records with provider, source_type (one of: church_book, database, death_notice, newspaper, photograph, census, other), title, reference_text, provider_ref, short_note, free_note, structured_reference, and linked media
 2. THE Släktbusken SHALL support structured_reference fields specific to source type: for church_book (parish, county_code, series, volume, years, image, page); for database (database_name, record_id); for death_notice (newspaper, publication_date, page); for newspaper (newspaper, date, page, article_title)
-3. WHEN the user creates or edits a source, THE Släktbusken SHALL provide a source editor with fields appropriate to the selected source_type, displaying only the structured_reference fields relevant to that type
-4. THE Släktbusken SHALL provide a source list editor for viewing, searching (by title or provider), and managing all source records
-5. IF the user attempts to delete a source that is referenced by one or more source_refs in events, THEN THE Släktbusken SHALL display a warning listing the referencing events and require confirmation before deletion
+3. WHEN a church_book source is stored, THE series field SHALL be free text representing the Swedish church book series code (e.g., "AI" for Husförhörslängd, "CI" for Födelseboken, "FI" for Död- och begravningsbok, "B" for Inflyttningslängd, "C" for Utflyttningslängd, "E" for Lysnings- och vigselbok, "D" for Konfirmationsbok), and the reference_text SHALL store the full human-readable citation string (e.g., "Ljusdal (X) AI:23d (1883-1887) Bild: 23 Sida: 915"), while provider_ref SHALL store any provider-specific shortcut identifier (e.g., "v136004.b88")
+4. WHEN the user creates or edits a source, THE Släktbusken SHALL provide a source editor with fields appropriate to the selected source_type, displaying only the structured_reference fields relevant to that type
+5. THE Släktbusken SHALL provide a source list editor for viewing, searching (by title or provider), and managing all source records
+6. IF the user attempts to delete a source that is referenced by one or more source_refs in events, THEN THE Släktbusken SHALL display a warning listing the referencing events and require confirmation before deletion
+7. WHEN a source is imported from GEDCOM and the source text begins with "ArkivDigital:" or contains a reference structure matching the ArkivDigital pattern (parish, county code, series, volume, years, image), THE GEDCOM_Importer SHALL create or link an "ArkivDigital" Repository record and attach it to the Source via a repository_ref
 
 ### Requirement 12: Media Management
 

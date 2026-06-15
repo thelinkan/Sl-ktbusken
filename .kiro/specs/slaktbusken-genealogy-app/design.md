@@ -20,6 +20,10 @@ The architecture separates concerns into distinct layers: a core data model, a p
 
 6. **Qt Designer .ui files with pyside6-uic compilation**: Form-based UI layouts (editors, dialogs, panels) are designed in Qt Designer and stored as .ui files. These are compiled to Python via `pyside6-uic` and committed to the repository. Custom graphics items (PersonBoxItem, PlaceholderBox, connection lines) and diagram views remain programmatic since they use QGraphicsView and don't benefit from form-based design. This gives visual layout editing, full type safety from generated code, and no runtime build dependency.
 
+### Coding Standards
+
+1. **Full docstrings on all public API**: Every module, class (including dataclasses), method, and function SHALL have a complete docstring. Docstrings follow Google style and include a summary line, parameter descriptions (with types where not obvious from annotations), return value description, and raised exceptions where applicable. Private helper functions (prefixed with `_`) should have at least a one-line summary docstring.
+
 ## Architecture
 
 ```mermaid
@@ -584,10 +588,15 @@ class GEDCOMImporter:
         2. Load or create translation files
         3. Map INDI records → Person + Events
         4. Map FAM records → Family + Events
-        5. Map SOUR records → Source
+        5. Map SOUR records → Source (detect ArkivDigital pattern and link Repository)
         6. Map place strings → Place (hierarchical)
         7. Update translation files with new mappings
         Returns: ImportResult with counts and warnings
+        
+        ArkivDigital detection: When a source citation begins with "ArkivDigital:"
+        or matches the ArkivDigital structured pattern (parish (county_code) series:volume
+        (years) Bild: N Sida: N), the importer creates or reuses an "ArkivDigital"
+        Repository of type 'digital_archive' and attaches it via repository_ref.
         """
         ...
 
@@ -856,7 +865,22 @@ class Place:
 
 @dataclass
 class StructuredReference:
-    """Type-specific fields stored as a dict for flexibility."""
+    """Type-specific fields stored as a dict for flexibility.
+    
+    For church_book sources, the expected fields are:
+      - parish: str (e.g., "Ljusdal")
+      - county_code: str (e.g., "X" for Gävleborg)
+      - series: str (free text church book series code, e.g., "AI" for Husförhörslängd,
+        "CI" for Födelseboken, "FI" for Död- och begravningsbok, "B" for Inflyttningslängd,
+        "C" for Utflyttningslängd, "E" for Lysnings- och vigselbok, "D" for Konfirmationsbok)
+      - volume: str (e.g., "23d")
+      - years: str (e.g., "1883-1887")
+      - image: int or str (image number)
+      - page: int or str (page number)
+    
+    Example full reference_text: "Ljusdal (X) AI:23d (1883-1887) Bild: 23 Sida: 915"
+    Example provider_ref: "v136004.b88"
+    """
     fields: dict[str, Optional[str | int]] = field(default_factory=dict)
 
 @dataclass
