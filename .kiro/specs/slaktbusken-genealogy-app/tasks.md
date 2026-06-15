@@ -90,12 +90,12 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 10.10 Implement `slaktbusken/gedcom/translation/__init__.py` exposing TranslationManager facade that coordinates all translation modules
   - **Requirements:** 4.1, 4.2, 4.4, 4.5, 4.6
 
-- [ ] 11. GEDCOM Importer
-  - [ ] 11.1 Implement `slaktbusken/gedcom/importer.py` with GEDCOMImporter class: import_file method parsing GEDCOM, mapping records to App_JSON entities via translation modules, returning ImportResult
-  - [ ] 11.2 Add re-import support: use existing translation files to match GEDCOM IDs to previously assigned App_JSON IDs, update existing records, add only new entities
-  - [ ] 11.3 Add warning accumulation for skipped records (unsupported tags, malformed data) with GEDCOM line number and tag in Swedish
-  - [ ] 11.4 Implement ArkivDigital repository detection: when a source citation begins with "ArkivDigital:" or matches the ArkivDigital structured pattern, create or reuse an "ArkivDigital" Repository record (type: digital_archive) and attach it to the Source via repository_ref
-  - [ ] 11.5 Write unit tests for GEDCOM import with sample GEDCOM files verifying correct entity creation and field mappings, including ArkivDigital repository detection (`tests/test_gedcom/test_importer.py`)
+- [x] 11. GEDCOM Importer
+  - [x] 11.1 Implement `slaktbusken/gedcom/importer.py` with GEDCOMImporter class: import_file method parsing GEDCOM, mapping records to App_JSON entities via translation modules, returning ImportResult
+  - [x] 11.2 Add re-import support: use existing translation files to match GEDCOM IDs to previously assigned App_JSON IDs, update existing records, add only new entities
+  - [x] 11.3 Add warning accumulation for skipped records (unsupported tags, malformed data) with GEDCOM line number and tag in Swedish
+  - [x] 11.4 Implement ArkivDigital repository detection: when a source citation begins with "ArkivDigital:" or matches the ArkivDigital structured pattern, create or reuse an "ArkivDigital" Repository record (type: digital_archive) and attach it to the Source via repository_ref
+  - [x] 11.5 Write unit tests for GEDCOM import with sample GEDCOM files verifying correct entity creation and field mappings, including ArkivDigital repository detection (`tests/test_gedcom/test_importer.py`)
   - **Requirements:** 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 11.7, 22.3
 
 - [ ] 12. GEDCOM Exporter
