@@ -680,7 +680,7 @@ class RelationshipCalculator:
 
     def describe_relationship(self, path: RelationshipPath) -> str:
         """Return Swedish-language description.
-        E.g., 'far', 'morbror', 'kusin', 'syssling', 'svåger'
+        E.g., 'far', 'morbror', 'kusin', 'tremänning', 'svåger'
         """
         ...
 

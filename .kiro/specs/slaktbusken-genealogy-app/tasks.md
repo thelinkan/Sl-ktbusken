@@ -107,11 +107,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 12.6 Write unit tests and property tests for GEDCOM export: deterministic IDs (Property 4), place hierarchy resolution (Property 5), valid GEDCOM output (`tests/test_gedcom/test_exporter.py`)
   - **Requirements:** 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 22.4, 24.4
 
-- [ ] 13. Import and Export Services
-  - [ ] 13.1 Implement `slaktbusken/services/import_service.py` with ImportService class orchestrating the full import pipeline: parse, load translations, translate, validate, merge, persist translations, report
-  - [ ] 13.2 Implement `slaktbusken/services/export_service.py` with ExportService class orchestrating the full export pipeline: resolve IDs, build GEDCOM, collect omissions, report
-  - [ ] 13.3 Implement `slaktbusken/services/report_service.py` with ReportService class: format_import_result, format_export_result, format_validation_errors (all in Swedish)
-  - [ ] 13.4 Write integration tests for import and export services (`tests/test_services/test_import_service.py`, `tests/test_services/test_export_service.py`)
+- [x] 13. Import and Export Services
+  - [x] 13.1 Implement `slaktbusken/services/import_service.py` with ImportService class orchestrating the full import pipeline: parse, load translations, translate, validate, merge, persist translations, report
+  - [x] 13.2 Implement `slaktbusken/services/export_service.py` with ExportService class orchestrating the full export pipeline: resolve IDs, build GEDCOM, collect omissions, report
+  - [x] 13.3 Implement `slaktbusken/services/report_service.py` with ReportService class: format_import_result, format_export_result, format_validation_errors (all in Swedish)
+  - [x] 13.4 Write integration tests for import and export services (`tests/test_services/test_import_service.py`, `tests/test_services/test_export_service.py`)
   - **Requirements:** 4.1, 4.2, 4.3, 5.1, 5.6, 5.7
 
 - [ ] 14. Translation Service
@@ -122,10 +122,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
 - [ ] 15. Relationship Calculator
   - [ ] 15.1 Implement `slaktbusken/relationship/graph_builder.py` with adjacency graph construction from ProjectData (parent-to-child, child-to-parent, partner edges)
   - [ ] 15.2 Implement `slaktbusken/relationship/calculator.py` with RelationshipCalculator class: bidirectional BFS, find common ancestors, construct paths, classify relationships, limit by max_generations (30) and max_paths (50)
-  - [ ] 15.3 Implement `slaktbusken/relationship/kinship_terms.py` with Swedish kinship term mapping (far, mor, bror, syster, farbror, morbror, faster, moster, kusin, syssling, etc.)
+  - [ ] 15.3 Implement `slaktbusken/relationship/kinship_terms.py` with Swedish kinship term mapping (far, mor, bror, syster, farbror, morbror, faster, moster, kusin, tremänning, fyrmänning, etc.) using the generic "-männing" pattern for cousins (kusin = tvåmänning, tremänning, fyrmänning, ...) and "X släktled bort" for removed cousins (e.g., "femmänning, två släktled bort" for fourth cousin twice removed)
   - [ ] 15.4 Write property test for relationship path finding correctness (Property 8): connected persons have valid paths with correct edges (`tests/test_relationship/test_calculator.py`)
   - [ ] 15.5 Write property test for Swedish kinship term assignment (Property 9): correct terms for known generation counts (`tests/test_relationship/test_kinship_terms.py`)
-  - [ ] 15.6 Write unit tests for specific relationship scenarios: parent-child, sibling, uncle/aunt, cousin, in-law, no connection found (`tests/test_relationship/test_calculator.py`)
+  - [ ] 15.6 Write unit tests for specific relationship scenarios: parent-child, sibling, uncle/aunt, cousin, removed cousin (e.g., tremänning, ett släktled bort), spouse-of-distant-relative (e.g., gift med femmänning, två släktled bort), in-law, half-sibling, no connection found (`tests/test_relationship/test_calculator.py`)
   - **Requirements:** 15.1, 15.2, 15.3, 15.4, 15.5, 15.7, 22.5
 
 - [ ] 16. UI Build Tooling and Resources
