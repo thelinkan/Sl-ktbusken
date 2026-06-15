@@ -58,11 +58,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 6.2 Write property test for entity validation accepts valid data (Property 7): valid entities pass validation without errors (`tests/test_model/test_validators.py`)
   - **Requirements:** 7.5, 7.6, 8.5, 8.6, 9.4, 13.4, 14.1
 
-- [ ] 7. Project Service
-  - [ ] 7.1 Implement `slaktbusken/services/project_service.py` with ProjectService class: create_project (folder structure, empty data file, settings, translation subfolder, media subfolders), open_project, save_project (validate then atomic save), close_project
-  - [ ] 7.2 Add entity management methods to ProjectService: add_person, add_family, add_event, add_place, add_source, add_media, add_repository, add_dna_company, add_dna_profile, add_dna_match, add_dna_segment, add_dna_cluster, add_dna_triangulation, add_research_note - each validates before adding
-  - [ ] 7.3 Add dirty tracking to ProjectService: mark dirty on any data modification, check dirty state on close, prompt save
-  - [ ] 7.4 Write unit tests for project creation (folder structure, empty data, settings, translations) and open/save/close lifecycle (`tests/test_services/test_project_service.py`)
+- [x] 7. Project Service
+  - [x] 7.1 Implement `slaktbusken/services/project_service.py` with ProjectService class: create_project (folder structure, empty data file, settings, translation subfolder, media subfolders), open_project, save_project (validate then atomic save), close_project
+  - [x] 7.2 Add entity management methods to ProjectService: add_person, add_family, add_event, add_place, add_source, add_media, add_repository, add_dna_company, add_dna_profile, add_dna_match, add_dna_segment, add_dna_cluster, add_dna_triangulation, add_research_note - each validates before adding
+  - [x] 7.3 Add dirty tracking to ProjectService: mark dirty on any data modification, check dirty state on close, prompt save
+  - [x] 7.4 Write unit tests for project creation (folder structure, empty data, settings, translations) and open/save/close lifecycle (`tests/test_services/test_project_service.py`)
   - **Requirements:** 1.1, 1.2, 1.3, 1.4, 3.1, 3.2
 
 - [ ] 8. Validation Service
