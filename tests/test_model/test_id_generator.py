@@ -1,8 +1,10 @@
-"""Unit tests for the IDGenerator."""
+"""Unit tests and property-based tests for the IDGenerator."""
 
 from __future__ import annotations
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from slaktbusken.model import IDGenerator
 
@@ -68,3 +70,67 @@ def test_dna_prefixes_do_not_collide():
     # dna_company_ and dna_cluster_ share the dna_ stem but are distinct.
     assert gen.generate("dna_company") == "dna_company_3"
     assert gen.generate("dna_cluster") == "dna_cluster_1"
+
+
+# ---------------------------------------------------------------------------
+# Property-Based Tests (Hypothesis)
+# ---------------------------------------------------------------------------
+
+ENTITY_TYPES = list(IDGenerator._PREFIXES.keys())
+
+
+class TestPropertyIDGeneration:
+    """Property-based tests for IDGenerator.
+
+    **Validates: Requirements 24.1, 24.2, 24.3**
+    """
+
+    @given(entity_types=st.lists(st.sampled_from(ENTITY_TYPES), min_size=1, max_size=100))
+    @settings(max_examples=100)
+    def test_all_generated_ids_are_unique(self, entity_types: list[str]) -> None:
+        """For any sequence of generate() calls, all returned IDs are unique."""
+        gen = IDGenerator(set())
+        ids = [gen.generate(t) for t in entity_types]
+        assert len(ids) == len(set(ids))
+
+    @given(entity_type=st.sampled_from(ENTITY_TYPES), count=st.integers(min_value=1, max_value=20))
+    @settings(max_examples=100)
+    def test_generated_ids_carry_correct_prefix(self, entity_type: str, count: int) -> None:
+        """For any entity_type, the generated ID starts with the correct prefix."""
+        gen = IDGenerator(set())
+        prefix = IDGenerator._PREFIXES[entity_type]
+        for _ in range(count):
+            generated = gen.generate(entity_type)
+            assert generated.startswith(prefix)
+            # The part after the prefix should be a positive integer
+            suffix = generated[len(prefix):]
+            assert suffix.isdigit()
+            assert int(suffix) > 0
+
+    @given(
+        entity_type=st.sampled_from(ENTITY_TYPES),
+        existing_count=st.integers(min_value=1, max_value=10),
+    )
+    @settings(max_examples=100)
+    def test_deleted_ids_never_reused(self, entity_type: str, existing_count: int) -> None:
+        """Given pre-existing IDs, no subsequent generate() returns any of those IDs."""
+        prefix = IDGenerator._PREFIXES[entity_type]
+        existing = {f"{prefix}{i}" for i in range(1, existing_count + 1)}
+        gen = IDGenerator(existing)
+        # Generate more IDs - none should be in the existing set
+        new_ids = [gen.generate(entity_type) for _ in range(existing_count + 5)]
+        for new_id in new_ids:
+            assert new_id not in existing
+
+    @given(entity_type=st.sampled_from(ENTITY_TYPES), count=st.integers(min_value=2, max_value=20))
+    @settings(max_examples=100)
+    def test_sequential_ids_have_monotonically_increasing_suffixes(
+        self, entity_type: str, count: int
+    ) -> None:
+        """For a given entity_type, sequential calls produce increasing numeric suffixes."""
+        gen = IDGenerator(set())
+        prefix = IDGenerator._PREFIXES[entity_type]
+        ids = [gen.generate(entity_type) for _ in range(count)]
+        suffixes = [int(id_[len(prefix):]) for id_ in ids]
+        for i in range(1, len(suffixes)):
+            assert suffixes[i] > suffixes[i - 1]

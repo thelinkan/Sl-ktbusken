@@ -43,14 +43,14 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 4.5 Implement `slaktbusken/persistence/settings_io.py` with read/write for project settings JSON file (person_box_config, diagram_settings, ui_state)
   - **Requirements:** 2.1, 3.1, 3.2, 3.3, 3.4, 25.2, 25.3, 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7
 
-- [ ] 5. Property Tests - Serialization and ID Generation
-  - [ ] 5.1 Write Hypothesis strategies in `tests/conftest.py` for generating valid instances of all dataclasses (Person, Family, Event, Place, Source, MediaItem, Repository, DNA entities, ResearchNote, ProjectData)
-  - [ ] 5.2 Write property test for serialization round-trip (Property 1): for any valid ProjectData, serialize then deserialize produces equal data (`tests/test_persistence/test_serialization.py`)
-  - [ ] 5.3 Write property test for gzip persistence round-trip (Property 2): write to .json.gz then read back produces equal data with identical intermediate JSON bytes (`tests/test_persistence/test_file_io.py`)
-  - [ ] 5.4 Write property test for ID generation uniqueness and non-reuse (Property 3): all generated IDs are unique, carry correct prefix, deleted IDs never reused (`tests/test_model/test_id_generator.py`)
-  - [ ] 5.5 Write property test for media file paths (Property 14): all MediaItem file paths use forward slashes and are relative (`tests/test_persistence/test_serialization.py`)
-  - [ ] 5.6 Write property test for migration correctness (Property 15): for any valid ProjectData at version N, migrating to version N+1 then deserializing produces valid ProjectData with no data loss; backup file is created with correct version suffix (`tests/test_persistence/test_migration.py`)
-  - [ ] 5.7 Write unit tests for version handling edge cases: file with current version loads without migration, file with older version triggers migration chain, file with newer version raises UnsupportedVersionError with Swedish message (`tests/test_persistence/test_migration.py`)
+- [x] 5. Property Tests - Serialization and ID Generation
+  - [x] 5.1 Write Hypothesis strategies in `tests/conftest.py` for generating valid instances of all dataclasses (Person, Family, Event, Place, Source, MediaItem, Repository, DNA entities, ResearchNote, ProjectData)
+  - [x] 5.2 Write property test for serialization round-trip (Property 1): for any valid ProjectData, serialize then deserialize produces equal data (`tests/test_persistence/test_serialization.py`)
+  - [x] 5.3 Write property test for gzip persistence round-trip (Property 2): write to .json.gz then read back produces equal data with identical intermediate JSON bytes (`tests/test_persistence/test_file_io.py`)
+  - [x] 5.4 Write property test for ID generation uniqueness and non-reuse (Property 3): all generated IDs are unique, carry correct prefix, deleted IDs never reused (`tests/test_model/test_id_generator.py`)
+  - [x] 5.5 Write property test for media file paths (Property 14): all MediaItem file paths use forward slashes and are relative (`tests/test_persistence/test_serialization.py`)
+  - [x] 5.6 Write property test for migration correctness (Property 15): for any valid ProjectData at version N, migrating to version N+1 then deserializing produces valid ProjectData with no data loss; backup file is created with correct version suffix (`tests/test_persistence/test_migration.py`)
+  - [x] 5.7 Write unit tests for version handling edge cases: file with current version loads without migration, file with older version triggers migration chain, file with newer version raises UnsupportedVersionError with Swedish message (`tests/test_persistence/test_migration.py`)
   - **Requirements:** 22.2, 24.1, 24.2, 24.3, 25.2, 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7
 
 - [ ] 6. Property Tests - Validation

@@ -474,3 +474,64 @@ class TestDeserializeDefaults:
         result = deserialize(minimal_json)
         assert result.format == "släktbuske-file"
         assert result.version == "0.1"
+
+
+# ---------------------------------------------------------------------------
+# Property-Based Tests
+# ---------------------------------------------------------------------------
+
+
+from hypothesis import given, settings
+
+from tests.conftest import media_item_strategy, project_data_strategy
+
+
+class TestPropertySerializationRoundTrip:
+    """Property-based tests for serialization round-trip correctness.
+
+    **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12, 3.1, 3.3, 23.1, 23.2**
+    """
+
+    # Feature: slaktbusken-genealogy-app, Property 1: Serialization round-trip
+    @given(data=project_data_strategy())
+    @settings(max_examples=50)
+    def test_serialize_then_deserialize_produces_equal_data(self, data: ProjectData) -> None:
+        """For any valid ProjectData, serialize then deserialize produces equal data."""
+        json_str = serialize(data)
+        result = deserialize(json_str)
+        assert result == data
+
+
+class TestPropertyMediaFilePaths:
+    """Property 14: MediaItem file paths use forward slashes and are relative.
+
+    **Validates: Requirements 2.5**
+    """
+
+    @given(media_item=media_item_strategy())
+    @settings(max_examples=100)
+    def test_media_file_path_uses_forward_slashes(self, media_item: MediaItem) -> None:
+        """Generated MediaItem file paths contain no backslashes."""
+        assert "\\" not in media_item.file
+
+    @given(media_item=media_item_strategy())
+    @settings(max_examples=100)
+    def test_media_file_path_is_relative(self, media_item: MediaItem) -> None:
+        """Generated MediaItem file paths are relative (no leading / or drive letter)."""
+        assert not media_item.file.startswith("/")
+        assert not media_item.file.startswith("\\")
+        # No Windows drive letter (e.g., "C:\")
+        if len(media_item.file) >= 2:
+            assert media_item.file[1] != ":"
+
+    @given(data=project_data_strategy())
+    @settings(max_examples=50)
+    def test_all_media_paths_valid_after_round_trip(self, data: ProjectData) -> None:
+        """After serialization round-trip, all media paths remain forward-slash relative."""
+        json_str = serialize(data)
+        result = deserialize(json_str)
+        for media_item in result.media:
+            assert "\\" not in media_item.file
+            assert not media_item.file.startswith("/")
+            if len(media_item.file) >= 2:
+                assert media_item.file[1] != ":"
