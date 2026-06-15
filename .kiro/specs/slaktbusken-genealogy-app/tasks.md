@@ -13,17 +13,17 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 1.4 Create `slaktbusken/scripts/compile_ui.py` build script that compiles .ui files via pyside6-uic and .qrc files via pyside6-rcc
   - **Requirements:** 26.1, 26.2, 26.3, 26.4
 
-- [ ] 2. Core Data Model - Base Entities
-  - [ ] 2.1 Implement `slaktbusken/model/id_generator.py` with the IDGenerator class supporting type-prefixed IDs, monotonically increasing numeric suffixes, tracking of used IDs, and non-reuse of deleted entity IDs
-  - [ ] 2.2 Implement `slaktbusken/model/person.py` with Person and Name dataclasses (id, sex, names list, profile_media_id, notes; Name with type, given, surname)
-  - [ ] 2.3 Implement `slaktbusken/model/family.py` with Family, FamilyPartner, ParentChildLink dataclasses (id, partners list with person_id and role, children list preserving order, parent_child_links list with child_id/parent_id/parentage_type, event_ids)
-  - [ ] 2.4 Implement `slaktbusken/model/event.py` with Event, DateValue, PlaceRef, Participant, SourceRef dataclasses including support for custom event types and cause_of_death field
-  - [ ] 2.5 Implement `slaktbusken/model/place.py` with Place dataclass (id, type, name, parent_place_id, latitude, longitude, notes)
-  - [ ] 2.6 Implement `slaktbusken/model/source.py` with Source, StructuredReference, RepositoryRef, Repository dataclasses including source_type-specific structured references
-  - [ ] 2.7 Implement `slaktbusken/model/media.py` with MediaItem and LinkedEntity dataclasses including type-specific optional fields (publication, transcription, mentioned_person_ids)
-  - [ ] 2.8 Implement `slaktbusken/model/dna.py` with DnaCompany, DnaProfile, DnaMatch, DnaSegment, DnaCluster, DnaTriangulation dataclasses
-  - [ ] 2.9 Implement `slaktbusken/model/research_note.py` with ResearchNote dataclass
-  - [ ] 2.10 Implement `slaktbusken/model/project.py` with ProjectMetadata and ProjectData (root container) dataclasses containing all top-level entity lists
+- [x] 2. Core Data Model - Base Entities
+  - [x] 2.1 Implement `slaktbusken/model/id_generator.py` with the IDGenerator class supporting type-prefixed IDs, monotonically increasing numeric suffixes, tracking of used IDs, and non-reuse of deleted entity IDs
+  - [x] 2.2 Implement `slaktbusken/model/person.py` with Person and Name dataclasses (id, sex, names list, profile_media_id, notes; Name with type, given, surname)
+  - [x] 2.3 Implement `slaktbusken/model/family.py` with Family, FamilyPartner, ParentChildLink dataclasses (id, partners list with person_id and role, children list preserving order, parent_child_links list with child_id/parent_id/parentage_type, event_ids)
+  - [x] 2.4 Implement `slaktbusken/model/event.py` with Event, DateValue, PlaceRef, Participant, SourceRef dataclasses including support for custom event types and cause_of_death field
+  - [x] 2.5 Implement `slaktbusken/model/place.py` with Place dataclass (id, type, name, parent_place_id, latitude, longitude, notes)
+  - [x] 2.6 Implement `slaktbusken/model/source.py` with Source, StructuredReference, RepositoryRef, Repository dataclasses including source_type-specific structured references
+  - [x] 2.7 Implement `slaktbusken/model/media.py` with MediaItem and LinkedEntity dataclasses including type-specific optional fields (publication, transcription, mentioned_person_ids)
+  - [x] 2.8 Implement `slaktbusken/model/dna.py` with DnaCompany, DnaProfile, DnaMatch, DnaSegment, DnaCluster, DnaTriangulation dataclasses
+  - [x] 2.9 Implement `slaktbusken/model/research_note.py` with ResearchNote dataclass
+  - [x] 2.10 Implement `slaktbusken/model/project.py` with ProjectMetadata and ProjectData (root container) dataclasses containing all top-level entity lists
   - **Requirements:** 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.12, 23.1, 23.2, 24.1, 24.2, 24.3
 
 - [ ] 3. Data Model Validators
@@ -225,35 +225,35 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - **Requirements:** 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6
 
 - [ ] 30. Relationship Dialog
-  - [ ] 29.1 Design and implement relationship dialog (relationship_dialog.ui + relationship_dialog.py): person selection (two persons), options (blood only vs all, closest only vs all paths), result display
-  - [ ] 29.2 Integrate RelationshipCalculator: display Swedish text description and graphical path diagram with person nodes and connecting edges
-  - [ ] 29.3 Handle no-relationship-found case with Swedish message
-  - [ ] 29.4 Add print support for relationship graph
+  - [ ] 30.1 Design and implement relationship dialog (relationship_dialog.ui + relationship_dialog.py): person selection (two persons), options (blood only vs all, closest only vs all paths), result display
+  - [ ] 30.2 Integrate RelationshipCalculator: display Swedish text description and graphical path diagram with person nodes and connecting edges
+  - [ ] 30.3 Handle no-relationship-found case with Swedish message
+  - [ ] 30.4 Add print support for relationship graph
   - **Requirements:** 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7
 
-- [ ] 30. Settings and Configurable Person Box
-  - [ ] 30.1 Design and implement settings dialog (settings_dialog.ui + settings_dialog.py): person box configuration (enable/disable each of 11 content fields), diagram depth settings
-  - [ ] 30.2 Implement person box configuration persistence in project settings file; restore on project open
-  - [ ] 30.3 Implement default configuration for new projects (name, birth date, death date enabled)
-  - [ ] 30.4 Trigger diagram re-render within 2 seconds when person box configuration changes
+- [ ] 31. Settings and Configurable Person Box
+  - [ ] 31.1 Design and implement settings dialog (settings_dialog.ui + settings_dialog.py): person box configuration (enable/disable each of 11 content fields), diagram depth settings
+  - [ ] 31.2 Implement person box configuration persistence in project settings file; restore on project open
+  - [ ] 31.3 Implement default configuration for new projects (name, birth date, death date enabled)
+  - [ ] 31.4 Trigger diagram re-render within 2 seconds when person box configuration changes
   - **Requirements:** 20.1, 20.2, 20.3, 20.4, 20.5
 
-- [ ] 31. New Project Dialog
-  - [ ] 31.1 Design and implement new project dialog (new_project_dialog.ui + new_project_dialog.py): project name input (1-100 chars), location picker, validation, create button
-  - [ ] 31.2 Wire to ProjectService.create_project, handle file system errors with Swedish error messages
+- [ ] 32. New Project Dialog
+  - [ ] 32.1 Design and implement new project dialog (new_project_dialog.ui + new_project_dialog.py): project name input (1-100 chars), location picker, validation, create button
+  - [ ] 32.2 Wire to ProjectService.create_project, handle file system errors with Swedish error messages
   - **Requirements:** 1.1, 1.2, 1.3, 1.4
 
-- [ ] 32. Swedish Language and Formatting
-  - [ ] 32.1 Ensure all UI labels, menus, buttons, dialogs, tooltips, and system messages are in Swedish throughout the application
-  - [ ] 32.2 Implement Swedish genealogical terminology for source types, place types, event types, and relationship labels
-  - [ ] 32.3 Implement Swedish date formatting (YYYY-MM-DD) and number formatting (comma decimal separator, space thousands separator)
-  - [ ] 32.4 Review and ensure all error messages, confirmation prompts, and validation feedback are in Swedish
+- [ ] 33. Swedish Language and Formatting
+  - [ ] 33.1 Ensure all UI labels, menus, buttons, dialogs, tooltips, and system messages are in Swedish throughout the application
+  - [ ] 33.2 Implement Swedish genealogical terminology for source types, place types, event types, and relationship labels
+  - [ ] 33.3 Implement Swedish date formatting (YYYY-MM-DD) and number formatting (comma decimal separator, space thousands separator)
+  - [ ] 33.4 Review and ensure all error messages, confirmation prompts, and validation feedback are in Swedish
   - **Requirements:** 21.1, 21.2, 21.3, 21.4
 
-- [ ] 33. Error Handling Tests
-  - [ ] 33.1 Write unit tests for corrupted file handling: invalid gzip header, JSON parse error, missing required sections (`tests/test_persistence/test_file_io.py`)
-  - [ ] 33.2 Write unit tests for GEDCOM import error paths: non-GEDCOM file, malformed records, unsupported tags (`tests/test_gedcom/test_importer.py`)
-  - [ ] 33.3 Write unit tests for missing reference errors: non-existent person_id in family, non-existent source_id in source_ref, non-existent place_id in event (`tests/test_services/test_validation_service.py`)
+- [ ] 34. Error Handling Tests
+  - [ ] 34.1 Write unit tests for corrupted file handling: invalid gzip header, JSON parse error, missing required sections (`tests/test_persistence/test_file_io.py`)
+  - [ ] 34.2 Write unit tests for GEDCOM import error paths: non-GEDCOM file, malformed records, unsupported tags (`tests/test_gedcom/test_importer.py`)
+  - [ ] 34.3 Write unit tests for missing reference errors: non-existent person_id in family, non-existent source_id in source_ref, non-existent place_id in event (`tests/test_services/test_validation_service.py`)
   - **Requirements:** 3.4, 4.7, 4.8, 22.6
 
 ## Task Dependency Graph
@@ -265,10 +265,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
     [2, 9],
     [3, 4, 10, 16],
     [5, 6, 7, 8, 11, 12, 14, 15],
-    [13, 17, 33],
+    [13, 17, 34],
     [18, 19, 23, 24],
-    [20, 21, 22, 25, 26, 27, 28, 29, 30, 31],
-    [32]
+    [20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 32],
+    [33]
   ]
 }
 ```
@@ -277,6 +277,6 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
 
 - Tasks 1-8 form the foundational backend layer and should be completed before any UI tasks.
 - Property-based tests (Tasks 5, 6, 15.4, 15.5, 18.4, 18.5, 21.4, 22.4) use the Hypothesis framework and validate the correctness properties defined in the design document.
-- UI tasks (16-31) depend on the main window infrastructure and can be parallelized after Task 17 is complete.
-- Task 32 (Swedish language) is a cross-cutting concern that should be applied throughout development but is listed separately for final review.
+- UI tasks (16-32) depend on the main window infrastructure and can be parallelized after Task 17 is complete.
+- Task 33 (Swedish language) is a cross-cutting concern that should be applied throughout development but is listed separately for final review.
 - The GEDCOM pipeline (Tasks 9-14) can be developed in parallel with the UI layer once the data model and persistence layers are complete.
