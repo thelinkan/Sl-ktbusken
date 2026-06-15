@@ -27,7 +27,7 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - **Requirements:** 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.12, 23.1, 23.2, 24.1, 24.2, 24.3
 
 - [ ] 3. Data Model Validators
-  - [ ] 3.1 Implement `slaktbusken/model/validators.py` with validation functions for Person (requires at least one name, sex in {M,F,X,U}, given/surname max 100 chars)
+  - [ ] 3.1 Implement `slaktbusken/model/validators.py` with validation functions for Person (requires at least one name, sex in {M,F,X,U}, given/surname max 100 chars, optional title and occupation max 100 chars each, optional event_id on Name must reference an existing event if provided)
   - [ ] 3.2 Add validation for Family (partner roles valid, children reference existing persons, no duplicate children, person_id references exist, parent_child_links reference valid children and partners, parentage_type in {biological, legal, adoptive, foster, step, unknown_donor}, parent_id may be None only when parentage_type is unknown_donor)
   - [ ] 3.3 Add validation for Event (requires type, at least one participant, valid date format ISO 8601, valid precision, custom events require type_name)
   - [ ] 3.4 Add validation for Place (valid type, name 1-200 chars, valid parent hierarchy rules, latitude -90 to 90, longitude -180 to 180)

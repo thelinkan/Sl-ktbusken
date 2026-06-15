@@ -780,6 +780,7 @@ class Name:
     type: str          # 'birth', 'married', 'adopted', 'other'
     given: str         # Max 100 chars
     surname: str       # Max 100 chars
+    event_id: Optional[str] = None  # Links to event that caused this name (marriage, name_change, etc.)
 
 @dataclass
 class Person:
@@ -788,6 +789,8 @@ class Person:
     names: list[Name]  # At least one required
     profile_media_id: Optional[str] = None
     notes: str = ""
+    title: Optional[str] = None        # Max 100 chars, e.g., 'Fil.Dr'
+    occupation: Optional[str] = None   # Max 100 chars, e.g., 'Lektor'
 
 @dataclass
 class FamilyPartner:

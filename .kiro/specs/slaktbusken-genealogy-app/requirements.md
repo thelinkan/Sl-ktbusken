@@ -53,7 +53,7 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 
 1. THE App_JSON SHALL contain top-level sections for: format identifier, version, project metadata, persons, families, events, places, sources, media, dna_companies, dna_profiles, dna_matches, dna_segments, dna_clusters, dna_triangulations, and research_notes
 2. THE App_JSON SHALL store project metadata with fields for: title (max 200 characters), main_person_id, created_by, and language code
-3. THE App_JSON SHALL store Person records with fields for: unique ID, sex (one of: M, F, X, U), multiple names (each with type, given name, surname), profile media ID, and notes
+3. THE App_JSON SHALL store Person records with fields for: unique ID, sex (one of: M, F, X, U), multiple names (each with type, given name, surname), profile media ID, notes, optional title (maximum 100 characters), and optional occupation (maximum 100 characters)
 4. THE App_JSON SHALL store Family records with fields for: unique ID, list of partners (each with person_id and role), ordered list of children (as person IDs), list of parent_child_links (each with child_id, parent_id or null, and parentage_type), and linked event IDs
 5. THE App_JSON SHALL store Event records with fields for: unique ID, type, list of participants (each with person_id and role), date (with value, precision, and source references), place (with place_id and source references), and media IDs
 6. THE App_JSON SHALL store Place records in a hierarchical structure with fields for: unique ID, type (country, county, parish, church, cemetery), name, parent_place_id, coordinates (latitude, longitude), and notes
@@ -125,10 +125,11 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 
 1. THE Släktbusken SHALL display a Person record with all associated names, sex, profile photo, notes, linked events, linked families, and DNA information (profiles, matches, and cluster memberships)
 2. WHEN the user edits a Person via the Edit_Window, THE Släktbusken SHALL provide tabs for: Names (given, surname, birth surname, title, occupation), Events, Photos, and DNA & Clusters
-3. WHEN the user adds a name entry to a Person, THE Släktbusken SHALL store the name with a type (birth, married, adopted, or other), given name, and surname fields, where given name and surname each accept up to 100 characters
+3. WHEN the user adds a name entry to a Person, THE Släktbusken SHALL store the name with a type (birth, married, adopted, or other), given name, surname fields (each up to 100 characters), and an optional event_id linking the name to the event (e.g., marriage or name_change) that caused the name to take effect
 4. WHEN the user selects a profile photo for a Person, THE Släktbusken SHALL store the selected Media_Item ID as the profile_media_id on the Person record
 5. WHEN the user creates a new Person, THE Släktbusken SHALL assign a unique stable ID, require a sex value (M, F, X, or U for unknown), and store at least one name entry before the record is saved
 6. IF the user attempts to save a Person record with no name entries, THEN THE Släktbusken SHALL display an error message indicating that at least one name entry is required and prevent the save
+7. WHEN the user enters a title or occupation for a Person, THE Släktbusken SHALL store each as an optional free-text field of up to 100 characters on the Person record, independent of the Person's name entries.
 
 ### Requirement 8: Family Management
 
