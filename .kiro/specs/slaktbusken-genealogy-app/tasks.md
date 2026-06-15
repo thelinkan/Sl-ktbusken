@@ -71,10 +71,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 8.3 Write unit tests for validation service including reference integrity failures (`tests/test_services/test_validation_service.py`)
   - **Requirements:** 8.5, 13.6, 14.6
 
-- [ ] 9. GEDCOM Parser
-  - [ ] 9.1 Implement `slaktbusken/gedcom/parser.py` with line-level GEDCOM parser that handles levels, tags, values, cross-references, and continuation lines (CONC/CONT)
-  - [ ] 9.2 Add error handling: detect non-GEDCOM files, report malformed lines with line numbers, support best-effort parsing (continue on individual record failures)
-  - [ ] 9.3 Write unit tests for GEDCOM parser with sample valid and invalid input (`tests/test_gedcom/test_parser.py`)
+- [x] 9. GEDCOM Parser
+  - [x] 9.1 Implement `slaktbusken/gedcom/parser.py` with line-level GEDCOM parser that handles levels, tags, values, cross-references, and continuation lines (CONC/CONT)
+  - [x] 9.2 Add error handling: detect non-GEDCOM files, report malformed lines with line numbers, support best-effort parsing (continue on individual record failures)
+  - [x] 9.3 Write unit tests for GEDCOM parser with sample valid and invalid input (`tests/test_gedcom/test_parser.py`)
   - **Requirements:** 4.7, 4.8
 
 - [ ] 10. GEDCOM Translation Modules
