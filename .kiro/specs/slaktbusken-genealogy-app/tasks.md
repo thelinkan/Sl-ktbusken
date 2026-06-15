@@ -53,9 +53,9 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 5.7 Write unit tests for version handling edge cases: file with current version loads without migration, file with older version triggers migration chain, file with newer version raises UnsupportedVersionError with Swedish message (`tests/test_persistence/test_migration.py`)
   - **Requirements:** 22.2, 24.1, 24.2, 24.3, 25.2, 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7
 
-- [ ] 6. Property Tests - Validation
-  - [ ] 6.1 Write property test for entity validation rejects invalid data (Property 6): invalid entities are rejected with specific errors (`tests/test_model/test_validators.py`)
-  - [ ] 6.2 Write property test for entity validation accepts valid data (Property 7): valid entities pass validation without errors (`tests/test_model/test_validators.py`)
+- [x] 6. Property Tests - Validation
+  - [x] 6.1 Write property test for entity validation rejects invalid data (Property 6): invalid entities are rejected with specific errors (`tests/test_model/test_validators.py`)
+  - [x] 6.2 Write property test for entity validation accepts valid data (Property 7): valid entities pass validation without errors (`tests/test_model/test_validators.py`)
   - **Requirements:** 7.5, 7.6, 8.5, 8.6, 9.4, 13.4, 14.1
 
 - [ ] 7. Project Service
