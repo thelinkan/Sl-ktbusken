@@ -77,17 +77,17 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 9.3 Write unit tests for GEDCOM parser with sample valid and invalid input (`tests/test_gedcom/test_parser.py`)
   - **Requirements:** 4.7, 4.8
 
-- [ ] 10. GEDCOM Translation Modules
-  - [ ] 10.1 Implement `slaktbusken/gedcom/translation/models.py` with shared dataclasses for translation entries (SourceMapping, PlaceMapping, PersonMapping)
-  - [ ] 10.2 Implement person fingerprinting and hashing in `slaktbusken/gedcom/translation/person_mapping.py`: compute fingerprints from composite key (names, birth date, birth place) for identity matching, record hashes (hash of all person fields to detect content changes vs unchanged records), and relationship hashes (hash of family structure — partners and children — to detect structural changes)
-  - [ ] 10.3 Implement person diff classification in `slaktbusken/gedcom/translation/person_mapping.py`: compare incoming GEDCOM persons against existing App_JSON (via translation file and fingerprints) to classify each as new (no match found), updated (matched but record hash differs), unchanged (matched and hash identical), missing (in App_JSON but absent from GEDCOM), or uncertain (fingerprint similarity above threshold but below exact match, requiring user verification)
-  - [ ] 10.4 Implement import-diff report generation in `slaktbusken/gedcom/translation/person_mapping.py`: produce a structured ImportDiffReport summarizing counts and details for each category (new/updated/unchanged/missing/uncertain persons), suitable for presentation to the user before committing the import
-  - [ ] 10.5 Write unit tests for person fingerprinting, diff classification, and import-diff report (`tests/test_gedcom/test_person_mapping.py`): test exact matches, near-matches flagged as uncertain, new person detection, missing person detection, and report accuracy
-  - [ ] 10.6 Implement `slaktbusken/gedcom/translation/place_translation.py` with GEDCOM place string to hierarchical Place mapping logic
-  - [ ] 10.7 Implement `slaktbusken/gedcom/translation/source_translation.py` with GEDCOM source ID to structured Source mapping logic
-  - [ ] 10.8 Implement `slaktbusken/gedcom/translation/citation_translation.py` for building citation text from structured references
-  - [ ] 10.9 Implement `slaktbusken/gedcom/translation/matcher.py` with fuzzy/exact matching logic for finding existing entities during re-import
-  - [ ] 10.10 Implement `slaktbusken/gedcom/translation/__init__.py` exposing TranslationManager facade that coordinates all translation modules
+- [x] 10. GEDCOM Translation Modules
+  - [x] 10.1 Implement `slaktbusken/gedcom/translation/models.py` with shared dataclasses for translation entries (SourceMapping, PlaceMapping, PersonMapping)
+  - [x] 10.2 Implement person fingerprinting and hashing in `slaktbusken/gedcom/translation/person_mapping.py`: compute fingerprints from composite key (names, birth date, birth place) for identity matching, record hashes (hash of all person fields to detect content changes vs unchanged records), and relationship hashes (hash of family structure — partners and children — to detect structural changes)
+  - [x] 10.3 Implement person diff classification in `slaktbusken/gedcom/translation/person_mapping.py`: compare incoming GEDCOM persons against existing App_JSON (via translation file and fingerprints) to classify each as new (no match found), updated (matched but record hash differs), unchanged (matched and hash identical), missing (in App_JSON but absent from GEDCOM), or uncertain (fingerprint similarity above threshold but below exact match, requiring user verification)
+  - [x] 10.4 Implement import-diff report generation in `slaktbusken/gedcom/translation/person_mapping.py`: produce a structured ImportDiffReport summarizing counts and details for each category (new/updated/unchanged/missing/uncertain persons), suitable for presentation to the user before committing the import
+  - [x] 10.5 Write unit tests for person fingerprinting, diff classification, and import-diff report (`tests/test_gedcom/test_person_mapping.py`): test exact matches, near-matches flagged as uncertain, new person detection, missing person detection, and report accuracy
+  - [x] 10.6 Implement `slaktbusken/gedcom/translation/place_translation.py` with GEDCOM place string to hierarchical Place mapping logic
+  - [x] 10.7 Implement `slaktbusken/gedcom/translation/source_translation.py` with GEDCOM source ID to structured Source mapping logic
+  - [x] 10.8 Implement `slaktbusken/gedcom/translation/citation_translation.py` for building citation text from structured references
+  - [x] 10.9 Implement `slaktbusken/gedcom/translation/matcher.py` with fuzzy/exact matching logic for finding existing entities during re-import
+  - [x] 10.10 Implement `slaktbusken/gedcom/translation/__init__.py` exposing TranslationManager facade that coordinates all translation modules
   - **Requirements:** 4.1, 4.2, 4.4, 4.5, 4.6
 
 - [ ] 11. GEDCOM Importer
