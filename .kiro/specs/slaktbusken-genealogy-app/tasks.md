@@ -35,12 +35,12 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 3.6 Add validation for DNA entities: DnaProfile (valid test_type, references exist), DnaMatch (shared_cm 0-7400, shared_percentage 0-100, segment_count 0-10000, largest_segment_cm 0-300), DnaSegment (valid chromosome, start < end, cm > 0, snp_count >= 0), DnaCluster (name 1-200), DnaTriangulation (>=2 segments, >=3 profiles)
   - **Requirements:** 7.5, 7.6, 8.5, 8.6, 9.3, 9.4, 9.7, 10.1, 10.3, 13.4, 13.6, 14.1, 14.4, 14.6, 25.2
 
-- [ ] 4. Persistence Layer - Serialization
-  - [ ] 4.1 Implement `slaktbusken/persistence/serialization.py` with functions to serialize ProjectData to JSON string (UTF-8) with format_version as the first key, and deserialize JSON string back to ProjectData, handling all nested entity types
-  - [ ] 4.2 Implement `slaktbusken/persistence/file_io.py` with FilePersistence class: atomic save (write to temp file, os.replace), gzip read/write of .json.gz files, version check before full deserialization, CorruptedFileError and UnsupportedVersionError with specific problem descriptions
-  - [ ] 4.3 Implement `slaktbusken/persistence/migration.py` with MigrationManager class: version comparison logic (needs_migration, is_too_new), migration registry (decorator-based registration of version→version migration functions), sequential migration application (chained upgrades from old version to current), and backup creation before migration (appending old version to filename)
-  - [ ] 4.4 Implement `slaktbusken/persistence/translation_io.py` with read/write for translation JSON files (sources.json, places.json, persons.json) following the defined mapping format
-  - [ ] 4.5 Implement `slaktbusken/persistence/settings_io.py` with read/write for project settings JSON file (person_box_config, diagram_settings, ui_state)
+- [x] 4. Persistence Layer - Serialization
+  - [x] 4.1 Implement `slaktbusken/persistence/serialization.py` with functions to serialize ProjectData to JSON string (UTF-8) with format_version as the first key, and deserialize JSON string back to ProjectData, handling all nested entity types
+  - [x] 4.2 Implement `slaktbusken/persistence/file_io.py` with FilePersistence class: atomic save (write to temp file, os.replace), gzip read/write of .json.gz files, version check before full deserialization, CorruptedFileError and UnsupportedVersionError with specific problem descriptions
+  - [x] 4.3 Implement `slaktbusken/persistence/migration.py` with MigrationManager class: version comparison logic (needs_migration, is_too_new), migration registry (decorator-based registration of version→version migration functions), sequential migration application (chained upgrades from old version to current), and backup creation before migration (appending old version to filename)
+  - [x] 4.4 Implement `slaktbusken/persistence/translation_io.py` with read/write for translation JSON files (sources.json, places.json, persons.json) following the defined mapping format
+  - [x] 4.5 Implement `slaktbusken/persistence/settings_io.py` with read/write for project settings JSON file (person_box_config, diagram_settings, ui_state)
   - **Requirements:** 2.1, 3.1, 3.2, 3.3, 3.4, 25.2, 25.3, 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7
 
 - [ ] 5. Property Tests - Serialization and ID Generation
