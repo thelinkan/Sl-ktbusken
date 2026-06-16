@@ -156,11 +156,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 19.4 Implement `slaktbusken/ui/widgets/connection_line.py` with ConnectionLine QGraphicsItem for parent-child and partner connections
   - **Requirements:** 17.2, 17.3, 17.4, 17.5, 20.1, 20.4
 
-- [ ] 20. Family View
-  - [ ] 20.1 Implement `slaktbusken/ui/views/family_view.py` with Family View diagram logic: display active person with parents, siblings, partners, and children from each Family
-  - [ ] 20.2 Add placeholder boxes for missing mother, father, and new child positions
-  - [ ] 20.3 Add interaction: click to select (visual indicator), A key to set as active, double-click to open editor, click placeholder to create/link person
-  - [ ] 20.4 Add print support for Family View diagram
+- [x] 20. Family View
+  - [x] 20.1 Implement `slaktbusken/ui/views/family_view.py` with Family View diagram logic: display active person with parents, siblings, partners, and children from each Family
+  - [x] 20.2 Add placeholder boxes for missing mother, father, and new child positions
+  - [x] 20.3 Add interaction: click to select (visual indicator), A key to set as active, double-click to open editor, click placeholder to create/link person
+  - [x] 20.4 Add print support for Family View diagram
   - **Requirements:** 17.1, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10
 
 - [ ] 21. Ancestry View

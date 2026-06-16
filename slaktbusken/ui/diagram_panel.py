@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QKeyEvent, QPainter
 from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
@@ -19,9 +19,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.ui.widgets.person_box import PersonBoxItem
+from slaktbusken.ui.widgets.placeholder_box import PlaceholderBoxItem
+
 if TYPE_CHECKING:
     from PySide6.QtGui import QWheelEvent
+    from PySide6.QtWidgets import QGraphicsSceneMouseEvent
 
+    from slaktbusken.model.project import ProjectData
+    from slaktbusken.persistence.settings_io import PersonBoxConfig
     from slaktbusken.ui.main_window import ViewType
 
 logger = logging.getLogger(__name__)
@@ -133,13 +139,15 @@ class DiagramPanel(QWidget):
 
     Signals:
         person_selected: Emitted when a person box is clicked, with person_id.
-        person_activated: Emitted when a person box is double-clicked, with person_id.
-        placeholder_clicked: Emitted when a placeholder box is clicked, with role string.
+        person_activated: Emitted when a person should become active, with person_id.
+        person_double_clicked: Emitted when a person box is double-clicked, with person_id.
+        placeholder_clicked: Emitted when a placeholder box is clicked, with role and family_id.
     """
 
     person_selected = Signal(str)
     person_activated = Signal(str)
-    placeholder_clicked = Signal(str)
+    person_double_clicked = Signal(str)
+    placeholder_clicked = Signal(str, str)  # role, family_id
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         """Initialise the diagram panel.
@@ -150,6 +158,8 @@ class DiagramPanel(QWidget):
         super().__init__(parent)
         self._active_person_id: Optional[str] = None
         self._current_view: Optional[ViewType] = None
+        self._project_data: Optional[ProjectData] = None
+        self._person_box_config: Optional[PersonBoxConfig] = None
 
         self._scene = QGraphicsScene(self)
         self._view = ZoomableGraphicsView(self._scene, self)
@@ -157,6 +167,21 @@ class DiagramPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._view)
+
+        # Family view renderer
+        from slaktbusken.ui.views.family_view import FamilyView
+
+        self._family_view = FamilyView()
+
+        # Enable keyboard focus for A-key handling
+        self._view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._view.installEventFilter(self)
+
+        # Connect scene click handling
+        self._scene.selectionChanged.connect(self._on_scene_selection_changed)
+
+        # Install event filter on the view's viewport for double-click
+        self._view.viewport().installEventFilter(self)
 
     @property
     def scene(self) -> QGraphicsScene:
@@ -177,6 +202,24 @@ class DiagramPanel(QWidget):
     def current_view(self) -> Optional[ViewType]:
         """The currently active view type."""
         return self._current_view
+
+    def set_project_data(self, project_data: Optional[ProjectData]) -> None:
+        """Ange projektdata för diagramrendering.
+
+        Args:
+            project_data: Projektdata eller None för att rensa.
+        """
+        self._project_data = project_data
+        self._refresh_diagram()
+
+    def set_person_box_config(self, config: PersonBoxConfig) -> None:
+        """Ange konfiguration för personrutor.
+
+        Args:
+            config: PersonBoxConfig med fältinställningar.
+        """
+        self._person_box_config = config
+        self._refresh_diagram()
 
     def set_active_person(self, person_id: Optional[str]) -> None:
         """Set the active person and refresh the diagram.
@@ -210,16 +253,100 @@ class DiagramPanel(QWidget):
         dialog = QPrintDialog(printer, self)
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             painter = QPainter(printer)
-            self._view.render(painter)
+            self._scene.render(painter)
             painter.end()
+
+    def eventFilter(self, obj, event) -> bool:
+        """Filtrera tangentbords- och mushändelser.
+
+        Hanterar:
+        - A-tangenten: aktivera markerad person
+        - Dubbelklick: öppna redigering för klickad person
+
+        Args:
+            obj: Objektet som händelsen gäller.
+            event: Händelsen.
+
+        Returns:
+            True om händelsen hanterats, annars False.
+        """
+        from PySide6.QtCore import QEvent
+
+        # A-key on the view for activation
+        if obj == self._view and isinstance(event, QKeyEvent):
+            if event.type() == event.Type.KeyPress and event.key() == Qt.Key.Key_A:
+                selected_id = self._family_view.selected_person_id
+                if selected_id:
+                    self.person_activated.emit(selected_id)
+                    self.set_active_person(selected_id)
+                    return True
+
+        # Double-click on the viewport to open editor
+        if obj == self._view.viewport() and event.type() == QEvent.Type.MouseButtonDblClick:
+            pos = event.position().toPoint()
+            scene_pos = self._view.mapToScene(pos)
+            item = self._scene.itemAt(scene_pos, self._view.transform())
+            if isinstance(item, PersonBoxItem):
+                self.person_double_clicked.emit(item.person_id)
+                return True
+
+        return super().eventFilter(obj, event)
+
+    def _on_scene_selection_changed(self) -> None:
+        """Hantera förändringar i scenens markering.
+
+        Kontrollerar vilka objekt som är markerade och emitterar
+        rätt signaler beroende på typ (person eller platshållare).
+        """
+        selected_items = self._scene.selectedItems()
+        if not selected_items:
+            self._family_view.deselect_all()
+            return
+
+        item = selected_items[0]
+        if isinstance(item, PersonBoxItem):
+            self._family_view.handle_click(item.person_id)
+            self.person_selected.emit(item.person_id)
+        elif isinstance(item, PlaceholderBoxItem):
+            role_str = item.role.name.lower()
+            family_id = item.family_id or ""
+            self.placeholder_clicked.emit(role_str, family_id)
+
+    def _handle_double_click(self, person_id: str) -> None:
+        """Hantera dubbelklick på en personruta.
+
+        Emitterar person_double_clicked-signalen.
+
+        Args:
+            person_id: ID för den dubbelklickade personen.
+        """
+        self.person_double_clicked.emit(person_id)
 
     def _refresh_diagram(self) -> None:
         """Clear and rebuild the diagram for the current state.
 
-        This is a placeholder that clears the scene. Full layout
-        logic will be implemented in later tasks when diagram
-        layout algorithms are added.
+        Uses the FamilyView renderer when the current view is FAMILY
+        and project data is available.
         """
         self._scene.clear()
-        # Full diagram layout will be implemented in subsequent tasks.
-        # For now, the scene is cleared and ready for items to be added.
+
+        from slaktbusken.ui.main_window import ViewType
+
+        if (
+            self._current_view == ViewType.FAMILY
+            and self._project_data is not None
+            and self._active_person_id is not None
+            and self._person_box_config is not None
+        ):
+            self._family_view.render(
+                self._scene,
+                self._project_data,
+                self._active_person_id,
+                self._person_box_config,
+            )
+
+            # Connect double-click on person boxes
+            for box in self._family_view.get_person_boxes():
+                box.setFlag(
+                    box.GraphicsItemFlag.ItemIsSelectable, True
+                )

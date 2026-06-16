@@ -74,6 +74,7 @@ class Application:
         try:
             self.project_service.create_project(name.strip(), Path(location))
             self._update_status()
+            self._update_diagram_panel()
             self.main_window.statusBar().showMessage(
                 f"Projekt '{name.strip()}' skapat", 5000
             )
@@ -101,6 +102,7 @@ class Application:
         try:
             self.project_service.open_project(Path(path))
             self._update_status()
+            self._update_diagram_panel()
             self.main_window.statusBar().showMessage("Projekt öppnat", 5000)
         except FileNotFoundError:
             QMessageBox.critical(
@@ -150,6 +152,7 @@ class Application:
             )
             summary = self.import_service.format_result(result)
             self._update_status()
+            self._update_diagram_panel()
 
             QMessageBox.information(
                 self.main_window,
@@ -210,6 +213,7 @@ class Application:
 
         self.project_service.close_project()
         self._update_status()
+        self._update_diagram_panel()
         self.main_window.statusBar().showMessage("Projekt stängt", 5000)
 
     def show_relationship_calculator(self) -> None:
@@ -284,6 +288,31 @@ class Application:
             )
         else:
             self.main_window.update_project_status(None)
+
+    def _update_diagram_panel(self) -> None:
+        """Uppdatera diagrampanelen med aktuell projektdata och inställningar.
+
+        Sätter projektdata, personbox-konfiguration och aktiv person
+        på DiagramPanel så att familjediagrammet renderas korrekt.
+        """
+        panel = self.main_window.diagram_panel
+        settings = self.project_service.settings
+
+        if self.project_service.project_path is not None:
+            project_data = self.project_service.data
+            panel.set_project_data(project_data)
+
+            if settings:
+                panel.set_person_box_config(settings.person_box_config)
+
+            # Set active person to main_person_id if available
+            main_person = project_data.project.main_person_id
+            if main_person:
+                panel.set_active_person(main_person)
+            elif project_data.persons:
+                panel.set_active_person(project_data.persons[0].id)
+        else:
+            panel.set_project_data(None)
 
 
 def _input_dialog(parent, title: str, label: str) -> tuple[str, bool]:
