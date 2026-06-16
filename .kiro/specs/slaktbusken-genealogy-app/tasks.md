@@ -171,12 +171,12 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 21.5 Add print support for Ancestry View diagram
   - **Requirements:** 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8
 
-- [ ] 22. Descendants View
-  - [ ] 22.1 Implement `slaktbusken/ui/views/descendants_view.py` with Descendants View diagram logic: display descendants up to configured depth (1-10, default 4)
-  - [ ] 22.2 Handle case of no descendants with appropriate Swedish message
-  - [ ] 22.3 Add interaction: click to select, A key to set as active, double-click to open editor
-  - [ ] 22.4 Write property test for descendants collection completeness (Property 13): correct descendant set for given depth (`tests/test_ui/test_descendants_view_data.py`)
-  - [ ] 22.5 Add print support for Descendants View diagram
+- [x] 22. Descendants View
+  - [x] 22.1 Implement `slaktbusken/ui/views/descendants_view.py` with Descendants View diagram logic: display descendants up to configured depth (1-10, default 4)
+  - [x] 22.2 Handle case of no descendants with appropriate Swedish message
+  - [x] 22.3 Add interaction: click to select, A key to set as active, double-click to open editor
+  - [x] 22.4 Write property test for descendants collection completeness (Property 13): correct descendant set for given depth (`tests/test_ui/test_descendants_view_data.py`)
+  - [x] 22.5 Add print support for Descendants View diagram
   - **Requirements:** 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8
 
 - [ ] 23. Source Translation Editor

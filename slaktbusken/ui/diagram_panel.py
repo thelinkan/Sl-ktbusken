@@ -172,9 +172,11 @@ class DiagramPanel(QWidget):
         # View renderers
         from slaktbusken.ui.views.family_view import FamilyView
         from slaktbusken.ui.views.ancestry_view import AncestryView
+        from slaktbusken.ui.views.descendants_view import DescendantsView
 
         self._family_view = FamilyView()
         self._ancestry_view = AncestryView()
+        self._descendants_view = DescendantsView()
 
         # Enable keyboard focus for A-key handling
         self._view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -290,6 +292,7 @@ class DiagramPanel(QWidget):
                 selected_id = (
                     self._family_view.selected_person_id
                     or self._ancestry_view.selected_person_id
+                    or self._descendants_view.selected_person_id
                 )
                 if selected_id:
                     self.person_activated.emit(selected_id)
@@ -317,12 +320,14 @@ class DiagramPanel(QWidget):
         if not selected_items:
             self._family_view.deselect_all()
             self._ancestry_view.deselect_all()
+            self._descendants_view.deselect_all()
             return
 
         item = selected_items[0]
         if isinstance(item, PersonBoxItem):
             self._family_view.handle_click(item.person_id)
             self._ancestry_view.handle_click(item.person_id)
+            self._descendants_view.handle_click(item.person_id)
             self.person_selected.emit(item.person_id)
         elif isinstance(item, PlaceholderBoxItem):
             role_str = item.role.name.lower()
@@ -391,6 +396,31 @@ class DiagramPanel(QWidget):
 
             # Enable selection on person boxes
             for box in self._ancestry_view.get_person_boxes():
+                box.setFlag(
+                    box.GraphicsItemFlag.ItemIsSelectable, True
+                )
+
+        elif (
+            self._current_view == ViewType.DESCENDANTS
+            and self._project_data is not None
+            and self._active_person_id is not None
+            and self._person_box_config is not None
+        ):
+            # Hämta djup för ättlingar från inställningar; standard 4
+            descendants_depth = 4
+            if hasattr(self, "_diagram_settings") and self._diagram_settings:
+                descendants_depth = self._diagram_settings.descendants_depth
+
+            self._descendants_view.render(
+                self._scene,
+                self._project_data,
+                self._active_person_id,
+                self._person_box_config,
+                depth=descendants_depth,
+            )
+
+            # Aktivera markering på personrutor
+            for box in self._descendants_view.get_person_boxes():
                 box.setFlag(
                     box.GraphicsItemFlag.ItemIsSelectable, True
                 )
