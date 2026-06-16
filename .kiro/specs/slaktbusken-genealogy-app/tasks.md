@@ -128,10 +128,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 15.6 Write unit tests for specific relationship scenarios: parent-child, sibling, uncle/aunt, cousin, removed cousin (e.g., tremänning, ett släktled bort), spouse-of-distant-relative (e.g., gift med femmänning, två släktled bort), in-law, half-sibling, no connection found, and blood_priority fallback (no blood → returns closest non-blood) (`tests/test_relationship/test_calculator.py`)
   - **Requirements:** 15.1, 15.2, 15.3, 15.4, 15.5, 15.7, 15.8, 22.5
 
-- [ ] 16. UI Build Tooling and Resources
-  - [ ] 16.1 Create placeholder `.ui` files for Qt Designer forms: main_window.ui, person_editor.ui, event_editor.ui, source_editor.ui, place_editor.ui, media_editor.ui, dna_editor.ui, repository_editor.ui, translation_editor.ui, new_project_dialog.ui, relationship_dialog.ui, settings_dialog.ui, person_list_panel.ui
-  - [ ] 16.2 Create `slaktbusken/ui/resources/resources.qrc` resource file with icon and style references
-  - [ ] 16.3 Run compile_ui.py to generate initial Python UI files in slaktbusken/ui/generated/
+- [x] 16. UI Build Tooling and Resources
+  - [x] 16.1 Create placeholder `.ui` files for Qt Designer forms: main_window.ui, person_editor.ui, event_editor.ui, source_editor.ui, place_editor.ui, media_editor.ui, dna_editor.ui, repository_editor.ui, translation_editor.ui, new_project_dialog.ui, relationship_dialog.ui, settings_dialog.ui, person_list_panel.ui
+  - [x] 16.2 Create `slaktbusken/ui/resources/resources.qrc` resource file with icon and style references
+  - [x] 16.3 Run compile_ui.py to generate initial Python UI files in slaktbusken/ui/generated/
   - **Requirements:** 26.1
 
 - [ ] 17. Main Window and Application Shell

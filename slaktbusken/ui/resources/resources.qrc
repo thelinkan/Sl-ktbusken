@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+ <qresource prefix="/icons">
+  <file>icons/.gitkeep</file>
+ </qresource>
+ <qresource prefix="/styles">
+  <file>styles/.gitkeep</file>
+ </qresource>
+</RCC>
