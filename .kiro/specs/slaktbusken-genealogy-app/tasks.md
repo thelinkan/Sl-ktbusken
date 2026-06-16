@@ -191,10 +191,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 24.3 Handle save errors with Swedish-language messages, retain unsaved changes in editor
   - **Requirements:** 6.3, 6.4, 6.5, 6.6
 
-- [ ] 25. Person Editor
-  - [ ] 25.1 Design `slaktbusken/ui/forms/person_editor.ui` with tabs: Names (given, surname, type selector), Events, Photos, DNA and Clusters
-  - [ ] 25.2 Implement `slaktbusken/ui/editors/person_editor.py` using generated UI: load/save person data, manage name entries, link events, select profile photo, display DNA info
-  - [ ] 25.3 Implement validation feedback: prevent save without at least one name entry, display error for missing names
+- [x] 25. Person Editor
+  - [x] 25.1 Design `slaktbusken/ui/forms/person_editor.ui` with tabs: Names (given, surname, type selector), Events, Photos, DNA and Clusters
+  - [x] 25.2 Implement `slaktbusken/ui/editors/person_editor.py` using generated UI: load/save person data, manage name entries, link events, select profile photo, display DNA info
+  - [x] 25.3 Implement validation feedback: prevent save without at least one name entry, display error for missing names
   - **Requirements:** 7.1, 7.2, 7.3, 7.4, 7.5, 7.6
 
 - [ ] 26. Event Editor

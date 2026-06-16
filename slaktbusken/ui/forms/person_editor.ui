@@ -6,13 +6,417 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>600</width>
-    <height>400</height>
+    <width>700</width>
+    <height>550</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Person Editor</string>
+   <string>Personredigerare</string>
   </property>
+  <layout class="QVBoxLayout" name="main_layout">
+   <item>
+    <widget class="QTabWidget" name="tab_widget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <!-- Names Tab -->
+     <widget class="QWidget" name="names_tab">
+      <attribute name="title">
+       <string>Namn</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="names_tab_layout">
+       <item>
+        <layout class="QHBoxLayout" name="sex_layout">
+         <item>
+          <widget class="QLabel" name="sex_label">
+           <property name="text">
+            <string>Kön:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="sex_combo">
+           <item>
+            <property name="text">
+             <string>M</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>F</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>X</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>U</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="title_label">
+           <property name="text">
+            <string>Titel:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="title_input">
+           <property name="maxLength">
+            <number>100</number>
+           </property>
+           <property name="placeholderText">
+            <string>t.ex. Fil.Dr</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="occupation_label">
+           <property name="text">
+            <string>Yrke:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="occupation_input">
+           <property name="maxLength">
+            <number>100</number>
+           </property>
+           <property name="placeholderText">
+            <string>t.ex. Lektor</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="names_table">
+         <property name="columnCount">
+          <number>3</number>
+         </property>
+         <property name="selectionBehavior">
+          <enum>QAbstractItemView::SelectRows</enum>
+         </property>
+         <property name="selectionMode">
+          <enum>QAbstractItemView::SingleSelection</enum>
+         </property>
+         <column>
+          <property name="text">
+           <string>Typ</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Förnamn</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Efternamn</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="names_buttons_layout">
+         <item>
+          <widget class="QPushButton" name="add_name_button">
+           <property name="text">
+            <string>Lägg till namn</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="edit_name_button">
+           <property name="text">
+            <string>Redigera namn</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="remove_name_button">
+           <property name="text">
+            <string>Ta bort namn</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="names_buttons_spacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="name_edit_layout">
+         <item>
+          <widget class="QLabel" name="name_type_label">
+           <property name="text">
+            <string>Namntyp:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="name_type_combo">
+           <item>
+            <property name="text">
+             <string>birth</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>married</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>adopted</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>other</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="given_name_label">
+           <property name="text">
+            <string>Förnamn:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="given_name_input">
+           <property name="maxLength">
+            <number>100</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="surname_label">
+           <property name="text">
+            <string>Efternamn:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="surname_input">
+           <property name="maxLength">
+            <number>100</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="notes_label">
+         <property name="text">
+          <string>Anteckningar:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPlainTextEdit" name="notes_input">
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>80</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <!-- Events Tab -->
+     <widget class="QWidget" name="events_tab">
+      <attribute name="title">
+       <string>Händelser</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="events_tab_layout">
+       <item>
+        <widget class="QListWidget" name="events_list"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="events_buttons_layout">
+         <item>
+          <widget class="QPushButton" name="add_event_button">
+           <property name="text">
+            <string>Lägg till händelse</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="remove_event_button">
+           <property name="text">
+            <string>Ta bort händelse</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="events_buttons_spacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <!-- Photos Tab -->
+     <widget class="QWidget" name="photos_tab">
+      <attribute name="title">
+       <string>Foton</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="photos_tab_layout">
+       <item>
+        <layout class="QHBoxLayout" name="profile_photo_layout">
+         <item>
+          <widget class="QLabel" name="profile_photo_label">
+           <property name="text">
+            <string>Profilbild:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="profile_photo_display">
+           <property name="minimumSize">
+            <size>
+             <width>100</width>
+             <height>100</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>100</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>Ingen bild</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+           <property name="styleSheet">
+            <string>border: 1px solid gray;</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="select_profile_button">
+           <property name="text">
+            <string>Välj profilbild</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="profile_photo_spacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="media_list_label">
+         <property name="text">
+          <string>Länkade foton:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="media_list"/>
+       </item>
+      </layout>
+     </widget>
+     <!-- DNA & Clusters Tab -->
+     <widget class="QWidget" name="dna_tab">
+      <attribute name="title">
+       <string>DNA &amp; Kluster</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="dna_tab_layout">
+       <item>
+        <widget class="QLabel" name="dna_profiles_label">
+         <property name="text">
+          <string>DNA-profiler:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="dna_profiles_list"/>
+       </item>
+       <item>
+        <widget class="QLabel" name="dna_matches_label">
+         <property name="text">
+          <string>DNA-matchningar:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="dna_matches_list"/>
+       </item>
+       <item>
+        <widget class="QLabel" name="dna_clusters_label">
+         <property name="text">
+          <string>Klustermedlemskap:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="dna_clusters_list"/>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <!-- Bottom: Save/Cancel and status -->
+   <item>
+    <widget class="QLabel" name="status_label">
+     <property name="text">
+      <string/>
+     </property>
+     <property name="styleSheet">
+      <string>color: red;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="buttons_layout">
+     <item>
+      <spacer name="buttons_spacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="save_button">
+       <property name="text">
+        <string>Spara</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel_button">
+       <property name="text">
+        <string>Avbryt</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
  </widget>
  <resources/>
  <connections/>
