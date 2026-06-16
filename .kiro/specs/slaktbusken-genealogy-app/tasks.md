@@ -134,11 +134,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 16.3 Run compile_ui.py to generate initial Python UI files in slaktbusken/ui/generated/
   - **Requirements:** 26.1
 
-- [ ] 17. Main Window and Application Shell
-  - [ ] 17.1 Implement `slaktbusken/app.py` as thin wiring shell: instantiate all services, connect them to UI, handle application-level signals
-  - [ ] 17.2 Implement `slaktbusken/ui/main_window.py` with QMainWindow setup: menu bar (Arkiv, Redigera, Visa, Verktyg, Hjälp), toolbar, left/right panel arrangement, status bar
-  - [ ] 17.3 Wire main window menu actions: New Project, Open Project, Save, Import GEDCOM, Export GEDCOM, Close, Exit, View switching (Family/Ancestry/Descendants), Relationship Calculator, Settings
-  - [ ] 17.4 Implement `slaktbusken/__main__.py` entry point creating QApplication, instantiating app.py, showing main window
+- [x] 17. Main Window and Application Shell
+  - [x] 17.1 Implement `slaktbusken/app.py` as thin wiring shell: instantiate all services, connect them to UI, handle application-level signals
+  - [x] 17.2 Implement `slaktbusken/ui/main_window.py` with QMainWindow setup: menu bar (Arkiv, Redigera, Visa, Verktyg, Hjälp), toolbar, left/right panel arrangement, status bar
+  - [x] 17.3 Wire main window menu actions: New Project, Open Project, Save, Import GEDCOM, Export GEDCOM, Close, Exit, View switching (Family/Ancestry/Descendants), Relationship Calculator, Settings
+  - [x] 17.4 Implement `slaktbusken/__main__.py` entry point creating QApplication, instantiating app.py, showing main window
   - **Requirements:** 21.1, 21.2, 26.4
 
 - [ ] 18. Person List Panel
