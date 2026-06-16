@@ -180,10 +180,14 @@ class AncestryView:
                         self._add_placeholder(scene, gen, pos, col_x, y)
 
         # Draw connection lines between parent and child positions
+        # Uses orthogonal routing: horizontal from child → vertical midpoint → horizontal to ancestor
         for gen in range(1, depth + 1):
             child_gen = gen - 1
             col_x = gen * (_BOX_WIDTH + _H_GAP)
             child_col_x = child_gen * (_BOX_WIDTH + _H_GAP)
+
+            # Vertical segment X is halfway between the two generation columns
+            mid_x = child_col_x + _BOX_WIDTH + _H_GAP / 2.0
 
             num_slots = 2**gen
             child_num_slots = 2**child_gen
@@ -205,23 +209,33 @@ class AncestryView:
                 if not has_ancestor and not has_placeholder_at_pos:
                     continue  # Nothing at this position to connect to
 
-                # Calculate connection points
+                # Calculate Y positions (mid-height of each box)
                 child_y = child_pos * child_slot_height + (child_slot_height - _BOX_HEIGHT_ESTIMATE) / 2.0
                 ancestor_y = pos * slot_height + (slot_height - _BOX_HEIGHT_ESTIMATE) / 2.0
 
-                # Start from right side of child box, mid-height
-                start_point = QPointF(
-                    child_col_x + _BOX_WIDTH,
-                    child_y + _BOX_HEIGHT_ESTIMATE / 2.0,
-                )
-                # End at left side of ancestor box, mid-height
-                end_point = QPointF(
-                    col_x,
-                    ancestor_y + _BOX_HEIGHT_ESTIMATE / 2.0,
-                )
+                child_mid_y = child_y + _BOX_HEIGHT_ESTIMATE / 2.0
+                ancestor_mid_y = ancestor_y + _BOX_HEIGHT_ESTIMATE / 2.0
 
-                line = ConnectionLineItem(start_point, end_point, ConnectionType.PARENT_CHILD)
-                scene.addItem(line)
+                # Segment 1: horizontal from child box right edge to mid_x
+                scene.addItem(ConnectionLineItem(
+                    QPointF(child_col_x + _BOX_WIDTH, child_mid_y),
+                    QPointF(mid_x, child_mid_y),
+                    ConnectionType.PARENT_CHILD,
+                ))
+
+                # Segment 2: vertical from child_mid_y to ancestor_mid_y at mid_x
+                scene.addItem(ConnectionLineItem(
+                    QPointF(mid_x, child_mid_y),
+                    QPointF(mid_x, ancestor_mid_y),
+                    ConnectionType.PARENT_CHILD,
+                ))
+
+                # Segment 3: horizontal from mid_x to ancestor box left edge
+                scene.addItem(ConnectionLineItem(
+                    QPointF(mid_x, ancestor_mid_y),
+                    QPointF(col_x, ancestor_mid_y),
+                    ConnectionType.PARENT_CHILD,
+                ))
 
     def _add_placeholder(
         self,

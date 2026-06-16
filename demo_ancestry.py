@@ -10,7 +10,7 @@ Run:
 
 import sys
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QMainWindow
 
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef
 from slaktbusken.model.family import Family, FamilyPartner
@@ -18,10 +18,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.persistence.settings_io import PersonBoxConfig
-from slaktbusken.ui.diagram_panel import DiagramPanel, ZoomableGraphicsView
-from slaktbusken.ui.views.ancestry_view import AncestryView
-
-from PySide6.QtWidgets import QGraphicsScene
+from slaktbusken.ui.diagram_panel import DiagramPanel
 
 
 def build_demo_data() -> tuple[ProjectData, str]:
@@ -56,8 +53,10 @@ def build_demo_data() -> tuple[ProjectData, str]:
         Person(id="p12", sex="M", names=[Name(type="birth", given="Per", surname="Berggren")]),
         Person(id="p13", sex="F", names=[Name(type="birth", given="Stina", surname="Eriksson")]),
         # Gen 4 (only on paternal line)
-        Person(id="p14", sex="M", names=[Name(type="birth", given="Lars", surname="Lindström")]),
-        Person(id="p15", sex="F", names=[Name(type="birth", given="Margareta", surname="Dahl")]),
+        Person(id="p14", sex="M", names=[Name(type="birth", given="Lars", surname="Lindström")],
+               occupation="Bonde"),
+        Person(id="p15", sex="F", names=[Name(type="birth", given="Margareta", surname="Dahl")],
+               occupation="Husföreståndarinna"),
     ]
 
     families = [
@@ -118,7 +117,22 @@ def build_demo_data() -> tuple[ProjectData, str]:
         Event(id="e5", type="death", participants=[Participant(person_id="p8", role="principal")],
               date=DateValue(value="1960-12-01", precision="day")),
         Event(id="e6", type="birth", participants=[Participant(person_id="p14", role="child")],
-              date=DateValue(value="1850", precision="year")),
+              date=DateValue(value="1850-02-14", precision="day"),
+              place=PlaceRef(place_id="pl1")),
+        Event(id="e7", type="death", participants=[Participant(person_id="p14", role="principal")],
+              date=DateValue(value="1920-08-03", precision="day"),
+              place=PlaceRef(place_id="pl1")),
+        Event(id="e8", type="birth", participants=[Participant(person_id="p15", role="child")],
+              date=DateValue(value="1853-06-21", precision="day"),
+              place=PlaceRef(place_id="pl2")),
+        Event(id="e9", type="death", participants=[Participant(person_id="p15", role="principal")],
+              date=DateValue(value="1931-01-10", precision="day"),
+              place=PlaceRef(place_id="pl2")),
+        Event(id="e10", type="marriage", participants=[
+              Participant(person_id="p14", role="husband"),
+              Participant(person_id="p15", role="wife"),
+              ], date=DateValue(value="1875-10-18", precision="day"),
+              place=PlaceRef(place_id="pl1")),
     ]
 
     project_data = ProjectData(
@@ -137,41 +151,45 @@ def main():
 
     project_data, active_id = build_demo_data()
 
-    # Config showing name + birth/death dates + birth place
+    # Config showing name + birth/death dates + places + marriage + occupation
     config = PersonBoxConfig(
         name=True,
         birth_date=True,
         birth_place=True,
         death_date=True,
-        death_place=False,
-        marriage_date=False,
-        marriage_place=False,
-        occupation=False,
+        death_place=True,
+        marriage_date=True,
+        marriage_place=True,
+        occupation=True,
         photo=False,
         dna_info=False,
         notes=False,
     )
 
-    # Create a window with the ancestry view
+    # Create a window using DiagramPanel for full interaction support
+    from slaktbusken.persistence.settings_io import DiagramSettings
+    from slaktbusken.ui.main_window import ViewType
+
     window = QMainWindow()
     window.setWindowTitle("Släktbusken — Anorvy (Demo, 5 generationer)")
     window.resize(1400, 800)
 
-    scene = QGraphicsScene()
-    view = ZoomableGraphicsView(scene)
+    panel = DiagramPanel()
+    panel.set_project_data(project_data)
+    panel.set_person_box_config(config)
+    panel.set_diagram_settings(DiagramSettings(ancestry_depth=5))
+    panel.switch_view(ViewType.ANCESTRY)
+    panel.set_active_person(active_id)
 
-    central = QWidget()
-    layout = QVBoxLayout(central)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(view)
-    window.setCentralWidget(central)
+    # Log interactions to console
+    panel.person_selected.connect(lambda pid: print(f"  Vald: {pid}"))
+    panel.person_activated.connect(lambda pid: print(f"  Aktiverad: {pid}"))
+    panel.person_double_clicked.connect(lambda pid: print(f"  Dubbelklick: {pid}"))
 
-    # Render the ancestry view with depth 5
-    ancestry_view = AncestryView()
-    ancestry_view.render(scene, project_data, active_id, config, depth=5)
+    window.setCentralWidget(panel)
 
-    print(f"Rendered {len(ancestry_view.get_person_boxes())} person boxes")
-    print(f"Rendered {len(ancestry_view.get_placeholder_boxes())} placeholder boxes")
+    print(f"Rendered {len(panel._ancestry_view.get_person_boxes())} person boxes")
+    print(f"Rendered {len(panel._ancestry_view.get_placeholder_boxes())} placeholder boxes")
     print()
     print("Tree structure:")
     print("  Gen 0: Erik Lindström")
@@ -181,13 +199,12 @@ def main():
     print("          Per Berggren, Stina Eriksson")
     print("  Gen 4: Lars Lindström, Margareta Dahl (only on Olof's line)")
     print()
-    print("Note the gap at Gen 2 (maternal grandmother unknown).")
-    print("Johan Berggren's parents (Gen 3) are still rendered despite the gap.")
-    print()
     print("Controls:")
+    print("  Click       = select person (blue highlight)")
+    print("  A key       = make selected person the active (redraws tree from them)")
+    print("  Double-click = open editor (logged to console)")
     print("  Mouse wheel = zoom (25%–400%)")
-    print("  Drag = pan")
-    print("  Click = select person box")
+    print("  Drag        = pan")
 
     window.show()
     sys.exit(app.exec())
