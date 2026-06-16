@@ -185,10 +185,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 23.3 Handle save errors with Swedish-language messages, retain unsaved changes in editor
   - **Requirements:** 6.1, 6.2, 6.5, 6.6
 
-- [ ] 24. Place Translation Editor
-  - [ ] 24.1 Design `slaktbusken/ui/forms/place_translation_editor.ui` with searchable list of GEDCOM place strings showing mapped App_JSON place names with hierarchy, edit/add mapping controls, and hierarchy visualization
-  - [ ] 24.2 Implement `slaktbusken/ui/editors/place_translation_editor.py` using generated UI: load place translation file, display searchable list with hierarchy context, edit existing mappings, add new mappings (specify GEDCOM place string, select target App_JSON place with hierarchy display), validate target exists before save
-  - [ ] 24.3 Handle save errors with Swedish-language messages, retain unsaved changes in editor
+- [x] 24. Place Translation Editor
+  - [x] 24.1 Design `slaktbusken/ui/forms/place_translation_editor.ui` with searchable list of GEDCOM place strings showing mapped App_JSON place names with hierarchy, edit/add mapping controls, and hierarchy visualization
+  - [x] 24.2 Implement `slaktbusken/ui/editors/place_translation_editor.py` using generated UI: load place translation file, display searchable list with hierarchy context, edit existing mappings, add new mappings (specify GEDCOM place string, select target App_JSON place with hierarchy display), validate target exists before save
+  - [x] 24.3 Handle save errors with Swedish-language messages, retain unsaved changes in editor
   - **Requirements:** 6.3, 6.4, 6.5, 6.6
 
 - [ ] 25. Person Editor
