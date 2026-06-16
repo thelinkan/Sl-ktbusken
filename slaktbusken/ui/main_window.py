@@ -199,15 +199,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _setup_central_widget(self) -> None:
-        """Create left/right panel splitter with placeholder widgets."""
+        """Create left/right panel splitter with PersonListPanel and diagram placeholder."""
+        from slaktbusken.ui.person_list_panel import PersonListPanel
+
         self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
 
-        # Left panel placeholder (will be PersonListPanel in Task 18)
-        self.left_panel = QWidget()
-        left_layout = QVBoxLayout(self.left_panel)
-        left_label = QLabel("Personlista\n(implementeras i nästa steg)")
-        left_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        left_layout.addWidget(left_label)
+        # Left panel: PersonListPanel
+        self.person_list_panel = PersonListPanel(self._app)
+        self.left_panel = self.person_list_panel
 
         # Right panel placeholder (will be DiagramPanel in Task 19)
         self.right_panel = QWidget()

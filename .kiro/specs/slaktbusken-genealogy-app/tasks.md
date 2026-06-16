@@ -141,7 +141,7 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 17.4 Implement `slaktbusken/__main__.py` entry point creating QApplication, instantiating app.py, showing main window
   - **Requirements:** 21.1, 21.2, 26.4
 
-- [ ] 18. Person List Panel
+- [x] 18. Person List Panel
   - [ ] 18.1 Implement `slaktbusken/ui/person_list_panel.py` with PersonListPanel: display all persons sorted by surname then given name, showing first name entry with birth/death years
   - [ ] 18.2 Implement filtering: text field (case-insensitive substring on names), birth year, death year, parish filters with AND logic, update within 200ms
   - [ ] 18.3 Implement selection: single-click sets active person in diagram panel, double-click opens edit window
