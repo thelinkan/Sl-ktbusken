@@ -663,6 +663,7 @@ class RelationshipCalculator:
         person_b_id: str,
         include_legal: bool = True,
         closest_only: bool = True,
+        blood_priority: bool = True,
         max_generations: int = 30,
         max_paths: int = 50,
     ) -> list[RelationshipPath]:
@@ -675,6 +676,14 @@ class RelationshipCalculator:
         6. Classify each path with Swedish kinship terms
         7. Sort by generational distance (closest first)
         8. Limit to max_paths
+
+        If blood_priority is True (default):
+          - First collect all blood (genealogical) paths.
+          - If at least one blood path exists, return only blood paths.
+          - If NO blood path exists, fall back to returning only the
+            single closest non-blood path (spouse/adoption/foster).
+          - If no path of any kind exists, return an empty list.
+        If blood_priority is False, use include_legal/closest_only as before.
         """
         ...
 

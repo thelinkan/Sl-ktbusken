@@ -244,6 +244,7 @@ Släktbusken is a genealogy desktop application built in Python with PySide6, fo
 5. WHEN a relationship is calculated, THE Släktbusken SHALL display the result as both a Swedish-language text description (using standard Swedish kinship terms) and a graphical path diagram showing each person as a node and each parent-child or partner link as a connecting edge
 6. THE Släktbusken SHALL allow the user to print the relationship graph
 7. IF no relationship path is found between the two selected persons within the configured scope, THEN THE Relationship_Calculator SHALL display a Swedish-language message indicating that no relationship was found
+8. THE Relationship_Calculator SHALL provide a blood-priority mode (enabled by default) where it first searches for all blood (genealogical) relationship paths between the two persons; IF no blood path exists, THEN it SHALL fall back to returning only the single closest non-blood relationship path (via spouse, adoption, or foster care); IF no relationship of any kind exists, THEN it SHALL report no connection found
 
 ### Requirement 16: Person List Panel
 

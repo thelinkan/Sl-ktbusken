@@ -114,19 +114,19 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 13.4 Write integration tests for import and export services (`tests/test_services/test_import_service.py`, `tests/test_services/test_export_service.py`)
   - **Requirements:** 4.1, 4.2, 4.3, 5.1, 5.6, 5.7
 
-- [ ] 14. Translation Service
-  - [ ] 14.1 Implement `slaktbusken/services/translation_service.py` with TranslationService class: load_translations, save_translations, update_mappings (coordinates with gedcom/translation/ package for mapping logic)
-  - [ ] 14.2 Write unit tests for translation service lifecycle (`tests/test_services/test_translation_service.py`)
+- [x] 14. Translation Service
+  - [x] 14.1 Implement `slaktbusken/services/translation_service.py` with TranslationService class: load_translations, save_translations, update_mappings (coordinates with gedcom/translation/ package for mapping logic)
+  - [x] 14.2 Write unit tests for translation service lifecycle (`tests/test_services/test_translation_service.py`)
   - **Requirements:** 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 
-- [ ] 15. Relationship Calculator
-  - [ ] 15.1 Implement `slaktbusken/relationship/graph_builder.py` with adjacency graph construction from ProjectData (parent-to-child, child-to-parent, partner edges)
-  - [ ] 15.2 Implement `slaktbusken/relationship/calculator.py` with RelationshipCalculator class: bidirectional BFS, find common ancestors, construct paths, classify relationships, limit by max_generations (30) and max_paths (50)
-  - [ ] 15.3 Implement `slaktbusken/relationship/kinship_terms.py` with Swedish kinship term mapping (far, mor, bror, syster, farbror, morbror, faster, moster, kusin, tremänning, fyrmänning, etc.) using the generic "-männing" pattern for cousins (kusin = tvåmänning, tremänning, fyrmänning, ...) and "X släktled bort" for removed cousins (e.g., "femmänning, två släktled bort" for fourth cousin twice removed)
-  - [ ] 15.4 Write property test for relationship path finding correctness (Property 8): connected persons have valid paths with correct edges (`tests/test_relationship/test_calculator.py`)
-  - [ ] 15.5 Write property test for Swedish kinship term assignment (Property 9): correct terms for known generation counts (`tests/test_relationship/test_kinship_terms.py`)
-  - [ ] 15.6 Write unit tests for specific relationship scenarios: parent-child, sibling, uncle/aunt, cousin, removed cousin (e.g., tremänning, ett släktled bort), spouse-of-distant-relative (e.g., gift med femmänning, två släktled bort), in-law, half-sibling, no connection found (`tests/test_relationship/test_calculator.py`)
-  - **Requirements:** 15.1, 15.2, 15.3, 15.4, 15.5, 15.7, 22.5
+- [x] 15. Relationship Calculator
+  - [x] 15.1 Implement `slaktbusken/relationship/graph_builder.py` with adjacency graph construction from ProjectData (parent-to-child, child-to-parent, partner edges)
+  - [x] 15.2 Implement `slaktbusken/relationship/calculator.py` with RelationshipCalculator class: bidirectional BFS, find common ancestors, construct paths, classify relationships, limit by max_generations (30) and max_paths (50), and blood_priority mode (default True) that returns all blood paths first, falling back to closest non-blood path only when no blood connection exists
+  - [x] 15.3 Implement `slaktbusken/relationship/kinship_terms.py` with Swedish kinship term mapping (far, mor, bror, syster, farbror, morbror, faster, moster, kusin, tremänning, fyrmänning, etc.) using the generic "-männing" pattern for cousins (kusin = tvåmänning, tremänning, fyrmänning, ...) and "X släktled bort" for removed cousins (e.g., "femmänning, två släktled bort" for fourth cousin twice removed)
+  - [x] 15.4 Write property test for relationship path finding correctness (Property 8): connected persons have valid paths with correct edges (`tests/test_relationship/test_calculator.py`)
+  - [x] 15.5 Write property test for Swedish kinship term assignment (Property 9): correct terms for known generation counts (`tests/test_relationship/test_kinship_terms.py`)
+  - [x] 15.6 Write unit tests for specific relationship scenarios: parent-child, sibling, uncle/aunt, cousin, removed cousin (e.g., tremänning, ett släktled bort), spouse-of-distant-relative (e.g., gift med femmänning, två släktled bort), in-law, half-sibling, no connection found, and blood_priority fallback (no blood → returns closest non-blood) (`tests/test_relationship/test_calculator.py`)
+  - **Requirements:** 15.1, 15.2, 15.3, 15.4, 15.5, 15.7, 15.8, 22.5
 
 - [ ] 16. UI Build Tooling and Resources
   - [ ] 16.1 Create placeholder `.ui` files for Qt Designer forms: main_window.ui, person_editor.ui, event_editor.ui, source_editor.ui, place_editor.ui, media_editor.ui, dna_editor.ui, repository_editor.ui, translation_editor.ui, new_project_dialog.ui, relationship_dialog.ui, settings_dialog.ui, person_list_panel.ui
