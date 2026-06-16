@@ -23,6 +23,8 @@ from slaktbusken.ui.person_list_panel import (
     get_parish_place_ids,
     get_person_birth_death_years,
     get_person_parish_names,
+    get_person_cluster_names,
+    _year_in_range,
 )
 
 
@@ -35,6 +37,14 @@ _SAFE_NAME = st.text(
     min_size=1,
     max_size=20,
 )
+
+_ALL_EVENT_TYPES = [
+    "adoption", "baptism", "birth", "blessing", "burial", "census",
+    "confirmation", "cremation", "death", "emigration", "first_communion",
+    "gender_correction", "graduation", "immigration", "name_change",
+    "retirement", "will", "custom_individual_event",
+    "divorce", "divorce_filed", "engagement", "marriage", "custom_family_event",
+]
 
 
 @st.composite
@@ -65,21 +75,51 @@ def person_with_known_name(draw: DrawFn) -> Person:
 @st.composite
 def filter_criteria_strategy(draw: DrawFn) -> FilterCriteria:
     """Generate a FilterCriteria with optional fields."""
-    text = draw(st.one_of(st.just(""), _SAFE_NAME))
-    birth_year = draw(st.one_of(
-        st.just(""),
-        st.integers(min_value=1000, max_value=2100).map(lambda y: str(y)),
+    title = draw(st.one_of(st.just(""), _SAFE_NAME))
+    given = draw(st.one_of(st.just(""), _SAFE_NAME))
+    surname = draw(st.one_of(st.just(""), _SAFE_NAME))
+    event_types = draw(st.frozensets(
+        st.sampled_from(_ALL_EVENT_TYPES), min_size=0, max_size=3
     ))
-    death_year = draw(st.one_of(
+    birth_year_from = draw(st.one_of(
         st.just(""),
-        st.integers(min_value=1000, max_value=2100).map(lambda y: str(y)),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ))
+    birth_year_to = draw(st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ))
+    death_year_from = draw(st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ))
+    death_year_to = draw(st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ))
+    marriage_year_from = draw(st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ))
+    marriage_year_to = draw(st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
     ))
     parish = draw(st.one_of(st.just(""), _SAFE_NAME))
+    cluster = draw(st.one_of(st.just(""), _SAFE_NAME))
     return FilterCriteria(
-        text=text,
-        birth_year=birth_year,
-        death_year=death_year,
+        title=title,
+        given=given,
+        surname=surname,
+        event_types=set(event_types),
+        birth_year_from=birth_year_from,
+        birth_year_to=birth_year_to,
+        death_year_from=death_year_from,
+        death_year_to=death_year_to,
+        marriage_year_from=marriage_year_from,
+        marriage_year_to=marriage_year_to,
         parish=parish,
+        cluster=cluster,
     )
 
 
@@ -89,22 +129,35 @@ def person_display_info_strategy(draw: DrawFn) -> PersonDisplayInfo:
     person_id = draw(st.integers(min_value=1, max_value=9999).map(lambda n: f"person_{n}"))
     given = draw(_SAFE_NAME)
     surname = draw(_SAFE_NAME)
+    title = draw(st.one_of(st.just(""), _SAFE_NAME))
     birth_year = draw(st.one_of(
         st.just(""),
-        st.integers(min_value=1000, max_value=2100).map(lambda y: str(y)),
+        st.integers(min_value=1000, max_value=2100).map(str),
     ))
     death_year = draw(st.one_of(
         st.just(""),
-        st.integers(min_value=1000, max_value=2100).map(lambda y: str(y)),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ))
+    marriage_year = draw(st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ))
+    event_types = draw(st.frozensets(
+        st.sampled_from(_ALL_EVENT_TYPES), min_size=0, max_size=5
     ))
     parish_names = draw(st.frozensets(_SAFE_NAME.map(str.lower), min_size=0, max_size=3))
+    cluster_names = draw(st.frozensets(_SAFE_NAME.map(str.lower), min_size=0, max_size=3))
     return PersonDisplayInfo(
         person_id=person_id,
         given=given,
         surname=surname,
+        title=title,
         birth_year=birth_year,
         death_year=death_year,
+        marriage_year=marriage_year,
+        event_types=set(event_types),
         parish_names=set(parish_names),
+        cluster_names=set(cluster_names),
     )
 
 
@@ -152,6 +205,54 @@ def parish_hierarchy_strategy(draw: DrawFn) -> tuple[list[Place], str]:
 # ---------------------------------------------------------------------------
 
 
+def _matches_criteria(person: PersonDisplayInfo, criteria: FilterCriteria) -> bool:
+    """Reference implementation of filter logic for property test oracle."""
+    # Title filter
+    title_lower = criteria.title.strip().lower()
+    if title_lower and title_lower not in person.title.lower():
+        return False
+
+    # Given name filter
+    given_lower = criteria.given.strip().lower()
+    if given_lower and given_lower not in person.given.lower():
+        return False
+
+    # Surname filter
+    surname_lower = criteria.surname.strip().lower()
+    if surname_lower and surname_lower not in person.surname.lower():
+        return False
+
+    # Event types filter
+    if criteria.event_types:
+        if not criteria.event_types.intersection(person.event_types):
+            return False
+
+    # Birth year range
+    if not _year_in_range(person.birth_year, criteria.birth_year_from, criteria.birth_year_to):
+        return False
+
+    # Death year range
+    if not _year_in_range(person.death_year, criteria.death_year_from, criteria.death_year_to):
+        return False
+
+    # Marriage year range
+    if not _year_in_range(person.marriage_year, criteria.marriage_year_from, criteria.marriage_year_to):
+        return False
+
+    # Parish filter
+    parish_lower = criteria.parish.strip().lower()
+    if parish_lower and parish_lower not in person.parish_names:
+        return False
+
+    # Cluster filter
+    cluster_lower = criteria.cluster.strip().lower()
+    if cluster_lower:
+        if not any(cluster_lower in cn for cn in person.cluster_names):
+            return False
+
+    return True
+
+
 @given(
     persons=st.lists(person_display_info_strategy(), min_size=0, max_size=10),
     criteria=filter_criteria_strategy(),
@@ -170,36 +271,10 @@ def test_filter_persons_matches_all_criteria(
     result = filter_persons(persons, criteria)
     result_ids = {p.person_id for p in result}
 
-    # Manually compute expected results
-    text_lower = criteria.text.strip().lower()
-    parish_lower = criteria.parish.strip().lower()
-    birth_year_stripped = criteria.birth_year.strip()
-    death_year_stripped = criteria.death_year.strip()
-
     expected_ids: set[str] = set()
     for person in persons:
-        # Text filter
-        if text_lower:
-            full_name = f"{person.given} {person.surname}".lower()
-            if text_lower not in full_name:
-                continue
-
-        # Birth year filter
-        if birth_year_stripped:
-            if person.birth_year != birth_year_stripped:
-                continue
-
-        # Death year filter
-        if death_year_stripped:
-            if person.death_year != death_year_stripped:
-                continue
-
-        # Parish filter
-        if parish_lower:
-            if parish_lower not in person.parish_names:
-                continue
-
-        expected_ids.add(person.person_id)
+        if _matches_criteria(person, criteria):
+            expected_ids.add(person.person_id)
 
     assert result_ids == expected_ids, (
         f"Filter mismatch.\n"
@@ -221,6 +296,119 @@ def test_empty_filter_returns_all(persons: list[PersonDisplayInfo]) -> None:
     criteria = FilterCriteria()
     result = filter_persons(persons, criteria)
     assert len(result) == len(persons)
+
+
+@given(
+    persons=st.lists(person_display_info_strategy(), min_size=1, max_size=10),
+    criteria=filter_criteria_strategy(),
+)
+@settings(max_examples=100)
+def test_filter_result_is_subset(
+    persons: list[PersonDisplayInfo],
+    criteria: FilterCriteria,
+) -> None:
+    """Filter results should always be a subset of the input."""
+    result = filter_persons(persons, criteria)
+    result_ids = {p.person_id for p in result}
+    input_ids = {p.person_id for p in persons}
+    assert result_ids.issubset(input_ids)
+
+
+@given(
+    persons=st.lists(person_display_info_strategy(), min_size=1, max_size=10),
+    title_fragment=st.text(
+        alphabet="abcdefghijklmnopqrstuvwxyz",
+        min_size=1,
+        max_size=5,
+    ),
+)
+@settings(max_examples=100)
+def test_title_filter_is_case_insensitive(
+    persons: list[PersonDisplayInfo],
+    title_fragment: str,
+) -> None:
+    """Title filter should be case-insensitive."""
+    criteria_lower = FilterCriteria(title=title_fragment.lower())
+    criteria_upper = FilterCriteria(title=title_fragment.upper())
+
+    result_lower = filter_persons(persons, criteria_lower)
+    result_upper = filter_persons(persons, criteria_upper)
+
+    assert {p.person_id for p in result_lower} == {p.person_id for p in result_upper}
+
+
+@given(
+    persons=st.lists(person_display_info_strategy(), min_size=1, max_size=10),
+    event_type=st.sampled_from(_ALL_EVENT_TYPES),
+)
+@settings(max_examples=100)
+def test_event_type_filter(
+    persons: list[PersonDisplayInfo],
+    event_type: str,
+) -> None:
+    """Event type filter should only return persons with at least one matching event."""
+    criteria = FilterCriteria(event_types={event_type})
+    result = filter_persons(persons, criteria)
+
+    for person in result:
+        assert event_type in person.event_types
+
+
+# ---------------------------------------------------------------------------
+# Year range filter tests
+# ---------------------------------------------------------------------------
+
+
+@given(
+    year=st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ),
+    from_year=st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ),
+    to_year=st.one_of(
+        st.just(""),
+        st.integers(min_value=1000, max_value=2100).map(str),
+    ),
+)
+@settings(max_examples=200)
+def test_year_in_range_consistency(year: str, from_year: str, to_year: str) -> None:
+    """_year_in_range should be consistent with integer comparison."""
+    result = _year_in_range(year, from_year, to_year)
+
+    # No range constraints -> always true
+    if not from_year.strip() and not to_year.strip():
+        assert result is True
+        return
+
+    # Empty year with range -> false
+    if not year:
+        assert result is False
+        return
+
+    # Valid year with range
+    try:
+        y = int(year)
+    except ValueError:
+        return  # skip non-integer years
+
+    expected = True
+    if from_year.strip():
+        try:
+            if y < int(from_year.strip()):
+                expected = False
+        except ValueError:
+            pass
+    if to_year.strip():
+        try:
+            if y > int(to_year.strip()):
+                expected = False
+        except ValueError:
+            pass
+
+    assert result == expected
 
 
 # ---------------------------------------------------------------------------
@@ -311,9 +499,13 @@ def test_person_parish_filter_through_event_hierarchy(data: st.DataObject) -> No
         person_id="person_test",
         given="Test",
         surname="Testsson",
+        title="",
         birth_year="1850",
         death_year="",
+        marriage_year="",
+        event_types={"baptism"},
         parish_names=parish_names,
+        cluster_names=set(),
     )
     criteria = FilterCriteria(parish=parish_name)
     result = filter_persons([display_info], criteria)

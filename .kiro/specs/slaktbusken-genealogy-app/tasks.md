@@ -142,11 +142,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - **Requirements:** 21.1, 21.2, 26.4
 
 - [x] 18. Person List Panel
-  - [ ] 18.1 Implement `slaktbusken/ui/person_list_panel.py` with PersonListPanel: display all persons sorted by surname then given name, showing first name entry with birth/death years
-  - [ ] 18.2 Implement filtering: text field (case-insensitive substring on names), birth year, death year, parish filters with AND logic, update within 200ms
-  - [ ] 18.3 Implement selection: single-click sets active person in diagram panel, double-click opens edit window
-  - [ ] 18.4 Write property test for person list filtering (Property 10): filtered results match exactly those persons satisfying all criteria (`tests/test_ui/test_person_list_filter.py`)
-  - [ ] 18.5 Write property test for place hierarchy event filtering (Property 11): parish filter includes sub-place events (`tests/test_ui/test_person_list_filter.py`)
+  - [x] 18.1 Implement `slaktbusken/ui/person_list_panel.py` with PersonListPanel: display all persons sorted by surname then given name, showing first name entry with birth/death years
+  - [x] 18.2 Implement filtering: text field (case-insensitive substring on names), birth year, death year, parish filters with AND logic, update within 200ms
+  - [x] 18.3 Implement selection: single-click sets active person in diagram panel, double-click opens edit window
+  - [x] 18.4 Write property test for person list filtering (Property 10): filtered results match exactly those persons satisfying all criteria (`tests/test_ui/test_person_list_filter.py`)
+  - [x] 18.5 Write property test for place hierarchy event filtering (Property 11): parish filter includes sub-place events (`tests/test_ui/test_person_list_filter.py`)
   - **Requirements:** 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 10.2
 
 - [ ] 19. Diagram Panel Infrastructure

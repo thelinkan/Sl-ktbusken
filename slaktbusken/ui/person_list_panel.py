@@ -1,22 +1,23 @@
 """Person List Panel for Släktbusken.
 
 Displays all persons in the project sorted alphabetically by surname then
-given name, with filtering by text, birth year, death year, and parish.
-Supports single-click (set active person) and double-click (open edit window).
+given name, with filtering via an external FilterDialog. Supports toggle
+between showing all persons and a filtered subset, single-click (set active
+person) and double-click (open edit window).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -25,8 +26,10 @@ if TYPE_CHECKING:
     from slaktbusken.app import Application
 
 from slaktbusken.model.event import Event
+from slaktbusken.model.family import Family
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
+from slaktbusken.model.dna import DnaCluster
 
 
 # ---------------------------------------------------------------------------
@@ -39,16 +42,32 @@ class FilterCriteria:
     """Criteria for filtering the person list.
 
     Attributes:
-        text: Case-insensitive substring match on given + surname.
-        birth_year: Exact match on the person's birth year (as string).
-        death_year: Exact match on the person's death year (as string).
+        title: Case-insensitive substring match on person title.
+        given: Case-insensitive substring match on given name.
+        surname: Case-insensitive substring match on surname.
+        event_types: Person must have at least one event of these types (if non-empty).
+        birth_year_from: Birth year must be >= this (as string, compared as int).
+        birth_year_to: Birth year must be <= this (as string, compared as int).
+        death_year_from: Death year must be >= this (as string, compared as int).
+        death_year_to: Death year must be <= this (as string, compared as int).
+        marriage_year_from: Marriage year must be >= this (as string, compared as int).
+        marriage_year_to: Marriage year must be <= this (as string, compared as int).
         parish: Parish name to match (includes sub-places of parish).
+        cluster: DNA cluster name to match (case-insensitive substring).
     """
 
-    text: str = ""
-    birth_year: str = ""
-    death_year: str = ""
+    title: str = ""
+    given: str = ""
+    surname: str = ""
+    event_types: set[str] = field(default_factory=set)
+    birth_year_from: str = ""
+    birth_year_to: str = ""
+    death_year_from: str = ""
+    death_year_to: str = ""
+    marriage_year_from: str = ""
+    marriage_year_to: str = ""
     parish: str = ""
+    cluster: str = ""
 
 
 @dataclass
@@ -59,17 +78,25 @@ class PersonDisplayInfo:
         person_id: The unique identifier of the person.
         given: Given name from the first name entry.
         surname: Surname from the first name entry.
+        title: Person title (e.g. 'Fil.Dr') or empty string.
         birth_year: Birth year as string, or empty if unavailable.
         death_year: Death year as string, or empty if unavailable.
+        marriage_year: Year from first marriage event, or empty if unavailable.
+        event_types: Set of event types the person participates in.
         parish_names: Set of parish names associated with this person's events.
+        cluster_names: Set of DNA cluster names (lowercase) the person belongs to.
     """
 
     person_id: str
     given: str
     surname: str
+    title: str
     birth_year: str
     death_year: str
+    marriage_year: str
+    event_types: set[str]
     parish_names: set[str]
+    cluster_names: set[str] = field(default_factory=set)
 
 
 def extract_year(date_value_str: str) -> str:
@@ -114,6 +141,92 @@ def get_person_birth_death_years(
         if birth_year and death_year:
             break
     return birth_year, death_year
+
+
+def get_person_marriage_year(
+    person: Person,
+    events: list[Event],
+    families: list[Family],
+) -> str:
+    """Find the first marriage year for a person.
+
+    Looks through families the person belongs to, finds their event_ids,
+    and checks for marriage events with dates.
+
+    Args:
+        person: The person to look up.
+        events: All events in the project.
+        families: All families in the project.
+
+    Returns:
+        The year of the first marriage event, or empty string if not found.
+    """
+    # Find all family event_ids for families this person is a partner in
+    event_by_id = {e.id: e for e in events}
+    for family in families:
+        person_in_family = any(
+            p.person_id == person.id for p in family.partners
+        )
+        if not person_in_family:
+            continue
+        for event_id in family.event_ids:
+            event = event_by_id.get(event_id)
+            if event and event.type == "marriage" and event.date:
+                year = extract_year(event.date.value)
+                if year:
+                    return year
+
+    # Also check events where the person is a direct participant in a marriage
+    for event in events:
+        if event.type == "marriage" and event.date:
+            for participant in event.participants:
+                if participant.person_id == person.id:
+                    year = extract_year(event.date.value)
+                    if year:
+                        return year
+    return ""
+
+
+def get_person_event_types(
+    person: Person,
+    events: list[Event],
+    families: list[Family],
+) -> set[str]:
+    """Get all event types a person participates in.
+
+    Includes both direct participation and family events.
+
+    Args:
+        person: The person to look up.
+        events: All events in the project.
+        families: All families in the project.
+
+    Returns:
+        Set of event type strings.
+    """
+    event_types: set[str] = set()
+
+    # Direct participation
+    for event in events:
+        for participant in event.participants:
+            if participant.person_id == person.id:
+                event_types.add(event.type)
+                break
+
+    # Family events (person is a partner in the family)
+    event_by_id = {e.id: e for e in events}
+    for family in families:
+        person_in_family = any(
+            p.person_id == person.id for p in family.partners
+        )
+        if not person_in_family:
+            continue
+        for event_id in family.event_ids:
+            event = event_by_id.get(event_id)
+            if event:
+                event_types.add(event.type)
+
+    return event_types
 
 
 def get_parish_place_ids(parish_name: str, places: list[Place]) -> set[str]:
@@ -193,10 +306,32 @@ def get_person_parish_names(
     return parish_names
 
 
+def get_person_cluster_names(
+    person: Person,
+    dna_clusters: list[DnaCluster],
+) -> set[str]:
+    """Get all DNA cluster names a person belongs to.
+
+    Args:
+        person: The person to look up.
+        dna_clusters: All DNA clusters in the project.
+
+    Returns:
+        Set of cluster names (lowercase) the person is a member of.
+    """
+    names: set[str] = set()
+    for cluster in dna_clusters:
+        if person.id in cluster.person_ids:
+            names.add(cluster.name.lower())
+    return names
+
+
 def build_person_display_list(
     persons: list[Person],
     events: list[Event],
     places: list[Place],
+    families: list[Family] | None = None,
+    dna_clusters: list[DnaCluster] | None = None,
 ) -> list[PersonDisplayInfo]:
     """Build a sorted list of person display info from project data.
 
@@ -206,30 +341,87 @@ def build_person_display_list(
         persons: All persons in the project.
         events: All events in the project.
         places: All places in the project.
+        families: All families in the project (optional for backward compat).
+        dna_clusters: All DNA clusters in the project (optional).
 
     Returns:
         Sorted list of PersonDisplayInfo items.
     """
+    if families is None:
+        families = []
+    if dna_clusters is None:
+        dna_clusters = []
+
     display_list: list[PersonDisplayInfo] = []
     for person in persons:
         if not person.names:
             continue
         first_name = person.names[0]
         birth_year, death_year = get_person_birth_death_years(person, events)
+        marriage_year = get_person_marriage_year(person, events, families)
+        event_types = get_person_event_types(person, events, families)
         parish_names = get_person_parish_names(person, events, places)
+        cluster_names = get_person_cluster_names(person, dna_clusters)
         display_list.append(
             PersonDisplayInfo(
                 person_id=person.id,
                 given=first_name.given,
                 surname=first_name.surname,
+                title=person.title or "",
                 birth_year=birth_year,
                 death_year=death_year,
+                marriage_year=marriage_year,
+                event_types=event_types,
                 parish_names=parish_names,
+                cluster_names=cluster_names,
             )
         )
 
     display_list.sort(key=lambda p: (p.surname.lower(), p.given.lower()))
     return display_list
+
+
+def _year_in_range(year_str: str, from_str: str, to_str: str) -> bool:
+    """Check if a year string falls within an optional range.
+
+    Args:
+        year_str: The year to check (may be empty).
+        from_str: Minimum year (inclusive), or empty for no lower bound.
+        to_str: Maximum year (inclusive), or empty for no upper bound.
+
+    Returns:
+        True if the year matches the range constraints.
+        If year_str is empty and any range bound is set, returns False.
+    """
+    from_stripped = from_str.strip()
+    to_stripped = to_str.strip()
+
+    if not from_stripped and not to_stripped:
+        return True
+
+    if not year_str:
+        return False
+
+    try:
+        year_int = int(year_str)
+    except ValueError:
+        return False
+
+    if from_stripped:
+        try:
+            if year_int < int(from_stripped):
+                return False
+        except ValueError:
+            pass
+
+    if to_stripped:
+        try:
+            if year_int > int(to_stripped):
+                return False
+        except ValueError:
+            pass
+
+    return True
 
 
 def filter_persons(
@@ -238,10 +430,15 @@ def filter_persons(
 ) -> list[PersonDisplayInfo]:
     """Filter a list of persons by the given criteria using AND logic.
 
-    - text: case-insensitive substring match on given + surname
-    - birth_year: exact match (string)
-    - death_year: exact match (string)
+    - title: case-insensitive substring on person's title
+    - given: case-insensitive substring on given name
+    - surname: case-insensitive substring on surname
+    - event_types: person must participate in at least one event of these types
+    - birth_year_from/to: birth year must be within range
+    - death_year_from/to: death year must be within range
+    - marriage_year_from/to: marriage year must be within range
     - parish: case-insensitive match on any of the person's parish names
+    - cluster: case-insensitive substring on any of the person's cluster names
 
     Args:
         persons: The pre-computed person display list.
@@ -251,29 +448,59 @@ def filter_persons(
         Filtered list of PersonDisplayInfo matching all active criteria.
     """
     result: list[PersonDisplayInfo] = []
-    text_lower = criteria.text.strip().lower()
+    title_lower = criteria.title.strip().lower()
+    given_lower = criteria.given.strip().lower()
+    surname_lower = criteria.surname.strip().lower()
     parish_lower = criteria.parish.strip().lower()
 
     for person in persons:
-        # Text filter: substring on full name (given + surname)
-        if text_lower:
-            full_name = f"{person.given} {person.surname}".lower()
-            if text_lower not in full_name:
+        # Title filter: substring on person's title
+        if title_lower:
+            if title_lower not in person.title.lower():
                 continue
 
-        # Birth year filter: exact match
-        if criteria.birth_year.strip():
-            if person.birth_year != criteria.birth_year.strip():
+        # Given name filter: substring on given name
+        if given_lower:
+            if given_lower not in person.given.lower():
                 continue
 
-        # Death year filter: exact match
-        if criteria.death_year.strip():
-            if person.death_year != criteria.death_year.strip():
+        # Surname filter: substring on surname
+        if surname_lower:
+            if surname_lower not in person.surname.lower():
                 continue
+
+        # Event types filter: person must have at least one of the checked types
+        if criteria.event_types:
+            if not criteria.event_types.intersection(person.event_types):
+                continue
+
+        # Birth year range filter
+        if not _year_in_range(
+            person.birth_year, criteria.birth_year_from, criteria.birth_year_to
+        ):
+            continue
+
+        # Death year range filter
+        if not _year_in_range(
+            person.death_year, criteria.death_year_from, criteria.death_year_to
+        ):
+            continue
+
+        # Marriage year range filter
+        if not _year_in_range(
+            person.marriage_year, criteria.marriage_year_from, criteria.marriage_year_to
+        ):
+            continue
 
         # Parish filter: case-insensitive match on person's parishes
         if parish_lower:
             if parish_lower not in person.parish_names:
+                continue
+
+        # Cluster filter: case-insensitive substring on person's cluster names
+        cluster_lower = criteria.cluster.strip().lower()
+        if cluster_lower:
+            if not any(cluster_lower in cn for cn in person.cluster_names):
                 continue
 
         result.append(person)
@@ -290,7 +517,8 @@ class PersonListPanel(QWidget):
     """Panel showing a filterable, sorted list of all persons in the project.
 
     Emits signals when the user selects (single-click) or edits (double-click)
-    a person.
+    a person. Provides a toggle button to switch between showing all persons
+    and a filtered subset, plus a button to open the FilterDialog.
 
     Signals:
         person_selected: Emitted with person_id on single-click.
@@ -311,13 +539,15 @@ class PersonListPanel(QWidget):
         self._app = app
         self._display_list: list[PersonDisplayInfo] = []
         self._filtered_list: list[PersonDisplayInfo] = []
+        self._current_criteria: FilterCriteria = FilterCriteria()
+        self._showing_filtered = False
+        self._filter_dialog: Optional[object] = None
 
         self._setup_ui()
-        self._setup_timer()
         self._connect_signals()
 
     def _setup_ui(self) -> None:
-        """Build the panel UI: filter fields + person list."""
+        """Build the panel UI: toggle + filter button + person list."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
@@ -327,29 +557,18 @@ class PersonListPanel(QWidget):
         title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(title_label)
 
-        # Text filter
-        self._text_filter = QLineEdit()
-        self._text_filter.setPlaceholderText("Sök namn...")
-        layout.addWidget(self._text_filter)
+        # Button row: toggle + filter button
+        button_row = QHBoxLayout()
 
-        # Year filters row
-        year_row = QHBoxLayout()
-        self._birth_year_filter = QLineEdit()
-        self._birth_year_filter.setPlaceholderText("Födelseår")
-        self._birth_year_filter.setMaximumWidth(80)
-        year_row.addWidget(self._birth_year_filter)
+        self._toggle_button = QPushButton("Visa filtrerade")
+        self._toggle_button.setCheckable(True)
+        button_row.addWidget(self._toggle_button)
 
-        self._death_year_filter = QLineEdit()
-        self._death_year_filter.setPlaceholderText("Dödsår")
-        self._death_year_filter.setMaximumWidth(80)
-        year_row.addWidget(self._death_year_filter)
-        year_row.addStretch()
-        layout.addLayout(year_row)
+        self._filter_button = QPushButton("Filter...")
+        button_row.addWidget(self._filter_button)
 
-        # Parish filter
-        self._parish_filter = QLineEdit()
-        self._parish_filter.setPlaceholderText("Församling...")
-        layout.addWidget(self._parish_filter)
+        button_row.addStretch()
+        layout.addLayout(button_row)
 
         # Person list
         self._list_widget = QListWidget()
@@ -362,19 +581,10 @@ class PersonListPanel(QWidget):
         self._no_results_label.setVisible(False)
         layout.addWidget(self._no_results_label)
 
-    def _setup_timer(self) -> None:
-        """Set up the debounce timer for filtering (200ms single-shot)."""
-        self._filter_timer = QTimer(self)
-        self._filter_timer.setSingleShot(True)
-        self._filter_timer.setInterval(200)
-        self._filter_timer.timeout.connect(self._apply_filter)
-
     def _connect_signals(self) -> None:
-        """Connect filter field signals and list selection signals."""
-        self._text_filter.textChanged.connect(self._on_filter_changed)
-        self._birth_year_filter.textChanged.connect(self._on_filter_changed)
-        self._death_year_filter.textChanged.connect(self._on_filter_changed)
-        self._parish_filter.textChanged.connect(self._on_filter_changed)
+        """Connect button signals and list selection signals."""
+        self._toggle_button.toggled.connect(self._on_toggle_changed)
+        self._filter_button.clicked.connect(self._on_filter_button_clicked)
 
         self._list_widget.currentItemChanged.connect(self._on_item_clicked)
         self._list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -389,29 +599,73 @@ class PersonListPanel(QWidget):
         Call this when the project data changes (e.g., after import, edit).
         """
         data = self._app.project_service.data
+        families = data.families if hasattr(data, "families") else []
+        dna_clusters = data.dna_clusters if hasattr(data, "dna_clusters") else []
         self._display_list = build_person_display_list(
-            data.persons, data.events, data.places
+            data.persons, data.events, data.places, families, dna_clusters
         )
-        self._apply_filter()
+        self._apply_current_view()
+
+    def apply_filter(self, criteria: FilterCriteria) -> None:
+        """Apply filter criteria from the FilterDialog.
+
+        Args:
+            criteria: The filter criteria to apply.
+        """
+        self._current_criteria = criteria
+        self._filtered_list = filter_persons(self._display_list, criteria)
+        if self._showing_filtered:
+            self._update_list_widget()
 
     # ------------------------------------------------------------------
     # Private slots
     # ------------------------------------------------------------------
 
-    def _on_filter_changed(self) -> None:
-        """Restart the debounce timer when any filter field changes."""
-        self._filter_timer.start()
+    def _on_toggle_changed(self, checked: bool) -> None:
+        """Handle toggle button state change.
 
-    def _apply_filter(self) -> None:
-        """Apply current filter criteria and update the list widget."""
-        criteria = FilterCriteria(
-            text=self._text_filter.text(),
-            birth_year=self._birth_year_filter.text(),
-            death_year=self._death_year_filter.text(),
-            parish=self._parish_filter.text(),
-        )
-        self._filtered_list = filter_persons(self._display_list, criteria)
-        self._update_list_widget()
+        Args:
+            checked: True when showing filtered, False when showing all.
+        """
+        self._showing_filtered = checked
+        if checked:
+            self._toggle_button.setText("Visa alla")
+        else:
+            self._toggle_button.setText("Visa filtrerade")
+        self._apply_current_view()
+
+    def _on_filter_button_clicked(self) -> None:
+        """Open the FilterDialog (non-modal)."""
+        from slaktbusken.ui.dialogs.filter_dialog import FilterDialog
+
+        if self._filter_dialog is None:
+            self._filter_dialog = FilterDialog(self)
+            self._filter_dialog.filter_applied.connect(self.apply_filter)
+        # Update available cluster names for autocomplete
+        self._update_cluster_completions()
+        self._filter_dialog.show()
+        self._filter_dialog.raise_()
+        self._filter_dialog.activateWindow()
+
+    def _update_cluster_completions(self) -> None:
+        """Feed available cluster names to the FilterDialog autocomplete."""
+        if self._filter_dialog is None:
+            return
+        data = self._app.project_service.data
+        dna_clusters = data.dna_clusters if hasattr(data, "dna_clusters") else []
+        cluster_names = sorted({c.name for c in dna_clusters if c.name})
+        self._filter_dialog.set_available_clusters(cluster_names)
+
+    def _apply_current_view(self) -> None:
+        """Update the list widget based on the current toggle state."""
+        if self._showing_filtered:
+            self._filtered_list = filter_persons(
+                self._display_list, self._current_criteria
+            )
+            self._update_list_widget()
+        else:
+            self._filtered_list = list(self._display_list)
+            self._update_list_widget()
 
     def _update_list_widget(self) -> None:
         """Rebuild the QListWidget items from the filtered list."""
@@ -447,7 +701,7 @@ class PersonListPanel(QWidget):
         if info.birth_year or info.death_year:
             birth = info.birth_year if info.birth_year else "?"
             death = info.death_year if info.death_year else "?"
-            years_parts.append(f"({birth}–{death})")
+            years_parts.append(f"({birth}\u2013{death})")
 
         if years_parts:
             return f"{name_part} {years_parts[0]}"
