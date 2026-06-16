@@ -136,19 +136,10 @@ class ConnectionLineItem(QGraphicsItem):
     def _build_path(self) -> None:
         """Build the painter path for the connection.
 
-        For parent-child connections, routes orthogonally:
-        down from start, horizontal to align, then down to end.
-        For partner connections, draws a straight horizontal line.
+        Draws a straight line between start and end for both
+        connection types. Routing (orthogonal segments) is handled
+        by the layout code which creates multiple line segments.
         """
         self._path = QPainterPath()
         self._path.moveTo(self._start)
-
-        if self._connection_type == ConnectionType.PARTNER:
-            # Simple straight line between partners
-            self._path.lineTo(self._end)
-        else:
-            # Orthogonal routing: start -> mid-y -> end
-            mid_y = (self._start.y() + self._end.y()) / 2.0
-            self._path.lineTo(QPointF(self._start.x(), mid_y))
-            self._path.lineTo(QPointF(self._end.x(), mid_y))
-            self._path.lineTo(self._end)
+        self._path.lineTo(self._end)

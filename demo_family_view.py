@@ -18,7 +18,28 @@ from slaktbusken.ui.main_window import ViewType
 
 
 def create_demo_data() -> ProjectData:
-    """Create a realistic Swedish family for demo purposes."""
+    """Create a realistic Swedish family for demo purposes.
+
+    Family tree:
+        Gustaf Andersson + Kristina Nilsdotter (grandparents)
+            └── Erik Gustafsson (father)
+
+        Erik Gustafsson + Anna Karlsdotter (parents)
+            ├── Karl Eriksson (ACTIVE PERSON)
+            ├── Lisa Eriksdotter (sibling with own family)
+            └── Johan Eriksson (sibling without family)
+
+        Karl Eriksson + Maria Johansdotter (1st marriage)
+            ├── Sven Karlsson
+            └── Brita Karlsdotter
+
+        Karl Eriksson + Greta Olofsdotter (2nd marriage)
+            └── Per Karlsson
+
+        Lisa Eriksdotter + Anders Persson (sibling's family)
+            ├── Emma Andersson
+            └── Oskar Andersson
+    """
     # --- Persons ---
     grandfather = Person(
         id="p0", sex="M",
@@ -43,21 +64,29 @@ def create_demo_data() -> ProjectData:
         names=[Name(type="birth", given="Karl", surname="Eriksson")],
         occupation="Snickare",
     )
-    sibling1 = Person(
+    sibling_lisa = Person(
         id="p4", sex="F",
         names=[Name(type="birth", given="Lisa", surname="Eriksdotter")],
     )
-    sibling2 = Person(
+    sibling_johan = Person(
         id="p7", sex="M",
         names=[Name(type="birth", given="Johan", surname="Eriksson")],
+        occupation="Dräng",
     )
-    partner = Person(
+    # Karl's 1st spouse
+    partner1 = Person(
         id="p5", sex="F",
         names=[
             Name(type="birth", given="Maria", surname="Johansdotter"),
             Name(type="married", given="Maria", surname="Eriksson"),
         ],
     )
+    # Karl's 2nd spouse
+    partner2 = Person(
+        id="p9", sex="F",
+        names=[Name(type="birth", given="Greta", surname="Olofsdotter")],
+    )
+    # Karl + Maria's children
     child1 = Person(
         id="p6", sex="M",
         names=[Name(type="birth", given="Sven", surname="Karlsson")],
@@ -66,9 +95,32 @@ def create_demo_data() -> ProjectData:
         id="p8", sex="F",
         names=[Name(type="birth", given="Brita", surname="Karlsdotter")],
     )
+    # Karl + Greta's child
+    child3 = Person(
+        id="p10", sex="M",
+        names=[Name(type="birth", given="Per", surname="Karlsson")],
+    )
+    # Lisa's spouse
+    lisa_spouse = Person(
+        id="p11", sex="M",
+        names=[Name(type="birth", given="Anders", surname="Persson")],
+        occupation="Bonde",
+    )
+    # Lisa's children
+    lisa_child1 = Person(
+        id="p12", sex="F",
+        names=[Name(type="birth", given="Emma", surname="Andersson")],
+    )
+    lisa_child2 = Person(
+        id="p13", sex="M",
+        names=[Name(type="birth", given="Oskar", surname="Andersson")],
+    )
 
-    persons = [grandfather, grandmother, father, mother, active,
-               sibling1, sibling2, partner, child1, child2]
+    persons = [
+        grandfather, grandmother, father, mother, active,
+        sibling_lisa, sibling_johan, partner1, partner2,
+        child1, child2, child3, lisa_spouse, lisa_child1, lisa_child2,
+    ]
 
     # --- Places ---
     sweden = Place(id="pl1", type="country", name="Sverige")
@@ -79,6 +131,7 @@ def create_demo_data() -> ProjectData:
 
     # --- Events ---
     events = [
+        # Karl's birth and death
         Event(
             id="e1", type="birth",
             participants=[Participant(person_id="p3", role="subject")],
@@ -91,49 +144,51 @@ def create_demo_data() -> ProjectData:
             date=DateValue(value="1923-11-02", precision="day"),
             place=PlaceRef(place_id="pl3"),
         ),
+        # Father's birth
         Event(
             id="e3", type="birth",
             participants=[Participant(person_id="p1", role="subject")],
             date=DateValue(value="1825-07-20", precision="day"),
             place=PlaceRef(place_id="pl3"),
         ),
-        Event(
-            id="e4", type="death",
-            participants=[Participant(person_id="p1", role="subject")],
-            date=DateValue(value="1890-01-05", precision="day"),
-        ),
+        # Mother's birth
         Event(
             id="e5", type="birth",
             participants=[Participant(person_id="p2", role="subject")],
             date=DateValue(value="1830-09-18", precision="day"),
         ),
+        # Maria's birth
         Event(
             id="e6", type="birth",
             participants=[Participant(person_id="p5", role="subject")],
             date=DateValue(value="1860-06-22", precision="day"),
         ),
+        # Sven's birth
         Event(
             id="e7", type="birth",
             participants=[Participant(person_id="p6", role="subject")],
             date=DateValue(value="1882-02-10", precision="day"),
             place=PlaceRef(place_id="pl3"),
         ),
+        # Brita's birth
         Event(
             id="e8", type="birth",
             participants=[Participant(person_id="p8", role="subject")],
             date=DateValue(value="1885-08-30", precision="day"),
-            place=PlaceRef(place_id="pl3"),
         ),
+        # Lisa's birth
         Event(
             id="e9", type="birth",
             participants=[Participant(person_id="p4", role="subject")],
             date=DateValue(value="1858-12-01", precision="day"),
         ),
+        # Johan's birth
         Event(
             id="e10", type="birth",
             participants=[Participant(person_id="p7", role="subject")],
             date=DateValue(value="1862-04-15", precision="day"),
         ),
+        # Karl + Maria marriage
         Event(
             id="e11", type="marriage",
             participants=[
@@ -142,6 +197,45 @@ def create_demo_data() -> ProjectData:
             ],
             date=DateValue(value="1880-06-12", precision="day"),
             place=PlaceRef(place_id="pl3"),
+        ),
+        # Karl + Greta marriage
+        Event(
+            id="e12", type="marriage",
+            participants=[
+                Participant(person_id="p3", role="husband"),
+                Participant(person_id="p9", role="wife"),
+            ],
+            date=DateValue(value="1895-09-03", precision="day"),
+        ),
+        # Per's birth
+        Event(
+            id="e13", type="birth",
+            participants=[Participant(person_id="p10", role="subject")],
+            date=DateValue(value="1897-01-25", precision="day"),
+        ),
+        # Greta's birth
+        Event(
+            id="e14", type="birth",
+            participants=[Participant(person_id="p9", role="subject")],
+            date=DateValue(value="1870-05-10", precision="day"),
+        ),
+        # Anders' birth
+        Event(
+            id="e15", type="birth",
+            participants=[Participant(person_id="p11", role="subject")],
+            date=DateValue(value="1855-08-14", precision="day"),
+        ),
+        # Emma's birth
+        Event(
+            id="e16", type="birth",
+            participants=[Participant(person_id="p12", role="subject")],
+            date=DateValue(value="1883-03-20", precision="day"),
+        ),
+        # Oskar's birth
+        Event(
+            id="e17", type="birth",
+            participants=[Participant(person_id="p13", role="subject")],
+            date=DateValue(value="1886-11-08", precision="day"),
         ),
     ]
 
@@ -156,7 +250,7 @@ def create_demo_data() -> ProjectData:
         children=["p1"],
     )
 
-    # Parent family
+    # Parent family: Erik + Anna → Karl, Lisa, Johan
     parent_family = Family(
         id="f1",
         partners=[
@@ -166,8 +260,8 @@ def create_demo_data() -> ProjectData:
         children=["p3", "p4", "p7"],
     )
 
-    # Active person's own family
-    own_family = Family(
+    # Karl's 1st family: Karl + Maria → Sven, Brita
+    karls_family_1 = Family(
         id="f2",
         partners=[
             FamilyPartner(person_id="p3", role="father"),
@@ -176,7 +270,27 @@ def create_demo_data() -> ProjectData:
         children=["p6", "p8"],
     )
 
-    families = [grandparent_family, parent_family, own_family]
+    # Karl's 2nd family: Karl + Greta → Per
+    karls_family_2 = Family(
+        id="f3",
+        partners=[
+            FamilyPartner(person_id="p3", role="father"),
+            FamilyPartner(person_id="p9", role="mother"),
+        ],
+        children=["p10"],
+    )
+
+    # Lisa's family: Lisa + Anders → Emma, Oskar
+    lisas_family = Family(
+        id="f4",
+        partners=[
+            FamilyPartner(person_id="p4", role="mother"),
+            FamilyPartner(person_id="p11", role="father"),
+        ],
+        children=["p12", "p13"],
+    )
+
+    families = [grandparent_family, parent_family, karls_family_1, karls_family_2, lisas_family]
 
     return ProjectData(
         project=ProjectMetadata(title="Demo Släktträd", main_person_id="p3"),
@@ -195,7 +309,7 @@ def main() -> None:
     # Create the diagram panel
     panel = DiagramPanel()
     panel.setWindowTitle("Släktbusken – Familjevy (demo)")
-    panel.resize(1100, 700)
+    panel.resize(1200, 800)
 
     # Load demo data
     data = create_demo_data()
@@ -205,7 +319,7 @@ def main() -> None:
         birth_place=True,
         death_date=True,
         death_place=False,
-        marriage_date=True,
+        marriage_date=False,
         occupation=True,
     )
 
@@ -218,7 +332,8 @@ def main() -> None:
 
     # Fit the scene in view after showing
     panel.view.resetTransform()
-    panel.view.fitInView(panel.scene.sceneRect().adjusted(-50, -50, 50, 50))
+    scene_rect = panel.scene.sceneRect().adjusted(-60, -60, 60, 60)
+    panel.view.fitInView(scene_rect)
 
     sys.exit(qt_app.exec())
 

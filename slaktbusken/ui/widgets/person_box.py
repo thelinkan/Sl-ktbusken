@@ -84,6 +84,14 @@ class PersonBoxItem(QGraphicsItem):
         return self._person_id
 
     @property
+    def box_height(self) -> float:
+        """The actual rendered height of this box."""
+        return max(
+            _BOX_HEIGHT_MIN,
+            len(self._lines) * _LINE_HEIGHT + 2 * _PADDING,
+        )
+
+    @property
     def is_selected(self) -> bool:
         """Whether this box is visually selected."""
         return self._selected

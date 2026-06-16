@@ -3,43 +3,50 @@
 Visar den aktiva personen med föräldrar, syskon, partner och barn
 i en överskådlig diagramvy. Hanterar klick, dubbelklick och
 tangentbordsinteraktion (A-tangenten) för navigation.
+
+Layout (uppifrån och ned):
+    Row 0: Far ——— Mor  (horisontell partnerlinje, centrerad ovanför syskonlinjen)
+           |
+    Row 1: Horisontell syskonlinje med vertikala droppar ned till varje syskon
+           Aktiv person | Syskon1 | Syskon2 ...
+    Row 2: Under varje syskon: Make/Maka (vertikal koppling)
+    Row 3+: Under make/maka: Barn (staplade vertikalt)
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QGraphicsScene
 
-from slaktbusken.model.family import Family, FamilyPartner
+from slaktbusken.model.family import Family
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.persistence.settings_io import PersonBoxConfig
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
-from slaktbusken.ui.widgets.person_box import PersonBoxItem
+from slaktbusken.ui.widgets.person_box import PersonBoxItem, _BOX_WIDTH
 from slaktbusken.ui.widgets.placeholder_box import PlaceholderBoxItem, PlaceholderRole
-
-if TYPE_CHECKING:
-    from slaktbusken.model.event import Event
 
 logger = logging.getLogger(__name__)
 
 # Layout constants
-_BOX_WIDTH = 180.0
-_BOX_HEIGHT = 50.0
-_H_SPACING = 30.0  # Horizontal spacing between boxes
-_V_SPACING = 80.0  # Vertical spacing between rows
-_SIBLING_SPACING = 20.0  # Spacing between sibling boxes
+_H_GAP = 40.0  # Horizontal gap between sibling columns
+_V_GAP = 50.0  # Vertical gap between rows
+_PARENT_GAP = 50.0  # Horizontal gap between father and mother boxes
+_CHILD_V_GAP = 20.0  # Vertical gap between stacked children
+_BAR_DROP = 25.0  # Distance from parent bottom / sibling top to the bar
+_PLACEHOLDER_HEIGHT = 50.0  # Fixed height of placeholder boxes
 
 
 class FamilyView:
     """Renderar familjediagrammet i en QGraphicsScene.
 
-    Visar den aktiva personen centralt med föräldrar ovanför,
-    syskon bredvid, partner till höger/vänster och barn nedanför.
-    Hanterar interaktion via klick, dubbelklick och tangentbord.
+    Layout:
+        - Föräldrar centrerade ovanför syskonlinjen med partnerlinje.
+        - Horisontell syskonlinje med vertikala droppar till varje syskon.
+        - Under varje syskon (inklusive aktiva personen): make/maka och barn.
 
     Attributes:
         selected_person_id: ID för den visuellt markerade personen.
@@ -60,9 +67,6 @@ class FamilyView:
     ) -> None:
         """Rendera familjediagrammet i scenen.
 
-        Populerar scenen med personrutor, platshållare och
-        förbindelselinjer för den aktiva personens familj.
-
         Args:
             scene: QGraphicsScene att populera.
             project_data: Projektdata med personer, familjer och händelser.
@@ -80,51 +84,65 @@ class FamilyView:
         # Find the family where active person is a child (parent family)
         parent_family = _find_parent_family(project_data, active_person_id)
 
-        # Find all families where active person is a partner
-        partner_families = _find_partner_families(project_data, active_person_id)
-
-        # --- Layout calculations ---
-        # Row 0: Parents (top)
-        # Row 1: Active person + siblings (middle)
-        # Row 2: Partners beside active person + children (bottom)
-
-        # Middle row: active person and siblings
+        # Siblings from parent family
         siblings: list[str] = []
         if parent_family:
             siblings = [
                 cid for cid in parent_family.children if cid != active_person_id
             ]
 
-        # Calculate middle row positioning
-        middle_persons = [active_person_id] + siblings
-        middle_count = len(middle_persons)
-        middle_total_width = (
-            middle_count * _BOX_WIDTH + (middle_count - 1) * _SIBLING_SPACING
-        )
-        middle_start_x = -middle_total_width / 2.0
-        middle_y = 0.0
-
-        # Place active person and siblings
-        active_box: Optional[PersonBoxItem] = None
-        active_x = middle_start_x
-        for i, pid in enumerate(middle_persons):
-            x = middle_start_x + i * (_BOX_WIDTH + _SIBLING_SPACING)
+        # ===================================================================
+        # STEP 1: Create all sibling boxes to know their actual heights.
+        # The sibling row includes active person first, then siblings.
+        # ===================================================================
+        all_sibling_ids = [active_person_id] + siblings
+        sibling_boxes: list[PersonBoxItem] = []
+        for pid in all_sibling_ids:
             p = _find_person(project_data, pid)
             if p is None:
                 continue
             display_data = _build_display_data(p, project_data)
             box = PersonBoxItem(pid, display_data, config)
-            box.setPos(x, middle_y)
+            sibling_boxes.append(box)
+
+        if not sibling_boxes:
+            return
+
+        sibling_count = len(sibling_boxes)
+
+        # Compute sibling row width and positions
+        siblings_total_width = (
+            sibling_count * _BOX_WIDTH + (sibling_count - 1) * _H_GAP
+        )
+        siblings_start_x = -siblings_total_width / 2.0
+        siblings_y = 0.0  # Reference row
+
+        # Place sibling boxes in the scene
+        sibling_positions: list[tuple[float, float]] = []  # (x, y) for each
+        active_x = 0.0
+        max_sibling_height = 0.0
+
+        for i, box in enumerate(sibling_boxes):
+            x = siblings_start_x + i * (_BOX_WIDTH + _H_GAP)
+            box.setPos(x, siblings_y)
             scene.addItem(box)
             self._person_boxes.append(box)
-            if pid == active_person_id:
-                active_box = box
+            sibling_positions.append((x, siblings_y))
+            if box.person_id == active_person_id:
                 active_x = x
+            if box.box_height > max_sibling_height:
+                max_sibling_height = box.box_height
 
-        # --- Parents row (above) ---
-        parent_y = middle_y - _V_SPACING - _BOX_HEIGHT
-        father_x = active_x - (_BOX_WIDTH + _H_SPACING) / 2.0
-        mother_x = active_x + (_BOX_WIDTH + _H_SPACING) / 2.0
+        # ===================================================================
+        # STEP 2: Parents — centered above the sibling bar
+        # ===================================================================
+        # The sibling bar will be centered over the sibling row.
+        # Parents connect at the center of the bar.
+        bar_center_x = siblings_start_x + (siblings_total_width / 2.0)
+
+        # Parent boxes: father to the left of center, mother to the right
+        father_x = bar_center_x - _PARENT_GAP / 2.0 - _BOX_WIDTH
+        mother_x = bar_center_x + _PARENT_GAP / 2.0
 
         father_id: Optional[str] = None
         mother_id: Optional[str] = None
@@ -136,169 +154,253 @@ class FamilyView:
                 elif partner.role == "mother":
                     mother_id = partner.person_id
 
-        # Father box or placeholder
-        father_center_bottom: Optional[QPointF] = None
+        # Create parent boxes to determine their heights
+        father_box: Optional[PersonBoxItem] = None
+        mother_box: Optional[PersonBoxItem] = None
+        father_height = _PLACEHOLDER_HEIGHT
+        mother_height = _PLACEHOLDER_HEIGHT
+
+        # The bar is at a fixed distance above the sibling row
+        bar_y = siblings_y - _BAR_DROP
+
+        # Parents are above the bar
+        # We need to know parent height first, so create the boxes:
         if father_id:
             p = _find_person(project_data, father_id)
             if p:
                 display_data = _build_display_data(p, project_data)
-                box = PersonBoxItem(father_id, display_data, config)
-                box.setPos(father_x, parent_y)
-                scene.addItem(box)
-                self._person_boxes.append(box)
-                father_center_bottom = QPointF(
-                    father_x + _BOX_WIDTH / 2.0, parent_y + _BOX_HEIGHT
-                )
+                father_box = PersonBoxItem(father_id, display_data, config)
+                father_height = father_box.box_height
+
+        if mother_id:
+            p = _find_person(project_data, mother_id)
+            if p:
+                display_data = _build_display_data(p, project_data)
+                mother_box = PersonBoxItem(mother_id, display_data, config)
+                mother_height = mother_box.box_height
+
+        max_parent_height = max(father_height, mother_height)
+        parents_y = bar_y - _BAR_DROP - max_parent_height
+
+        # Place father
+        if father_box:
+            father_box.setPos(father_x, parents_y)
+            scene.addItem(father_box)
+            self._person_boxes.append(father_box)
         else:
             placeholder = PlaceholderBoxItem(
                 PlaceholderRole.FATHER,
                 family_id=parent_family.id if parent_family else None,
             )
-            placeholder.setPos(father_x, parent_y)
+            placeholder.setPos(father_x, parents_y)
             scene.addItem(placeholder)
             self._placeholder_boxes.append(placeholder)
-            father_center_bottom = QPointF(
-                father_x + _BOX_WIDTH / 2.0, parent_y + _BOX_HEIGHT
-            )
 
-        # Mother box or placeholder
-        mother_center_bottom: Optional[QPointF] = None
-        if mother_id:
-            p = _find_person(project_data, mother_id)
-            if p:
-                display_data = _build_display_data(p, project_data)
-                box = PersonBoxItem(mother_id, display_data, config)
-                box.setPos(mother_x, parent_y)
-                scene.addItem(box)
-                self._person_boxes.append(box)
-                mother_center_bottom = QPointF(
-                    mother_x + _BOX_WIDTH / 2.0, parent_y + _BOX_HEIGHT
-                )
+        # Place mother
+        if mother_box:
+            mother_box.setPos(mother_x, parents_y)
+            scene.addItem(mother_box)
+            self._person_boxes.append(mother_box)
         else:
             placeholder = PlaceholderBoxItem(
                 PlaceholderRole.MOTHER,
                 family_id=parent_family.id if parent_family else None,
             )
-            placeholder.setPos(mother_x, parent_y)
+            placeholder.setPos(mother_x, parents_y)
             scene.addItem(placeholder)
             self._placeholder_boxes.append(placeholder)
-            mother_center_bottom = QPointF(
-                mother_x + _BOX_WIDTH / 2.0, parent_y + _BOX_HEIGHT
-            )
 
-        # Partner connection between parents
-        if father_center_bottom and mother_center_bottom:
-            partner_line_y = parent_y + _BOX_HEIGHT / 2.0
-            start_pt = QPointF(father_x + _BOX_WIDTH, partner_line_y)
-            end_pt = QPointF(mother_x, partner_line_y)
-            line = ConnectionLineItem(start_pt, end_pt, ConnectionType.PARTNER)
-            scene.addItem(line)
-
-        # Connection from parents down to active person
-        active_top_center = QPointF(
-            active_x + _BOX_WIDTH / 2.0, middle_y
+        # ===================================================================
+        # STEP 3: Connection lines — parents to sibling bar
+        # ===================================================================
+        # Horizontal partner line between father and mother (at their vertical center)
+        partner_line_y = parents_y + max_parent_height / 2.0
+        father_right = QPointF(father_x + _BOX_WIDTH, partner_line_y)
+        mother_left = QPointF(mother_x, partner_line_y)
+        scene.addItem(
+            ConnectionLineItem(father_right, mother_left, ConnectionType.PARTNER)
         )
-        if father_center_bottom:
-            line = ConnectionLineItem(
-                father_center_bottom, active_top_center, ConnectionType.PARENT_CHILD
-            )
-            scene.addItem(line)
-        if mother_center_bottom:
-            line = ConnectionLineItem(
-                mother_center_bottom, active_top_center, ConnectionType.PARENT_CHILD
-            )
-            scene.addItem(line)
 
-        # Connections to siblings
-        for i, pid in enumerate(siblings):
-            sib_x = middle_start_x + (i + 1) * (_BOX_WIDTH + _SIBLING_SPACING)
-            sib_top_center = QPointF(sib_x + _BOX_WIDTH / 2.0, middle_y)
-            if father_center_bottom:
-                line = ConnectionLineItem(
-                    father_center_bottom, sib_top_center, ConnectionType.PARENT_CHILD
+        # Vertical drop from the midpoint of the partner line down to the bar
+        partner_mid_x = (father_x + _BOX_WIDTH + mother_x) / 2.0
+        scene.addItem(ConnectionLineItem(
+            QPointF(partner_mid_x, partner_line_y),
+            QPointF(bar_center_x, bar_y),
+            ConnectionType.PARENT_CHILD,
+        ))
+
+        # Horizontal sibling bar
+        leftmost_center_x = siblings_start_x + _BOX_WIDTH / 2.0
+        rightmost_center_x = (
+            siblings_start_x + (sibling_count - 1) * (_BOX_WIDTH + _H_GAP)
+            + _BOX_WIDTH / 2.0
+        )
+
+        if sibling_count > 1:
+            scene.addItem(ConnectionLineItem(
+                QPointF(leftmost_center_x, bar_y),
+                QPointF(rightmost_center_x, bar_y),
+                ConnectionType.PARENT_CHILD,
+            ))
+        else:
+            # Single child — just ensure bar_center connects to that child
+            pass
+
+        # Vertical drops from bar to each sibling's actual top
+        for i, box in enumerate(sibling_boxes):
+            sib_center_x = (
+                siblings_start_x + i * (_BOX_WIDTH + _H_GAP) + _BOX_WIDTH / 2.0
+            )
+            scene.addItem(ConnectionLineItem(
+                QPointF(sib_center_x, bar_y),
+                QPointF(sib_center_x, siblings_y),
+                ConnectionType.PARENT_CHILD,
+            ))
+
+        # ===================================================================
+        # STEP 4: Spouse(s) and children below each sibling
+        #
+        # Layout: a vertical "spine" on the left side of the sibling box
+        # connects downward. Each spouse branches off to the right from
+        # this spine, with children stacking below each spouse.
+        #
+        #   ┌────────────────┐
+        #   │  Sibling       │
+        #   ├────────────────┘
+        #   │  (spine runs down left edge)
+        #   │
+        #   ├──┌────────────────┐
+        #   │  │  Spouse 1      │
+        #   │  └───────┬────────┘
+        #   │          │ children stacked
+        #   │          │
+        #   ├──┌────────────────┐
+        #   │  │  Spouse 2      │
+        #      └───────┬────────┘
+        #              │ children stacked
+        # ===================================================================
+        _SPINE_OFFSET = 15.0  # how far left of the box the spine runs
+        _SPINE_TO_BOX = 15.0  # horizontal segment from spine to spouse box left edge
+        _SPOUSE_INDENT = _SPINE_OFFSET + _SPINE_TO_BOX  # total indent for spouse/children
+
+        for i, box in enumerate(sibling_boxes):
+            sib_x = sibling_positions[i][0]
+            sib_height = box.box_height
+
+            # Find partner families for this sibling
+            sib_partner_families = _find_partner_families(
+                project_data, box.person_id
+            )
+
+            if not sib_partner_families:
+                continue
+
+            # Spine X is to the left of the sibling box
+            spine_x = sib_x - _SPINE_OFFSET
+
+            # Spine starts at the vertical center of the sibling box
+            spine_start_y = siblings_y + sib_height / 2.0
+
+            # Horizontal connector from sibling left edge to spine (at mid-height)
+            scene.addItem(ConnectionLineItem(
+                QPointF(sib_x, spine_start_y),
+                QPointF(spine_x, spine_start_y),
+                ConnectionType.PARTNER,
+            ))
+
+            # Current Y cursor — first spouse placed below the sibling box bottom
+            cur_y = siblings_y + sib_height + _CHILD_V_GAP
+
+            # Track the lowest point the spine reaches
+            spine_end_y = cur_y
+
+            for fam_idx, family in enumerate(sib_partner_families):
+                other_partners = [
+                    fp for fp in family.partners
+                    if fp.person_id != box.person_id
+                ]
+
+                # Spouse box is indented to the right of the spine
+                spouse_x = sib_x
+                spouse_mid_y = cur_y  # will be set after placing
+
+                # Place spouse box
+                spouse_box_item: Optional[PersonBoxItem] = None
+                for fp in other_partners:
+                    sp = _find_person(project_data, fp.person_id)
+                    if sp:
+                        display_data = _build_display_data(sp, project_data)
+                        spouse_box_item = PersonBoxItem(
+                            fp.person_id, display_data, config
+                        )
+                        spouse_box_item.setPos(spouse_x, cur_y)
+                        scene.addItem(spouse_box_item)
+                        self._person_boxes.append(spouse_box_item)
+
+                # Determine spouse box height
+                if spouse_box_item:
+                    sp_height = spouse_box_item.box_height
+                else:
+                    sp_height = _PLACEHOLDER_HEIGHT
+
+                # Horizontal connector from spine to spouse left edge (at spouse mid-height)
+                spouse_mid_y = cur_y + sp_height / 2.0
+                scene.addItem(ConnectionLineItem(
+                    QPointF(spine_x, spouse_mid_y),
+                    QPointF(spouse_x, spouse_mid_y),
+                    ConnectionType.PARTNER,
+                ))
+
+                spine_end_y = spouse_mid_y
+
+                # Move below spouse
+                cur_y += sp_height + _CHILD_V_GAP
+
+                # --- Children below spouse, stacked vertically ---
+                children_ids = family.children
+                child_center_x = spouse_x + _BOX_WIDTH / 2.0
+
+                for c_idx, child_id in enumerate(children_ids):
+                    cp = _find_person(project_data, child_id)
+                    if cp:
+                        display_data = _build_display_data(cp, project_data)
+                        child_box = PersonBoxItem(child_id, display_data, config)
+                        child_box.setPos(spouse_x, cur_y)
+                        scene.addItem(child_box)
+                        self._person_boxes.append(child_box)
+
+                        # Vertical line from above to child top
+                        scene.addItem(ConnectionLineItem(
+                            QPointF(child_center_x, cur_y - _CHILD_V_GAP),
+                            QPointF(child_center_x, cur_y),
+                            ConnectionType.PARENT_CHILD,
+                        ))
+
+                        cur_y += child_box.box_height + _CHILD_V_GAP
+
+                # Placeholder for adding new child
+                placeholder = PlaceholderBoxItem(
+                    PlaceholderRole.CHILD, family_id=family.id
                 )
-                scene.addItem(line)
-            if mother_center_bottom:
-                line = ConnectionLineItem(
-                    mother_center_bottom, sib_top_center, ConnectionType.PARENT_CHILD
-                )
-                scene.addItem(line)
+                placeholder.setPos(spouse_x, cur_y)
+                scene.addItem(placeholder)
+                self._placeholder_boxes.append(placeholder)
 
-        # --- Partners and children (below) ---
-        partner_y = middle_y + _BOX_HEIGHT + _V_SPACING
-        children_y = partner_y + _BOX_HEIGHT + _V_SPACING
+                # Line to placeholder from above
+                scene.addItem(ConnectionLineItem(
+                    QPointF(child_center_x, cur_y - _CHILD_V_GAP),
+                    QPointF(child_center_x, cur_y),
+                    ConnectionType.PARENT_CHILD,
+                ))
 
-        partner_offset_x = active_x + _BOX_WIDTH + _H_SPACING * 2
+                cur_y += _PLACEHOLDER_HEIGHT + _CHILD_V_GAP
 
-        for fam_idx, family in enumerate(partner_families):
-            # Find partner(s) in this family (not active person)
-            other_partners = [
-                fp for fp in family.partners if fp.person_id != active_person_id
-            ]
-
-            # Place partner boxes
-            for p_idx, fp in enumerate(other_partners):
-                px = partner_offset_x + (fam_idx + p_idx) * (_BOX_WIDTH + _H_SPACING)
-                p = _find_person(project_data, fp.person_id)
-                if p:
-                    display_data = _build_display_data(p, project_data)
-                    box = PersonBoxItem(fp.person_id, display_data, config)
-                    box.setPos(px, middle_y)
-                    scene.addItem(box)
-                    self._person_boxes.append(box)
-
-                    # Partner connection line
-                    active_right = QPointF(
-                        active_x + _BOX_WIDTH, middle_y + _BOX_HEIGHT / 2.0
-                    )
-                    partner_left = QPointF(px, middle_y + _BOX_HEIGHT / 2.0)
-                    line = ConnectionLineItem(
-                        active_right, partner_left, ConnectionType.PARTNER
-                    )
-                    scene.addItem(line)
-
-            # Children of this family
-            children_ids = family.children
-            child_count = len(children_ids)
-            # Also add a placeholder for adding new child
-            total_child_slots = child_count + 1  # +1 for placeholder
-
-            # Center children below active person and partner area
-            child_area_x = active_x
-            for c_idx, child_id in enumerate(children_ids):
-                cx = child_area_x + (
-                    (fam_idx * (total_child_slots)) + c_idx
-                ) * (_BOX_WIDTH + _SIBLING_SPACING)
-                cp = _find_person(project_data, child_id)
-                if cp:
-                    display_data = _build_display_data(cp, project_data)
-                    box = PersonBoxItem(child_id, display_data, config)
-                    box.setPos(cx, children_y)
-                    scene.addItem(box)
-                    self._person_boxes.append(box)
-
-                    # Connection from active person to child
-                    active_bottom_center = QPointF(
-                        active_x + _BOX_WIDTH / 2.0, middle_y + _BOX_HEIGHT
-                    )
-                    child_top_center = QPointF(cx + _BOX_WIDTH / 2.0, children_y)
-                    line = ConnectionLineItem(
-                        active_bottom_center,
-                        child_top_center,
-                        ConnectionType.PARENT_CHILD,
-                    )
-                    scene.addItem(line)
-
-            # Placeholder for new child
-            placeholder_cx = child_area_x + (
-                (fam_idx * (total_child_slots)) + child_count
-            ) * (_BOX_WIDTH + _SIBLING_SPACING)
-            placeholder = PlaceholderBoxItem(
-                PlaceholderRole.CHILD, family_id=family.id
-            )
-            placeholder.setPos(placeholder_cx, children_y)
-            scene.addItem(placeholder)
-            self._placeholder_boxes.append(placeholder)
+            # Draw the vertical spine line from sibling bottom to last spouse connector
+            scene.addItem(ConnectionLineItem(
+                QPointF(spine_x, spine_start_y),
+                QPointF(spine_x, spine_end_y),
+                ConnectionType.PARTNER,
+            ))
 
     def handle_click(self, person_id: str) -> None:
         """Hantera klick på en personruta — markera visuellt.
