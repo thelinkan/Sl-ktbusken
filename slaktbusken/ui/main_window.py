@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStatusBar,
     QToolBar,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -199,7 +198,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _setup_central_widget(self) -> None:
-        """Create left/right panel splitter with PersonListPanel and diagram placeholder."""
+        """Create left/right panel splitter with PersonListPanel and DiagramPanel."""
+        from slaktbusken.ui.diagram_panel import DiagramPanel
         from slaktbusken.ui.person_list_panel import PersonListPanel
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -208,12 +208,10 @@ class MainWindow(QMainWindow):
         self.person_list_panel = PersonListPanel(self._app)
         self.left_panel = self.person_list_panel
 
-        # Right panel placeholder (will be DiagramPanel in Task 19)
-        self.right_panel = QWidget()
-        right_layout = QVBoxLayout(self.right_panel)
-        self._diagram_label = QLabel("Diagramvy — Familjevy\n(implementeras i nästa steg)")
-        self._diagram_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        right_layout.addWidget(self._diagram_label)
+        # Right panel: DiagramPanel
+        self.diagram_panel = DiagramPanel(self)
+        self.diagram_panel.switch_view(ViewType.FAMILY)
+        self.right_panel = self.diagram_panel
 
         self.splitter.addWidget(self.left_panel)
         self.splitter.addWidget(self.right_panel)
@@ -276,14 +274,12 @@ class MainWindow(QMainWindow):
             view_type: The view to switch to.
         """
         self._current_view = view_type
+        self.diagram_panel.switch_view(view_type)
         view_names = {
             ViewType.FAMILY: "Familjevy",
             ViewType.ANCESTRY: "Antavla",
             ViewType.DESCENDANTS: "Descendentvy",
         }
-        self._diagram_label.setText(
-            f"Diagramvy — {view_names[view_type]}\n(implementeras i nästa steg)"
-        )
         self.statusBar().showMessage(f"Växlade till {view_names[view_type]}", 3000)
 
     def _show_about(self) -> None:

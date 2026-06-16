@@ -149,11 +149,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 18.5 Write property test for place hierarchy event filtering (Property 11): parish filter includes sub-place events (`tests/test_ui/test_person_list_filter.py`)
   - **Requirements:** 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 10.2
 
-- [ ] 19. Diagram Panel Infrastructure
-  - [ ] 19.1 Implement `slaktbusken/ui/diagram_panel.py` with DiagramPanel: QGraphicsScene, ZoomableGraphicsView (mouse wheel zoom 25%-400%), view switching (Family/Ancestry/Descendants)
-  - [ ] 19.2 Implement `slaktbusken/ui/widgets/person_box.py` with PersonBoxItem QGraphicsItem: configurable content fields (name, dates, places, photo, DNA info), paint method
-  - [ ] 19.3 Implement `slaktbusken/ui/widgets/placeholder_box.py` with PlaceholderBox for missing relatives (click to add)
-  - [ ] 19.4 Implement `slaktbusken/ui/widgets/connection_line.py` with ConnectionLine QGraphicsItem for parent-child and partner connections
+- [x] 19. Diagram Panel Infrastructure
+  - [x] 19.1 Implement `slaktbusken/ui/diagram_panel.py` with DiagramPanel: QGraphicsScene, ZoomableGraphicsView (mouse wheel zoom 25%-400%), view switching (Family/Ancestry/Descendants)
+  - [x] 19.2 Implement `slaktbusken/ui/widgets/person_box.py` with PersonBoxItem QGraphicsItem: configurable content fields (name, dates, places, photo, DNA info), paint method
+  - [x] 19.3 Implement `slaktbusken/ui/widgets/placeholder_box.py` with PlaceholderBox for missing relatives (click to add)
+  - [x] 19.4 Implement `slaktbusken/ui/widgets/connection_line.py` with ConnectionLine QGraphicsItem for parent-child and partner connections
   - **Requirements:** 17.2, 17.3, 17.4, 17.5, 20.1, 20.4
 
 - [ ] 20. Family View
