@@ -6,13 +6,244 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>600</width>
-    <height>400</height>
+    <width>900</width>
+    <height>550</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Place Editor</string>
+   <string>Platsredigerare</string>
   </property>
+  <layout class="QHBoxLayout" name="main_layout">
+   <item>
+    <widget class="QSplitter" name="splitter">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <widget class="QWidget" name="left_panel">
+      <layout class="QVBoxLayout" name="left_layout">
+       <item>
+        <widget class="QLabel" name="filter_label">
+         <property name="text">
+          <string>Filtrera:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="filter_input">
+         <property name="placeholderText">
+          <string>Sök plats...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="place_list"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="list_buttons_layout">
+         <item>
+          <widget class="QPushButton" name="add_button">
+           <property name="text">
+            <string>Lägg till</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="delete_button">
+           <property name="text">
+            <string>Ta bort</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="list_buttons_spacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="right_panel">
+      <layout class="QVBoxLayout" name="right_layout">
+       <item>
+        <layout class="QFormLayout" name="form_layout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="type_label">
+           <property name="text">
+            <string>Typ:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QComboBox" name="type_combo">
+           <item>
+            <property name="text">
+             <string>Land</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Län</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Socken</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Kyrka</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Kyrkogård</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="name_label">
+           <property name="text">
+            <string>Namn:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLineEdit" name="name_input">
+           <property name="maxLength">
+            <number>200</number>
+           </property>
+           <property name="placeholderText">
+            <string>Platsnamn (1–200 tecken)</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="parent_label">
+           <property name="text">
+            <string>Överordnad plats:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QComboBox" name="parent_combo"/>
+         </item>
+         <item row="3" column="1">
+          <widget class="QCheckBox" name="coordinates_check">
+           <property name="text">
+            <string>Ange koordinater</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="latitude_label">
+           <property name="text">
+            <string>Latitud:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QDoubleSpinBox" name="latitude_spin">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="minimum">
+            <double>-90.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>90.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>6</number>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QLabel" name="longitude_label">
+           <property name="text">
+            <string>Longitud:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QDoubleSpinBox" name="longitude_spin">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="minimum">
+            <double>-180.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>180.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>6</number>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0">
+          <widget class="QLabel" name="notes_label">
+           <property name="text">
+            <string>Anteckningar:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="1">
+          <widget class="QPlainTextEdit" name="notes_input">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>120</height>
+            </size>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="status_label">
+         <property name="text">
+          <string/>
+         </property>
+         <property name="styleSheet">
+          <string>color: red;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="buttons_layout">
+         <item>
+          <spacer name="buttons_spacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="save_button">
+           <property name="text">
+            <string>Spara</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="cancel_button">
+           <property name="text">
+            <string>Avbryt</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
  </widget>
  <resources/>
  <connections/>

@@ -203,11 +203,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 26.3 Implement source reference management within events: add/remove source_refs with source_id, quality (primary/secondary/tertiary), and optional note
   - **Requirements:** 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 2.9, 2.10, 2.11
 
-- [ ] 27. Place, Source, and Repository Editors
-  - [ ] 27.1 Design and implement place editor (place_editor.ui + place_editor.py): type selector, name, parent place selection, coordinates, notes; place list view with filtering
-  - [ ] 27.2 Design and implement source editor (source_editor.ui + source_editor.py): provider, source_type selector, title, reference_text, dynamic structured_reference fields based on type, media linking, repository_refs
-  - [ ] 27.3 Design and implement repository editor (repository_editor.ui + repository_editor.py): name, type, address, phone list, email list, web list, notes, external_ids
-  - [ ] 27.4 Implement deletion warnings for places (referenced by events) and sources (referenced by source_refs) and repositories (referenced by sources)
+- [x] 27. Place, Source, and Repository Editors
+  - [x] 27.1 Design and implement place editor (place_editor.ui + place_editor.py): type selector, name, parent place selection, coordinates, notes; place list view with filtering
+  - [x] 27.2 Design and implement source editor (source_editor.ui + source_editor.py): provider, source_type selector, title, reference_text, dynamic structured_reference fields based on type, media linking, repository_refs
+  - [x] 27.3 Design and implement repository editor (repository_editor.ui + repository_editor.py): name, type, address, phone list, email list, web list, notes, external_ids
+  - [x] 27.4 Implement deletion warnings for places (referenced by events) and sources (referenced by source_refs) and repositories (referenced by sources)
   - **Requirements:** 10.3, 10.4, 10.5, 11.1, 11.2, 11.3, 11.4, 11.5, 23.1, 23.3, 23.4
 
 - [ ] 28. Media Editor

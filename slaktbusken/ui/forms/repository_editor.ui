@@ -6,13 +6,313 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>600</width>
-    <height>400</height>
+    <width>900</width>
+    <height>600</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Repository Editor</string>
+   <string>Arkivredigerare</string>
   </property>
+  <layout class="QHBoxLayout" name="main_layout">
+   <item>
+    <widget class="QSplitter" name="splitter">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <widget class="QWidget" name="left_panel">
+      <layout class="QVBoxLayout" name="left_layout">
+       <item>
+        <widget class="QLineEdit" name="filter_input">
+         <property name="placeholderText">
+          <string>Filtrera arkiv...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="repository_list"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="left_buttons_layout">
+         <item>
+          <widget class="QPushButton" name="add_repository_button">
+           <property name="text">
+            <string>Lägg till</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="delete_repository_button">
+           <property name="text">
+            <string>Ta bort</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="right_panel">
+      <layout class="QVBoxLayout" name="right_layout">
+       <item>
+        <layout class="QFormLayout" name="form_layout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="name_label">
+           <property name="text">
+            <string>Namn:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLineEdit" name="name_input"/>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="type_label">
+           <property name="text">
+            <string>Typ:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QComboBox" name="type_combo">
+           <item>
+            <property name="text">
+             <string>Arkiv</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Bibliotek</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Digitalt arkiv</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Museum</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Kyrkokontor</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Övrigt</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="address_label">
+           <property name="text">
+            <string>Adress:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QLineEdit" name="address_input"/>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="phone_group">
+         <property name="title">
+          <string>Telefon</string>
+         </property>
+         <layout class="QVBoxLayout" name="phone_group_layout">
+          <item>
+           <widget class="QListWidget" name="phone_list">
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>80</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="phone_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_phone_button">
+              <property name="text">
+               <string>Lägg till</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_phone_button">
+              <property name="text">
+               <string>Ta bort</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="email_group">
+         <property name="title">
+          <string>E-post</string>
+         </property>
+         <layout class="QVBoxLayout" name="email_group_layout">
+          <item>
+           <widget class="QListWidget" name="email_list">
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>80</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="email_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_email_button">
+              <property name="text">
+               <string>Lägg till</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_email_button">
+              <property name="text">
+               <string>Ta bort</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="web_group">
+         <property name="title">
+          <string>Webb</string>
+         </property>
+         <layout class="QVBoxLayout" name="web_group_layout">
+          <item>
+           <widget class="QListWidget" name="web_list">
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>80</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="web_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_web_button">
+              <property name="text">
+               <string>Lägg till</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_web_button">
+              <property name="text">
+               <string>Ta bort</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="external_ids_group">
+         <property name="title">
+          <string>Externa ID</string>
+         </property>
+         <layout class="QVBoxLayout" name="external_ids_group_layout">
+          <item>
+           <widget class="QListWidget" name="external_ids_list">
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>80</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="external_ids_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_external_id_button">
+              <property name="text">
+               <string>Lägg till</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_external_id_button">
+              <property name="text">
+               <string>Ta bort</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="notes_label">
+         <property name="text">
+          <string>Anteckningar:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTextEdit" name="notes_input">
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>80</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="action_buttons_layout">
+         <item>
+          <widget class="QPushButton" name="save_button">
+           <property name="text">
+            <string>Spara</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="cancel_button">
+           <property name="text">
+            <string>Avbryt</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="status_label">
+         <property name="text">
+          <string/>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
  </widget>
  <resources/>
  <connections/>
