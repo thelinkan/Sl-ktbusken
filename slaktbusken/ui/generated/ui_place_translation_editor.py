@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QForm
     QLineEdit, QPushButton, QSizePolicy, QSpacerItem,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-
 class Ui_PlaceTranslationEditor(object):
     def setupUi(self, PlaceTranslationEditor):
         if not PlaceTranslationEditor.objectName():
@@ -139,11 +138,11 @@ class Ui_PlaceTranslationEditor(object):
         PlaceTranslationEditor.setWindowTitle(QCoreApplication.translate("PlaceTranslationEditor", u"Plats\u00f6vers\u00e4ttningsredigerare", None))
         self.search_input.setPlaceholderText(QCoreApplication.translate("PlaceTranslationEditor", u"S\u00f6k...", None))
         ___qtablewidgetitem = self.mapping_table.horizontalHeaderItem(0)
-        ___qtablewidgetitem.setText(QCoreApplication.translate("PlaceTranslationEditor", u"GEDCOM-platss\u0074r\u00e4ng", None))
+        ___qtablewidgetitem.setText(QCoreApplication.translate("PlaceTranslationEditor", u"GEDCOM-platsstr\u00e4ng", None))
         ___qtablewidgetitem1 = self.mapping_table.horizontalHeaderItem(1)
         ___qtablewidgetitem1.setText(QCoreApplication.translate("PlaceTranslationEditor", u"App_JSON Plats", None))
         self.edit_group.setTitle(QCoreApplication.translate("PlaceTranslationEditor", u"Redigera mappning", None))
-        self.gedcom_place_label.setText(QCoreApplication.translate("PlaceTranslationEditor", u"GEDCOM-platss\u0074r\u00e4ng:", None))
+        self.gedcom_place_label.setText(QCoreApplication.translate("PlaceTranslationEditor", u"GEDCOM-platsstr\u00e4ng:", None))
         self.gedcom_place_input.setPlaceholderText(QCoreApplication.translate("PlaceTranslationEditor", u"T.ex. Ljusdal, G\u00e4vleborgs l\u00e4n, Sverige", None))
         self.app_place_label.setText(QCoreApplication.translate("PlaceTranslationEditor", u"App_JSON-plats:", None))
         self.hierarchy_title_label.setText(QCoreApplication.translate("PlaceTranslationEditor", u"Hierarki:", None))
@@ -156,3 +155,4 @@ class Ui_PlaceTranslationEditor(object):
         self.save_button.setText(QCoreApplication.translate("PlaceTranslationEditor", u"Spara", None))
         self.status_label.setText("")
     # retranslateUi
+

@@ -197,10 +197,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 25.3 Implement validation feedback: prevent save without at least one name entry, display error for missing names
   - **Requirements:** 7.1, 7.2, 7.3, 7.4, 7.5, 7.6
 
-- [ ] 26. Event Editor
-  - [ ] 26.1 Design `slaktbusken/ui/forms/event_editor.ui` with fields for type selector (individual/family types), participants, date (value + precision), place, sources, media, and type-specific fields (cause of death, custom type name)
-  - [ ] 26.2 Implement `slaktbusken/ui/editors/event_editor.py` using generated UI: create/edit events, add participants, attach source references with quality levels, link media
-  - [ ] 26.3 Implement source reference management within events: add/remove source_refs with source_id, quality (primary/secondary/tertiary), and optional note
+- [x] 26. Event Editor
+  - [x] 26.1 Design `slaktbusken/ui/forms/event_editor.ui` with fields for type selector (individual/family types), participants, date (value + precision), place, sources, media, and type-specific fields (cause of death, custom type name)
+  - [x] 26.2 Implement `slaktbusken/ui/editors/event_editor.py` using generated UI: create/edit events, add participants, attach source references with quality levels, link media
+  - [x] 26.3 Implement source reference management within events: add/remove source_refs with source_id, quality (primary/secondary/tertiary), and optional note
   - **Requirements:** 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 2.9, 2.10, 2.11
 
 - [ ] 27. Place, Source, and Repository Editors
