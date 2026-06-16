@@ -4,6 +4,7 @@ Exports the view classes used by DiagramPanel to render
 different family tree diagram layouts.
 """
 
+from slaktbusken.ui.views.ancestry_view import AncestryView
 from slaktbusken.ui.views.family_view import FamilyView
 
-__all__ = ["FamilyView"]
+__all__ = ["AncestryView", "FamilyView"]

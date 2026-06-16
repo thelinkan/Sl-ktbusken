@@ -160,6 +160,7 @@ class DiagramPanel(QWidget):
         self._current_view: Optional[ViewType] = None
         self._project_data: Optional[ProjectData] = None
         self._person_box_config: Optional[PersonBoxConfig] = None
+        self._diagram_settings = None
 
         self._scene = QGraphicsScene(self)
         self._view = ZoomableGraphicsView(self._scene, self)
@@ -168,10 +169,12 @@ class DiagramPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._view)
 
-        # Family view renderer
+        # View renderers
         from slaktbusken.ui.views.family_view import FamilyView
+        from slaktbusken.ui.views.ancestry_view import AncestryView
 
         self._family_view = FamilyView()
+        self._ancestry_view = AncestryView()
 
         # Enable keyboard focus for A-key handling
         self._view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -219,6 +222,15 @@ class DiagramPanel(QWidget):
             config: PersonBoxConfig med fältinställningar.
         """
         self._person_box_config = config
+        self._refresh_diagram()
+
+    def set_diagram_settings(self, settings) -> None:
+        """Ange diagraminställningar (djup för anor/ättlingar).
+
+        Args:
+            settings: DiagramSettings med djupinställningar.
+        """
+        self._diagram_settings = settings
         self._refresh_diagram()
 
     def set_active_person(self, person_id: Optional[str]) -> None:
@@ -275,7 +287,10 @@ class DiagramPanel(QWidget):
         # A-key on the view for activation
         if obj == self._view and isinstance(event, QKeyEvent):
             if event.type() == event.Type.KeyPress and event.key() == Qt.Key.Key_A:
-                selected_id = self._family_view.selected_person_id
+                selected_id = (
+                    self._family_view.selected_person_id
+                    or self._ancestry_view.selected_person_id
+                )
                 if selected_id:
                     self.person_activated.emit(selected_id)
                     self.set_active_person(selected_id)
@@ -301,11 +316,13 @@ class DiagramPanel(QWidget):
         selected_items = self._scene.selectedItems()
         if not selected_items:
             self._family_view.deselect_all()
+            self._ancestry_view.deselect_all()
             return
 
         item = selected_items[0]
         if isinstance(item, PersonBoxItem):
             self._family_view.handle_click(item.person_id)
+            self._ancestry_view.handle_click(item.person_id)
             self.person_selected.emit(item.person_id)
         elif isinstance(item, PlaceholderBoxItem):
             role_str = item.role.name.lower()
@@ -325,8 +342,8 @@ class DiagramPanel(QWidget):
     def _refresh_diagram(self) -> None:
         """Clear and rebuild the diagram for the current state.
 
-        Uses the FamilyView renderer when the current view is FAMILY
-        and project data is available.
+        Uses the FamilyView renderer when the current view is FAMILY,
+        AncestryView when ANCESTRY, and project data is available.
         """
         self._scene.clear()
 
@@ -347,6 +364,33 @@ class DiagramPanel(QWidget):
 
             # Connect double-click on person boxes
             for box in self._family_view.get_person_boxes():
+                box.setFlag(
+                    box.GraphicsItemFlag.ItemIsSelectable, True
+                )
+
+        elif (
+            self._current_view == ViewType.ANCESTRY
+            and self._project_data is not None
+            and self._active_person_id is not None
+            and self._person_box_config is not None
+        ):
+            from slaktbusken.persistence.settings_io import DiagramSettings
+
+            # Get ancestry depth from the config; default to 4
+            ancestry_depth = 4
+            if hasattr(self, "_diagram_settings") and self._diagram_settings:
+                ancestry_depth = self._diagram_settings.ancestry_depth
+
+            self._ancestry_view.render(
+                self._scene,
+                self._project_data,
+                self._active_person_id,
+                self._person_box_config,
+                depth=ancestry_depth,
+            )
+
+            # Enable selection on person boxes
+            for box in self._ancestry_view.get_person_boxes():
                 box.setFlag(
                     box.GraphicsItemFlag.ItemIsSelectable, True
                 )
