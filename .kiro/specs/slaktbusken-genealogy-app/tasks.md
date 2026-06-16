@@ -179,10 +179,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 22.5 Add print support for Descendants View diagram
   - **Requirements:** 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8
 
-- [ ] 23. Source Translation Editor
-  - [ ] 23.1 Design `slaktbusken/ui/forms/source_translation_editor.ui` with searchable list of GEDCOM source identifiers showing mapped App_JSON source titles, edit/add mapping controls, and validation indicators
-  - [ ] 23.2 Implement `slaktbusken/ui/editors/source_translation_editor.py` using generated UI: load source translation file, display searchable list, edit existing mappings, add new mappings (specify GEDCOM ID, select target App_JSON source record), validate target exists before save
-  - [ ] 23.3 Handle save errors with Swedish-language messages, retain unsaved changes in editor
+- [x] 23. Source Translation Editor
+  - [x] 23.1 Design `slaktbusken/ui/forms/source_translation_editor.ui` with searchable list of GEDCOM source identifiers showing mapped App_JSON source titles, edit/add mapping controls, and validation indicators
+  - [x] 23.2 Implement `slaktbusken/ui/editors/source_translation_editor.py` using generated UI: load source translation file, display searchable list, edit existing mappings, add new mappings (specify GEDCOM ID, select target App_JSON source record), validate target exists before save
+  - [x] 23.3 Handle save errors with Swedish-language messages, retain unsaved changes in editor
   - **Requirements:** 6.1, 6.2, 6.5, 6.6
 
 - [ ] 24. Place Translation Editor
