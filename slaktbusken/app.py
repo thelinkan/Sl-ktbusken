@@ -46,6 +46,11 @@ class Application:
         # Main window (receives self for action callbacks)
         self.main_window = MainWindow(self)
 
+        # Connect person list selection to diagram panel navigation
+        self.main_window.person_list_panel.person_selected.connect(
+            self.main_window.diagram_panel.set_active_person
+        )
+
     # ------------------------------------------------------------------
     # Action callbacks (invoked by MainWindow actions)
     # ------------------------------------------------------------------
@@ -360,10 +365,11 @@ class Application:
             self.main_window.update_project_status(None)
 
     def _update_diagram_panel(self) -> None:
-        """Uppdatera diagrampanelen med aktuell projektdata och inställningar.
+        """Uppdatera diagrampanelen och personlistan med aktuell projektdata.
 
         Sätter projektdata, personbox-konfiguration och aktiv person
         på DiagramPanel så att familjediagrammet renderas korrekt.
+        Uppdaterar även personlistan så att den visar alla personer.
         """
         panel = self.main_window.diagram_panel
         settings = self.project_service.settings
@@ -381,8 +387,14 @@ class Application:
                 panel.set_active_person(main_person)
             elif project_data.persons:
                 panel.set_active_person(project_data.persons[0].id)
+
+            # Refresh the person list panel with current project data
+            self.main_window.person_list_panel.refresh()
         else:
             panel.set_project_data(None)
+            # Clear the person list when no project is open
+            self.main_window.person_list_panel._display_list = []
+            self.main_window.person_list_panel._apply_current_view()
 
 
 

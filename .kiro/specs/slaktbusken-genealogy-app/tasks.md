@@ -249,10 +249,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 33.2 Verify the person selection UI is presented and functional after import
   - **Requirements:** 4.1
 
-- [ ] 34. Bug: No Persons Shown in Personlista
-  - [ ] 34.1 Investigate why the PersonListPanel does not display any persons after data is loaded
-  - [ ] 34.2 Fix the data binding or signal connection so that persons are populated in the list panel
-  - [ ] 34.3 Verify filtering and sorting still work correctly after the fix
+- [x] 34. Bug: No Persons Shown in Personlista
+  - [x] 34.1 Investigate why the PersonListPanel does not display any persons after data is loaded
+  - [x] 34.2 Fix the data binding or signal connection so that persons are populated in the list panel
+  - [x] 34.3 Verify filtering and sorting still work correctly after the fix
   - **Requirements:** 16.1, 16.2
 
 - [ ] 35. Bug: Parents Not Shown Correctly When Active Person Changes
