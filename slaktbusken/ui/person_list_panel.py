@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 from slaktbusken.model.event import Event
 from slaktbusken.model.family import Family
+from slaktbusken.model.name_parser import parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.dna import DnaCluster
@@ -76,7 +77,7 @@ class PersonDisplayInfo:
 
     Attributes:
         person_id: The unique identifier of the person.
-        given: Given name from the first name entry.
+        given: Given name from the first name entry (clean, asterisk removed).
         surname: Surname from the first name entry.
         title: Person title (e.g. 'Fil.Dr') or empty string.
         birth_year: Birth year as string, or empty if unavailable.
@@ -85,6 +86,7 @@ class PersonDisplayInfo:
         event_types: Set of event types the person participates in.
         parish_names: Set of parish names associated with this person's events.
         cluster_names: Set of DNA cluster names (lowercase) the person belongs to.
+        tilltalsnamn_index: Zero-based index of the tilltalsnamn part, or None.
     """
 
     person_id: str
@@ -97,6 +99,7 @@ class PersonDisplayInfo:
     event_types: set[str]
     parish_names: set[str]
     cluster_names: set[str] = field(default_factory=set)
+    tilltalsnamn_index: int | None = None
 
 
 def extract_year(date_value_str: str) -> str:
@@ -362,10 +365,23 @@ def build_person_display_list(
         event_types = get_person_event_types(person, events, families)
         parish_names = get_person_parish_names(person, events, places)
         cluster_names = get_person_cluster_names(person, dna_clusters)
+
+        # Parse given name to extract tilltalsnamn and clean display string
+        given_display = first_name.given
+        tilltalsnamn_index: int | None = None
+        try:
+            parsed = parse_given_name(first_name.given)
+            given_display = parsed.display_string
+            tilltalsnamn_index = parsed.tilltalsnamn_index
+        except ValueError:
+            # Multiple markers — fall back to raw given name, no tilltalsnamn
+            given_display = first_name.given
+            tilltalsnamn_index = None
+
         display_list.append(
             PersonDisplayInfo(
                 person_id=person.id,
-                given=first_name.given,
+                given=given_display,
                 surname=first_name.surname,
                 title=person.title or "",
                 birth_year=birth_year,
@@ -374,9 +390,12 @@ def build_person_display_list(
                 event_types=event_types,
                 parish_names=parish_names,
                 cluster_names=cluster_names,
+                tilltalsnamn_index=tilltalsnamn_index,
             )
         )
 
+    # Sort uses clean given name (asterisk marker already removed via name_parser)
+    # so sort order is unaffected by the tilltalsnamn marker.
     display_list.sort(key=lambda p: (p.surname.lower(), p.given.lower()))
     return display_list
 
@@ -431,7 +450,7 @@ def filter_persons(
     """Filter a list of persons by the given criteria using AND logic.
 
     - title: case-insensitive substring on person's title
-    - given: case-insensitive substring on given name
+    - given: case-insensitive substring on given name (asterisk-free, from name_parser)
     - surname: case-insensitive substring on surname
     - event_types: person must participate in at least one event of these types
     - birth_year_from/to: birth year must be within range
@@ -439,6 +458,13 @@ def filter_persons(
     - marriage_year_from/to: marriage year must be within range
     - parish: case-insensitive match on any of the person's parish names
     - cluster: case-insensitive substring on any of the person's cluster names
+
+    Note on tilltalsnamn asterisk handling:
+        The ``given`` field in PersonDisplayInfo is already the clean display
+        string (asterisk marker removed) produced by ``name_parser.parse_given_name``.
+        This means filtering naturally ignores the asterisk marker, and a literal
+        ``*`` in the search criteria is treated as a literal character — it simply
+        won't match any name part since the stored given name contains no asterisks.
 
     Args:
         persons: The pre-computed person display list.
@@ -680,10 +706,16 @@ class PersonListPanel(QWidget):
         self._list_widget.setVisible(True)
 
         for person_info in self._filtered_list:
-            display_text = self._format_person_display(person_info)
-            item = QListWidgetItem(display_text)
+            html_text = self._format_person_html(person_info)
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, person_info.person_id)
             self._list_widget.addItem(item)
+
+            label = QLabel(html_text)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+            label.setContentsMargins(4, 2, 4, 2)
+            item.setSizeHint(QSize(label.sizeHint().width(), label.sizeHint().height() + 4))
+            self._list_widget.setItemWidget(item, label)
 
     def _format_person_display(self, info: PersonDisplayInfo) -> str:
         """Format a person's display text for the list.
@@ -706,6 +738,43 @@ class PersonListPanel(QWidget):
         if years_parts:
             return f"{name_part} {years_parts[0]}"
         return name_part
+
+    def _format_person_html(self, info: PersonDisplayInfo) -> str:
+        """Format a person's display text as HTML with tilltalsnamn underlined.
+
+        Shows: "Surname, Given1 <u>Given2</u> Given3 (birth–death)" where the
+        tilltalsnamn part is wrapped in <u> tags. If no tilltalsnamn is marked,
+        all given names are rendered without underline.
+
+        The raw asterisk is never displayed.
+
+        Args:
+            info: The person display info.
+
+        Returns:
+            HTML string for rendering in a QLabel.
+        """
+        # Build the given name portion with underline on tilltalsnamn
+        given_parts = info.given.split() if info.given else []
+        if info.tilltalsnamn_index is not None and 0 <= info.tilltalsnamn_index < len(given_parts):
+            html_given_parts: list[str] = []
+            for i, part in enumerate(given_parts):
+                if i == info.tilltalsnamn_index:
+                    html_given_parts.append(f"<u>{part}</u>")
+                else:
+                    html_given_parts.append(part)
+            given_html = " ".join(html_given_parts)
+        else:
+            given_html = info.given
+
+        name_html = f"{info.surname}, {given_html}"
+
+        # Add years if available
+        if info.birth_year or info.death_year:
+            birth = info.birth_year if info.birth_year else "?"
+            death = info.death_year if info.death_year else "?"
+            return f"{name_html} ({birth}\u2013{death})"
+        return name_html
 
     def _on_item_clicked(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
         """Handle single-click: emit person_selected signal.

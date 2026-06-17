@@ -60,32 +60,32 @@ Implement the Swedish genealogy convention of marking a person's tilltalsnamn wi
     - Test multiple markers case underlines only first marked part
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 4. Integrate name parser into Person List Panel
-  - [~] 4.1 Extend `PersonDisplayInfo` and update `PersonListPanel` to use parsed name
+- [x] 4. Integrate name parser into Person List Panel
+  - [x] 4.1 Extend `PersonDisplayInfo` and update `PersonListPanel` to use parsed name
     - Add `tilltalsnamn_index: int | None` field to `PersonDisplayInfo`
     - Update `_format_person_display` to use `parse_given_name()` and store clean display_string in the `given` field for sorting/filtering
     - Store `tilltalsnamn_index` from parsed result
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.4_
 
-  - [~] 4.2 Render tilltalsnamn with HTML underline in Person List Panel
+  - [x] 4.2 Render tilltalsnamn with HTML underline in Person List Panel
     - Use `QLabel` as item widget with HTML `<u>` tags around the tilltalsnamn part
     - Render non-tilltalsnamn parts without underline
     - Ensure raw asterisk is never displayed in the list
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-  - [~] 4.3 Update filter logic to use clean name (asterisk removed)
+  - [x] 4.3 Update filter logic to use clean name (asterisk removed)
     - Ensure `filter_persons` matches against `display_string` (asterisk removed) using case-insensitive substring matching
     - Ensure literal asterisk in search term is treated as a literal character
     - Ensure sorting uses clean given name
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
 
-  - [~] 4.4 Write property tests for filter and sort (Properties 7–8)
+  - [x] 4.4 Write property tests for filter and sort (Properties 7–8)
     - **Property 7: Filter Matches on Clean Name**
     - **Property 8: Sort Uses Clean Name**
     - Add to `tests/test_model/test_name_parser.py` or `tests/test_ui/test_person_list_filter.py`
     - **Validates: Requirements 4.1, 4.4**
 
-  - [~] 4.5 Write example-based unit tests for Person List Panel rendering and filtering
+  - [x] 4.5 Write example-based unit tests for Person List Panel rendering and filtering
     - Add tests to `tests/test_ui/test_person_list_filter.py`
     - Test search for "Torbjörn" finds "Kent Torbjörn*"
     - Test search for "Kent" finds "Kent Torbjörn*"
