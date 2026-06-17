@@ -22,6 +22,7 @@ from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDialog,
     QGraphicsScene,
     QGraphicsView,
@@ -271,18 +272,20 @@ class RelationshipDialog(QDialog):
         self._combo_b.clear()
         self._person_id_map.clear()
 
+        display_names: list[str] = []
         for idx, person in enumerate(self._persons):
             display = self._person_display_name(person)
             self._combo_a.addItem(display)
             self._combo_b.addItem(display)
             self._person_id_map[idx] = person.id
+            display_names.append(display)
 
-        # Set completer mode for substring matching
+        # Create custom QCompleter with substring matching for each combo box
         for combo in (self._combo_a, self._combo_b):
-            completer = combo.completer()
-            if completer:
-                completer.setFilterMode(Qt.MatchFlag.MatchContains)
-                completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            completer = QCompleter(display_names, combo)
+            completer.setFilterMode(Qt.MatchFlag.MatchContains)
+            completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            combo.setCompleter(completer)
 
     # ------------------------------------------------------------------
     # Calculation

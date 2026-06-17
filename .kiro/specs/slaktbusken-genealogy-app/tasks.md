@@ -274,10 +274,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 37.3 Write unit tests for missing reference errors: non-existent person_id in family, non-existent source_id in source_ref, non-existent place_id in event (`tests/test_services/test_validation_service.py`)
   - **Requirements:** 3.4, 4.7, 4.8, 22.6
 
-- [ ] 38. Bug: Relationship Dialog Person Search Only Matches From Start
-  - [ ] 38.1 Investigate why the editable QComboBox person search in the relationship dialog only matches when typing the beginning of a name rather than any substring
-  - [ ] 38.2 Fix the completer/filter so that typing any part of a person's name (given name, surname, or any middle name) returns matching results
-  - [ ] 38.3 Verify that searching by surname, given name, or partial name all produce correct matches
+- [x] 38. Bug: Relationship Dialog Person Search Only Matches From Start
+  - [x] 38.1 Investigate why the editable QComboBox person search in the relationship dialog only matches when typing the beginning of a name rather than any substring
+  - [x] 38.2 Fix the completer/filter so that typing any part of a person's name (given name, surname, or any middle name) returns matching results
+  - [x] 38.3 Verify that searching by surname, given name, or partial name all produce correct matches
   - **Requirements:** 15.1
 
 - [ ] 39. Bug: Cannot Open Person Editor
