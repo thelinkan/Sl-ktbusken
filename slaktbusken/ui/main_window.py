@@ -126,6 +126,21 @@ class MainWindow(QMainWindow):
             lambda: self._switch_view(ViewType.DESCENDANTS)
         )
 
+        # Redigera (Edit)
+        self.action_source_editor = QAction("&Källredigerare...", self)
+        self.action_source_editor.setToolTip("Visa, redigera och hantera källor")
+        self.action_source_editor.triggered.connect(self._app.show_source_editor)
+
+        self.action_source_translation_editor = QAction(
+            "Käll&översättningar...", self
+        )
+        self.action_source_translation_editor.setToolTip(
+            "Redigera GEDCOM-till-App_JSON källöversättningar"
+        )
+        self.action_source_translation_editor.triggered.connect(
+            self._app.show_source_translation_editor
+        )
+
         # Verktyg (Tools)
         self.action_relationship = QAction("&Släktskapsberäknare...", self)
         self.action_relationship.setToolTip("Beräkna släktskap mellan två personer")
@@ -157,7 +172,8 @@ class MainWindow(QMainWindow):
 
         # Redigera (Edit)
         self.menu_edit = menu_bar.addMenu("&Redigera")
-        # Placeholder — edit actions will be added in later tasks
+        self.menu_edit.addAction(self.action_source_editor)
+        self.menu_edit.addAction(self.action_source_translation_editor)
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
@@ -263,6 +279,8 @@ class MainWindow(QMainWindow):
         self.action_export.setEnabled(project_open)
         self.action_close.setEnabled(project_open)
         self.action_relationship.setEnabled(project_open)
+        self.action_source_editor.setEnabled(project_open)
+        self.action_source_translation_editor.setEnabled(project_open)
         self.action_view_family.setEnabled(project_open)
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)

@@ -350,6 +350,87 @@ class Application:
         self.project_service._dirty = True
         self._update_status()
 
+    def show_source_editor(self) -> None:
+        """Open the source editor dialog.
+
+        Creates a SourceEditor wrapped in a QDialog, showing the current
+        project's sources for viewing, editing, and linking.
+        """
+        from slaktbusken.ui.editors.source_editor import SourceEditor
+
+        project_data = self.project_service.data
+
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Källredigerare")
+        dialog.setMinimumSize(800, 600)
+        layout = QVBoxLayout(dialog)
+
+        editor = SourceEditor(
+            project_data=project_data,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        dialog.exec()
+
+        # If a source was saved via the editor, update project state
+        if editor.saved_source is not None:
+            saved = editor.saved_source
+            # Update or add the source in project data
+            found = False
+            for i, existing in enumerate(project_data.sources):
+                if existing.id == saved.id:
+                    project_data.sources[i] = saved
+                    found = True
+                    break
+            if not found:
+                project_data.sources.append(saved)
+
+            self.project_service._dirty = True
+            self._update_status()
+
+    def show_source_translation_editor(self) -> None:
+        """Open the source translation editor dialog.
+
+        Creates a SourceTranslationEditor wrapped in a QDialog, allowing
+        the user to view, add, edit, and remove GEDCOM-to-App_JSON source
+        translation mappings.
+        """
+        from slaktbusken.ui.editors.source_translation_editor import (
+            SourceTranslationEditor,
+        )
+
+        project_data = self.project_service.data
+        project_path = self.project_service.project_path
+        if project_path is None:
+            return
+
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Källöversättningar")
+        dialog.setMinimumSize(700, 500)
+        layout = QVBoxLayout(dialog)
+
+        editor = SourceTranslationEditor(
+            translation_service=self.translation_service,
+            project_data=project_data,
+            project_path=project_path.parent,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        # Load existing translation data
+        try:
+            editor.load_data()
+        except Exception as e:
+            logger.warning("Kunde inte ladda källöversättningar: %s", e)
+
+        dialog.exec()
+
+        # If the editor saved changes, mark project dirty
+        if editor.is_dirty:
+            self.project_service._dirty = True
+            self._update_status()
+
     def confirm_close(self) -> bool:
         """Check if the application can close (confirm unsaved changes).
 

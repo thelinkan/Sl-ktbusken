@@ -29,7 +29,11 @@
         </widget>
        </item>
        <item>
-        <widget class="QListWidget" name="source_list"/>
+        <widget class="QListWidget" name="source_list">
+         <property name="minimumSize">
+          <size><width>0</width><height>200</height></size>
+         </property>
+        </widget>
        </item>
        <item>
         <layout class="QHBoxLayout" name="list_buttons_layout">
@@ -54,243 +58,283 @@
      <widget class="QWidget" name="right_panel">
       <layout class="QVBoxLayout" name="right_layout">
        <item>
-        <widget class="QGroupBox" name="basic_group">
-         <property name="title">
-          <string>Källuppgifter</string>
+        <widget class="QScrollArea" name="scroll_area">
+         <property name="widgetResizable">
+          <bool>true</bool>
          </property>
-         <layout class="QVBoxLayout" name="basic_layout">
-          <item>
-           <layout class="QHBoxLayout" name="provider_layout">
-            <item>
-             <widget class="QLabel" name="provider_label">
-              <property name="text"><string>Leverantör:</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLineEdit" name="provider_input">
-              <property name="maxLength"><number>200</number></property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="type_layout">
-            <item>
-             <widget class="QLabel" name="type_label">
-              <property name="text"><string>Källtyp:</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QComboBox" name="source_type_combo"/>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="title_layout">
-            <item>
-             <widget class="QLabel" name="title_label">
-              <property name="text"><string>Titel:</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLineEdit" name="title_input">
-              <property name="maxLength"><number>500</number></property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="ref_text_layout">
-            <item>
-             <widget class="QLabel" name="ref_text_label">
-              <property name="text"><string>Referenstext:</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLineEdit" name="reference_text_input">
-              <property name="maxLength"><number>500</number></property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="provider_ref_layout">
-            <item>
-             <widget class="QLabel" name="provider_ref_label">
-              <property name="text"><string>Leverantörsref:</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLineEdit" name="provider_ref_input">
-              <property name="maxLength"><number>200</number></property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="short_note_layout">
-            <item>
-             <widget class="QLabel" name="short_note_label">
-              <property name="text"><string>Kort notering:</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLineEdit" name="short_note_input">
-              <property name="maxLength"><number>200</number></property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QVBoxLayout" name="free_note_layout">
-            <item>
-             <widget class="QLabel" name="free_note_label">
-              <property name="text"><string>Fri anteckning:</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QTextEdit" name="free_note_input">
-              <property name="maximumSize">
-               <size><width>16777215</width><height>80</height></size>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-         </layout>
-        </widget>
-       </item>
-       <item>
-        <widget class="QGroupBox" name="structured_ref_group">
-         <property name="title">
-          <string>Strukturerad referens</string>
+         <property name="frameShape">
+          <enum>QFrame::NoFrame</enum>
          </property>
-         <layout class="QVBoxLayout" name="structured_ref_layout">
-          <item>
-           <layout class="QHBoxLayout" name="parish_layout">
-            <item><widget class="QLabel" name="parish_label"><property name="text"><string>Församling:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="parish_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="county_code_layout">
-            <item><widget class="QLabel" name="county_code_label"><property name="text"><string>Länskod:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="county_code_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="series_layout">
-            <item><widget class="QLabel" name="series_label"><property name="text"><string>Serie:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="series_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="volume_layout">
-            <item><widget class="QLabel" name="volume_label"><property name="text"><string>Volym:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="volume_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="years_layout">
-            <item><widget class="QLabel" name="years_label"><property name="text"><string>År:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="years_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="image_layout">
-            <item><widget class="QLabel" name="image_label"><property name="text"><string>Bild:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="image_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="page_layout">
-            <item><widget class="QLabel" name="page_label"><property name="text"><string>Sida:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="page_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="database_name_layout">
-            <item><widget class="QLabel" name="database_name_label"><property name="text"><string>Databasnamn:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="database_name_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="record_id_layout">
-            <item><widget class="QLabel" name="record_id_label"><property name="text"><string>Post-ID:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="record_id_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="dn_newspaper_layout">
-            <item><widget class="QLabel" name="dn_newspaper_label"><property name="text"><string>Tidning:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="dn_newspaper_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="publication_date_layout">
-            <item><widget class="QLabel" name="publication_date_label"><property name="text"><string>Publiceringsdatum:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="publication_date_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="dn_page_layout">
-            <item><widget class="QLabel" name="dn_page_label"><property name="text"><string>Sida:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="dn_page_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="np_newspaper_layout">
-            <item><widget class="QLabel" name="np_newspaper_label"><property name="text"><string>Tidning:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="np_newspaper_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="np_date_layout">
-            <item><widget class="QLabel" name="np_date_label"><property name="text"><string>Datum:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="np_date_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="np_page_layout">
-            <item><widget class="QLabel" name="np_page_label"><property name="text"><string>Sida:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="np_page_input"/></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="article_title_layout">
-            <item><widget class="QLabel" name="article_title_label"><property name="text"><string>Artikeltitel:</string></property></widget></item>
-            <item><widget class="QLineEdit" name="article_title_input"/></item>
-           </layout>
-          </item>
-         </layout>
-        </widget>
-       </item>
-       <item>
-        <widget class="QGroupBox" name="media_group">
-         <property name="title"><string>Länkade media</string></property>
-         <layout class="QVBoxLayout" name="media_group_layout">
-          <item><widget class="QListWidget" name="media_list"/></item>
-          <item>
-           <layout class="QHBoxLayout" name="media_buttons_layout">
-            <item><widget class="QPushButton" name="add_media_button"><property name="text"><string>Lägg till media</string></property></widget></item>
-            <item><widget class="QPushButton" name="remove_media_button"><property name="text"><string>Ta bort media</string></property></widget></item>
-           </layout>
-          </item>
-         </layout>
-        </widget>
-       </item>
-       <item>
-        <widget class="QGroupBox" name="repository_group">
-         <property name="title"><string>Arkivreferenser</string></property>
-         <layout class="QVBoxLayout" name="repository_group_layout">
-          <item><widget class="QListWidget" name="repository_list"/></item>
-          <item>
-           <layout class="QHBoxLayout" name="repository_buttons_layout">
-            <item><widget class="QPushButton" name="add_repository_button"><property name="text"><string>Lägg till arkiv</string></property></widget></item>
-            <item><widget class="QPushButton" name="remove_repository_button"><property name="text"><string>Ta bort arkiv</string></property></widget></item>
-           </layout>
-          </item>
-         </layout>
+         <widget class="QWidget" name="scroll_content">
+          <layout class="QVBoxLayout" name="scroll_content_layout">
+           <item>
+            <widget class="QGroupBox" name="basic_group">
+             <property name="title">
+              <string>Källuppgifter</string>
+             </property>
+             <layout class="QVBoxLayout" name="basic_layout">
+              <item>
+               <layout class="QHBoxLayout" name="provider_layout">
+                <item>
+                 <widget class="QLabel" name="provider_label">
+                  <property name="text"><string>Leverantör:</string></property>
+                  <property name="minimumSize"><size><width>110</width><height>0</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="provider_input">
+                  <property name="maxLength"><number>200</number></property>
+                  <property name="minimumSize"><size><width>0</width><height>28</height></size></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="type_layout">
+                <item>
+                 <widget class="QLabel" name="type_label">
+                  <property name="text"><string>Källtyp:</string></property>
+                  <property name="minimumSize"><size><width>110</width><height>0</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QComboBox" name="source_type_combo">
+                  <property name="minimumSize"><size><width>0</width><height>28</height></size></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="title_layout">
+                <item>
+                 <widget class="QLabel" name="title_label">
+                  <property name="text"><string>Titel:</string></property>
+                  <property name="minimumSize"><size><width>110</width><height>0</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="title_input">
+                  <property name="maxLength"><number>500</number></property>
+                  <property name="minimumSize"><size><width>0</width><height>28</height></size></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="ref_text_layout">
+                <item>
+                 <widget class="QLabel" name="ref_text_label">
+                  <property name="text"><string>Referenstext:</string></property>
+                  <property name="minimumSize"><size><width>110</width><height>0</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="reference_text_input">
+                  <property name="maxLength"><number>500</number></property>
+                  <property name="minimumSize"><size><width>0</width><height>28</height></size></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="provider_ref_layout">
+                <item>
+                 <widget class="QLabel" name="provider_ref_label">
+                  <property name="text"><string>Leverantörsref:</string></property>
+                  <property name="minimumSize"><size><width>110</width><height>0</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="provider_ref_input">
+                  <property name="maxLength"><number>200</number></property>
+                  <property name="minimumSize"><size><width>0</width><height>28</height></size></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="short_note_layout">
+                <item>
+                 <widget class="QLabel" name="short_note_label">
+                  <property name="text"><string>Kort notering:</string></property>
+                  <property name="minimumSize"><size><width>110</width><height>0</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="short_note_input">
+                  <property name="maxLength"><number>200</number></property>
+                  <property name="minimumSize"><size><width>0</width><height>28</height></size></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QVBoxLayout" name="free_note_layout">
+                <item>
+                 <widget class="QLabel" name="free_note_label">
+                  <property name="text"><string>Fri anteckning:</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QTextEdit" name="free_note_input">
+                  <property name="minimumSize">
+                   <size><width>0</width><height>80</height></size>
+                  </property>
+                  <property name="maximumSize">
+                   <size><width>16777215</width><height>120</height></size>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="structured_ref_group">
+             <property name="title">
+              <string>Strukturerad referens</string>
+             </property>
+             <layout class="QVBoxLayout" name="structured_ref_layout">
+              <item>
+               <layout class="QHBoxLayout" name="parish_layout">
+                <item><widget class="QLabel" name="parish_label"><property name="text"><string>Församling:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="parish_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="county_code_layout">
+                <item><widget class="QLabel" name="county_code_label"><property name="text"><string>Länskod:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="county_code_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="series_layout">
+                <item><widget class="QLabel" name="series_label"><property name="text"><string>Serie:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="series_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="volume_layout">
+                <item><widget class="QLabel" name="volume_label"><property name="text"><string>Volym:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="volume_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="years_layout">
+                <item><widget class="QLabel" name="years_label"><property name="text"><string>År:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="years_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="image_layout">
+                <item><widget class="QLabel" name="image_label"><property name="text"><string>Bild:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="image_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="page_layout">
+                <item><widget class="QLabel" name="page_label"><property name="text"><string>Sida:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="page_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="database_name_layout">
+                <item><widget class="QLabel" name="database_name_label"><property name="text"><string>Databasnamn:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="database_name_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="record_id_layout">
+                <item><widget class="QLabel" name="record_id_label"><property name="text"><string>Post-ID:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="record_id_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="dn_newspaper_layout">
+                <item><widget class="QLabel" name="dn_newspaper_label"><property name="text"><string>Tidning:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="dn_newspaper_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="publication_date_layout">
+                <item><widget class="QLabel" name="publication_date_label"><property name="text"><string>Publiceringsdatum:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="publication_date_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="dn_page_layout">
+                <item><widget class="QLabel" name="dn_page_label"><property name="text"><string>Sida:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="dn_page_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="np_newspaper_layout">
+                <item><widget class="QLabel" name="np_newspaper_label"><property name="text"><string>Tidning:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="np_newspaper_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="np_date_layout">
+                <item><widget class="QLabel" name="np_date_label"><property name="text"><string>Datum:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="np_date_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="np_page_layout">
+                <item><widget class="QLabel" name="np_page_label"><property name="text"><string>Sida:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="np_page_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="article_title_layout">
+                <item><widget class="QLabel" name="article_title_label"><property name="text"><string>Artikeltitel:</string></property><property name="minimumSize"><size><width>110</width><height>0</height></size></property></widget></item>
+                <item><widget class="QLineEdit" name="article_title_input"><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="media_group">
+             <property name="title"><string>Länkade media</string></property>
+             <layout class="QVBoxLayout" name="media_group_layout">
+              <item>
+               <widget class="QListWidget" name="media_list">
+                <property name="minimumSize"><size><width>0</width><height>80</height></size></property>
+                <property name="maximumSize"><size><width>16777215</width><height>120</height></size></property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="media_buttons_layout">
+                <item><widget class="QPushButton" name="add_media_button"><property name="text"><string>Lägg till media</string></property></widget></item>
+                <item><widget class="QPushButton" name="remove_media_button"><property name="text"><string>Ta bort media</string></property></widget></item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="repository_group">
+             <property name="title"><string>Arkivreferenser</string></property>
+             <layout class="QVBoxLayout" name="repository_group_layout">
+              <item>
+               <widget class="QListWidget" name="repository_list">
+                <property name="minimumSize"><size><width>0</width><height>80</height></size></property>
+                <property name="maximumSize"><size><width>16777215</width><height>120</height></size></property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="repository_buttons_layout">
+                <item><widget class="QPushButton" name="add_repository_button"><property name="text"><string>Lägg till arkiv</string></property></widget></item>
+                <item><widget class="QPushButton" name="remove_repository_button"><property name="text"><string>Ta bort arkiv</string></property></widget></item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
         </widget>
        </item>
        <item>

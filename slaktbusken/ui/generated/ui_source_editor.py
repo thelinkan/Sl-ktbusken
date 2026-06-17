@@ -15,10 +15,11 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QComboBox, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QPushButton, QSizePolicy, QSpacerItem, QSplitter,
-    QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFrame, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QPushButton, QScrollArea, QSizePolicy,
+    QSpacerItem, QSplitter, QTextEdit, QVBoxLayout,
+    QWidget)
 
 class Ui_SourceEditor(object):
     def setupUi(self, SourceEditor):
@@ -42,6 +43,7 @@ class Ui_SourceEditor(object):
 
         self.source_list = QListWidget(self.left_panel)
         self.source_list.setObjectName(u"source_list")
+        self.source_list.setMinimumSize(QSize(0, 200))
 
         self.left_layout.addWidget(self.source_list)
 
@@ -66,7 +68,15 @@ class Ui_SourceEditor(object):
         self.right_layout = QVBoxLayout(self.right_panel)
         self.right_layout.setObjectName(u"right_layout")
         self.right_layout.setContentsMargins(0, 0, 0, 0)
-        self.basic_group = QGroupBox(self.right_panel)
+        self.scroll_area = QScrollArea(self.right_panel)
+        self.scroll_area.setObjectName(u"scroll_area")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_content = QWidget()
+        self.scroll_content.setObjectName(u"scroll_content")
+        self.scroll_content_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_content_layout.setObjectName(u"scroll_content_layout")
+        self.basic_group = QGroupBox(self.scroll_content)
         self.basic_group.setObjectName(u"basic_group")
         self.basic_layout = QVBoxLayout(self.basic_group)
         self.basic_layout.setObjectName(u"basic_layout")
@@ -74,12 +84,14 @@ class Ui_SourceEditor(object):
         self.provider_layout.setObjectName(u"provider_layout")
         self.provider_label = QLabel(self.basic_group)
         self.provider_label.setObjectName(u"provider_label")
+        self.provider_label.setMinimumSize(QSize(110, 0))
 
         self.provider_layout.addWidget(self.provider_label)
 
         self.provider_input = QLineEdit(self.basic_group)
         self.provider_input.setObjectName(u"provider_input")
         self.provider_input.setMaxLength(200)
+        self.provider_input.setMinimumSize(QSize(0, 28))
 
         self.provider_layout.addWidget(self.provider_input)
 
@@ -90,11 +102,13 @@ class Ui_SourceEditor(object):
         self.type_layout.setObjectName(u"type_layout")
         self.type_label = QLabel(self.basic_group)
         self.type_label.setObjectName(u"type_label")
+        self.type_label.setMinimumSize(QSize(110, 0))
 
         self.type_layout.addWidget(self.type_label)
 
         self.source_type_combo = QComboBox(self.basic_group)
         self.source_type_combo.setObjectName(u"source_type_combo")
+        self.source_type_combo.setMinimumSize(QSize(0, 28))
 
         self.type_layout.addWidget(self.source_type_combo)
 
@@ -105,12 +119,14 @@ class Ui_SourceEditor(object):
         self.title_layout.setObjectName(u"title_layout")
         self.title_label = QLabel(self.basic_group)
         self.title_label.setObjectName(u"title_label")
+        self.title_label.setMinimumSize(QSize(110, 0))
 
         self.title_layout.addWidget(self.title_label)
 
         self.title_input = QLineEdit(self.basic_group)
         self.title_input.setObjectName(u"title_input")
         self.title_input.setMaxLength(500)
+        self.title_input.setMinimumSize(QSize(0, 28))
 
         self.title_layout.addWidget(self.title_input)
 
@@ -121,12 +137,14 @@ class Ui_SourceEditor(object):
         self.ref_text_layout.setObjectName(u"ref_text_layout")
         self.ref_text_label = QLabel(self.basic_group)
         self.ref_text_label.setObjectName(u"ref_text_label")
+        self.ref_text_label.setMinimumSize(QSize(110, 0))
 
         self.ref_text_layout.addWidget(self.ref_text_label)
 
         self.reference_text_input = QLineEdit(self.basic_group)
         self.reference_text_input.setObjectName(u"reference_text_input")
         self.reference_text_input.setMaxLength(500)
+        self.reference_text_input.setMinimumSize(QSize(0, 28))
 
         self.ref_text_layout.addWidget(self.reference_text_input)
 
@@ -137,12 +155,14 @@ class Ui_SourceEditor(object):
         self.provider_ref_layout.setObjectName(u"provider_ref_layout")
         self.provider_ref_label = QLabel(self.basic_group)
         self.provider_ref_label.setObjectName(u"provider_ref_label")
+        self.provider_ref_label.setMinimumSize(QSize(110, 0))
 
         self.provider_ref_layout.addWidget(self.provider_ref_label)
 
         self.provider_ref_input = QLineEdit(self.basic_group)
         self.provider_ref_input.setObjectName(u"provider_ref_input")
         self.provider_ref_input.setMaxLength(200)
+        self.provider_ref_input.setMinimumSize(QSize(0, 28))
 
         self.provider_ref_layout.addWidget(self.provider_ref_input)
 
@@ -153,12 +173,14 @@ class Ui_SourceEditor(object):
         self.short_note_layout.setObjectName(u"short_note_layout")
         self.short_note_label = QLabel(self.basic_group)
         self.short_note_label.setObjectName(u"short_note_label")
+        self.short_note_label.setMinimumSize(QSize(110, 0))
 
         self.short_note_layout.addWidget(self.short_note_label)
 
         self.short_note_input = QLineEdit(self.basic_group)
         self.short_note_input.setObjectName(u"short_note_input")
         self.short_note_input.setMaxLength(200)
+        self.short_note_input.setMinimumSize(QSize(0, 28))
 
         self.short_note_layout.addWidget(self.short_note_input)
 
@@ -174,7 +196,8 @@ class Ui_SourceEditor(object):
 
         self.free_note_input = QTextEdit(self.basic_group)
         self.free_note_input.setObjectName(u"free_note_input")
-        self.free_note_input.setMaximumSize(QSize(16777215, 80))
+        self.free_note_input.setMinimumSize(QSize(0, 80))
+        self.free_note_input.setMaximumSize(QSize(16777215, 120))
 
         self.free_note_layout.addWidget(self.free_note_input)
 
@@ -182,9 +205,9 @@ class Ui_SourceEditor(object):
         self.basic_layout.addLayout(self.free_note_layout)
 
 
-        self.right_layout.addWidget(self.basic_group)
+        self.scroll_content_layout.addWidget(self.basic_group)
 
-        self.structured_ref_group = QGroupBox(self.right_panel)
+        self.structured_ref_group = QGroupBox(self.scroll_content)
         self.structured_ref_group.setObjectName(u"structured_ref_group")
         self.structured_ref_layout = QVBoxLayout(self.structured_ref_group)
         self.structured_ref_layout.setObjectName(u"structured_ref_layout")
@@ -192,11 +215,13 @@ class Ui_SourceEditor(object):
         self.parish_layout.setObjectName(u"parish_layout")
         self.parish_label = QLabel(self.structured_ref_group)
         self.parish_label.setObjectName(u"parish_label")
+        self.parish_label.setMinimumSize(QSize(110, 0))
 
         self.parish_layout.addWidget(self.parish_label)
 
         self.parish_input = QLineEdit(self.structured_ref_group)
         self.parish_input.setObjectName(u"parish_input")
+        self.parish_input.setMinimumSize(QSize(0, 28))
 
         self.parish_layout.addWidget(self.parish_input)
 
@@ -207,11 +232,13 @@ class Ui_SourceEditor(object):
         self.county_code_layout.setObjectName(u"county_code_layout")
         self.county_code_label = QLabel(self.structured_ref_group)
         self.county_code_label.setObjectName(u"county_code_label")
+        self.county_code_label.setMinimumSize(QSize(110, 0))
 
         self.county_code_layout.addWidget(self.county_code_label)
 
         self.county_code_input = QLineEdit(self.structured_ref_group)
         self.county_code_input.setObjectName(u"county_code_input")
+        self.county_code_input.setMinimumSize(QSize(0, 28))
 
         self.county_code_layout.addWidget(self.county_code_input)
 
@@ -222,11 +249,13 @@ class Ui_SourceEditor(object):
         self.series_layout.setObjectName(u"series_layout")
         self.series_label = QLabel(self.structured_ref_group)
         self.series_label.setObjectName(u"series_label")
+        self.series_label.setMinimumSize(QSize(110, 0))
 
         self.series_layout.addWidget(self.series_label)
 
         self.series_input = QLineEdit(self.structured_ref_group)
         self.series_input.setObjectName(u"series_input")
+        self.series_input.setMinimumSize(QSize(0, 28))
 
         self.series_layout.addWidget(self.series_input)
 
@@ -237,11 +266,13 @@ class Ui_SourceEditor(object):
         self.volume_layout.setObjectName(u"volume_layout")
         self.volume_label = QLabel(self.structured_ref_group)
         self.volume_label.setObjectName(u"volume_label")
+        self.volume_label.setMinimumSize(QSize(110, 0))
 
         self.volume_layout.addWidget(self.volume_label)
 
         self.volume_input = QLineEdit(self.structured_ref_group)
         self.volume_input.setObjectName(u"volume_input")
+        self.volume_input.setMinimumSize(QSize(0, 28))
 
         self.volume_layout.addWidget(self.volume_input)
 
@@ -252,11 +283,13 @@ class Ui_SourceEditor(object):
         self.years_layout.setObjectName(u"years_layout")
         self.years_label = QLabel(self.structured_ref_group)
         self.years_label.setObjectName(u"years_label")
+        self.years_label.setMinimumSize(QSize(110, 0))
 
         self.years_layout.addWidget(self.years_label)
 
         self.years_input = QLineEdit(self.structured_ref_group)
         self.years_input.setObjectName(u"years_input")
+        self.years_input.setMinimumSize(QSize(0, 28))
 
         self.years_layout.addWidget(self.years_input)
 
@@ -267,11 +300,13 @@ class Ui_SourceEditor(object):
         self.image_layout.setObjectName(u"image_layout")
         self.image_label = QLabel(self.structured_ref_group)
         self.image_label.setObjectName(u"image_label")
+        self.image_label.setMinimumSize(QSize(110, 0))
 
         self.image_layout.addWidget(self.image_label)
 
         self.image_input = QLineEdit(self.structured_ref_group)
         self.image_input.setObjectName(u"image_input")
+        self.image_input.setMinimumSize(QSize(0, 28))
 
         self.image_layout.addWidget(self.image_input)
 
@@ -282,11 +317,13 @@ class Ui_SourceEditor(object):
         self.page_layout.setObjectName(u"page_layout")
         self.page_label = QLabel(self.structured_ref_group)
         self.page_label.setObjectName(u"page_label")
+        self.page_label.setMinimumSize(QSize(110, 0))
 
         self.page_layout.addWidget(self.page_label)
 
         self.page_input = QLineEdit(self.structured_ref_group)
         self.page_input.setObjectName(u"page_input")
+        self.page_input.setMinimumSize(QSize(0, 28))
 
         self.page_layout.addWidget(self.page_input)
 
@@ -297,11 +334,13 @@ class Ui_SourceEditor(object):
         self.database_name_layout.setObjectName(u"database_name_layout")
         self.database_name_label = QLabel(self.structured_ref_group)
         self.database_name_label.setObjectName(u"database_name_label")
+        self.database_name_label.setMinimumSize(QSize(110, 0))
 
         self.database_name_layout.addWidget(self.database_name_label)
 
         self.database_name_input = QLineEdit(self.structured_ref_group)
         self.database_name_input.setObjectName(u"database_name_input")
+        self.database_name_input.setMinimumSize(QSize(0, 28))
 
         self.database_name_layout.addWidget(self.database_name_input)
 
@@ -312,11 +351,13 @@ class Ui_SourceEditor(object):
         self.record_id_layout.setObjectName(u"record_id_layout")
         self.record_id_label = QLabel(self.structured_ref_group)
         self.record_id_label.setObjectName(u"record_id_label")
+        self.record_id_label.setMinimumSize(QSize(110, 0))
 
         self.record_id_layout.addWidget(self.record_id_label)
 
         self.record_id_input = QLineEdit(self.structured_ref_group)
         self.record_id_input.setObjectName(u"record_id_input")
+        self.record_id_input.setMinimumSize(QSize(0, 28))
 
         self.record_id_layout.addWidget(self.record_id_input)
 
@@ -327,11 +368,13 @@ class Ui_SourceEditor(object):
         self.dn_newspaper_layout.setObjectName(u"dn_newspaper_layout")
         self.dn_newspaper_label = QLabel(self.structured_ref_group)
         self.dn_newspaper_label.setObjectName(u"dn_newspaper_label")
+        self.dn_newspaper_label.setMinimumSize(QSize(110, 0))
 
         self.dn_newspaper_layout.addWidget(self.dn_newspaper_label)
 
         self.dn_newspaper_input = QLineEdit(self.structured_ref_group)
         self.dn_newspaper_input.setObjectName(u"dn_newspaper_input")
+        self.dn_newspaper_input.setMinimumSize(QSize(0, 28))
 
         self.dn_newspaper_layout.addWidget(self.dn_newspaper_input)
 
@@ -342,11 +385,13 @@ class Ui_SourceEditor(object):
         self.publication_date_layout.setObjectName(u"publication_date_layout")
         self.publication_date_label = QLabel(self.structured_ref_group)
         self.publication_date_label.setObjectName(u"publication_date_label")
+        self.publication_date_label.setMinimumSize(QSize(110, 0))
 
         self.publication_date_layout.addWidget(self.publication_date_label)
 
         self.publication_date_input = QLineEdit(self.structured_ref_group)
         self.publication_date_input.setObjectName(u"publication_date_input")
+        self.publication_date_input.setMinimumSize(QSize(0, 28))
 
         self.publication_date_layout.addWidget(self.publication_date_input)
 
@@ -357,11 +402,13 @@ class Ui_SourceEditor(object):
         self.dn_page_layout.setObjectName(u"dn_page_layout")
         self.dn_page_label = QLabel(self.structured_ref_group)
         self.dn_page_label.setObjectName(u"dn_page_label")
+        self.dn_page_label.setMinimumSize(QSize(110, 0))
 
         self.dn_page_layout.addWidget(self.dn_page_label)
 
         self.dn_page_input = QLineEdit(self.structured_ref_group)
         self.dn_page_input.setObjectName(u"dn_page_input")
+        self.dn_page_input.setMinimumSize(QSize(0, 28))
 
         self.dn_page_layout.addWidget(self.dn_page_input)
 
@@ -372,11 +419,13 @@ class Ui_SourceEditor(object):
         self.np_newspaper_layout.setObjectName(u"np_newspaper_layout")
         self.np_newspaper_label = QLabel(self.structured_ref_group)
         self.np_newspaper_label.setObjectName(u"np_newspaper_label")
+        self.np_newspaper_label.setMinimumSize(QSize(110, 0))
 
         self.np_newspaper_layout.addWidget(self.np_newspaper_label)
 
         self.np_newspaper_input = QLineEdit(self.structured_ref_group)
         self.np_newspaper_input.setObjectName(u"np_newspaper_input")
+        self.np_newspaper_input.setMinimumSize(QSize(0, 28))
 
         self.np_newspaper_layout.addWidget(self.np_newspaper_input)
 
@@ -387,11 +436,13 @@ class Ui_SourceEditor(object):
         self.np_date_layout.setObjectName(u"np_date_layout")
         self.np_date_label = QLabel(self.structured_ref_group)
         self.np_date_label.setObjectName(u"np_date_label")
+        self.np_date_label.setMinimumSize(QSize(110, 0))
 
         self.np_date_layout.addWidget(self.np_date_label)
 
         self.np_date_input = QLineEdit(self.structured_ref_group)
         self.np_date_input.setObjectName(u"np_date_input")
+        self.np_date_input.setMinimumSize(QSize(0, 28))
 
         self.np_date_layout.addWidget(self.np_date_input)
 
@@ -402,11 +453,13 @@ class Ui_SourceEditor(object):
         self.np_page_layout.setObjectName(u"np_page_layout")
         self.np_page_label = QLabel(self.structured_ref_group)
         self.np_page_label.setObjectName(u"np_page_label")
+        self.np_page_label.setMinimumSize(QSize(110, 0))
 
         self.np_page_layout.addWidget(self.np_page_label)
 
         self.np_page_input = QLineEdit(self.structured_ref_group)
         self.np_page_input.setObjectName(u"np_page_input")
+        self.np_page_input.setMinimumSize(QSize(0, 28))
 
         self.np_page_layout.addWidget(self.np_page_input)
 
@@ -417,11 +470,13 @@ class Ui_SourceEditor(object):
         self.article_title_layout.setObjectName(u"article_title_layout")
         self.article_title_label = QLabel(self.structured_ref_group)
         self.article_title_label.setObjectName(u"article_title_label")
+        self.article_title_label.setMinimumSize(QSize(110, 0))
 
         self.article_title_layout.addWidget(self.article_title_label)
 
         self.article_title_input = QLineEdit(self.structured_ref_group)
         self.article_title_input.setObjectName(u"article_title_input")
+        self.article_title_input.setMinimumSize(QSize(0, 28))
 
         self.article_title_layout.addWidget(self.article_title_input)
 
@@ -429,14 +484,16 @@ class Ui_SourceEditor(object):
         self.structured_ref_layout.addLayout(self.article_title_layout)
 
 
-        self.right_layout.addWidget(self.structured_ref_group)
+        self.scroll_content_layout.addWidget(self.structured_ref_group)
 
-        self.media_group = QGroupBox(self.right_panel)
+        self.media_group = QGroupBox(self.scroll_content)
         self.media_group.setObjectName(u"media_group")
         self.media_group_layout = QVBoxLayout(self.media_group)
         self.media_group_layout.setObjectName(u"media_group_layout")
         self.media_list = QListWidget(self.media_group)
         self.media_list.setObjectName(u"media_list")
+        self.media_list.setMinimumSize(QSize(0, 80))
+        self.media_list.setMaximumSize(QSize(16777215, 120))
 
         self.media_group_layout.addWidget(self.media_list)
 
@@ -456,14 +513,16 @@ class Ui_SourceEditor(object):
         self.media_group_layout.addLayout(self.media_buttons_layout)
 
 
-        self.right_layout.addWidget(self.media_group)
+        self.scroll_content_layout.addWidget(self.media_group)
 
-        self.repository_group = QGroupBox(self.right_panel)
+        self.repository_group = QGroupBox(self.scroll_content)
         self.repository_group.setObjectName(u"repository_group")
         self.repository_group_layout = QVBoxLayout(self.repository_group)
         self.repository_group_layout.setObjectName(u"repository_group_layout")
         self.repository_list = QListWidget(self.repository_group)
         self.repository_list.setObjectName(u"repository_list")
+        self.repository_list.setMinimumSize(QSize(0, 80))
+        self.repository_list.setMaximumSize(QSize(16777215, 120))
 
         self.repository_group_layout.addWidget(self.repository_list)
 
@@ -483,7 +542,11 @@ class Ui_SourceEditor(object):
         self.repository_group_layout.addLayout(self.repository_buttons_layout)
 
 
-        self.right_layout.addWidget(self.repository_group)
+        self.scroll_content_layout.addWidget(self.repository_group)
+
+        self.scroll_area.setWidget(self.scroll_content)
+
+        self.right_layout.addWidget(self.scroll_area)
 
         self.status_label = QLabel(self.right_panel)
         self.status_label.setObjectName(u"status_label")

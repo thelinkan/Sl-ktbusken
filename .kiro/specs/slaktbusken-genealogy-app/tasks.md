@@ -293,10 +293,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 40.3 Add or update tests for the sibling case verifying that only the sibling relationship is returned, not additional cousin paths through shared ancestors at deeper generations
   - **Requirements:** 15.1, 15.4, 15.8
 
-- [ ] 41. Bug: Cannot Open Source Editor from Menu
-  - [ ] 41.1 Investigate why the source editor/translation editor is not accessible from the menu
-  - [ ] 41.2 Wire the menu action (Verktyg or Redigera) to open the source editor window, allowing the user to view, edit, and link sources to GEDCOM mappings
-  - [ ] 41.3 Verify the source editor opens from the menu and is fully functional
+- [x] 41. Bug: Cannot Open Source Editor from Menu
+  - [x] 41.1 Investigate why the source editor/translation editor is not accessible from the menu
+  - [x] 41.2 Wire the menu action (Verktyg or Redigera) to open the source editor window, allowing the user to view, edit, and link sources to GEDCOM mappings
+  - [x] 41.3 Verify the source editor opens from the menu and is fully functional
   - **Requirements:** 6.1, 6.2, 11.1, 11.4
 
 - [ ] 42. Bug: Cannot Open Place Editor from Menu
