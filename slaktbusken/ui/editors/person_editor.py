@@ -11,7 +11,7 @@ import logging
 import uuid
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QListWidgetItem, QTableWidgetItem, QWidget
 
 from slaktbusken.model.person import Name, Person
@@ -28,11 +28,18 @@ class PersonEditor(QWidget):
     notes, linked events, linked media, and DNA information (profiles, matches,
     cluster memberships).
 
+    Signals:
+        save_requested: Emitted when the user saves successfully.
+        cancel_requested: Emitted when the user cancels editing.
+
     Args:
         project_data: The current project data containing all entities.
         person: Optional existing Person to edit. If None, creates a new person.
         parent: Optional parent widget.
     """
+
+    save_requested = Signal()
+    cancel_requested = Signal()
 
     def __init__(
         self,
@@ -451,12 +458,12 @@ class PersonEditor(QWidget):
 
         self._clear_status()
         logger.info("Person sparad: %s", person_id)
-        self.close()
+        self.save_requested.emit()
 
     def _on_cancel(self) -> None:
         """Close the editor without saving."""
         self._saved_person = None
-        self.close()
+        self.cancel_requested.emit()
 
     # ------------------------------------------------------------------
     # Private: helpers

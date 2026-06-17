@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QVBoxLayout
 
 from slaktbusken.relationship.calculator import RelationshipCalculator
 from slaktbusken.services.export_service import ExportService
@@ -51,9 +51,74 @@ class Application:
             self.main_window.diagram_panel.set_active_person
         )
 
+        # Connect double-click signals to open person editor
+        self.main_window.person_list_panel.person_edit_requested.connect(
+            self.open_person_editor
+        )
+        self.main_window.diagram_panel.person_double_clicked.connect(
+            self.open_person_editor
+        )
+
     # ------------------------------------------------------------------
     # Action callbacks (invoked by MainWindow actions)
     # ------------------------------------------------------------------
+
+    def open_person_editor(self, person_id: str) -> None:
+        """Open the person editor dialog for the given person.
+
+        Finds the person by ID, creates a PersonEditor wrapped in a
+        QDialog, and shows it modally. On save, updates project data
+        and refreshes the UI.
+
+        Args:
+            person_id: The ID of the person to edit.
+        """
+        from slaktbusken.ui.editors.person_editor import PersonEditor
+
+        # Find the person
+        person = None
+        for p in self.project_service.data.persons:
+            if p.id == person_id:
+                person = p
+                break
+
+        if person is None:
+            logger.warning("Person med ID '%s' hittades inte.", person_id)
+            return
+
+        # Create dialog wrapper
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Redigera person")
+        dialog.setMinimumSize(600, 500)
+        layout = QVBoxLayout(dialog)
+
+        # Create editor widget
+        editor = PersonEditor(
+            project_data=self.project_service.data,
+            person=person,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        # Connect editor signals to dialog accept/reject
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        # Show modal dialog
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            saved = editor.saved_person
+            if saved is not None:
+                # Replace the person in project data
+                persons = self.project_service.data.persons
+                for i, existing in enumerate(persons):
+                    if existing.id == saved.id:
+                        persons[i] = saved
+                        break
+
+                # Mark project as dirty and refresh UI
+                self.project_service._dirty = True
+                self._update_status()
+                self._update_diagram_panel()
 
     def new_project(self) -> None:
         """Create a new project via the New Project dialog."""

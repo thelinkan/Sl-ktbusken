@@ -280,11 +280,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 38.3 Verify that searching by surname, given name, or partial name all produce correct matches
   - **Requirements:** 15.1
 
-- [ ] 39. Bug: Cannot Open Person Editor
-  - [ ] 39.1 Investigate why double-clicking a person in the PersonListPanel or DiagramPanel does not open the person editor (the `person_edit_requested` and `person_double_clicked` signals are not connected to a handler that opens the PersonEditor)
-  - [ ] 39.2 Wire the `person_edit_requested` signal from PersonListPanel and `person_double_clicked` signal from DiagramPanel to a handler that opens the PersonEditor in a dialog or window
-  - [ ] 39.3 Implement the handler in app.py that creates a PersonEditor, shows it, and handles save/cancel (updating project data and marking dirty on save)
-  - [ ] 39.4 Verify that double-clicking a person from both the person list and diagram opens the editor and that saving changes persists correctly
+- [x] 39. Bug: Cannot Open Person Editor
+  - [x] 39.1 Investigate why double-clicking a person in the PersonListPanel or DiagramPanel does not open the person editor (the `person_edit_requested` and `person_double_clicked` signals are not connected to a handler that opens the PersonEditor)
+  - [x] 39.2 Wire the `person_edit_requested` signal from PersonListPanel and `person_double_clicked` signal from DiagramPanel to a handler that opens the PersonEditor in a dialog or window
+  - [x] 39.3 Implement the handler in app.py that creates a PersonEditor, shows it, and handles save/cancel (updating project data and marking dirty on save)
+  - [x] 39.4 Verify that double-clicking a person from both the person list and diagram opens the editor and that saving changes persists correctly
   - **Requirements:** 7.1, 7.2, 7.3, 7.5, 7.6
 
 - [ ] 40. Bug: Relationship Calculator Returns Redundant Paths for Siblings
