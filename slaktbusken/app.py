@@ -389,6 +389,87 @@ class Application:
             self.project_service._dirty = True
             self._update_status()
 
+    def show_place_editor(self) -> None:
+        """Open the place editor dialog.
+
+        Creates a PlaceEditor wrapped in a QDialog, showing the current
+        project's places for viewing, editing, and linking.
+        """
+        from slaktbusken.ui.editors.place_editor import PlaceEditor
+
+        project_data = self.project_service.data
+
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Platsredigerare")
+        dialog.setMinimumSize(800, 600)
+        layout = QVBoxLayout(dialog)
+
+        editor = PlaceEditor(
+            project_data=project_data,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        dialog.exec()
+
+        # If a place was saved via the editor, update project state
+        if editor.saved_place is not None:
+            saved = editor.saved_place
+            # Update or add the place in project data
+            found = False
+            for i, existing in enumerate(project_data.places):
+                if existing.id == saved.id:
+                    project_data.places[i] = saved
+                    found = True
+                    break
+            if not found:
+                project_data.places.append(saved)
+
+            self.project_service._dirty = True
+            self._update_status()
+
+    def show_place_translation_editor(self) -> None:
+        """Open the place translation editor dialog.
+
+        Creates a PlaceTranslationEditor wrapped in a QDialog, allowing
+        the user to view, add, edit, and remove GEDCOM-to-App_JSON place
+        translation mappings.
+        """
+        from slaktbusken.ui.editors.place_translation_editor import (
+            PlaceTranslationEditor,
+        )
+
+        project_data = self.project_service.data
+        project_path = self.project_service.project_path
+        if project_path is None:
+            return
+
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Platsöversättningar")
+        dialog.setMinimumSize(700, 500)
+        layout = QVBoxLayout(dialog)
+
+        editor = PlaceTranslationEditor(
+            translation_service=self.translation_service,
+            project_data=project_data,
+            project_path=project_path.parent,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        # Load existing translation data
+        try:
+            editor.load_data()
+        except Exception as e:
+            logger.warning("Kunde inte ladda platsöversättningar: %s", e)
+
+        dialog.exec()
+
+        # If the editor saved changes, mark project dirty
+        if editor.is_dirty:
+            self.project_service._dirty = True
+            self._update_status()
+
     def show_source_translation_editor(self) -> None:
         """Open the source translation editor dialog.
 

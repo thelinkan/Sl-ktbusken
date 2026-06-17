@@ -141,6 +141,22 @@ class MainWindow(QMainWindow):
             self._app.show_source_translation_editor
         )
 
+        self.action_place_editor = QAction("&Platsredigerare...", self)
+        self.action_place_editor.setToolTip(
+            "Visa, redigera och hantera platser"
+        )
+        self.action_place_editor.triggered.connect(self._app.show_place_editor)
+
+        self.action_place_translation_editor = QAction(
+            "Plats&översättningar...", self
+        )
+        self.action_place_translation_editor.setToolTip(
+            "Redigera GEDCOM-till-App_JSON platsöversättningar"
+        )
+        self.action_place_translation_editor.triggered.connect(
+            self._app.show_place_translation_editor
+        )
+
         # Verktyg (Tools)
         self.action_relationship = QAction("&Släktskapsberäknare...", self)
         self.action_relationship.setToolTip("Beräkna släktskap mellan två personer")
@@ -174,6 +190,8 @@ class MainWindow(QMainWindow):
         self.menu_edit = menu_bar.addMenu("&Redigera")
         self.menu_edit.addAction(self.action_source_editor)
         self.menu_edit.addAction(self.action_source_translation_editor)
+        self.menu_edit.addAction(self.action_place_editor)
+        self.menu_edit.addAction(self.action_place_translation_editor)
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
@@ -281,6 +299,8 @@ class MainWindow(QMainWindow):
         self.action_relationship.setEnabled(project_open)
         self.action_source_editor.setEnabled(project_open)
         self.action_source_translation_editor.setEnabled(project_open)
+        self.action_place_editor.setEnabled(project_open)
+        self.action_place_translation_editor.setEnabled(project_open)
         self.action_view_family.setEnabled(project_open)
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)

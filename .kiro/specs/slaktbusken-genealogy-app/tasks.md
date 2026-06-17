@@ -299,10 +299,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 41.3 Verify the source editor opens from the menu and is fully functional
   - **Requirements:** 6.1, 6.2, 11.1, 11.4
 
-- [ ] 42. Bug: Cannot Open Place Editor from Menu
-  - [ ] 42.1 Investigate why the place editor/translation editor is not accessible from the menu
-  - [ ] 42.2 Wire the menu action (Verktyg or Redigera) to open the place editor window, allowing the user to view, edit, and link places to GEDCOM mappings
-  - [ ] 42.3 Verify the place editor opens from the menu and is fully functional
+- [x] 42. Bug: Cannot Open Place Editor from Menu
+  - [x] 42.1 Investigate why the place editor/translation editor is not accessible from the menu
+  - [x] 42.2 Wire the menu action (Verktyg or Redigera) to open the place editor window, allowing the user to view, edit, and link places to GEDCOM mappings
+  - [x] 42.3 Verify the place editor opens from the menu and is fully functional
   - **Requirements:** 6.3, 6.4, 10.3, 10.4
 
 - [ ] 43. Bug: GEDCOM Import Missing Events, Places, and People
