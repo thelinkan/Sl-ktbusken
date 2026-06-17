@@ -157,8 +157,7 @@ class RelationshipDialog(QDialog):
 
         # --- Graphics view for path diagram ---
         self._scene = QGraphicsScene(self)
-        self._view = QGraphicsView(self._scene)
-        self._view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._view = self._create_zoomable_view(self._scene)
         self._view.setMinimumHeight(200)
         self._view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         main_layout.addWidget(self._view)
@@ -183,6 +182,84 @@ class RelationshipDialog(QDialog):
         self._btn_calculate.clicked.connect(self._on_calculate)
         self._btn_print.clicked.connect(self._on_print)
         self._btn_close.clicked.connect(self.close)
+
+    def _create_zoomable_view(self, scene: QGraphicsScene) -> QGraphicsView:
+        """Create a QGraphicsView with mouse-wheel zoom and click-drag panning.
+
+        Zoom range: 25% to 400%. Scroll wheel zooms centered on the mouse
+        cursor. Left-click drag pans the view.
+
+        Args:
+            scene: The QGraphicsScene to display.
+
+        Returns:
+            Configured QGraphicsView instance.
+        """
+        view = QGraphicsView(scene, self)
+        view.setRenderHints(
+            QPainter.RenderHint.Antialiasing
+            | QPainter.RenderHint.SmoothPixmapTransform
+        )
+        view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        view.setTransformationAnchor(
+            QGraphicsView.ViewportAnchor.AnchorUnderMouse
+        )
+        view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        # Store zoom state on the view object
+        view._zoom_factor = 1.0  # type: ignore[attr-defined]
+
+        # Override wheelEvent via an event filter
+        view.installEventFilter(self)
+        return view
+
+    def eventFilter(self, obj, event) -> bool:
+        """Handle mouse wheel zoom on the graphics view.
+
+        Zooms in/out between 25% and 400%, centered on the cursor.
+
+        Args:
+            obj: The object that received the event.
+            event: The event to filter.
+
+        Returns:
+            True if the event was handled, False otherwise.
+        """
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QWheelEvent
+
+        if obj is self._view and event.type() == QEvent.Type.Wheel:
+            wheel_event: QWheelEvent = event  # type: ignore[assignment]
+            angle = wheel_event.angleDelta().y()
+            if angle == 0:
+                return False
+
+            zoom_step = 1.15
+            min_zoom = 0.25
+            max_zoom = 4.0
+
+            factor = zoom_step if angle > 0 else 1.0 / zoom_step
+            current = self._view._zoom_factor  # type: ignore[attr-defined]
+            new_zoom = current * factor
+
+            # Clamp
+            if new_zoom < min_zoom:
+                factor = min_zoom / current
+                new_zoom = min_zoom
+            elif new_zoom > max_zoom:
+                factor = max_zoom / current
+                new_zoom = max_zoom
+
+            if abs(factor - 1.0) < 0.001:
+                return True
+
+            self._view._zoom_factor = new_zoom  # type: ignore[attr-defined]
+            self._view.scale(factor, factor)
+            return True
+
+        return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
     # Person combo population
@@ -562,13 +639,19 @@ class RelationshipDialog(QDialog):
                 label.setPos(legend_x + 18, legend_y - 1)
                 legend_y += 20
 
-        # Fit the view to the scene content
+        # Fit the view to the scene content initially
         self._scene.setSceneRect(
             self._scene.itemsBoundingRect().adjusted(-15, -15, 15, 15)
         )
+        # Reset zoom and fit to show the full graph
+        self._view.resetTransform()
+        self._view._zoom_factor = 1.0  # type: ignore[attr-defined]
         self._view.fitInView(
             self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
         )
+        # Record the actual zoom after fitInView so wheel zoom builds on it
+        transform = self._view.transform()
+        self._view._zoom_factor = transform.m11()  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Print support
