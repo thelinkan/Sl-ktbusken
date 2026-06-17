@@ -818,3 +818,341 @@ class TestBloodPriorityFallback:
         paths = calc.find_relationships("a", "b", blood_priority=True)
 
         assert paths == []
+
+
+class TestSiblingRedundantPaths:
+    """Tests for bug fix: siblings should NOT return redundant cousin paths.
+
+    When siblings share parents who have grandparents, the BFS finds common
+    ancestors at multiple levels. Only the closest relationship (sibling)
+    should be returned, not cousin paths through grandparents.
+    """
+
+    def test_siblings_with_grandparents_closest_only_true(self):
+        """With closest_only=True, siblings only show sibling paths, no cousins."""
+        grandpa = _make_person("grandpa", "M")
+        grandma = _make_person("grandma", "F")
+        father = _make_person("father", "M")
+        mother = _make_person("mother", "F")
+        child_a = _make_person("child_a", "M")
+        child_b = _make_person("child_b", "F")
+
+        # Grandparents -> father
+        fam_gp = Family(
+            id="fam_gp",
+            partners=[
+                FamilyPartner(person_id="grandpa", role="father"),
+                FamilyPartner(person_id="grandma", role="mother"),
+            ],
+            children=["father"],
+            parent_child_links=[
+                ParentChildLink(child_id="father", parent_id="grandpa",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="father", parent_id="grandma",
+                                parentage_type="biological"),
+            ],
+        )
+        # Father + mother -> child_a, child_b
+        fam_parents = Family(
+            id="fam_parents",
+            partners=[
+                FamilyPartner(person_id="father", role="father"),
+                FamilyPartner(person_id="mother", role="mother"),
+            ],
+            children=["child_a", "child_b"],
+            parent_child_links=[
+                ParentChildLink(child_id="child_a", parent_id="father",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_a", parent_id="mother",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_b", parent_id="father",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_b", parent_id="mother",
+                                parentage_type="biological"),
+            ],
+        )
+        project = _make_project(
+            grandpa, grandma, father, mother, child_a, child_b,
+            fam_gp, fam_parents
+        )
+        calc = RelationshipCalculator(project)
+        paths = calc.find_relationships(
+            "child_a", "child_b", closest_only=True, blood_priority=True
+        )
+
+        # Should only have sibling paths, no cousin paths
+        assert len(paths) >= 1
+        for p in paths:
+            assert p.generations_a == 1 and p.generations_b == 1, (
+                f"Expected sibling (1,1) but got ({p.generations_a},{p.generations_b}) "
+                f"term='{p.swedish_term}'"
+            )
+
+    def test_siblings_with_grandparents_closest_only_false(self):
+        """With closest_only=False, siblings should STILL not show cousin paths.
+
+        Even when showing all paths, redundant paths through more distant
+        ancestors on the same lineage should be filtered out.
+        """
+        grandpa = _make_person("grandpa", "M")
+        grandma = _make_person("grandma", "F")
+        father = _make_person("father", "M")
+        mother = _make_person("mother", "F")
+        child_a = _make_person("child_a", "M")
+        child_b = _make_person("child_b", "F")
+
+        fam_gp = Family(
+            id="fam_gp",
+            partners=[
+                FamilyPartner(person_id="grandpa", role="father"),
+                FamilyPartner(person_id="grandma", role="mother"),
+            ],
+            children=["father"],
+            parent_child_links=[
+                ParentChildLink(child_id="father", parent_id="grandpa",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="father", parent_id="grandma",
+                                parentage_type="biological"),
+            ],
+        )
+        fam_parents = Family(
+            id="fam_parents",
+            partners=[
+                FamilyPartner(person_id="father", role="father"),
+                FamilyPartner(person_id="mother", role="mother"),
+            ],
+            children=["child_a", "child_b"],
+            parent_child_links=[
+                ParentChildLink(child_id="child_a", parent_id="father",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_a", parent_id="mother",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_b", parent_id="father",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_b", parent_id="mother",
+                                parentage_type="biological"),
+            ],
+        )
+        project = _make_project(
+            grandpa, grandma, father, mother, child_a, child_b,
+            fam_gp, fam_parents
+        )
+        calc = RelationshipCalculator(project)
+        paths = calc.find_relationships(
+            "child_a", "child_b", closest_only=False, blood_priority=True
+        )
+
+        # Even with closest_only=False, should NOT show cousin paths
+        # because they are redundant (going through grandparents when
+        # the sibling connection already exists via parents)
+        assert len(paths) >= 1
+        for p in paths:
+            assert p.generations_a == 1 and p.generations_b == 1, (
+                f"Expected only sibling (1,1) but got ({p.generations_a},{p.generations_b}) "
+                f"term='{p.swedish_term}'"
+            )
+
+    def test_siblings_deep_ancestry_no_2nd_cousin_paths(self):
+        """Siblings with 3+ generations of ancestry don't show 2nd cousin paths."""
+        # Build: great-grandpa -> grandpa -> father -> child_a, child_b
+        ggp = _make_person("ggp", "M")
+        grandpa = _make_person("grandpa", "M")
+        father = _make_person("father", "M")
+        child_a = _make_person("child_a", "M")
+        child_b = _make_person("child_b", "M")
+
+        fam_ggp = Family(
+            id="fam_ggp",
+            partners=[FamilyPartner(person_id="ggp", role="father")],
+            children=["grandpa"],
+            parent_child_links=[
+                ParentChildLink(child_id="grandpa", parent_id="ggp",
+                                parentage_type="biological"),
+            ],
+        )
+        fam_gp = Family(
+            id="fam_gp",
+            partners=[FamilyPartner(person_id="grandpa", role="father")],
+            children=["father"],
+            parent_child_links=[
+                ParentChildLink(child_id="father", parent_id="grandpa",
+                                parentage_type="biological"),
+            ],
+        )
+        fam_parents = Family(
+            id="fam_parents",
+            partners=[FamilyPartner(person_id="father", role="father")],
+            children=["child_a", "child_b"],
+            parent_child_links=[
+                ParentChildLink(child_id="child_a", parent_id="father",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_b", parent_id="father",
+                                parentage_type="biological"),
+            ],
+        )
+        project = _make_project(
+            ggp, grandpa, father, child_a, child_b,
+            fam_ggp, fam_gp, fam_parents
+        )
+        calc = RelationshipCalculator(project)
+        paths = calc.find_relationships(
+            "child_a", "child_b", closest_only=False, blood_priority=True
+        )
+
+        # Only sibling paths, no cousin or 2nd cousin paths
+        assert len(paths) >= 1
+        for p in paths:
+            assert p.generations_a == 1 and p.generations_b == 1, (
+                f"Expected only sibling (1,1) but got ({p.generations_a},{p.generations_b}) "
+                f"term='{p.swedish_term}'"
+            )
+
+    def test_real_cousins_still_work(self):
+        """Real cousins (children of different siblings) still get cousin term."""
+        grandpa = _make_person("grandpa", "M")
+        parent_a = _make_person("parent_a", "M")
+        parent_b = _make_person("parent_b", "M")
+        cousin_a = _make_person("cousin_a", "M")
+        cousin_b = _make_person("cousin_b", "M")
+
+        fam_gp = Family(
+            id="fam_gp",
+            partners=[FamilyPartner(person_id="grandpa", role="father")],
+            children=["parent_a", "parent_b"],
+            parent_child_links=[
+                ParentChildLink(child_id="parent_a", parent_id="grandpa",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="parent_b", parent_id="grandpa",
+                                parentage_type="biological"),
+            ],
+        )
+        fam_a = Family(
+            id="fam_a",
+            partners=[FamilyPartner(person_id="parent_a", role="father")],
+            children=["cousin_a"],
+            parent_child_links=[
+                ParentChildLink(child_id="cousin_a", parent_id="parent_a",
+                                parentage_type="biological"),
+            ],
+        )
+        fam_b = Family(
+            id="fam_b",
+            partners=[FamilyPartner(person_id="parent_b", role="father")],
+            children=["cousin_b"],
+            parent_child_links=[
+                ParentChildLink(child_id="cousin_b", parent_id="parent_b",
+                                parentage_type="biological"),
+            ],
+        )
+        project = _make_project(
+            grandpa, parent_a, parent_b, cousin_a, cousin_b,
+            fam_gp, fam_a, fam_b
+        )
+        calc = RelationshipCalculator(project)
+        paths = calc.find_relationships(
+            "cousin_a", "cousin_b", closest_only=False, blood_priority=True
+        )
+
+        # Should find cousin relationship
+        assert len(paths) >= 1
+        assert paths[0].swedish_term == "kusin"
+        assert paths[0].generations_a == 2
+        assert paths[0].generations_b == 2
+
+    def test_double_relationship_different_lineages_preserved(self):
+        """When two people are related via different lineages, all paths are kept.
+
+        Scenario: grandpa_1 -> father, grandpa_2 -> mother.
+        father + mother -> child_a, child_b.
+        Children are siblings through father AND siblings through mother.
+        Now add great-grandpa who is parent of BOTH grandpa_1 and grandpa_2.
+        The path through great-grandpa from child_a (via father->grandpa_1)
+        and child_b (via mother->grandpa_2) is a DISTINCT relationship
+        (cousin via different lineage) and should NOT be filtered.
+        """
+        great_grandpa = _make_person("ggp", "M")
+        grandpa_1 = _make_person("gp1", "M")
+        grandpa_2 = _make_person("gp2", "M")
+        father = _make_person("father", "M")
+        mother = _make_person("mother", "F")
+        child_a = _make_person("child_a", "M")
+        child_b = _make_person("child_b", "F")
+
+        # great-grandpa -> grandpa_1, grandpa_2
+        fam_ggp = Family(
+            id="fam_ggp",
+            partners=[FamilyPartner(person_id="ggp", role="father")],
+            children=["gp1", "gp2"],
+            parent_child_links=[
+                ParentChildLink(child_id="gp1", parent_id="ggp",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="gp2", parent_id="ggp",
+                                parentage_type="biological"),
+            ],
+        )
+        # grandpa_1 -> father
+        fam_gp1 = Family(
+            id="fam_gp1",
+            partners=[FamilyPartner(person_id="gp1", role="father")],
+            children=["father"],
+            parent_child_links=[
+                ParentChildLink(child_id="father", parent_id="gp1",
+                                parentage_type="biological"),
+            ],
+        )
+        # grandpa_2 -> mother
+        fam_gp2 = Family(
+            id="fam_gp2",
+            partners=[FamilyPartner(person_id="gp2", role="father")],
+            children=["mother"],
+            parent_child_links=[
+                ParentChildLink(child_id="mother", parent_id="gp2",
+                                parentage_type="biological"),
+            ],
+        )
+        # father + mother -> child_a, child_b
+        fam_parents = Family(
+            id="fam_parents",
+            partners=[
+                FamilyPartner(person_id="father", role="father"),
+                FamilyPartner(person_id="mother", role="mother"),
+            ],
+            children=["child_a", "child_b"],
+            parent_child_links=[
+                ParentChildLink(child_id="child_a", parent_id="father",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_a", parent_id="mother",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_b", parent_id="father",
+                                parentage_type="biological"),
+                ParentChildLink(child_id="child_b", parent_id="mother",
+                                parentage_type="biological"),
+            ],
+        )
+        project = _make_project(
+            great_grandpa, grandpa_1, grandpa_2, father, mother, child_a, child_b,
+            fam_ggp, fam_gp1, fam_gp2, fam_parents
+        )
+        calc = RelationshipCalculator(project)
+        paths = calc.find_relationships(
+            "child_a", "child_b", closest_only=False, blood_priority=True
+        )
+
+        # Should have sibling paths (through father, through mother)
+        sibling_paths = [
+            p for p in paths
+            if p.generations_a == 1 and p.generations_b == 1
+        ]
+        assert len(sibling_paths) >= 1, "Should find sibling relationship"
+
+        # Should ALSO have a cousin-like path through great-grandpa
+        # (child_a via father->gp1->ggp, child_b via mother->gp2->ggp)
+        # This is a distinct lineage and should NOT be filtered
+        deeper_paths = [
+            p for p in paths
+            if p.generations_a > 1 or p.generations_b > 1
+        ]
+        assert len(deeper_paths) >= 1, (
+            "Should find additional relationship through great-grandpa via "
+            "different lineages (father->gp1 vs mother->gp2)"
+        )

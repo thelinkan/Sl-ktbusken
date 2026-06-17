@@ -287,11 +287,62 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 39.4 Verify that double-clicking a person from both the person list and diagram opens the editor and that saving changes persists correctly
   - **Requirements:** 7.1, 7.2, 7.3, 7.5, 7.6
 
-- [ ] 40. Bug: Relationship Calculator Returns Redundant Paths for Siblings
-  - [ ] 40.1 Investigate why the RelationshipCalculator returns extra relationship paths (cousin, 2nd cousin, 3rd cousin) for direct siblings instead of only the closest relationship (sibling)
-  - [ ] 40.2 Fix the path-finding logic so that when `closest_only=True` (default) or `blood_priority=True`, only the closest relationship path(s) are returned — siblings should not also show as cousins via shared grandparents
-  - [ ] 40.3 Add or update tests for the sibling case verifying that only the sibling relationship is returned, not additional cousin paths through shared ancestors at deeper generations
+- [x] 40. Bug: Relationship Calculator Returns Redundant Paths for Siblings
+  - [x] 40.1 Investigate why the RelationshipCalculator returns extra relationship paths (cousin, 2nd cousin, 3rd cousin) for direct siblings instead of only the closest relationship (sibling)
+  - [x] 40.2 Fix the path-finding logic so that when `closest_only=True` (default) or `blood_priority=True`, only the closest relationship path(s) are returned — siblings should not also show as cousins via shared grandparents
+  - [x] 40.3 Add or update tests for the sibling case verifying that only the sibling relationship is returned, not additional cousin paths through shared ancestors at deeper generations
   - **Requirements:** 15.1, 15.4, 15.8
+
+- [ ] 41. Bug: Cannot Open Source Editor from Menu
+  - [ ] 41.1 Investigate why the source editor/translation editor is not accessible from the menu
+  - [ ] 41.2 Wire the menu action (Verktyg or Redigera) to open the source editor window, allowing the user to view, edit, and link sources to GEDCOM mappings
+  - [ ] 41.3 Verify the source editor opens from the menu and is fully functional
+  - **Requirements:** 6.1, 6.2, 11.1, 11.4
+
+- [ ] 42. Bug: Cannot Open Place Editor from Menu
+  - [ ] 42.1 Investigate why the place editor/translation editor is not accessible from the menu
+  - [ ] 42.2 Wire the menu action (Verktyg or Redigera) to open the place editor window, allowing the user to view, edit, and link places to GEDCOM mappings
+  - [ ] 42.3 Verify the place editor opens from the menu and is fully functional
+  - **Requirements:** 6.3, 6.4, 10.3, 10.4
+
+- [ ] 43. Bug: GEDCOM Import Missing Events, Places, and People
+  - [ ] 43.1 Investigate why only birth and death events are imported — other event types (baptism, marriage, burial, census, etc.) are being skipped or not mapped
+  - [ ] 43.2 Fix event import to correctly map all GEDCOM event tags (BIRT, DEAT, BAPM/CHR, MARR, BURI, CENS, EMIG, IMMI, RESI, GRAD, WILL, CONF, etc.) to the corresponding App_JSON event types
+  - [ ] 43.3 Fix place import so that place references are correctly linked to the imported events (place_id populated on event records)
+  - [ ] 43.4 Investigate and fix why some persons are missing after import — check for parsing errors on INDI records or family linkage issues that cause persons to be skipped
+  - [ ] 43.5 Fix name import to strip GEDCOM name delimiters (// slashes) from given and surname fields — slashes are GEDCOM formatting markers and should never appear in the stored name
+  - [ ] 43.6 Add or update tests verifying that all standard event types are imported, places are linked to events, all persons are captured, and names do not contain slashes
+  - **Requirements:** 4.1, 4.2, 4.6, 4.7, 4.8, 9.1, 9.2
+
+- [ ] 44. Bug: Add Event Does Not Work
+  - [ ] 44.1 Investigate why adding an event in the person editor shows a "will be implemented later" placeholder instead of working
+  - [ ] 44.2 Implement the add-event functionality: open the event editor, allow the user to create a new event, link it to the person, and persist it to project data
+  - [ ] 44.3 Verify that adding events of all types works correctly and the event appears in the person's event list
+  - **Requirements:** 9.1, 9.2, 9.3, 9.4, 9.5
+
+- [ ] 45. Bug: No Way to Edit Events and Person View Reset
+  - [ ] 45.1 Add an "edit event" button/action to the events list in the person editor — double-click or a dedicated button should open the event editor for the selected event
+  - [ ] 45.2 Fix the behavior after saving a person so that the view does NOT navigate back to the main person — the currently viewed person should remain active after save
+  - [ ] 45.3 Verify that editing an event from the person editor works and that saving a person does not change the active person in the diagram
+  - **Requirements:** 9.1, 7.1, 7.2, 17.1
+
+- [ ] 46. Bug: Missing Father Not Shown as Placeholder in Family View
+  - [ ] 46.1 Investigate why the placeholder box for a missing father is not rendered when the active person or siblings lack a father in the family data
+  - [ ] 46.2 Fix the family view rendering so that a missing father is shown as a gray dashed-outline placeholder box (same as already implemented for missing mothers), enabling click-to-add functionality
+  - [ ] 46.3 Verify that missing father placeholders appear for both the active person and their siblings when no father is linked
+  - **Requirements:** 17.1, 17.7, 17.8
+
+- [ ] 47. Bug: Relationship Calculator Shows Asterisk Instead of Underline in Names
+  - [ ] 47.1 Investigate where the asterisk (*) is appearing in names within the relationship calculator search and graph display — likely GEDCOM-style birth name markers not being stripped or converted
+  - [ ] 47.2 Fix name display in the relationship dialog so that asterisks marking birth names are either removed or rendered as underlined text (the intended Swedish genealogy convention)
+  - [ ] 47.3 Verify that names display correctly in both the person search/selection fields and in the relationship graph nodes
+  - **Requirements:** 15.1, 15.5, 7.1
+
+- [ ] 48. Bug: Relationship Calculator Shows Crossed Lines in Graph
+  - [ ] 48.1 Investigate the graph layout algorithm in the relationship dialog — lines between person nodes are crossing when they shouldn't
+  - [ ] 48.2 Improve the graph layout to arrange person boxes so that connecting lines do not cross (or minimize crossings), making the relationship path easy to read
+  - [ ] 48.3 Verify that relationship graphs with multiple nodes render without line crossings for common relationship patterns (parent-child, siblings, cousins)
+  - **Requirements:** 15.5, 15.6
 
 ## Task Dependency Graph
 
@@ -306,7 +357,8 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
     [18, 19, 23, 24],
     [20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 32],
     [33, 34, 35, 36],
-    [38, 39, 40]
+    [38, 39, 40],
+    [41, 42, 43, 44, 45, 46, 47, 48]
   ]
 }
 ```
@@ -318,3 +370,4 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
 - UI tasks (16-32) depend on the main window infrastructure and can be parallelized after Task 17 is complete.
 - Task 36 (Swedish language) is a cross-cutting concern that should be applied throughout development but is listed separately for final review.
 - The GEDCOM pipeline (Tasks 9-14) can be developed in parallel with the UI layer once the data model and persistence layers are complete.
+- Tasks 41-48 are bugfix tasks that can be executed in parallel since they address independent issues.

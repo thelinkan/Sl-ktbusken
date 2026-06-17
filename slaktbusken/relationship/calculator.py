@@ -154,7 +154,14 @@ class RelationshipCalculator:
                 if rel_path:
                     all_paths.append(rel_path)
 
-        # Paths through common ancestors
+        # Paths through common ancestors, filtering redundant ones.
+        # A path through ancestor C is redundant if BOTH sides pass
+        # through the SAME closer common ancestor C' on their way to C.
+        # This means A and B already have a closer relationship via C',
+        # and the path via C is just the same connection viewed from
+        # further back. However, if A reaches C through one intermediate
+        # lineage and B reaches C through a DIFFERENT intermediate lineage,
+        # the path is NOT redundant — it represents a distinct relationship.
         for ancestor_id in common:
             if ancestor_id == person_a_id or ancestor_id == person_b_id:
                 continue  # Already handled above
@@ -162,6 +169,16 @@ class RelationshipCalculator:
             paths_b = ancestors_b[ancestor_id]
             for pa in paths_a:
                 for pb in paths_b:
+                    # Intermediate nodes on each side (excluding start and end)
+                    intermediate_a = set(pa.nodes[1:-1])
+                    intermediate_b = set(pb.nodes[1:-1])
+                    # The path is redundant only if both sides share a
+                    # common intermediate node that is itself a common
+                    # ancestor. That means both A and B reach ancestor C
+                    # through the same closer common ancestor C'.
+                    shared_intermediates = intermediate_a & intermediate_b
+                    if shared_intermediates & common:
+                        continue
                     rel_path = self._build_path_through_ancestor(
                         person_a_id, person_b_id, ancestor_id, pa, pb
                     )
