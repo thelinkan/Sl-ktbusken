@@ -8,90 +8,94 @@
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
 
-from PySide6.QtCore import (QCoreApplication, QMetaObject, Qt)
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QGroupBox,
-    QLabel,
-    QSizePolicy,
-    QSpacerItem,
-    QSpinBox,
-    QVBoxLayout,
-)
-
+from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
+    QMetaObject, QObject, QPoint, QRect,
+    QSize, QTime, QUrl, Qt)
+from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
+    QFont, QFontDatabase, QGradient, QIcon,
+    QImage, QKeySequence, QLinearGradient, QPainter,
+    QPalette, QPixmap, QRadialGradient, QTransform)
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QDialog,
+    QDialogButtonBox, QFormLayout, QGroupBox, QLabel,
+    QSizePolicy, QSpacerItem, QSpinBox, QVBoxLayout,
+    QWidget)
 
 class Ui_SettingsDialog(object):
     def setupUi(self, SettingsDialog):
         if not SettingsDialog.objectName():
             SettingsDialog.setObjectName(u"SettingsDialog")
         SettingsDialog.resize(480, 520)
-
         self.verticalLayout = QVBoxLayout(SettingsDialog)
         self.verticalLayout.setObjectName(u"verticalLayout")
-
-        # --- Person box group ---
         self.personBoxGroup = QGroupBox(SettingsDialog)
         self.personBoxGroup.setObjectName(u"personBoxGroup")
         self.personBoxLayout = QVBoxLayout(self.personBoxGroup)
         self.personBoxLayout.setObjectName(u"personBoxLayout")
-
         self.checkName = QCheckBox(self.personBoxGroup)
         self.checkName.setObjectName(u"checkName")
+
         self.personBoxLayout.addWidget(self.checkName)
 
         self.checkBirthDate = QCheckBox(self.personBoxGroup)
         self.checkBirthDate.setObjectName(u"checkBirthDate")
+
         self.personBoxLayout.addWidget(self.checkBirthDate)
 
         self.checkBirthPlace = QCheckBox(self.personBoxGroup)
         self.checkBirthPlace.setObjectName(u"checkBirthPlace")
+
         self.personBoxLayout.addWidget(self.checkBirthPlace)
 
         self.checkDeathDate = QCheckBox(self.personBoxGroup)
         self.checkDeathDate.setObjectName(u"checkDeathDate")
+
         self.personBoxLayout.addWidget(self.checkDeathDate)
 
         self.checkDeathPlace = QCheckBox(self.personBoxGroup)
         self.checkDeathPlace.setObjectName(u"checkDeathPlace")
+
         self.personBoxLayout.addWidget(self.checkDeathPlace)
 
         self.checkMarriageDate = QCheckBox(self.personBoxGroup)
         self.checkMarriageDate.setObjectName(u"checkMarriageDate")
+
         self.personBoxLayout.addWidget(self.checkMarriageDate)
 
         self.checkMarriagePlace = QCheckBox(self.personBoxGroup)
         self.checkMarriagePlace.setObjectName(u"checkMarriagePlace")
+
         self.personBoxLayout.addWidget(self.checkMarriagePlace)
 
         self.checkOccupation = QCheckBox(self.personBoxGroup)
         self.checkOccupation.setObjectName(u"checkOccupation")
+
         self.personBoxLayout.addWidget(self.checkOccupation)
 
         self.checkPhoto = QCheckBox(self.personBoxGroup)
         self.checkPhoto.setObjectName(u"checkPhoto")
+
         self.personBoxLayout.addWidget(self.checkPhoto)
 
         self.checkDnaInfo = QCheckBox(self.personBoxGroup)
         self.checkDnaInfo.setObjectName(u"checkDnaInfo")
+
         self.personBoxLayout.addWidget(self.checkDnaInfo)
 
         self.checkNotes = QCheckBox(self.personBoxGroup)
         self.checkNotes.setObjectName(u"checkNotes")
+
         self.personBoxLayout.addWidget(self.checkNotes)
+
 
         self.verticalLayout.addWidget(self.personBoxGroup)
 
-        # --- Diagram depth group ---
         self.diagramDepthGroup = QGroupBox(SettingsDialog)
         self.diagramDepthGroup.setObjectName(u"diagramDepthGroup")
         self.depthFormLayout = QFormLayout(self.diagramDepthGroup)
         self.depthFormLayout.setObjectName(u"depthFormLayout")
-
         self.labelAncestryDepth = QLabel(self.diagramDepthGroup)
         self.labelAncestryDepth.setObjectName(u"labelAncestryDepth")
+
         self.depthFormLayout.setWidget(0, QFormLayout.ItemRole.LabelRole, self.labelAncestryDepth)
 
         self.spinAncestryDepth = QSpinBox(self.diagramDepthGroup)
@@ -99,10 +103,12 @@ class Ui_SettingsDialog(object):
         self.spinAncestryDepth.setMinimum(1)
         self.spinAncestryDepth.setMaximum(10)
         self.spinAncestryDepth.setValue(4)
+
         self.depthFormLayout.setWidget(0, QFormLayout.ItemRole.FieldRole, self.spinAncestryDepth)
 
         self.labelDescendantsDepth = QLabel(self.diagramDepthGroup)
         self.labelDescendantsDepth.setObjectName(u"labelDescendantsDepth")
+
         self.depthFormLayout.setWidget(1, QFormLayout.ItemRole.LabelRole, self.labelDescendantsDepth)
 
         self.spinDescendantsDepth = QSpinBox(self.diagramDepthGroup)
@@ -110,24 +116,23 @@ class Ui_SettingsDialog(object):
         self.spinDescendantsDepth.setMinimum(1)
         self.spinDescendantsDepth.setMaximum(10)
         self.spinDescendantsDepth.setValue(4)
+
         self.depthFormLayout.setWidget(1, QFormLayout.ItemRole.FieldRole, self.spinDescendantsDepth)
+
 
         self.verticalLayout.addWidget(self.diagramDepthGroup)
 
-        # --- Spacer ---
-        self.verticalSpacer = QSpacerItem(
-            20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding
-        )
+        self.verticalSpacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+
         self.verticalLayout.addItem(self.verticalSpacer)
 
-        # --- Button box ---
         self.buttonBox = QDialogButtonBox(SettingsDialog)
         self.buttonBox.setObjectName(u"buttonBox")
-        self.buttonBox.setOrientation(Qt.Orientation.Horizontal)
-        self.buttonBox.setStandardButtons(
-            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
-        )
+        self.buttonBox.setOrientation(Qt.Horizontal)
+        self.buttonBox.setStandardButtons(QDialogButtonBox.Cancel|QDialogButtonBox.Ok)
+
         self.verticalLayout.addWidget(self.buttonBox)
+
 
         self.retranslateUi(SettingsDialog)
         self.buttonBox.accepted.connect(SettingsDialog.accept)
@@ -137,14 +142,14 @@ class Ui_SettingsDialog(object):
     # setupUi
 
     def retranslateUi(self, SettingsDialog):
-        SettingsDialog.setWindowTitle(QCoreApplication.translate("SettingsDialog", u"Inställningar", None))
+        SettingsDialog.setWindowTitle(QCoreApplication.translate("SettingsDialog", u"Inst\u00e4llningar", None))
         self.personBoxGroup.setTitle(QCoreApplication.translate("SettingsDialog", u"Personruta \u2013 synliga f\u00e4lt", None))
         self.checkName.setText(QCoreApplication.translate("SettingsDialog", u"Namn", None))
         self.checkBirthDate.setText(QCoreApplication.translate("SettingsDialog", u"F\u00f6delsedatum", None))
         self.checkBirthPlace.setText(QCoreApplication.translate("SettingsDialog", u"F\u00f6delseort", None))
         self.checkDeathDate.setText(QCoreApplication.translate("SettingsDialog", u"D\u00f6dsdatum", None))
         self.checkDeathPlace.setText(QCoreApplication.translate("SettingsDialog", u"D\u00f6dsort", None))
-        self.checkMarriageDate.setText(QCoreApplication.translate("SettingsDialog", u"Vigseldatum", None))
+        self.checkMarriageDate.setText(QCoreApplication.translate("SettingsDialog", u"Vigselsdatum", None))
         self.checkMarriagePlace.setText(QCoreApplication.translate("SettingsDialog", u"Vigselort", None))
         self.checkOccupation.setText(QCoreApplication.translate("SettingsDialog", u"Yrke", None))
         self.checkPhoto.setText(QCoreApplication.translate("SettingsDialog", u"Profilfoto", None))
@@ -154,3 +159,4 @@ class Ui_SettingsDialog(object):
         self.labelAncestryDepth.setText(QCoreApplication.translate("SettingsDialog", u"Antal generationer upp\u00e5t (anor):", None))
         self.labelDescendantsDepth.setText(QCoreApplication.translate("SettingsDialog", u"Antal generationer ned\u00e5t (\u00e4ttlingar):", None))
     # retranslateUi
+

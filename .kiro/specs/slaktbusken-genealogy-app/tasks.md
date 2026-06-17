@@ -239,9 +239,9 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 31.4 Trigger diagram re-render within 2 seconds when person box configuration changes
   - **Requirements:** 20.1, 20.2, 20.3, 20.4, 20.5
 
-- [ ] 32. New Project Dialog
-  - [ ] 32.1 Design and implement new project dialog (new_project_dialog.ui + new_project_dialog.py): project name input (1-100 chars), location picker, validation, create button
-  - [ ] 32.2 Wire to ProjectService.create_project, handle file system errors with Swedish error messages
+- [x] 32. New Project Dialog
+  - [x] 32.1 Design and implement new project dialog (new_project_dialog.ui + new_project_dialog.py): project name input (1-100 chars), location picker, validation, create button
+  - [x] 32.2 Wire to ProjectService.create_project, handle file system errors with Swedish error messages
   - **Requirements:** 1.1, 1.2, 1.3, 1.4
 
 - [ ] 33. Swedish Language and Formatting

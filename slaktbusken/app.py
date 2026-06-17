@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -52,31 +51,24 @@ class Application:
     # ------------------------------------------------------------------
 
     def new_project(self) -> None:
-        """Create a new project via folder dialog."""
+        """Create a new project via the New Project dialog."""
         if not self._confirm_discard_changes():
             return
 
-        name, ok = _input_dialog(
-            self.main_window,
-            "Nytt projekt",
-            "Projektnamn:",
-        )
-        if not ok or not name.strip():
-            return
+        from slaktbusken.ui.dialogs.new_project_dialog import NewProjectDialog
 
-        location = QFileDialog.getExistingDirectory(
-            self.main_window,
-            "Välj plats för projektet",
-        )
-        if not location:
+        dialog = NewProjectDialog(parent=self.main_window)
+        if dialog.exec() != NewProjectDialog.DialogCode.Accepted:
             return
 
         try:
-            self.project_service.create_project(name.strip(), Path(location))
+            self.project_service.create_project(
+                dialog.project_name, dialog.project_location
+            )
             self._update_status()
             self._update_diagram_panel()
             self.main_window.statusBar().showMessage(
-                f"Projekt '{name.strip()}' skapat", 5000
+                f"Projekt '{dialog.project_name}' skapat", 5000
             )
         except OSError as e:
             QMessageBox.critical(
@@ -357,18 +349,4 @@ class Application:
             panel.set_project_data(None)
 
 
-def _input_dialog(parent, title: str, label: str) -> tuple[str, bool]:
-    """Show a simple text input dialog.
 
-    Args:
-        parent: Parent widget.
-        title: Dialog title.
-        label: Input label text.
-
-    Returns:
-        Tuple of (text, ok) where ok is True if the user accepted.
-    """
-    from PySide6.QtWidgets import QInputDialog
-
-    text, ok = QInputDialog.getText(parent, title, label)
-    return text, ok
