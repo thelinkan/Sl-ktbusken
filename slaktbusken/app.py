@@ -231,15 +231,54 @@ class Application:
         dialog.exec()
 
     def show_settings(self) -> None:
-        """Open the settings dialog.
+        """Open the settings dialog for person box config and diagram depth.
 
-        Placeholder — full dialog implementation in a later task.
+        Shows the SettingsDialog populated with current project settings.
+        On accept: saves settings to file, applies config to the diagram
+        panel, and marks the project as dirty.
         """
-        QMessageBox.information(
-            self.main_window,
-            "Inställningar",
-            "Inställningsdialogen implementeras i ett kommande steg.",
+        from slaktbusken.ui.dialogs.settings_dialog import SettingsDialog
+        from slaktbusken.persistence.settings_io import (
+            DiagramSettings,
+            PersonBoxConfig,
+            write_settings,
         )
+
+        settings = self.project_service.settings
+        if settings is None:
+            return
+
+        dialog = SettingsDialog(
+            person_box_config=settings.person_box_config,
+            diagram_settings=settings.diagram_settings,
+            parent=self.main_window,
+        )
+
+        if dialog.exec() != SettingsDialog.DialogCode.Accepted:
+            return
+
+        # Retrieve updated values from the dialog.
+        new_person_box_config = dialog.person_box_config
+        new_diagram_settings = dialog.diagram_settings
+
+        # Update the in-memory settings.
+        settings.person_box_config = new_person_box_config
+        settings.diagram_settings = new_diagram_settings
+
+        # Persist settings to the project folder.
+        project_path = self.project_service.project_path
+        if project_path is not None:
+            settings_file = project_path.parent / "settings.json"
+            write_settings(settings, settings_file)
+
+        # Apply to diagram panel for immediate re-render.
+        panel = self.main_window.diagram_panel
+        panel.set_person_box_config(new_person_box_config)
+        panel.set_diagram_settings(new_diagram_settings)
+
+        # Mark project as dirty.
+        self.project_service._dirty = True
+        self._update_status()
 
     def confirm_close(self) -> bool:
         """Check if the application can close (confirm unsaved changes).

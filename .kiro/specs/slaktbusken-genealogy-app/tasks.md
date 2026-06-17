@@ -232,11 +232,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 30.4 Add print support for relationship graph
   - **Requirements:** 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7
 
-- [ ] 31. Settings and Configurable Person Box
-  - [ ] 31.1 Design and implement settings dialog (settings_dialog.ui + settings_dialog.py): person box configuration (enable/disable each of 11 content fields), diagram depth settings
-  - [ ] 31.2 Implement person box configuration persistence in project settings file; restore on project open
-  - [ ] 31.3 Implement default configuration for new projects (name, birth date, death date enabled)
-  - [ ] 31.4 Trigger diagram re-render within 2 seconds when person box configuration changes
+- [x] 31. Settings and Configurable Person Box
+  - [x] 31.1 Design and implement settings dialog (settings_dialog.ui + settings_dialog.py): person box configuration (enable/disable each of 11 content fields), diagram depth settings
+  - [x] 31.2 Implement person box configuration persistence in project settings file; restore on project open
+  - [x] 31.3 Implement default configuration for new projects (name, birth date, death date enabled)
+  - [x] 31.4 Trigger diagram re-render within 2 seconds when person box configuration changes
   - **Requirements:** 20.1, 20.2, 20.3, 20.4, 20.5
 
 - [ ] 32. New Project Dialog

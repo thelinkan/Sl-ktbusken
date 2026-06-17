@@ -6,14 +6,207 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>500</width>
-    <height>400</height>
+    <width>480</width>
+    <height>520</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Settings</string>
+   <string>Inställningar</string>
   </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QGroupBox" name="personBoxGroup">
+     <property name="title">
+      <string>Personruta – synliga fält</string>
+     </property>
+     <layout class="QVBoxLayout" name="personBoxLayout">
+      <item>
+       <widget class="QCheckBox" name="checkName">
+        <property name="text">
+         <string>Namn</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBirthDate">
+        <property name="text">
+         <string>Födelsedatum</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBirthPlace">
+        <property name="text">
+         <string>Födelseort</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkDeathDate">
+        <property name="text">
+         <string>Dödsdatum</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkDeathPlace">
+        <property name="text">
+         <string>Dödsort</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkMarriageDate">
+        <property name="text">
+         <string>Vigselsdatum</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkMarriagePlace">
+        <property name="text">
+         <string>Vigselort</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkOccupation">
+        <property name="text">
+         <string>Yrke</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkPhoto">
+        <property name="text">
+         <string>Profilfoto</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkDnaInfo">
+        <property name="text">
+         <string>DNA-information</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkNotes">
+        <property name="text">
+         <string>Anteckningar</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="diagramDepthGroup">
+     <property name="title">
+      <string>Diagramdjup</string>
+     </property>
+     <layout class="QFormLayout" name="depthFormLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="labelAncestryDepth">
+        <property name="text">
+         <string>Antal generationer uppåt (anor):</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QSpinBox" name="spinAncestryDepth">
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>10</number>
+        </property>
+        <property name="value">
+         <number>4</number>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="labelDescendantsDepth">
+        <property name="text">
+         <string>Antal generationer nedåt (ättlingar):</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QSpinBox" name="spinDescendantsDepth">
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>10</number>
+        </property>
+        <property name="value">
+         <number>4</number>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
  </widget>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>accepted()</signal>
+   <receiver>SettingsDialog</receiver>
+   <slot>accept()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>240</x>
+     <y>490</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>240</x>
+     <y>260</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>SettingsDialog</receiver>
+   <slot>reject()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>240</x>
+     <y>490</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>240</x>
+     <y>260</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
 </ui>
