@@ -392,3 +392,138 @@ class TestPersonEditorValidation:
         person = editor.saved_person
         assert person is not None
         assert person.notes == "Viktiga anteckningar"
+
+
+class TestPersonEditorTilltalsnamn:
+    """Tests for tilltalsnamn marker validation in the save flow."""
+
+    def test_valid_single_marker_saves_successfully(
+        self, qapp, empty_project: ProjectData
+    ):
+        """A given name with one valid marker should save without errors."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._ui.given_name_input.setText("Kent Torbjörn*")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_add_name()
+        editor._on_save()
+
+        assert editor.saved_person is not None
+        assert editor.saved_person.names[0].given == "Kent Torbjörn*"
+
+    def test_multiple_markers_blocks_save(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Multiple asterisk markers should block add-name and show error."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._ui.given_name_input.setText("Kent* Torbjörn*")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_add_name()
+
+        # Name should NOT have been added to the table
+        assert editor._ui.names_table.rowCount() == 0
+        assert "Endast ett tilltalsnamn kan markeras" in editor._ui.status_label.text()
+
+    def test_multiple_markers_switches_to_names_tab(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Validation failure on add should show error (user is already on names tab)."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._ui.given_name_input.setText("Kent* Torbjörn*")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_add_name()
+
+        # Name was rejected — table is empty
+        assert editor._ui.names_table.rowCount() == 0
+        assert "Endast ett tilltalsnamn kan markeras" in editor._ui.status_label.text()
+
+    def test_standalone_asterisk_blocks_save(
+        self, qapp, empty_project: ProjectData
+    ):
+        """A standalone asterisk (not after a name) should block add-name."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._ui.given_name_input.setText("Kent * Torbjörn")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_add_name()
+
+        assert editor._ui.names_table.rowCount() == 0
+        assert "Markören måste placeras direkt efter ett namn" in editor._ui.status_label.text()
+
+    def test_leading_asterisk_blocks_save(
+        self, qapp, empty_project: ProjectData
+    ):
+        """A leading asterisk on a name part should block add-name."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._ui.given_name_input.setText("*Kent Torbjörn")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_add_name()
+
+        assert editor._ui.names_table.rowCount() == 0
+        assert "Markören måste placeras direkt efter ett namn" in editor._ui.status_label.text()
+
+    def test_no_marker_saves_successfully(
+        self, qapp, empty_project: ProjectData
+    ):
+        """A given name without any marker should save without issues."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._ui.given_name_input.setText("Kent Torbjörn")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_add_name()
+        editor._on_save()
+
+        assert editor.saved_person is not None
+        assert editor.saved_person.names[0].given == "Kent Torbjörn"
+
+    def test_given_name_input_max_length(
+        self, qapp, empty_project: ProjectData
+    ):
+        """The given-name input field should enforce a 100-character limit."""
+        editor = PersonEditor(empty_project, person=None)
+        assert editor._ui.given_name_input.maxLength() == 100
+
+    def test_raw_asterisk_preserved_in_saved_name(
+        self, qapp, empty_project: ProjectData
+    ):
+        """The raw asterisk should remain in the stored Name.given field."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._ui.given_name_input.setText("Anna*")
+        editor._ui.surname_input.setText("Svensson")
+        editor._on_add_name()
+        editor._on_save()
+
+        assert editor.saved_person is not None
+        assert editor.saved_person.names[0].given == "Anna*"
+
+    def test_validation_only_checks_nonempty_given(
+        self, qapp, empty_project: ProjectData
+    ):
+        """A name with empty given but valid surname should save fine."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._ui.given_name_input.setText("")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_add_name()
+        editor._on_save()
+
+        assert editor.saved_person is not None
+        assert editor.saved_person.names[0].given == ""
+        assert editor.saved_person.names[0].surname == "Johansson"
+
+    def test_edit_name_with_invalid_marker_blocks_update(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Editing a name to have invalid markers should block the update."""
+        editor = PersonEditor(empty_project, person=None)
+        # First add a valid name
+        editor._ui.given_name_input.setText("Kent Torbjörn*")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_add_name()
+        assert editor._ui.names_table.rowCount() == 1
+
+        # Select the row, then try to edit with invalid value
+        editor._ui.names_table.selectRow(0)
+        editor._ui.given_name_input.setText("Kent* Torbjörn*")
+        editor._ui.surname_input.setText("Johansson")
+        editor._on_edit_name()
+
+        # Original value should remain unchanged
+        assert editor._ui.names_table.item(0, 1).text() == "Kent Torbjörn*"
+        assert "Endast ett tilltalsnamn kan markeras" in editor._ui.status_label.text()

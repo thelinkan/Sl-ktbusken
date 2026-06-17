@@ -92,18 +92,18 @@ Implement the Swedish genealogy convention of marking a person's tilltalsnamn wi
     - Test literal asterisk in search term
     - _Requirements: 4.1, 4.2, 4.3, 4.5_
 
-- [~] 5. Checkpoint - Ensure all rendering and filter tests pass
+- [x] 5. Checkpoint - Ensure all rendering and filter tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 6. Add editor validation for asterisk markers
-  - [~] 6.1 Integrate `validate_given_name_markers` into `PersonEditor` save flow
+- [x] 6. Add editor validation for asterisk markers
+  - [x] 6.1 Integrate `validate_given_name_markers` into `PersonEditor` save flow
     - In `slaktbusken/ui/editors/person_editor.py`, call `validate_given_name_markers()` on the given-name input field before saving
     - If validation fails, display the first error via `_update_status()`, switch to the Names tab, and abort save
     - Ensure the raw asterisk remains visible in the editor input field
     - Enforce maximum 100 characters for the given-name input field
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-  - [~] 6.2 Write unit tests for editor validation
+  - [x] 6.2 Write unit tests for editor validation
     - Add tests to `tests/test_ui/test_person_editor.py`
     - Test that multiple markers triggers validation error and blocks save
     - Test that malformed marker triggers validation error and blocks save
@@ -111,7 +111,7 @@ Implement the Swedish genealogy convention of marking a person's tilltalsnamn wi
     - Test that given-name field is limited to 100 characters
     - _Requirements: 5.1, 5.4, 5.5_
 
-- [~] 7. Final checkpoint - Ensure all tests pass
+- [x] 7. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

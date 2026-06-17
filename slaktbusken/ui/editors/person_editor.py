@@ -14,6 +14,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QListWidgetItem, QTableWidgetItem, QWidget
 
+from slaktbusken.model.name_parser import validate_given_name_markers
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
@@ -97,6 +98,9 @@ class PersonEditor(QWidget):
         table = self._ui.names_table
         table.horizontalHeader().setStretchLastSection(True)
         table.setEditTriggers(table.EditTrigger.NoEditTriggers)
+
+        # Enforce maximum 100 characters for given-name input
+        self._ui.given_name_input.setMaxLength(100)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
@@ -205,6 +209,13 @@ class PersonEditor(QWidget):
             self._update_status("Ange förnamn eller efternamn.")
             return
 
+        # Validate tilltalsnamn markers before adding
+        if given:
+            errors = validate_given_name_markers(given)
+            if errors:
+                self._update_status(errors[0])
+                return
+
         name = Name(type=name_type, given=given, surname=surname)
         self._add_name_row(name)
         self._clear_name_fields()
@@ -225,6 +236,13 @@ class PersonEditor(QWidget):
         if not given and not surname:
             self._update_status("Ange förnamn eller efternamn.")
             return
+
+        # Validate tilltalsnamn markers before updating
+        if given:
+            errors = validate_given_name_markers(given)
+            if errors:
+                self._update_status(errors[0])
+                return
 
         table = self._ui.names_table
         table.item(row, 0).setText(name_type)

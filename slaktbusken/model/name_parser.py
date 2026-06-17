@@ -143,12 +143,12 @@ def validate_given_name_markers(given: str) -> list[str]:
 
     if trailing_marker_count > 1:
         errors.append(
-            "Only one tilltalsnamn marker is permitted."
+            "Endast ett tilltalsnamn kan markeras."
         )
 
     if malformed:
         errors.append(
-            "The marker must be placed directly after a name part."
+            "Markören måste placeras direkt efter ett namn."
         )
 
     return errors
