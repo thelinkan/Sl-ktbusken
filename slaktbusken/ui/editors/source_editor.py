@@ -13,7 +13,7 @@ import logging
 import uuid
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QListWidgetItem, QMessageBox, QWidget
 
 from slaktbusken.model.project import ProjectData
@@ -52,11 +52,18 @@ class SourceEditor(QWidget):
     right. The structured reference group dynamically shows/hides fields
     depending on the selected source_type.
 
+    Signals:
+        save_requested: Emitted when the user saves successfully.
+        cancel_requested: Emitted when the user cancels editing.
+
     Args:
         project_data: The current project data containing all entities.
         source: Optional existing Source to edit. If None, creates a new source.
         parent: Optional parent widget.
     """
+
+    save_requested = Signal()
+    cancel_requested = Signal()
 
     def __init__(
         self,
@@ -585,11 +592,13 @@ class SourceEditor(QWidget):
 
         self._clear_status()
         logger.info("Källa sparad: %s", source_id)
+        self.save_requested.emit()
         self.close()
 
     def _on_cancel(self) -> None:
         """Close the editor without saving."""
         self._saved_source = None
+        self.cancel_requested.emit()
         self.close()
 
     # ------------------------------------------------------------------

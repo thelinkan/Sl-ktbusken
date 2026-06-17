@@ -53,6 +53,9 @@ PLACE_TYPE_LABELS: dict[str, str] = {
     "parish": "Socken",
     "church": "Kyrka",
     "cemetery": "Kyrkogård",
+    "village": "By",
+    "farm": "Gård",
+    "school": "Skola",
 }
 
 # Event types — individual (individuella händelsetyper)

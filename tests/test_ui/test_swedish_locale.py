@@ -84,7 +84,7 @@ class TestPlaceTypeLabels:
         assert PLACE_TYPE_LABELS["cemetery"] == "Kyrkogård"
 
     def test_all_place_types_have_labels(self) -> None:
-        expected_types = {"country", "county", "parish", "church", "cemetery"}
+        expected_types = {"country", "county", "parish", "church", "cemetery", "village", "farm", "school"}
         assert set(PLACE_TYPE_LABELS.keys()) == expected_types
 
 

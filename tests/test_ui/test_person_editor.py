@@ -304,6 +304,41 @@ class TestPersonEditorLinkedData:
         editor = PersonEditor(project_with_linked_data, person=sample_person)
         assert editor._ui.dna_clusters_list.count() == 1
 
+    def test_remove_event_removes_from_project_data(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """Removing a selected event should delete it from project data and refresh list."""
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        initial_event_count = len(project_with_linked_data.events)
+        assert editor._ui.events_list.count() == 2
+
+        # Select the first event in the list
+        editor._ui.events_list.setCurrentRow(0)
+        editor._on_remove_event()
+
+        # Event should be removed from project data
+        assert len(project_with_linked_data.events) == initial_event_count - 1
+        # Events list should be refreshed
+        assert editor._ui.events_list.count() == 1
+
+    def test_remove_event_without_selection_shows_error(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """Removing without selection should show Swedish error message."""
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        editor._on_remove_event()
+
+        assert editor._ui.status_label.text() == "Välj en händelse att ta bort."
+
+    def test_add_event_no_person_shows_error(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Adding an event with no person should show an error."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._on_add_event()
+
+        assert "Spara personen först" in editor._ui.status_label.text()
+
 
 class TestPersonEditorValidation:
     """Tests for validation feedback (subtask 25.3)."""

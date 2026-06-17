@@ -12,8 +12,16 @@ import logging
 import uuid
 from typing import Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QListWidgetItem, QMessageBox, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QGroupBox,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
@@ -28,6 +36,9 @@ _TYPE_LABEL_TO_INTERNAL: dict[str, str] = {
     "Socken": "parish",
     "Kyrka": "church",
     "Kyrkogård": "cemetery",
+    "By": "village",
+    "Gård": "farm",
+    "Skola": "school",
 }
 
 _TYPE_INTERNAL_TO_LABEL: dict[str, str] = {v: k for k, v in _TYPE_LABEL_TO_INTERNAL.items()}
@@ -39,6 +50,9 @@ _VALID_PARENT_TYPES: dict[str, Optional[str]] = {
     "parish": "county",
     "church": "parish",
     "cemetery": "parish",
+    "village": "parish",
+    "farm": "parish",
+    "school": "parish",
 }
 
 
@@ -49,11 +63,19 @@ class PlaceEditor(QWidget):
     on the right. Supports creating new places, editing existing ones,
     and deleting with referential integrity warnings.
 
+    Signals:
+        save_requested: Emitted when the user saves successfully.
+        cancel_requested: Emitted when the user cancels editing.
+
     Args:
         project_data: The current project data containing all entities.
         place: Optional existing Place to select initially for editing.
         parent: Optional parent widget.
     """
+
+    save_requested = Signal()
+    cancel_requested = Signal()
+    person_open_requested = Signal(str)  # Emits person_id
 
     def __init__(
         self,
@@ -79,6 +101,7 @@ class PlaceEditor(QWidget):
         self._ui = Ui_PlaceEditor()
         self._ui.setupUi(self)
 
+        self._setup_child_places_list()
         self._connect_signals()
         self._refresh_place_list()
 
@@ -107,6 +130,53 @@ class PlaceEditor(QWidget):
     # Private: setup
     # ------------------------------------------------------------------
 
+    def _setup_child_places_list(self) -> None:
+        """Add a child places group box to the right panel.
+
+        Shows all places that have this place as their parent, allowing
+        the user to see the hierarchy below the selected place.
+        """
+        # Add missing place types to the type combo (generated UI only has 5)
+        existing_labels = [
+            self._ui.type_combo.itemText(i)
+            for i in range(self._ui.type_combo.count())
+        ]
+        for label in _TYPE_LABEL_TO_INTERNAL:
+            if label not in existing_labels:
+                self._ui.type_combo.addItem(label)
+
+        # Create group box with list
+        self._child_group = QGroupBox("Underordnade platser", self._ui.right_panel)
+        child_layout = QVBoxLayout(self._child_group)
+        self._child_list = QListWidget(self._child_group)
+        self._child_list.setMaximumHeight(150)
+        child_layout.addWidget(self._child_list)
+
+        # Insert before the status label and buttons (at index -2 from end)
+        # The right_layout has: form_layout, notes, status_label, buttons_layout
+        # Insert before status_label
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._child_group)
+        else:
+            right_layout.addWidget(self._child_group)
+
+        # Create linked persons group box
+        self._persons_group = QGroupBox("Kopplade personer", self._ui.right_panel)
+        persons_layout = QVBoxLayout(self._persons_group)
+        self._persons_list = QListWidget(self._persons_group)
+        self._persons_list.setMaximumHeight(150)
+        persons_layout.addWidget(self._persons_list)
+
+        # Insert after child group (before status label)
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._persons_group)
+        else:
+            right_layout.addWidget(self._persons_group)
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
         # Filter
@@ -125,6 +195,9 @@ class PlaceEditor(QWidget):
         # Type change updates parent combo
         self._ui.type_combo.currentIndexChanged.connect(self._on_type_changed)
 
+        # Linked persons double-click
+        self._persons_list.itemDoubleClicked.connect(self._on_person_double_clicked)
+
         # Save / Cancel
         self._ui.save_button.clicked.connect(self._on_save)
         self._ui.cancel_button.clicked.connect(self._on_cancel)
@@ -139,12 +212,19 @@ class PlaceEditor(QWidget):
         self._ui.place_list.blockSignals(True)
         self._ui.place_list.clear()
 
+        # Collect and sort alphabetically
+        entries: list[tuple[str, str]] = []
         for place in self._project_data.places:
             display = self._format_place_display(place)
             if filter_text and filter_text not in display.lower():
                 continue
+            entries.append((display, place.id))
+
+        entries.sort(key=lambda x: x[0].lower())
+
+        for display, place_id in entries:
             item = QListWidgetItem(display)
-            item.setData(Qt.ItemDataRole.UserRole, place.id)
+            item.setData(Qt.ItemDataRole.UserRole, place_id)
             self._ui.place_list.addItem(item)
 
         self._ui.place_list.blockSignals(False)
@@ -268,6 +348,12 @@ class PlaceEditor(QWidget):
         # Notes
         self._ui.notes_input.setPlainText(place.notes)
 
+        # Child places
+        self._refresh_child_places(place)
+
+        # Linked persons
+        self._refresh_linked_persons(place)
+
         self._clear_status()
 
     def _clear_form(self) -> None:
@@ -281,7 +367,101 @@ class PlaceEditor(QWidget):
         self._ui.latitude_spin.setEnabled(False)
         self._ui.longitude_spin.setEnabled(False)
         self._ui.notes_input.clear()
+        self._child_list.clear()
+        self._persons_list.clear()
         self._clear_status()
+
+    def _refresh_child_places(self, place: Place) -> None:
+        """Populate the child places list with places that have this place as parent.
+
+        Args:
+            place: The parent place to find children for.
+        """
+        self._child_list.clear()
+
+        children = [
+            p for p in self._project_data.places
+            if p.parent_place_id == place.id
+        ]
+        # Sort by type then name
+        children.sort(key=lambda p: (p.type, p.name.lower()))
+
+        if not children:
+            self._child_group.setTitle("Underordnade platser (inga)")
+            return
+
+        self._child_group.setTitle(f"Underordnade platser ({len(children)})")
+        for child in children:
+            type_label = _TYPE_INTERNAL_TO_LABEL.get(child.type, child.type)
+            display = f"{child.name} ({type_label})"
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, child.id)
+            self._child_list.addItem(item)
+
+    def _refresh_linked_persons(self, place: Place) -> None:
+        """Populate the linked persons list with people who have events at this place.
+
+        Also includes sub-places (children of this place) to show all persons
+        connected to this location in the hierarchy.
+
+        Args:
+            place: The place to find linked persons for.
+        """
+        self._persons_list.clear()
+
+        # Collect place IDs: this place + all its children
+        place_ids: set[str] = {place.id}
+        for p in self._project_data.places:
+            if p.parent_place_id == place.id:
+                place_ids.add(p.id)
+
+        # Find all persons with events at these places
+        person_ids: set[str] = set()
+        for event in self._project_data.events:
+            if event.place and event.place.place_id in place_ids:
+                for participant in event.participants:
+                    person_ids.add(participant.person_id)
+
+        if not person_ids:
+            self._persons_group.setTitle("Kopplade personer (inga)")
+            return
+
+        self._persons_group.setTitle(f"Kopplade personer ({len(person_ids)})")
+
+        # Build display entries sorted alphabetically
+        entries: list[tuple[str, str]] = []
+        for person in self._project_data.persons:
+            if person.id in person_ids:
+                if person.names:
+                    name = person.names[0]
+                    parts = []
+                    if name.surname:
+                        parts.append(name.surname)
+                    if name.given:
+                        parts.append(name.given)
+                    display = ", ".join(parts) if parts else person.id
+                else:
+                    display = person.id
+                entries.append((display, person.id))
+
+        entries.sort(key=lambda x: x[0].lower())
+
+        for display, person_id in entries:
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, person_id)
+            self._persons_list.addItem(item)
+
+    def _on_person_double_clicked(self, item: QListWidgetItem) -> None:
+        """Handle double-click on a person in the linked persons list.
+
+        Emits person_open_requested signal with the person ID.
+
+        Args:
+            item: The double-clicked list item.
+        """
+        person_id = item.data(Qt.ItemDataRole.UserRole)
+        if person_id:
+            self.person_open_requested.emit(person_id)
 
     # ------------------------------------------------------------------
     # Private: parent combo population with hierarchy enforcement
@@ -301,13 +481,25 @@ class PlaceEditor(QWidget):
             # country has no parent
             return
 
+        # Collect valid parent places with display text
+        parent_entries: list[tuple[str, str]] = []
         for p in self._project_data.places:
             if p.type == required_parent_type:
                 # Don't allow a place to be its own parent
                 if self._editing_place and p.id == self._editing_place.id:
                     continue
+                # Show parent context to distinguish same-named places
                 display = p.name
-                self._ui.parent_combo.addItem(display, p.id)
+                if p.parent_place_id:
+                    grandparent = self._find_place_by_id(p.parent_place_id)
+                    if grandparent:
+                        display = f"{p.name}, {grandparent.name}"
+                parent_entries.append((display, p.id))
+
+        # Sort alphabetically
+        parent_entries.sort(key=lambda x: x[0].lower())
+        for display, place_id in parent_entries:
+            self._ui.parent_combo.addItem(display, place_id)
 
     def _on_type_changed(self, index: int) -> None:
         """Handle type combo change to update parent combo options.
@@ -480,11 +672,13 @@ class PlaceEditor(QWidget):
 
         self._clear_status()
         logger.info("Plats sparad: %s (%s)", name, place_id)
+        self.save_requested.emit()
         self.close()
 
     def _on_cancel(self) -> None:
         """Close the editor without saving."""
         self._saved_place = None
+        self.cancel_requested.emit()
         self.close()
 
     # ------------------------------------------------------------------

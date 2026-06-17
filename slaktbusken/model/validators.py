@@ -49,7 +49,7 @@ _ISO_DATE_RE = re.compile(r"^\d{4}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01
 
 _CUSTOM_EVENT_TYPES = {"custom_individual_event", "custom_family_event"}
 
-_VALID_PLACE_TYPES = {"country", "county", "parish", "church", "cemetery"}
+_VALID_PLACE_TYPES = {"country", "county", "parish", "church", "cemetery", "village", "farm", "school"}
 
 _VALID_SOURCE_TYPES = {
     "church_book",
@@ -300,6 +300,9 @@ def _validate_place_hierarchy(
         "parish": "county",
         "church": "parish",
         "cemetery": "parish",
+        "village": "parish",
+        "farm": "parish",
+        "school": "parish",
     }
 
     if place.type not in hierarchy_requirements:

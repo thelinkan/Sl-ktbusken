@@ -304,7 +304,7 @@ def event_strategy(draw: DrawFn) -> Event:
 # 3.4 – Place strategies
 # ---------------------------------------------------------------------------
 
-_PLACE_TYPES = ["country", "county", "parish", "church", "cemetery"]
+_PLACE_TYPES = ["country", "county", "parish", "church", "cemetery", "village", "farm", "school"]
 
 
 @st.composite

@@ -12,12 +12,14 @@ import uuid
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QListWidgetItem, QTableWidgetItem, QWidget
+from PySide6.QtWidgets import QDialog, QListWidgetItem, QTableWidgetItem, QVBoxLayout, QWidget
 
+from slaktbusken.model.event import Participant
 from slaktbusken.model.name_parser import validate_given_name_markers
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
+from slaktbusken.ui.swedish_locale import get_event_type_label
 
 logger = logging.getLogger(__name__)
 
@@ -288,40 +290,102 @@ class PersonEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _refresh_events_list(self) -> None:
-        """Populate the events list with events linked to this person."""
+        """Populate the events list with events linked to this person, sorted by date."""
         self._ui.events_list.clear()
 
         if self._person is None:
             return
 
+        # Collect events for this person
+        person_events: list[tuple[str, str, str]] = []  # (date_sort_key, display, event_id)
         for event in self._project_data.events:
             for participant in event.participants:
                 if participant.person_id == self._person.id:
-                    display = f"{event.type} ({participant.role})"
+                    type_label = get_event_type_label(event.type)
+                    display = f"{type_label} ({participant.role})"
+                    date_key = ""
                     if event.date:
                         display += f" — {event.date.value}"
-                    item = QListWidgetItem(display)
-                    item.setData(Qt.ItemDataRole.UserRole, event.id)
-                    self._ui.events_list.addItem(item)
+                        date_key = event.date.value
+                    person_events.append((date_key, display, event.id))
                     break
 
-    def _on_add_event(self) -> None:
-        """Placeholder for adding an event link.
+        # Sort by date (empty dates last)
+        person_events.sort(key=lambda x: (x[0] == "", x[0]))
 
-        Full event selection dialog to be implemented in a later task.
+        for _date_key, display, event_id in person_events:
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, event_id)
+            self._ui.events_list.addItem(item)
+
+    def _on_add_event(self) -> None:
+        """Open the event editor to create a new event linked to this person.
+
+        Creates an EventEditor in a QDialog with the current person set as
+        the subject. For individual events, the person is automatically the
+        sole participant. For family events, the person is pre-added and
+        additional participants can be added.
         """
-        self._update_status("Händelselänkning implementeras i ett kommande steg.")
+        from slaktbusken.ui.editors.event_editor import EventEditor
+
+        if self._person is None:
+            self._update_status("Spara personen först innan du lägger till händelser.")
+            return
+
+        # Create dialog wrapper
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Ny händelse")
+        dialog.setMinimumSize(700, 550)
+        layout = QVBoxLayout(dialog)
+
+        # Create event editor with subject person
+        editor = EventEditor(
+            project_data=self._project_data,
+            event=None,
+            subject_person_id=self._person.id,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        # Connect editor signals to dialog accept/reject
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        # Show modal dialog
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            saved_event = editor.saved_event
+            if saved_event is not None:
+                # Add the event to project data
+                self._project_data.events.append(saved_event)
+
+                # Refresh the events list
+                self._refresh_events_list()
+                self._clear_status()
 
     def _on_remove_event(self) -> None:
-        """Placeholder for removing an event link.
+        """Remove the selected event from project data.
 
-        Full event unlinking to be implemented in a later task.
+        Removes the event entirely from project data based on the event ID
+        stored in the list item's UserRole data, then refreshes the list.
         """
         current = self._ui.events_list.currentItem()
         if not current:
             self._update_status("Välj en händelse att ta bort.")
             return
-        self._update_status("Händelseborttagning implementeras i ett kommande steg.")
+
+        event_id = current.data(Qt.ItemDataRole.UserRole)
+        if not event_id:
+            self._update_status("Kunde inte identifiera händelsen.")
+            return
+
+        # Remove the event from project data
+        self._project_data.events = [
+            e for e in self._project_data.events if e.id != event_id
+        ]
+
+        # Refresh the events list
+        self._refresh_events_list()
+        self._clear_status()
 
     # ------------------------------------------------------------------
     # Private: photos / media

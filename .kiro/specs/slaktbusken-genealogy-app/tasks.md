@@ -314,10 +314,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 43.6 Add or update tests verifying that all standard event types are imported, places are linked to events, all persons are captured, and names do not contain slashes
   - **Requirements:** 4.1, 4.2, 4.6, 4.7, 4.8, 9.1, 9.2
 
-- [ ] 44. Bug: Add Event Does Not Work
-  - [ ] 44.1 Investigate why adding an event in the person editor shows a "will be implemented later" placeholder instead of working
-  - [ ] 44.2 Implement the add-event functionality: open the event editor, allow the user to create a new event, link it to the person, and persist it to project data
-  - [ ] 44.3 Verify that adding events of all types works correctly and the event appears in the person's event list
+- [x] 44. Bug: Add Event Does Not Work
+  - [x] 44.1 Investigate why adding an event in the person editor shows a "will be implemented later" placeholder instead of working
+  - [x] 44.2 Implement the add-event functionality: open the event editor, allow the user to create a new event, link it to the person, and persist it to project data
+  - [x] 44.3 Verify that adding events of all types works correctly and the event appears in the person's event list
   - **Requirements:** 9.1, 9.2, 9.3, 9.4, 9.5
 
 - [ ] 45. Bug: No Way to Edit Events and Person View Reset

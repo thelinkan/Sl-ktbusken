@@ -371,6 +371,10 @@ class Application:
         )
         layout.addWidget(editor)
 
+        # Connect editor signals to dialog accept/reject
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
         dialog.exec()
 
         # If a source was saved via the editor, update project state
@@ -409,6 +413,13 @@ class Application:
             parent=dialog,
         )
         layout.addWidget(editor)
+
+        # Connect editor signals to dialog accept/reject
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        # Connect person open signal to open person editor
+        editor.person_open_requested.connect(self.open_person_editor)
 
         dialog.exec()
 

@@ -96,7 +96,7 @@ class TestProperty7ValidDataAccepted:
         # The place_strategy generates random types and parent_place_id.
         # The hierarchy validator requires non-country types to have a parent,
         # and countries to have no parent. Filter to valid hierarchy combos.
-        hierarchy_requires_parent = {"county", "parish", "church", "cemetery"}
+        hierarchy_requires_parent = {"county", "parish", "church", "cemetery", "village", "farm", "school"}
         if place.type == "country":
             assume(place.parent_place_id is None)
         elif place.type in hierarchy_requires_parent:
