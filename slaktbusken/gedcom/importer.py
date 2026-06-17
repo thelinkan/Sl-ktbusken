@@ -110,6 +110,12 @@ _INDI_EVENT_TAGS: dict[str, str] = {
     "RETI": "retirement",
     "GRAD": "graduation",
     "CREM": "cremation",
+    "CONF": "confirmation",
+    "WILL": "will",
+    "ADOP": "adoption",
+    "BLES": "blessing",
+    "FCOM": "first_communion",
+    "RESI": "census",
 }
 
 # Tags for family events
@@ -117,6 +123,7 @@ _FAM_EVENT_TAGS: dict[str, str] = {
     "MARR": "marriage",
     "DIV": "divorce",
     "ENGA": "engagement",
+    "DIVF": "divorce_filed",
 }
 
 # Level-0 tags we recognize and do not warn about
@@ -298,9 +305,9 @@ def _extract_gedcom_person(record: GedcomLine) -> GedcomPerson:
         givn_child = _get_child_value(name_rec, "GIVN")
         surn_child = _get_child_value(name_rec, "SURN")
         if givn_child:
-            parsed_given = givn_child
+            parsed_given = givn_child.replace("/", "")
         if surn_child:
-            parsed_surname = surn_child
+            parsed_surname = surn_child.replace("/", "")
 
         if i == 0:
             given_name = parsed_given
@@ -472,7 +479,8 @@ def _parse_gedcom_name(name_value: str) -> tuple[str, str]:
 
     GEDCOM names use the format "Given /Surname/" where the surname is
     enclosed in slashes. If no slashes are present, the entire value is
-    treated as the given name.
+    treated as the given name. Any remaining slash characters are stripped
+    from the output as a safety measure.
 
     Args:
         name_value: The raw NAME tag value string.
@@ -488,10 +496,13 @@ def _parse_gedcom_name(name_value: str) -> tuple[str, str]:
         suffix = match.group(3).strip()
         if suffix:
             given_parts = f"{given_parts} {suffix}".strip()
+        # Strip any remaining slashes
+        given_parts = given_parts.replace("/", "")
+        surname = surname.replace("/", "")
         return given_parts, surname
 
-    # No surname delimiters — treat all as given name
-    return name_value.strip(), ""
+    # No surname delimiters — strip slashes and treat all as given name
+    return name_value.strip().replace("/", ""), ""
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +556,9 @@ class GEDCOMImporter:
         # Place cache: GEDCOM place string → App_JSON place_id
         self._place_cache: dict[str, str] = {}
 
+        # Translation data reference (set during import_file)
+        self._translation_data: Optional[TranslationData] = None
+
         # Counters
         self._persons_added = 0
         self._persons_updated = 0
@@ -593,6 +607,7 @@ class GEDCOMImporter:
 
         # Load existing translation data
         translation_data = self._translation_mgr.load_translations()
+        self._translation_data = translation_data
 
         # Separate records by tag type
         indi_records: list[GedcomLine] = []
@@ -624,6 +639,11 @@ class GEDCOMImporter:
 
         # Save updated translation data
         self._translation_mgr.save_translations(translation_data)
+
+        # Write diagnostic log to C:\Temp
+        self._write_import_log(
+            gedcom_path, indi_records, fam_records, sour_records
+        )
 
         return ImportResult(
             persons_added=self._persons_added,
@@ -659,6 +679,126 @@ class GEDCOMImporter:
             return path.read_text(encoding="utf-8-sig")
         except UnicodeDecodeError:
             return path.read_text(encoding="latin-1")
+
+    def _write_import_log(
+        self,
+        gedcom_path: Path,
+        indi_records: list[GedcomLine],
+        fam_records: list[GedcomLine],
+        sour_records: list[GedcomLine],
+    ) -> None:
+        """Write a diagnostic log file to C:\\Temp\\gedcom_import.log.
+
+        Logs a summary of the import, all warnings, and details about
+        INDI records that were NOT successfully imported (i.e., their
+        xref_id is not in _person_xref_map after processing).
+
+        Args:
+            gedcom_path: The source GEDCOM file path.
+            indi_records: All parsed INDI records.
+            fam_records: All parsed FAM records.
+            sour_records: All parsed SOUR records.
+        """
+        import datetime
+
+        log_dir = Path(r"C:\Temp")
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return  # Can't create log dir — skip silently
+
+        log_path = log_dir / "gedcom_import.log"
+        try:
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write("=" * 72 + "\n")
+                f.write(f"GEDCOM Import Log — {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n")
+                f.write(f"Source file: {gedcom_path}\n")
+                f.write("=" * 72 + "\n\n")
+
+                # Summary
+                f.write("SUMMARY\n")
+                f.write("-" * 40 + "\n")
+                f.write(f"INDI records in GEDCOM:  {len(indi_records)}\n")
+                f.write(f"FAM records in GEDCOM:   {len(fam_records)}\n")
+                f.write(f"SOUR records in GEDCOM:  {len(sour_records)}\n")
+                f.write(f"Persons added:           {self._persons_added}\n")
+                f.write(f"Persons updated:         {self._persons_updated}\n")
+                f.write(f"Families added:          {self._families_added}\n")
+                f.write(f"Families updated:        {self._families_updated}\n")
+                f.write(f"Events added:            {self._events_added}\n")
+                f.write(f"Sources added:           {self._sources_added}\n")
+                f.write(f"Places added:            {self._places_added}\n")
+                f.write(f"Warnings:                {len(self._warnings)}\n")
+
+                total_persons_processed = self._persons_added + self._persons_updated
+                missing_count = len(indi_records) - total_persons_processed
+                f.write(f"\nPersons NOT imported:    {missing_count}\n\n")
+
+                # Find INDI records that were NOT imported
+                if missing_count > 0:
+                    f.write("=" * 72 + "\n")
+                    f.write("INDI RECORDS NOT IMPORTED\n")
+                    f.write("=" * 72 + "\n\n")
+                    for record in indi_records:
+                        xref = record.xref_id or "(no xref)"
+                        if xref not in self._person_xref_map:
+                            f.write(f"Line {record.line_number}: {xref}\n")
+                            # Try to extract some info for diagnostics
+                            name_val = _get_child_value(record, "NAME") or "(no NAME tag)"
+                            sex_val = _get_child_value(record, "SEX") or "(no SEX)"
+                            f.write(f"  NAME: {name_val}\n")
+                            f.write(f"  SEX:  {sex_val}\n")
+                            # Show all child tags for this record
+                            child_tags = [
+                                f"{c.tag}={c.value or ''}" for c in record.children[:20]
+                            ]
+                            f.write(f"  Tags: {', '.join(child_tags)}\n")
+                            f.write("\n")
+
+                # All warnings
+                if self._warnings:
+                    f.write("=" * 72 + "\n")
+                    f.write("ALL WARNINGS\n")
+                    f.write("=" * 72 + "\n\n")
+                    for i, warning in enumerate(self._warnings, 1):
+                        f.write(f"  {i}. {warning}\n")
+                    f.write("\n")
+
+                # Family records with unresolved partner/child references
+                f.write("=" * 72 + "\n")
+                f.write("FAMILY LINKAGE ISSUES\n")
+                f.write("=" * 72 + "\n\n")
+                linkage_issues = 0
+                for record in fam_records:
+                    xref = record.xref_id or "(no xref)"
+                    issues: list[str] = []
+
+                    husb_val = _get_child_value(record, "HUSB")
+                    wife_val = _get_child_value(record, "WIFE")
+                    if husb_val and husb_val not in self._person_xref_map:
+                        issues.append(f"HUSB {husb_val} not in person map")
+                    if wife_val and wife_val not in self._person_xref_map:
+                        issues.append(f"WIFE {wife_val} not in person map")
+
+                    for child_rec in _get_children(record, "CHIL"):
+                        if child_rec.value and child_rec.value not in self._person_xref_map:
+                            issues.append(f"CHIL {child_rec.value} not in person map")
+
+                    if issues:
+                        linkage_issues += 1
+                        f.write(f"Line {record.line_number}: {xref}\n")
+                        for issue in issues:
+                            f.write(f"  - {issue}\n")
+                        f.write("\n")
+
+                if linkage_issues == 0:
+                    f.write("  (no linkage issues found)\n\n")
+
+                f.write("=" * 72 + "\n")
+                f.write("END OF LOG\n")
+                f.write("=" * 72 + "\n")
+        except OSError:
+            pass  # If we can't write the log, don't crash the import
 
     # ------------------------------------------------------------------
     # Source processing
@@ -784,15 +924,22 @@ class GEDCOMImporter:
         }
 
         for record in indi_records:
-            gedcom_person = _extract_gedcom_person(record)
-            existing_mapping = person_mapping_by_xref.get(gedcom_person.xref_id)
+            try:
+                gedcom_person = _extract_gedcom_person(record)
+                existing_mapping = person_mapping_by_xref.get(gedcom_person.xref_id)
 
-            if existing_mapping:
-                # Re-import: update existing person
-                self._update_person(gedcom_person, existing_mapping, record)
-            else:
-                # New person
-                self._create_person(gedcom_person, record, translation_data)
+                if existing_mapping:
+                    # Re-import: update existing person
+                    self._update_person(gedcom_person, existing_mapping, record)
+                else:
+                    # New person
+                    self._create_person(gedcom_person, record, translation_data)
+            except Exception as exc:
+                line_num = record.line_number if record else "?"
+                self._warnings.append(
+                    f"Rad {line_num}: Kunde inte importera person "
+                    f"(xref={record.xref_id or '?'}): {exc}"
+                )
 
     def _create_person(
         self,
@@ -919,7 +1066,8 @@ class GEDCOMImporter:
         """Create events for a person from GEDCOM event tags.
 
         Scans the INDI record's children for known event tags (BIRT, DEAT,
-        BURI, BAPM, CHR, etc.) and creates Event records for each.
+        BURI, BAPM, CHR, etc.) and creates Event records for each. Also
+        handles the generic EVEN tag as a custom_individual_event.
 
         Args:
             person_id: The App_JSON person ID to use as participant.
@@ -934,6 +1082,16 @@ class GEDCOMImporter:
                     event_record=child,
                     participant_id=person_id,
                     participant_role="subject",
+                )
+            elif tag == "EVEN":
+                # Generic individual event → custom_individual_event
+                custom_type_name = _get_child_value(child, "TYPE")
+                self._create_event(
+                    event_type="custom_individual_event",
+                    event_record=child,
+                    participant_id=person_id,
+                    participant_role="subject",
+                    custom_type_name=custom_type_name,
                 )
 
     # ------------------------------------------------------------------
@@ -1028,6 +1186,27 @@ class GEDCOMImporter:
                     event_type=event_type,
                     event_record=child_node,
                     participants=participant_ids,
+                )
+                if event_id:
+                    event_ids.append(event_id)
+            elif tag == "EVEN":
+                # Generic family event → custom_family_event
+                custom_type_name = _get_child_value(child_node, "TYPE")
+                participant_ids = []
+                if gedcom_family.husb_xref:
+                    husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
+                    if husb_id:
+                        participant_ids.append((husb_id, "spouse"))
+                if gedcom_family.wife_xref:
+                    wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
+                    if wife_id:
+                        participant_ids.append((wife_id, "spouse"))
+
+                event_id = self._create_family_event(
+                    event_type="custom_family_event",
+                    event_record=child_node,
+                    participants=participant_ids,
+                    custom_type_name=custom_type_name,
                 )
                 if event_id:
                     event_ids.append(event_id)
@@ -1159,6 +1338,51 @@ class GEDCOMImporter:
         existing_family.parent_child_links = parent_child_links
         self._families_updated += 1
 
+        # Re-create family events
+        event_ids: list[str] = []
+        for child_node in record.children:
+            tag = child_node.tag.upper()
+            if tag in _FAM_EVENT_TAGS:
+                event_type = _FAM_EVENT_TAGS[tag]
+                participant_ids: list[tuple[str, str]] = []
+                if gedcom_family.husb_xref:
+                    husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
+                    if husb_id:
+                        participant_ids.append((husb_id, "spouse"))
+                if gedcom_family.wife_xref:
+                    wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
+                    if wife_id:
+                        participant_ids.append((wife_id, "spouse"))
+
+                event_id = self._create_family_event(
+                    event_type=event_type,
+                    event_record=child_node,
+                    participants=participant_ids,
+                )
+                if event_id:
+                    event_ids.append(event_id)
+            elif tag == "EVEN":
+                custom_type_name = _get_child_value(child_node, "TYPE")
+                participant_ids = []
+                if gedcom_family.husb_xref:
+                    husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
+                    if husb_id:
+                        participant_ids.append((husb_id, "spouse"))
+                if gedcom_family.wife_xref:
+                    wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
+                    if wife_id:
+                        participant_ids.append((wife_id, "spouse"))
+
+                event_id = self._create_family_event(
+                    event_type="custom_family_event",
+                    event_record=child_node,
+                    participants=participant_ids,
+                    custom_type_name=custom_type_name,
+                )
+                if event_id:
+                    event_ids.append(event_id)
+        existing_family.event_ids = event_ids
+
     # ------------------------------------------------------------------
     # Event creation helpers
     # ------------------------------------------------------------------
@@ -1169,6 +1393,7 @@ class GEDCOMImporter:
         event_record: GedcomLine,
         participant_id: str,
         participant_role: str,
+        custom_type_name: Optional[str] = None,
     ) -> Optional[str]:
         """Create an event from a GEDCOM event sub-record.
 
@@ -1180,6 +1405,7 @@ class GEDCOMImporter:
             event_record: The GedcomLine containing the event data.
             participant_id: The person ID to add as participant.
             participant_role: The role of the participant.
+            custom_type_name: Optional custom type name for custom events.
 
         Returns:
             The new event ID, or None if the event could not be created.
@@ -1230,6 +1456,7 @@ class GEDCOMImporter:
             date=date_value,
             place=place_ref,
             cause_of_death=cause_of_death,
+            custom_type_name=custom_type_name,
         )
         self._project_data.events.append(event)
         self._events_added += 1
@@ -1240,6 +1467,7 @@ class GEDCOMImporter:
         event_type: str,
         event_record: GedcomLine,
         participants: list[tuple[str, str]],
+        custom_type_name: Optional[str] = None,
     ) -> Optional[str]:
         """Create a family event (marriage, divorce, etc.) from GEDCOM data.
 
@@ -1247,6 +1475,7 @@ class GEDCOMImporter:
             event_type: The App_JSON event type string.
             event_record: The GedcomLine containing the event data.
             participants: List of (person_id, role) tuples for participants.
+            custom_type_name: Optional custom type name for custom events.
 
         Returns:
             The new event ID, or None if no participants.
@@ -1293,6 +1522,7 @@ class GEDCOMImporter:
             participants=event_participants,
             date=date_value,
             place=place_ref,
+            custom_type_name=custom_type_name,
         )
         self._project_data.events.append(event)
         self._events_added += 1
@@ -1307,7 +1537,8 @@ class GEDCOMImporter:
 
         Uses a cache to avoid re-processing the same place string. If the
         place has not been seen before, delegates to the TranslationManager
-        to find or create the place hierarchy.
+        to find or create the place hierarchy. Also updates the translation
+        data with the new mapping for re-import support.
 
         Args:
             place_string: The verbatim GEDCOM place string.
@@ -1334,5 +1565,23 @@ class GEDCOMImporter:
 
         if place_id:
             self._place_cache[normalized] = place_id
+
+            # Persist the place mapping in translation data for re-import
+            if self._translation_data is not None:
+                already_mapped = any(
+                    m.gedcom_place == normalized
+                    for m in self._translation_data.places
+                )
+                if not already_mapped:
+                    # Extract the most-specific name for display
+                    name_parts = normalized.split(",")
+                    display_name = name_parts[0].strip() if name_parts else normalized
+                    self._translation_data.places.append(
+                        PlaceMapping(
+                            gedcom_place=normalized,
+                            app_id=place_id,
+                            name=display_name,
+                        )
+                    )
 
         return place_id

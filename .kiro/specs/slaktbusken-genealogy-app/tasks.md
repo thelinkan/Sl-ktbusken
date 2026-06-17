@@ -305,13 +305,13 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 42.3 Verify the place editor opens from the menu and is fully functional
   - **Requirements:** 6.3, 6.4, 10.3, 10.4
 
-- [ ] 43. Bug: GEDCOM Import Missing Events, Places, and People
-  - [ ] 43.1 Investigate why only birth and death events are imported — other event types (baptism, marriage, burial, census, etc.) are being skipped or not mapped
-  - [ ] 43.2 Fix event import to correctly map all GEDCOM event tags (BIRT, DEAT, BAPM/CHR, MARR, BURI, CENS, EMIG, IMMI, RESI, GRAD, WILL, CONF, etc.) to the corresponding App_JSON event types
-  - [ ] 43.3 Fix place import so that place references are correctly linked to the imported events (place_id populated on event records)
-  - [ ] 43.4 Investigate and fix why some persons are missing after import — check for parsing errors on INDI records or family linkage issues that cause persons to be skipped
-  - [ ] 43.5 Fix name import to strip GEDCOM name delimiters (// slashes) from given and surname fields — slashes are GEDCOM formatting markers and should never appear in the stored name
-  - [ ] 43.6 Add or update tests verifying that all standard event types are imported, places are linked to events, all persons are captured, and names do not contain slashes
+- [x] 43. Bug: GEDCOM Import Missing Events, Places, and People
+  - [x] 43.1 Investigate why only birth and death events are imported — other event types (baptism, marriage, burial, census, etc.) are being skipped or not mapped
+  - [x] 43.2 Fix event import to correctly map all GEDCOM event tags (BIRT, DEAT, BAPM/CHR, MARR, BURI, CENS, EMIG, IMMI, RESI, GRAD, WILL, CONF, etc.) to the corresponding App_JSON event types
+  - [x] 43.3 Fix place import so that place references are correctly linked to the imported events (place_id populated on event records)
+  - [x] 43.4 Investigate and fix why some persons are missing after import — check for parsing errors on INDI records or family linkage issues that cause persons to be skipped
+  - [x] 43.5 Fix name import to strip GEDCOM name delimiters (// slashes) from given and surname fields — slashes are GEDCOM formatting markers and should never appear in the stored name
+  - [x] 43.6 Add or update tests verifying that all standard event types are imported, places are linked to events, all persons are captured, and names do not contain slashes
   - **Requirements:** 4.1, 4.2, 4.6, 4.7, 4.8, 9.1, 9.2
 
 - [ ] 44. Bug: Add Event Does Not Work

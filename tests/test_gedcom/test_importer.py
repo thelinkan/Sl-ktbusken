@@ -947,3 +947,438 @@ class TestGEDCOMImporterTranslationPersistence:
         assert "@I1@" in gedcom_ids
         assert "@I2@" in gedcom_ids
         assert "@I3@" in gedcom_ids
+
+
+# ---------------------------------------------------------------------------
+# Extended event tag tests (Task 43)
+# ---------------------------------------------------------------------------
+
+_GEDCOM_ALL_INDI_EVENTS = """\
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 NAME Test /Person/
+1 SEX M
+1 BIRT
+2 DATE 1 JAN 1800
+2 PLAC Stockholm, Stockholms län, Sverige
+1 DEAT
+2 DATE 31 DEC 1870
+1 BURI
+2 DATE 5 JAN 1871
+1 BAPM
+2 DATE 10 JAN 1800
+1 CHR
+2 DATE 12 JAN 1800
+1 CONF
+2 DATE 1 MAY 1815
+1 EMIG
+2 DATE 1 JUN 1840
+1 IMMI
+2 DATE 1 AUG 1840
+1 CENS
+2 DATE 1880
+1 RETI
+2 DATE 1865
+1 GRAD
+2 DATE 1820
+1 CREM
+2 DATE 7 JAN 1871
+1 WILL
+2 DATE 20 DEC 1870
+1 ADOP
+2 DATE 1 FEB 1800
+1 BLES
+2 DATE 3 JAN 1800
+1 FCOM
+2 DATE 1 JUN 1812
+1 RESI
+2 DATE 1850
+2 PLAC Göteborg, Göteborgs län, Sverige
+1 EVEN
+2 TYPE Militärtjänst
+2 DATE 1825
+0 TRLR
+"""
+
+_GEDCOM_ALL_FAM_EVENTS = """\
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 NAME Johan /Andersson/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anna /Persson/
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 MARR
+2 DATE 10 JUN 1875
+2 PLAC Ljusdal, Gävleborgs län, Sverige
+1 DIV
+2 DATE 5 MAR 1890
+1 ENGA
+2 DATE 1 JAN 1874
+1 DIVF
+2 DATE 1 FEB 1890
+1 EVEN
+2 TYPE Separationsavtal
+2 DATE 1 DEC 1889
+0 TRLR
+"""
+
+_GEDCOM_EVENTS_WITH_PLACES = """\
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 NAME Erik /Svensson/
+1 SEX M
+1 BIRT
+2 DATE 1 JAN 1850
+2 PLAC Ljusdal, Gävleborgs län, Sverige
+1 CONF
+2 DATE 1 MAY 1865
+2 PLAC Ljusdal, Gävleborgs län, Sverige
+1 EMIG
+2 DATE 1 JUN 1880
+2 PLAC Göteborg, Göteborgs län, Sverige
+0 TRLR
+"""
+
+_GEDCOM_PERSONS_UNUSUAL = """\
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 NAME Normal /Person/
+1 SEX M
+1 BIRT
+2 DATE 1 JAN 1800
+0 @I2@ INDI
+1 SEX F
+0 @I3@ INDI
+1 NAME /OnlySurname/
+1 SEX U
+0 @I4@ INDI
+1 NAME GivenOnly
+1 SEX M
+0 TRLR
+"""
+
+_GEDCOM_NAME_WITH_SLASHES = """\
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 NAME Johan /Andersson/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anna Lisa /von /Essen//
+1 SEX F
+0 @I3@ INDI
+1 NAME /Karlsson/
+1 SEX M
+1 NAME
+2 GIVN Per/Erik
+2 SURN /Lindström/
+0 TRLR
+"""
+
+
+class TestAllIndiEventTags:
+    """Tests that ALL standard GEDCOM individual event tags produce correct App_JSON event types."""
+
+    def test_all_indi_event_tags_produce_correct_types(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """All individual event tags are mapped to the correct event type."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_ALL_INDI_EVENTS, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        result = importer.import_file(gedcom_file)
+
+        person = empty_project.persons[0]
+        person_events = [
+            e for e in empty_project.events
+            if any(p.person_id == person.id for p in e.participants)
+        ]
+        event_types = {e.type for e in person_events}
+
+        # Standard mapped events
+        assert "birth" in event_types
+        assert "death" in event_types
+        assert "burial" in event_types
+        assert "baptism" in event_types  # BAPM and CHR both map to baptism
+        assert "confirmation" in event_types
+        assert "emigration" in event_types
+        assert "immigration" in event_types
+        assert "census" in event_types  # CENS and RESI both map to census
+        assert "retirement" in event_types
+        assert "graduation" in event_types
+        assert "cremation" in event_types
+        assert "will" in event_types
+        assert "adoption" in event_types
+        assert "blessing" in event_types
+        assert "first_communion" in event_types
+        assert "custom_individual_event" in event_types
+
+    def test_even_tag_has_custom_type_name(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """The EVEN tag creates a custom_individual_event with the TYPE value as custom_type_name."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_ALL_INDI_EVENTS, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        custom_events = [
+            e for e in empty_project.events
+            if e.type == "custom_individual_event"
+        ]
+        assert len(custom_events) == 1
+        assert custom_events[0].custom_type_name == "Militärtjänst"
+
+    def test_resi_tag_maps_to_census(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """RESI tag is mapped to census event type."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_ALL_INDI_EVENTS, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        census_events = [e for e in empty_project.events if e.type == "census"]
+        # Should have at least 2: one from CENS tag, one from RESI tag
+        assert len(census_events) >= 2
+
+
+class TestAllFamEventTags:
+    """Tests that family event tags produce correct App_JSON family event types."""
+
+    def test_all_fam_event_tags_produce_correct_types(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """All family event tags are mapped to the correct event type."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_ALL_FAM_EVENTS, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        family_event_types = set()
+        for event in empty_project.events:
+            if event.type in ("marriage", "divorce", "engagement", "divorce_filed", "custom_family_event"):
+                family_event_types.add(event.type)
+
+        assert "marriage" in family_event_types
+        assert "divorce" in family_event_types
+        assert "engagement" in family_event_types
+        assert "divorce_filed" in family_event_types
+        assert "custom_family_event" in family_event_types
+
+    def test_family_even_tag_has_custom_type_name(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """The EVEN tag under FAM creates a custom_family_event with TYPE value."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_ALL_FAM_EVENTS, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        custom_events = [
+            e for e in empty_project.events
+            if e.type == "custom_family_event"
+        ]
+        assert len(custom_events) == 1
+        assert custom_events[0].custom_type_name == "Separationsavtal"
+
+    def test_divf_tag_maps_to_divorce_filed(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """DIVF tag is mapped to divorce_filed event type."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_ALL_FAM_EVENTS, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        divf_events = [e for e in empty_project.events if e.type == "divorce_filed"]
+        assert len(divf_events) == 1
+
+
+class TestEventPlaceLinking:
+    """Tests that events have their place_id properly linked."""
+
+    def test_events_have_place_ref(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Events with PLAC sub-tags have a non-null place reference."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_EVENTS_WITH_PLACES, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        person = empty_project.persons[0]
+        person_events = [
+            e for e in empty_project.events
+            if any(p.person_id == person.id for p in e.participants)
+        ]
+
+        # Events with places: birth, confirmation, emigration
+        events_with_places = [e for e in person_events if e.place is not None]
+        assert len(events_with_places) == 3
+
+        # Each should have a valid place_id
+        for event in events_with_places:
+            assert event.place.place_id is not None
+            # The place_id should reference an existing place
+            place_ids = {p.id for p in empty_project.places}
+            assert event.place.place_id in place_ids
+
+    def test_family_marriage_event_has_place(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Marriage event from FAM record has a place reference."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_ALL_FAM_EVENTS, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        marriage_events = [e for e in empty_project.events if e.type == "marriage"]
+        assert len(marriage_events) == 1
+        assert marriage_events[0].place is not None
+        assert marriage_events[0].place.place_id is not None
+
+
+class TestAllPersonsCaptured:
+    """Tests that all persons in a GEDCOM file are captured, including unusual data."""
+
+    def test_all_persons_imported(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """All persons are imported including those with missing or unusual name data."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_PERSONS_UNUSUAL, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        result = importer.import_file(gedcom_file)
+
+        assert result.persons_added == 4
+        assert len(empty_project.persons) == 4
+
+    def test_person_without_name_still_imported(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A person with no NAME tag is still imported."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_PERSONS_UNUSUAL, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        # Person @I2@ has no name
+        females = [p for p in empty_project.persons if p.sex == "F"]
+        assert len(females) == 1
+
+    def test_malformed_lines_dont_prevent_person_import(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Malformed lines in the file don't prevent remaining persons from importing."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_WITH_MALFORMED_LINES, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        result = importer.import_file(gedcom_file)
+
+        # Person should still be imported
+        assert result.persons_added == 1
+
+
+class TestNameSlashStripping:
+    """Tests that imported names NEVER contain slash characters."""
+
+    def test_standard_name_no_slashes(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Standard name format 'Given /Surname/' produces clean names."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_NAME_WITH_SLASHES, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        for person in empty_project.persons:
+            for name in person.names:
+                assert "/" not in name.given, f"Slash found in given name: {name.given}"
+                assert "/" not in name.surname, f"Slash found in surname: {name.surname}"
+
+    def test_givn_surn_children_stripped(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """GIVN and SURN child values with stray slashes are cleaned."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_NAME_WITH_SLASHES, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+
+        # @I3@ has GIVN "Per/Erik" and SURN "/Lindström/"
+        # Find Lindström person (the one with additional name from GIVN/SURN)
+        for person in empty_project.persons:
+            for name in person.names:
+                assert "/" not in name.given
+                assert "/" not in name.surname
+
+    def test_parse_gedcom_name_strips_slashes(self) -> None:
+        """_parse_gedcom_name strips remaining slashes from output."""
+        given, surname = _parse_gedcom_name("Johan /Andersson/")
+        assert "/" not in given
+        assert "/" not in surname
+
+        given, surname = _parse_gedcom_name("/Karlsson/")
+        assert "/" not in given
+        assert "/" not in surname
+
+        # Edge case: stray slashes
+        given, surname = _parse_gedcom_name("Per/Erik /von/Essen/")
+        assert "/" not in given
+        assert "/" not in surname
+
+
+class TestFamilyReimportWithEvents:
+    """Tests that family events are recreated during re-import."""
+
+    def test_reimport_family_recreates_events(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Re-importing a family recreates its events with places."""
+        gedcom_file = tmp_path / "test.ged"
+        gedcom_file.write_text(_GEDCOM_ALL_FAM_EVENTS, encoding="utf-8")
+
+        # First import
+        importer1 = GEDCOMImporter(empty_project, translation_dir)
+        importer1.import_file(gedcom_file)
+
+        # Count marriage events after first import
+        marriage_count_1 = len([e for e in empty_project.events if e.type == "marriage"])
+        assert marriage_count_1 == 1
+
+        # Second import (re-import)
+        importer2 = GEDCOMImporter(empty_project, translation_dir)
+        result2 = importer2.import_file(gedcom_file)
+
+        # Family should be updated
+        assert result2.families_updated == 1
+
+        # Marriage events should exist (re-created)
+        marriage_events = [e for e in empty_project.events if e.type == "marriage"]
+        assert len(marriage_events) >= 1
+
+        # The last marriage event should have a place
+        latest_marriage = marriage_events[-1]
+        assert latest_marriage.place is not None
