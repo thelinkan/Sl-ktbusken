@@ -244,18 +244,54 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 32.2 Wire to ProjectService.create_project, handle file system errors with Swedish error messages
   - **Requirements:** 1.1, 1.2, 1.3, 1.4
 
-- [ ] 33. Swedish Language and Formatting
-  - [ ] 33.1 Ensure all UI labels, menus, buttons, dialogs, tooltips, and system messages are in Swedish throughout the application
-  - [ ] 33.2 Implement Swedish genealogical terminology for source types, place types, event types, and relationship labels
-  - [ ] 33.3 Implement Swedish date formatting (YYYY-MM-DD) and number formatting (comma decimal separator, space thousands separator)
-  - [ ] 33.4 Review and ensure all error messages, confirmation prompts, and validation feedback are in Swedish
+- [x] 33. Bug: Cannot Choose Main Person on Import
+  - [x] 33.1 Investigate and fix the import flow so that the user can select a main/active person after GEDCOM import completes
+  - [x] 33.2 Verify the person selection UI is presented and functional after import
+  - **Requirements:** 4.1
+
+- [ ] 34. Bug: No Persons Shown in Personlista
+  - [ ] 34.1 Investigate why the PersonListPanel does not display any persons after data is loaded
+  - [ ] 34.2 Fix the data binding or signal connection so that persons are populated in the list panel
+  - [ ] 34.3 Verify filtering and sorting still work correctly after the fix
+  - **Requirements:** 16.1, 16.2
+
+- [ ] 35. Bug: Parents Not Shown Correctly When Active Person Changes
+  - [ ] 35.1 Investigate the Family View update logic when the active person changes
+  - [ ] 35.2 Fix parent rendering so that the correct parents are displayed for the newly active person
+  - [ ] 35.3 Verify that switching active person updates parents, siblings, partners, and children correctly
+  - **Requirements:** 17.1, 17.3
+
+- [ ] 36. Swedish Language and Formatting
+  - [ ] 36.1 Ensure all UI labels, menus, buttons, dialogs, tooltips, and system messages are in Swedish throughout the application
+  - [ ] 36.2 Implement Swedish genealogical terminology for source types, place types, event types, and relationship labels
+  - [ ] 36.3 Implement Swedish date formatting (YYYY-MM-DD) and number formatting (comma decimal separator, space thousands separator)
+  - [ ] 36.4 Review and ensure all error messages, confirmation prompts, and validation feedback are in Swedish
   - **Requirements:** 21.1, 21.2, 21.3, 21.4
 
-- [ ] 34. Error Handling Tests
-  - [ ] 34.1 Write unit tests for corrupted file handling: invalid gzip header, JSON parse error, missing required sections (`tests/test_persistence/test_file_io.py`)
-  - [ ] 34.2 Write unit tests for GEDCOM import error paths: non-GEDCOM file, malformed records, unsupported tags (`tests/test_gedcom/test_importer.py`)
-  - [ ] 34.3 Write unit tests for missing reference errors: non-existent person_id in family, non-existent source_id in source_ref, non-existent place_id in event (`tests/test_services/test_validation_service.py`)
+- [ ] 37. Error Handling Tests
+  - [ ] 37.1 Write unit tests for corrupted file handling: invalid gzip header, JSON parse error, missing required sections (`tests/test_persistence/test_file_io.py`)
+  - [ ] 37.2 Write unit tests for GEDCOM import error paths: non-GEDCOM file, malformed records, unsupported tags (`tests/test_gedcom/test_importer.py`)
+  - [ ] 37.3 Write unit tests for missing reference errors: non-existent person_id in family, non-existent source_id in source_ref, non-existent place_id in event (`tests/test_services/test_validation_service.py`)
   - **Requirements:** 3.4, 4.7, 4.8, 22.6
+
+- [ ] 38. Bug: Relationship Dialog Person Search Only Matches From Start
+  - [ ] 38.1 Investigate why the editable QComboBox person search in the relationship dialog only matches when typing the beginning of a name rather than any substring
+  - [ ] 38.2 Fix the completer/filter so that typing any part of a person's name (given name, surname, or any middle name) returns matching results
+  - [ ] 38.3 Verify that searching by surname, given name, or partial name all produce correct matches
+  - **Requirements:** 15.1
+
+- [ ] 39. Bug: Cannot Open Person Editor
+  - [ ] 39.1 Investigate why double-clicking a person in the PersonListPanel or DiagramPanel does not open the person editor (the `person_edit_requested` and `person_double_clicked` signals are not connected to a handler that opens the PersonEditor)
+  - [ ] 39.2 Wire the `person_edit_requested` signal from PersonListPanel and `person_double_clicked` signal from DiagramPanel to a handler that opens the PersonEditor in a dialog or window
+  - [ ] 39.3 Implement the handler in app.py that creates a PersonEditor, shows it, and handles save/cancel (updating project data and marking dirty on save)
+  - [ ] 39.4 Verify that double-clicking a person from both the person list and diagram opens the editor and that saving changes persists correctly
+  - **Requirements:** 7.1, 7.2, 7.3, 7.5, 7.6
+
+- [ ] 40. Bug: Relationship Calculator Returns Redundant Paths for Siblings
+  - [ ] 40.1 Investigate why the RelationshipCalculator returns extra relationship paths (cousin, 2nd cousin, 3rd cousin) for direct siblings instead of only the closest relationship (sibling)
+  - [ ] 40.2 Fix the path-finding logic so that when `closest_only=True` (default) or `blood_priority=True`, only the closest relationship path(s) are returned — siblings should not also show as cousins via shared grandparents
+  - [ ] 40.3 Add or update tests for the sibling case verifying that only the sibling relationship is returned, not additional cousin paths through shared ancestors at deeper generations
+  - **Requirements:** 15.1, 15.4, 15.8
 
 ## Task Dependency Graph
 
@@ -266,10 +302,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
     [2, 9],
     [3, 4, 10, 16],
     [5, 6, 7, 8, 11, 12, 14, 15],
-    [13, 17, 34],
+    [13, 17, 37],
     [18, 19, 23, 24],
     [20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 32],
-    [33]
+    [33, 34, 35, 36],
+    [38, 39, 40]
   ]
 }
 ```
@@ -279,5 +316,5 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
 - Tasks 1-8 form the foundational backend layer and should be completed before any UI tasks.
 - Property-based tests (Tasks 5, 6, 15.4, 15.5, 18.4, 18.5, 21.4, 22.4) use the Hypothesis framework and validate the correctness properties defined in the design document.
 - UI tasks (16-32) depend on the main window infrastructure and can be parallelized after Task 17 is complete.
-- Task 33 (Swedish language) is a cross-cutting concern that should be applied throughout development but is listed separately for final review.
+- Task 36 (Swedish language) is a cross-cutting concern that should be applied throughout development but is listed separately for final review.
 - The GEDCOM pipeline (Tasks 9-14) can be developed in parallel with the UI layer once the data model and persistence layers are complete.

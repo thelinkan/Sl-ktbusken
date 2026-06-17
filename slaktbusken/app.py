@@ -151,6 +151,14 @@ class Application:
                 "Import slutförd",
                 summary,
             )
+
+            # Prompt user to select main person if not already set
+            if (
+                project_data.project.main_person_id is None
+                and project_data.persons
+            ):
+                self._prompt_select_main_person(project_data)
+
         except FileNotFoundError as e:
             QMessageBox.critical(
                 self.main_window,
@@ -283,6 +291,34 @@ class Application:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _prompt_select_main_person(self, project_data: "ProjectData") -> None:
+        """Visa dialog för att välja huvudperson efter första GEDCOM-import.
+
+        Öppnar SelectMainPersonDialog med alla importerade personer.
+        Om användaren väljer en person sätts den som main_person_id,
+        projektet markeras som ändrat, och diagrammet uppdateras.
+
+        Args:
+            project_data: Aktuell projektdata med importerade personer.
+        """
+        from slaktbusken.ui.dialogs.select_main_person_dialog import (
+            SelectMainPersonDialog,
+        )
+
+        dialog = SelectMainPersonDialog(
+            persons=project_data.persons,
+            events=project_data.events,
+            parent=self.main_window,
+        )
+
+        if dialog.exec() == SelectMainPersonDialog.DialogCode.Accepted:
+            selected_id = dialog.selected_person_id
+            if selected_id:
+                project_data.project.main_person_id = selected_id
+                self.project_service._dirty = True
+                self._update_status()
+                self._update_diagram_panel()
 
     def _confirm_discard_changes(self) -> bool:
         """Ask the user to save if the project has unsaved changes.
