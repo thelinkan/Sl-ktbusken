@@ -6,13 +6,748 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>600</width>
-    <height>400</height>
+    <width>1200</width>
+    <height>800</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>DNA Editor</string>
+   <string>DNA-redigerare</string>
   </property>
+  <layout class="QVBoxLayout" name="main_layout">
+   <item>
+    <widget class="QTabWidget" name="tab_widget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <!-- Tab 1: Företag (Companies) -->
+     <widget class="QWidget" name="companies_tab">
+      <attribute name="title">
+       <string>Företag</string>
+      </attribute>
+      <layout class="QHBoxLayout" name="companies_layout">
+       <item>
+        <widget class="QWidget" name="companies_left">
+         <layout class="QVBoxLayout" name="companies_left_layout">
+          <item>
+           <widget class="QListWidget" name="companies_list"/>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="companies_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_company_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_company_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="company_form_group">
+         <property name="title"><string>Företagsuppgifter</string></property>
+         <layout class="QFormLayout" name="company_form_layout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="company_name_label">
+            <property name="text"><string>Namn:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="company_name_input">
+            <property name="maxLength"><number>200</number></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="company_notes_label">
+            <property name="text"><string>Anteckningar:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QTextEdit" name="company_notes_input">
+            <property name="maximumSize">
+             <size><width>16777215</width><height>100</height></size>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="company_logo_label">
+            <property name="text"><string>Logo media-ID:</string></property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="company_logo_input">
+            <property name="placeholderText"><string>Media-ID för logotyp</string></property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QPushButton" name="save_company_button">
+            <property name="text"><string>Spara företag</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <!-- Tab 2: Profiler (Profiles) -->
+     <widget class="QWidget" name="profiles_tab">
+      <attribute name="title">
+       <string>Profiler</string>
+      </attribute>
+      <layout class="QHBoxLayout" name="profiles_layout">
+       <item>
+        <widget class="QWidget" name="profiles_left">
+         <layout class="QVBoxLayout" name="profiles_left_layout">
+          <item>
+           <widget class="QListWidget" name="profiles_list"/>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="profiles_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_profile_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_profile_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="profile_form_group">
+         <property name="title"><string>Profiluppgifter</string></property>
+         <layout class="QFormLayout" name="profile_form_layout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="profile_person_label">
+            <property name="text"><string>Person-ID:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="profile_person_input">
+            <property name="placeholderText"><string>ID för person</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="profile_company_label">
+            <property name="text"><string>Företag:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="profile_company_combo"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="profile_test_type_label">
+            <property name="text"><string>Testtyp:</string></property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QComboBox" name="profile_test_type_combo"/>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="profile_kit_name_label">
+            <property name="text"><string>Kit-namn:</string></property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QLineEdit" name="profile_kit_name_input">
+            <property name="maxLength"><number>200</number></property>
+           </widget>
+          </item>
+          <item row="4" column="0">
+           <widget class="QLabel" name="profile_kit_id_label">
+            <property name="text"><string>Kit-ID:</string></property>
+           </widget>
+          </item>
+          <item row="4" column="1">
+           <widget class="QLineEdit" name="profile_kit_id_input">
+            <property name="maxLength"><number>100</number></property>
+           </widget>
+          </item>
+          <item row="5" column="0">
+           <widget class="QLabel" name="profile_admin_person_label">
+            <property name="text"><string>Admin person-ID:</string></property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QLineEdit" name="profile_admin_person_input">
+            <property name="placeholderText"><string>ID för administratör</string></property>
+           </widget>
+          </item>
+          <item row="6" column="0">
+           <widget class="QLabel" name="profile_admin_status_label">
+            <property name="text"><string>Adminstatus:</string></property>
+           </widget>
+          </item>
+          <item row="6" column="1">
+           <widget class="QComboBox" name="profile_admin_status_combo"/>
+          </item>
+          <item row="7" column="0">
+           <widget class="QLabel" name="profile_notes_label">
+            <property name="text"><string>Anteckningar:</string></property>
+           </widget>
+          </item>
+          <item row="7" column="1">
+           <widget class="QTextEdit" name="profile_notes_input">
+            <property name="maximumSize">
+             <size><width>16777215</width><height>80</height></size>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="1">
+           <widget class="QPushButton" name="save_profile_button">
+            <property name="text"><string>Spara profil</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <!-- Tab 3: Matchningar (Matches) -->
+     <widget class="QWidget" name="matches_tab">
+      <attribute name="title">
+       <string>Matchningar</string>
+      </attribute>
+      <layout class="QHBoxLayout" name="matches_layout">
+       <item>
+        <widget class="QWidget" name="matches_left">
+         <layout class="QVBoxLayout" name="matches_left_layout">
+          <item>
+           <widget class="QListWidget" name="matches_list"/>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="matches_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_match_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_match_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="match_form_group">
+         <property name="title"><string>Matchningsuppgifter</string></property>
+         <layout class="QFormLayout" name="match_form_layout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="match_profile1_label">
+            <property name="text"><string>Profil 1:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="match_profile1_combo"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="match_profile2_label">
+            <property name="text"><string>Profil 2:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="match_profile2_combo"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="match_shared_cm_label">
+            <property name="text"><string>Delad cM:</string></property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QDoubleSpinBox" name="match_shared_cm_input">
+            <property name="maximum"><double>7400.000000000000000</double></property>
+            <property name="decimals"><number>1</number></property>
+           </widget>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="match_percentage_label">
+            <property name="text"><string>Procent:</string></property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QDoubleSpinBox" name="match_percentage_input">
+            <property name="maximum"><double>100.000000000000000</double></property>
+            <property name="decimals"><number>2</number></property>
+           </widget>
+          </item>
+          <item row="4" column="0">
+           <widget class="QLabel" name="match_segment_count_label">
+            <property name="text"><string>Antal segment:</string></property>
+           </widget>
+          </item>
+          <item row="4" column="1">
+           <widget class="QSpinBox" name="match_segment_count_input">
+            <property name="maximum"><number>10000</number></property>
+           </widget>
+          </item>
+          <item row="5" column="0">
+           <widget class="QLabel" name="match_largest_segment_label">
+            <property name="text"><string>Största segment (cM):</string></property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QDoubleSpinBox" name="match_largest_segment_input">
+            <property name="maximum"><double>300.000000000000000</double></property>
+            <property name="decimals"><number>1</number></property>
+           </widget>
+          </item>
+          <item row="6" column="0">
+           <widget class="QLabel" name="match_source_label">
+            <property name="text"><string>Källa:</string></property>
+           </widget>
+          </item>
+          <item row="6" column="1">
+           <widget class="QComboBox" name="match_source_combo"/>
+          </item>
+          <item row="7" column="0">
+           <widget class="QLabel" name="match_notes_label">
+            <property name="text"><string>Anteckningar:</string></property>
+           </widget>
+          </item>
+          <item row="7" column="1">
+           <widget class="QTextEdit" name="match_notes_input">
+            <property name="maximumSize">
+             <size><width>16777215</width><height>80</height></size>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="1">
+           <widget class="QPushButton" name="save_match_button">
+            <property name="text"><string>Spara matchning</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <!-- Tab 4: Segment -->
+     <widget class="QWidget" name="segments_tab">
+      <attribute name="title">
+       <string>Segment</string>
+      </attribute>
+      <layout class="QHBoxLayout" name="segments_layout">
+       <item>
+        <widget class="QWidget" name="segments_left">
+         <layout class="QVBoxLayout" name="segments_left_layout">
+          <item>
+           <widget class="QListWidget" name="segments_list"/>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="segments_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_segment_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_segment_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="segment_form_group">
+         <property name="title"><string>Segmentuppgifter</string></property>
+         <layout class="QFormLayout" name="segment_form_layout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="segment_match_label">
+            <property name="text"><string>Matchning:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="segment_match_combo"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="segment_chromosome_label">
+            <property name="text"><string>Kromosom:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="segment_chromosome_combo"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="segment_start_label">
+            <property name="text"><string>Startposition:</string></property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QSpinBox" name="segment_start_input">
+            <property name="maximum"><number>999999999</number></property>
+           </widget>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="segment_end_label">
+            <property name="text"><string>Slutposition:</string></property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QSpinBox" name="segment_end_input">
+            <property name="maximum"><number>999999999</number></property>
+           </widget>
+          </item>
+          <item row="4" column="0">
+           <widget class="QLabel" name="segment_cm_label">
+            <property name="text"><string>cM:</string></property>
+           </widget>
+          </item>
+          <item row="4" column="1">
+           <widget class="QDoubleSpinBox" name="segment_cm_input">
+            <property name="maximum"><double>7400.000000000000000</double></property>
+            <property name="decimals"><number>2</number></property>
+           </widget>
+          </item>
+          <item row="5" column="0">
+           <widget class="QLabel" name="segment_snp_label">
+            <property name="text"><string>SNP-antal:</string></property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QSpinBox" name="segment_snp_input">
+            <property name="maximum"><number>999999</number></property>
+           </widget>
+          </item>
+          <item row="6" column="1">
+           <widget class="QPushButton" name="save_segment_button">
+            <property name="text"><string>Spara segment</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <!-- Tab 5: Kluster (Clusters) -->
+     <widget class="QWidget" name="clusters_tab">
+      <attribute name="title">
+       <string>Kluster</string>
+      </attribute>
+      <layout class="QHBoxLayout" name="clusters_layout">
+       <item>
+        <widget class="QWidget" name="clusters_left">
+         <layout class="QVBoxLayout" name="clusters_left_layout">
+          <item>
+           <widget class="QListWidget" name="clusters_list"/>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="clusters_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_cluster_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_cluster_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="cluster_form_group">
+         <property name="title"><string>Klusteruppgifter</string></property>
+         <layout class="QVBoxLayout" name="cluster_form_layout">
+          <item>
+           <layout class="QFormLayout" name="cluster_fields_layout">
+            <item row="0" column="0">
+             <widget class="QLabel" name="cluster_name_label">
+              <property name="text"><string>Namn:</string></property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QLineEdit" name="cluster_name_input">
+              <property name="maxLength"><number>200</number></property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="cluster_notes_label">
+              <property name="text"><string>Anteckningar:</string></property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QTextEdit" name="cluster_notes_input">
+              <property name="maximumSize">
+               <size><width>16777215</width><height>60</height></size>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="cluster_color_label">
+              <property name="text"><string>Färg:</string></property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QLineEdit" name="cluster_color_input">
+              <property name="placeholderText"><string>#RRGGBB</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="cluster_members_label">
+            <property name="text"><string>Medlemmar (person-ID):</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QListWidget" name="cluster_members_list">
+            <property name="maximumSize">
+             <size><width>16777215</width><height>80</height></size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="cluster_members_buttons_layout">
+            <item>
+             <widget class="QLineEdit" name="cluster_member_input">
+              <property name="placeholderText"><string>Person-ID</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="add_cluster_member_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_cluster_member_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="cluster_matches_label">
+            <property name="text"><string>Associerade matchningar:</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QListWidget" name="cluster_matches_list">
+            <property name="maximumSize">
+             <size><width>16777215</width><height>80</height></size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="cluster_matches_buttons_layout">
+            <item>
+             <widget class="QComboBox" name="cluster_match_combo"/>
+            </item>
+            <item>
+             <widget class="QPushButton" name="add_cluster_match_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_cluster_match_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QPushButton" name="save_cluster_button">
+            <property name="text"><string>Spara kluster</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <!-- Tab 6: Triangulering (Triangulations) -->
+     <widget class="QWidget" name="triangulations_tab">
+      <attribute name="title">
+       <string>Triangulering</string>
+      </attribute>
+      <layout class="QHBoxLayout" name="triangulations_layout">
+       <item>
+        <widget class="QWidget" name="triangulations_left">
+         <layout class="QVBoxLayout" name="triangulations_left_layout">
+          <item>
+           <widget class="QListWidget" name="triangulations_list"/>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="triangulations_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_triangulation_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_triangulation_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="triangulation_form_group">
+         <property name="title"><string>Trianguleringsuppgifter</string></property>
+         <layout class="QVBoxLayout" name="triangulation_form_layout">
+          <item>
+           <layout class="QFormLayout" name="triangulation_fields_layout">
+            <item row="0" column="0">
+             <widget class="QLabel" name="triangulation_company_label">
+              <property name="text"><string>Företag:</string></property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QComboBox" name="triangulation_company_combo"/>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="triangulation_chromosome_label">
+              <property name="text"><string>Kromosom:</string></property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QComboBox" name="triangulation_chromosome_combo"/>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="triangulation_start_label">
+              <property name="text"><string>Överlappning start:</string></property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QSpinBox" name="triangulation_start_input">
+              <property name="maximum"><number>999999999</number></property>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="triangulation_end_label">
+              <property name="text"><string>Överlappning slut:</string></property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QSpinBox" name="triangulation_end_input">
+              <property name="maximum"><number>999999999</number></property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="triangulation_cluster_label">
+              <property name="text"><string>Kluster (valfritt):</string></property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QComboBox" name="triangulation_cluster_combo"/>
+            </item>
+            <item row="5" column="0">
+             <widget class="QLabel" name="triangulation_notes_label">
+              <property name="text"><string>Anteckningar:</string></property>
+             </widget>
+            </item>
+            <item row="5" column="1">
+             <widget class="QTextEdit" name="triangulation_notes_input">
+              <property name="maximumSize">
+               <size><width>16777215</width><height>60</height></size>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="triangulation_segments_label">
+            <property name="text"><string>Segment-ID:</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QListWidget" name="triangulation_segments_list">
+            <property name="maximumSize">
+             <size><width>16777215</width><height>70</height></size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="triangulation_segments_buttons_layout">
+            <item>
+             <widget class="QLineEdit" name="triangulation_segment_input">
+              <property name="placeholderText"><string>Segment-ID</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="add_triangulation_segment_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_triangulation_segment_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="triangulation_profiles_label">
+            <property name="text"><string>Profil-ID:</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QListWidget" name="triangulation_profiles_list">
+            <property name="maximumSize">
+             <size><width>16777215</width><height>70</height></size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="triangulation_profiles_buttons_layout">
+            <item>
+             <widget class="QLineEdit" name="triangulation_profile_input">
+              <property name="placeholderText"><string>Profil-ID</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="add_triangulation_profile_button">
+              <property name="text"><string>Lägg till</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_triangulation_profile_button">
+              <property name="text"><string>Ta bort</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QPushButton" name="save_triangulation_button">
+            <property name="text"><string>Spara triangulering</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="status_label">
+     <property name="text"><string/></property>
+     <property name="styleSheet"><string>color: red;</string></property>
+    </widget>
+   </item>
+  </layout>
  </widget>
  <resources/>
  <connections/>

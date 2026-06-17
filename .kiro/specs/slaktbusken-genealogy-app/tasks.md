@@ -217,12 +217,12 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 28.4 Require at least one linked entity before saving a new MediaItem
   - **Requirements:** 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8
 
-- [ ] 29. DNA Editor
-  - [ ] 29.1 Design and implement DNA editor (dna_editor.ui + dna_editor.py): company management (name, notes, logo), profile management (person, company, test_type, kit details, admin info)
-  - [ ] 29.2 Implement DNA match management: match entry (two profiles, shared_cM, percentage, segment_count, largest_segment, match_source)
-  - [ ] 29.3 Implement DNA segment management: segment entry per match (chromosome, positions, cM, SNP count)
-  - [ ] 29.4 Implement DNA cluster editor: name, notes, member profiles, associated matches, display color
-  - [ ] 29.5 Implement DNA triangulation management: company, chromosome, overlap range, segment IDs, profile IDs, optional cluster link
+- [x] 29. DNA Editor
+  - [x] 29.1 Design and implement DNA editor (dna_editor.ui + dna_editor.py): company management (name, notes, logo), profile management (person, company, test_type, kit details, admin info)
+  - [x] 29.2 Implement DNA match management: match entry (two profiles, shared_cM, percentage, segment_count, largest_segment, match_source)
+  - [x] 29.3 Implement DNA segment management: segment entry per match (chromosome, positions, cM, SNP count)
+  - [x] 29.4 Implement DNA cluster editor: name, notes, member profiles, associated matches, display color
+  - [x] 29.5 Implement DNA triangulation management: company, chromosome, overlap range, segment IDs, profile IDs, optional cluster link
   - **Requirements:** 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6
 
 - [ ] 30. Relationship Dialog
