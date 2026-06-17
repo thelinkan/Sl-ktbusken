@@ -152,9 +152,23 @@ class EventEditor(QWidget):
         self._subject_person_id = subject_person_id
         self._saved_event: Optional[Event] = None
 
-        # Set up UI from generated form
+        # Set up UI inside a scroll area so content is accessible even in
+        # smaller windows (edit mode shows all sections simultaneously).
+        from PySide6.QtWidgets import QScrollArea
+
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        inner_widget = QWidget()
         self._ui = Ui_EventEditor()
-        self._ui.setupUi(self)
+        self._ui.setupUi(inner_widget)
+        scroll_area.setWidget(inner_widget)
+
+        outer_layout.addWidget(scroll_area)
 
         self._setup_tables()
         self._populate_combos()
@@ -194,16 +208,22 @@ class EventEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _setup_tables(self) -> None:
-        """Configure table appearances."""
+        """Configure table appearances and sizing."""
         # Participants table
         table = self._ui.participants_table
         table.horizontalHeader().setStretchLastSection(True)
         table.setEditTriggers(table.EditTrigger.NoEditTriggers)
+        table.setMaximumHeight(100)
 
-        # Sources table
+        # Sources table — give it more room so entries are readable
         table = self._ui.sources_table
         table.horizontalHeader().setStretchLastSection(True)
         table.setEditTriggers(table.EditTrigger.NoEditTriggers)
+        table.setMinimumHeight(80)
+        # Set column widths: Källa gets more space, Kvalitet and Anteckning narrower
+        header = table.horizontalHeader()
+        header.resizeSection(0, 300)
+        header.resizeSection(1, 80)
 
     def _setup_reference_paste(self) -> None:
         """Add a paste-reference row below the source combo for matching by reference text.
@@ -372,7 +392,9 @@ class EventEditor(QWidget):
         When a subject_person_id is set and the event is an individual type,
         the participants section is hidden since the person is implied.
         For family events, the section is shown for adding a second person.
-        When editing an existing event (no subject_person_id), always show it.
+        When editing an existing individual event with a single participant,
+        the participants section is hidden (the sole participant is implicit).
+        When editing an event with multiple participants, it is always shown.
         """
         current_type = self._ui.type_combo.currentData() or ""
         is_family_event = current_type in FAMILY_EVENT_TYPES
@@ -389,8 +411,13 @@ class EventEditor(QWidget):
                 self._add_participant_row(
                     Participant(person_id=self._subject_person_id, role=role)
                 )
+        elif self._event and not is_family_event:
+            # Editing an individual event: hide participants if only one
+            # (the sole participant is implicit — it's the person being edited)
+            has_multiple = self._ui.participants_table.rowCount() > 1
+            self._ui.participants_group.setVisible(has_multiple)
         else:
-            # Editing an existing event or standalone: always show
+            # Family events or standalone: always show participants
             self._ui.participants_group.setVisible(True)
 
     # ------------------------------------------------------------------

@@ -69,6 +69,7 @@ class PersonEditor(QWidget):
         self._ui.setupUi(self)
 
         self._setup_table()
+        self._setup_edit_event_button()
         self._connect_signals()
 
         if self._person is not None:
@@ -104,6 +105,14 @@ class PersonEditor(QWidget):
         # Enforce maximum 100 characters for given-name input
         self._ui.given_name_input.setMaxLength(100)
 
+    def _setup_edit_event_button(self) -> None:
+        """Add an 'Redigera händelse' button to the events tab button layout."""
+        from PySide6.QtWidgets import QPushButton
+
+        self._edit_event_button = QPushButton("Redigera händelse", self._ui.events_tab)
+        # Insert the edit button between add and remove buttons
+        self._ui.events_buttons_layout.insertWidget(1, self._edit_event_button)
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
         # Name management
@@ -116,7 +125,9 @@ class PersonEditor(QWidget):
 
         # Events
         self._ui.add_event_button.clicked.connect(self._on_add_event)
+        self._edit_event_button.clicked.connect(self._on_edit_event)
         self._ui.remove_event_button.clicked.connect(self._on_remove_event)
+        self._ui.events_list.itemDoubleClicked.connect(self._on_edit_event_item)
 
         # Photos
         self._ui.select_profile_button.clicked.connect(self._on_select_profile)
@@ -335,7 +346,7 @@ class PersonEditor(QWidget):
         # Create dialog wrapper
         dialog = QDialog(self)
         dialog.setWindowTitle("Ny händelse")
-        dialog.setMinimumSize(700, 550)
+        dialog.setMinimumSize(750, 650)
         layout = QVBoxLayout(dialog)
 
         # Create event editor with subject person
@@ -357,6 +368,90 @@ class PersonEditor(QWidget):
             if saved_event is not None:
                 # Add the event to project data
                 self._project_data.events.append(saved_event)
+
+                # For family events (marriage, divorce, etc.), ensure a Family
+                # record exists linking the participants as partners so they
+                # appear in the family diagram.
+                self._ensure_family_for_event(saved_event)
+
+                # Refresh the events list
+                self._refresh_events_list()
+                self._clear_status()
+
+    def _on_edit_event_item(self, item: QListWidgetItem) -> None:
+        """Handle double-click on an event list item to open it for editing.
+
+        Args:
+            item: The double-clicked list widget item.
+        """
+        event_id = item.data(Qt.ItemDataRole.UserRole)
+        if event_id:
+            self._open_event_editor(event_id)
+
+    def _on_edit_event(self) -> None:
+        """Open the event editor for the currently selected event."""
+        current = self._ui.events_list.currentItem()
+        if not current:
+            self._update_status("Välj en händelse att redigera.")
+            return
+
+        event_id = current.data(Qt.ItemDataRole.UserRole)
+        if not event_id:
+            self._update_status("Kunde inte identifiera händelsen.")
+            return
+
+        self._open_event_editor(event_id)
+
+    def _open_event_editor(self, event_id: str) -> None:
+        """Open the event editor dialog for the given event ID.
+
+        Finds the event by ID, creates an EventEditor in a QDialog,
+        and shows it modally. On save, replaces the event in project data
+        and refreshes the events list.
+
+        Args:
+            event_id: The ID of the event to edit.
+        """
+        from slaktbusken.ui.editors.event_editor import EventEditor
+
+        # Find the event in project data
+        event = None
+        for e in self._project_data.events:
+            if e.id == event_id:
+                event = e
+                break
+
+        if event is None:
+            self._update_status("Händelsen hittades inte.")
+            return
+
+        # Create dialog wrapper
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Redigera händelse")
+        dialog.setMinimumSize(750, 650)
+        layout = QVBoxLayout(dialog)
+
+        # Create event editor with the existing event
+        editor = EventEditor(
+            project_data=self._project_data,
+            event=event,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        # Connect editor signals to dialog accept/reject
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        # Show modal dialog
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            saved_event = editor.saved_event
+            if saved_event is not None:
+                # Replace the event in project data
+                for i, existing in enumerate(self._project_data.events):
+                    if existing.id == saved_event.id:
+                        self._project_data.events[i] = saved_event
+                        break
 
                 # Refresh the events list
                 self._refresh_events_list()
@@ -386,6 +481,65 @@ class PersonEditor(QWidget):
         # Refresh the events list
         self._refresh_events_list()
         self._clear_status()
+
+    def _ensure_family_for_event(self, event: "Event") -> None:
+        """Create or update a Family record for family-type events.
+
+        When a family event (marriage, engagement, divorce, etc.) is saved
+        with two or more participants, ensures a Family record exists that
+        links those participants as partners. If a Family already exists
+        with the same partner set, the event is linked to it. Otherwise a
+        new Family is created.
+
+        This mirrors the GEDCOM importer behaviour where FAM records pair
+        marriage events with partner relationships.
+
+        Args:
+            event: The saved event to check.
+        """
+        from slaktbusken.ui.editors.event_editor import FAMILY_EVENT_TYPES
+        from slaktbusken.model.family import Family, FamilyPartner
+
+        if event.type not in FAMILY_EVENT_TYPES:
+            return
+
+        # Need at least two participants to form a partnership
+        if len(event.participants) < 2:
+            return
+
+        participant_ids = {p.person_id for p in event.participants}
+
+        # Check if a Family already exists with the same partners
+        for family in self._project_data.families:
+            family_partner_ids = {fp.person_id for fp in family.partners}
+            if family_partner_ids == participant_ids:
+                # Family exists — just link the event if not already linked
+                if event.id not in family.event_ids:
+                    family.event_ids.append(event.id)
+                return
+
+        # No matching Family found — create a new one
+        new_family_id = str(uuid.uuid4())
+        partners = []
+        for participant in event.participants:
+            # Use the participant's role as the partner role
+            partners.append(
+                FamilyPartner(person_id=participant.person_id, role=participant.role)
+            )
+
+        new_family = Family(
+            id=new_family_id,
+            partners=partners,
+            children=[],
+            parent_child_links=[],
+            event_ids=[event.id],
+        )
+        self._project_data.families.append(new_family)
+        logger.info(
+            "Familj skapad: %s (partners: %s)",
+            new_family_id,
+            [p.person_id for p in partners],
+        )
 
     # ------------------------------------------------------------------
     # Private: photos / media

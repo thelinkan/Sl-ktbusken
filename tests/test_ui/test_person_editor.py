@@ -562,3 +562,45 @@ class TestPersonEditorTilltalsnamn:
         # Original value should remain unchanged
         assert editor._ui.names_table.item(0, 1).text() == "Kent Torbjörn*"
         assert "Endast ett tilltalsnamn kan markeras" in editor._ui.status_label.text()
+
+
+class TestPersonEditorEditEvent:
+    """Tests for the edit event functionality (Task 45.1)."""
+
+    def test_edit_event_button_exists(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """The edit event button should be present in the events tab."""
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        assert editor._edit_event_button is not None
+        assert editor._edit_event_button.text() == "Redigera händelse"
+
+    def test_edit_event_without_selection_shows_error(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """Clicking edit without selecting an event should show error."""
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        editor._on_edit_event()
+
+        assert editor._ui.status_label.text() == "Välj en händelse att redigera."
+
+    def test_open_event_editor_nonexistent_event_shows_error(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """Opening event editor for a non-existent event ID shows error."""
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        editor._open_event_editor("nonexistent_id")
+
+        assert editor._ui.status_label.text() == "Händelsen hittades inte."
+
+    def test_double_click_handler_connected(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """Double-click on events list should be connected to edit handler."""
+        from PySide6.QtCore import SIGNAL
+
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        # Verify double-click signal is connected by checking receivers count
+        assert editor._ui.events_list.receivers(
+            SIGNAL("itemDoubleClicked(QListWidgetItem*)")
+        ) > 0

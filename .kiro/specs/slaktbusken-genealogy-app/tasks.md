@@ -320,10 +320,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 44.3 Verify that adding events of all types works correctly and the event appears in the person's event list
   - **Requirements:** 9.1, 9.2, 9.3, 9.4, 9.5
 
-- [ ] 45. Bug: No Way to Edit Events and Person View Reset
-  - [ ] 45.1 Add an "edit event" button/action to the events list in the person editor — double-click or a dedicated button should open the event editor for the selected event
-  - [ ] 45.2 Fix the behavior after saving a person so that the view does NOT navigate back to the main person — the currently viewed person should remain active after save
-  - [ ] 45.3 Verify that editing an event from the person editor works and that saving a person does not change the active person in the diagram
+- [x] 45. Bug: No Way to Edit Events and Person View Reset
+  - [x] 45.1 Add an "edit event" button/action to the events list in the person editor — double-click or a dedicated button should open the event editor for the selected event
+  - [x] 45.2 Fix the behavior after saving a person so that the view does NOT navigate back to the main person — the currently viewed person should remain active after save
+  - [x] 45.3 Verify that editing an event from the person editor works and that saving a person does not change the active person in the diagram
   - **Requirements:** 9.1, 7.1, 7.2, 17.1
 
 - [ ] 46. Bug: Missing Father Not Shown as Placeholder in Family View

@@ -115,10 +115,17 @@ class Application:
                         persons[i] = saved
                         break
 
-                # Mark project as dirty and refresh UI
+                # Mark project as dirty and refresh UI without resetting active person
                 self.project_service._dirty = True
                 self._update_status()
-                self._update_diagram_panel()
+
+                # Refresh person list and re-render diagram preserving active person
+                self.main_window.person_list_panel.refresh()
+                panel = self.main_window.diagram_panel
+                panel.set_project_data(self.project_service.data)
+                settings = self.project_service.settings
+                if settings:
+                    panel.set_person_box_config(settings.person_box_config)
 
     def new_project(self) -> None:
         """Create a new project via the New Project dialog."""
