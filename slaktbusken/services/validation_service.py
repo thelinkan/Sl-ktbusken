@@ -220,7 +220,7 @@ class ValidationService:
             if person.profile_media_id not in id_sets.media_ids:
                 errors.append(ValidationError(
                     "Person", person.id,
-                    f"profile_media_id '{person.profile_media_id}' does not reference a valid media item."
+                    f"profile_media_id '{person.profile_media_id}' refererar inte till ett giltigt mediaobjekt."
                 ))
 
         return errors
@@ -239,7 +239,7 @@ class ValidationService:
             if event_id not in id_sets.event_ids:
                 errors.append(ValidationError(
                     "Family", family.id,
-                    f"event_id '{event_id}' does not reference a valid event."
+                    f"event_id '{event_id}' refererar inte till en giltig händelse."
                 ))
 
         return errors
@@ -258,7 +258,7 @@ class ValidationService:
             if participant.person_id not in id_sets.person_ids:
                 errors.append(ValidationError(
                     "Event", event.id,
-                    f"participants[{idx}] person_id '{participant.person_id}' does not reference a valid person."
+                    f"participants[{idx}] person_id '{participant.person_id}' refererar inte till en giltig person."
                 ))
 
         # Place reference
@@ -266,14 +266,14 @@ class ValidationService:
             if event.place.place_id not in id_sets.place_ids:
                 errors.append(ValidationError(
                     "Event", event.id,
-                    f"place.place_id '{event.place.place_id}' does not reference a valid place."
+                    f"place.place_id '{event.place.place_id}' refererar inte till en giltig plats."
                 ))
             # Source refs within place
             for sr_idx, sr in enumerate(event.place.source_refs):
                 if sr.source_id not in id_sets.source_ids:
                     errors.append(ValidationError(
                         "Event", event.id,
-                        f"place.source_refs[{sr_idx}] source_id '{sr.source_id}' does not reference a valid source."
+                        f"place.source_refs[{sr_idx}] source_id '{sr.source_id}' refererar inte till en giltig källa."
                     ))
 
         # Date source refs
@@ -282,7 +282,7 @@ class ValidationService:
                 if sr.source_id not in id_sets.source_ids:
                     errors.append(ValidationError(
                         "Event", event.id,
-                        f"date.source_refs[{sr_idx}] source_id '{sr.source_id}' does not reference a valid source."
+                        f"date.source_refs[{sr_idx}] source_id '{sr.source_id}' refererar inte till en giltig källa."
                     ))
 
         # media_ids references
@@ -290,7 +290,7 @@ class ValidationService:
             if media_id not in id_sets.media_ids:
                 errors.append(ValidationError(
                     "Event", event.id,
-                    f"media_id '{media_id}' does not reference a valid media item."
+                    f"media_id '{media_id}' refererar inte till ett giltigt mediaobjekt."
                 ))
 
         return errors
@@ -312,7 +312,7 @@ class ValidationService:
             if place.parent_place_id not in id_sets.place_ids:
                 errors.append(ValidationError(
                     "Place", place.id,
-                    f"parent_place_id '{place.parent_place_id}' does not reference a valid place."
+                    f"parent_place_id '{place.parent_place_id}' refererar inte till en giltig plats."
                 ))
 
         return errors
@@ -331,7 +331,7 @@ class ValidationService:
             if media_id not in id_sets.media_ids:
                 errors.append(ValidationError(
                     "Source", source.id,
-                    f"media_id '{media_id}' does not reference a valid media item."
+                    f"media_id '{media_id}' refererar inte till ett giltigt mediaobjekt."
                 ))
 
         # repository_refs references
@@ -339,7 +339,7 @@ class ValidationService:
             if repo_ref.repository_id not in id_sets.repository_ids:
                 errors.append(ValidationError(
                     "Source", source.id,
-                    f"repository_refs[{idx}] repository_id '{repo_ref.repository_id}' does not reference a valid repository."
+                    f"repository_refs[{idx}] repository_id '{repo_ref.repository_id}' refererar inte till ett giltigt arkiv."
                 ))
 
         return errors
@@ -358,7 +358,7 @@ class ValidationService:
             if person_id not in id_sets.person_ids:
                 errors.append(ValidationError(
                     "MediaItem", media_item.id,
-                    f"mentioned_person_id '{person_id}' does not reference a valid person."
+                    f"mentioned_person_id '{person_id}' refererar inte till en giltig person."
                 ))
 
         return errors
@@ -391,7 +391,7 @@ class ValidationService:
             if profile.admin_person_id not in id_sets.person_ids:
                 errors.append(ValidationError(
                     "DnaProfile", profile.id,
-                    f"admin_person_id '{profile.admin_person_id}' does not reference a valid person."
+                    f"admin_person_id '{profile.admin_person_id}' refererar inte till en giltig person."
                 ))
 
         return errors
@@ -409,12 +409,12 @@ class ValidationService:
         if match.profile1_id not in id_sets.dna_profile_ids:
             errors.append(ValidationError(
                 "DnaMatch", match.id,
-                f"profile1_id '{match.profile1_id}' does not reference a valid DNA profile."
+                f"profile1_id '{match.profile1_id}' refererar inte till en giltig DNA-profil."
             ))
         if match.profile2_id not in id_sets.dna_profile_ids:
             errors.append(ValidationError(
                 "DnaMatch", match.id,
-                f"profile2_id '{match.profile2_id}' does not reference a valid DNA profile."
+                f"profile2_id '{match.profile2_id}' refererar inte till en giltig DNA-profil."
             ))
 
         return errors
@@ -432,7 +432,7 @@ class ValidationService:
         if segment.match_id not in id_sets.dna_match_ids:
             errors.append(ValidationError(
                 "DnaSegment", segment.id,
-                f"match_id '{segment.match_id}' does not reference a valid DNA match."
+                f"match_id '{segment.match_id}' refererar inte till en giltig DNA-matchning."
             ))
 
         return errors
@@ -451,7 +451,7 @@ class ValidationService:
             if company_id not in id_sets.dna_company_ids:
                 errors.append(ValidationError(
                     "DnaCluster", cluster.id,
-                    f"company_id '{company_id}' does not reference a valid DNA company."
+                    f"company_id '{company_id}' refererar inte till ett giltigt DNA-företag."
                 ))
 
         # person_ids references
@@ -459,7 +459,7 @@ class ValidationService:
             if person_id not in id_sets.person_ids:
                 errors.append(ValidationError(
                     "DnaCluster", cluster.id,
-                    f"person_id '{person_id}' does not reference a valid person."
+                    f"person_id '{person_id}' refererar inte till en giltig person."
                 ))
 
         # dna_match_ids references
@@ -467,7 +467,7 @@ class ValidationService:
             if match_id not in id_sets.dna_match_ids:
                 errors.append(ValidationError(
                     "DnaCluster", cluster.id,
-                    f"dna_match_id '{match_id}' does not reference a valid DNA match."
+                    f"dna_match_id '{match_id}' refererar inte till en giltig DNA-matchning."
                 ))
 
         return errors
@@ -487,7 +487,7 @@ class ValidationService:
         if triangulation.company_id not in id_sets.dna_company_ids:
             errors.append(ValidationError(
                 "DnaTriangulation", triangulation.id,
-                f"company_id '{triangulation.company_id}' does not reference a valid DNA company."
+                f"company_id '{triangulation.company_id}' refererar inte till ett giltigt DNA-företag."
             ))
 
         # segment_ids references
@@ -495,7 +495,7 @@ class ValidationService:
             if segment_id not in id_sets.dna_segment_ids:
                 errors.append(ValidationError(
                     "DnaTriangulation", triangulation.id,
-                    f"segment_id '{segment_id}' does not reference a valid DNA segment."
+                    f"segment_id '{segment_id}' refererar inte till ett giltigt DNA-segment."
                 ))
 
         # profile_ids references
@@ -503,7 +503,7 @@ class ValidationService:
             if profile_id not in id_sets.dna_profile_ids:
                 errors.append(ValidationError(
                     "DnaTriangulation", triangulation.id,
-                    f"profile_id '{profile_id}' does not reference a valid DNA profile."
+                    f"profile_id '{profile_id}' refererar inte till en giltig DNA-profil."
                 ))
 
         # cluster_id reference (optional)
@@ -511,7 +511,7 @@ class ValidationService:
             if triangulation.cluster_id not in id_sets.dna_cluster_ids:
                 errors.append(ValidationError(
                     "DnaTriangulation", triangulation.id,
-                    f"cluster_id '{triangulation.cluster_id}' does not reference a valid DNA cluster."
+                    f"cluster_id '{triangulation.cluster_id}' refererar inte till ett giltigt DNA-kluster."
                 ))
 
         return errors

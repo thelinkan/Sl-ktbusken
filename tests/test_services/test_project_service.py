@@ -276,7 +276,7 @@ class TestAddEntities:
         person = Person(id="p1", sex="M", names=[])
         with pytest.raises(ValidationError) as exc_info:
             service.add_person(person)
-        assert "at least one name" in exc_info.value.errors[0]
+        assert "minst ett namnfält" in exc_info.value.errors[0]
 
     def test_add_valid_family(self, service: ProjectService) -> None:
         """Adding a valid family succeeds."""

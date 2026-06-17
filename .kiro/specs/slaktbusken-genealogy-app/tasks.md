@@ -261,11 +261,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 35.3 Verify that switching active person updates parents, siblings, partners, and children correctly
   - **Requirements:** 17.1, 17.3
 
-- [ ] 36. Swedish Language and Formatting
-  - [ ] 36.1 Ensure all UI labels, menus, buttons, dialogs, tooltips, and system messages are in Swedish throughout the application
-  - [ ] 36.2 Implement Swedish genealogical terminology for source types, place types, event types, and relationship labels
-  - [ ] 36.3 Implement Swedish date formatting (YYYY-MM-DD) and number formatting (comma decimal separator, space thousands separator)
-  - [ ] 36.4 Review and ensure all error messages, confirmation prompts, and validation feedback are in Swedish
+- [x] 36. Swedish Language and Formatting
+  - [x] 36.1 Ensure all UI labels, menus, buttons, dialogs, tooltips, and system messages are in Swedish throughout the application
+  - [x] 36.2 Implement Swedish genealogical terminology for source types, place types, event types, and relationship labels
+  - [x] 36.3 Implement Swedish date formatting (YYYY-MM-DD) and number formatting (comma decimal separator, space thousands separator)
+  - [x] 36.4 Review and ensure all error messages, confirmation prompts, and validation feedback are in Swedish
   - **Requirements:** 21.1, 21.2, 21.3, 21.4
 
 - [ ] 37. Error Handling Tests

@@ -695,7 +695,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 7.5, 7.6**"""
         errors = validate_person(person)
         assert len(errors) > 0
-        assert any("at least one name" in e for e in errors)
+        assert any("minst ett namnfält" in e for e in errors)
 
     @given(person=_person_invalid_sex())
     @settings(max_examples=50)
@@ -703,7 +703,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 7.5, 7.6**"""
         errors = validate_person(person)
         assert len(errors) > 0
-        assert any("Invalid sex" in e for e in errors)
+        assert any("Ogiltigt kön" in e for e in errors)
 
     @given(person=_person_long_given_name())
     @settings(max_examples=50)
@@ -711,7 +711,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 7.5, 7.6**"""
         errors = validate_person(person)
         assert len(errors) > 0
-        assert any("given name exceeds 100" in e for e in errors)
+        assert any("förnamn överskrider 100" in e for e in errors)
 
     @given(person=_person_long_title())
     @settings(max_examples=50)
@@ -719,7 +719,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 7.5, 7.6**"""
         errors = validate_person(person)
         assert len(errors) > 0
-        assert any("Title exceeds 100" in e for e in errors)
+        assert any("Titel överskrider 100" in e for e in errors)
 
     # --- Family validation ---
 
@@ -729,7 +729,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 8.5, 8.6**"""
         errors = validate_family(family)
         assert len(errors) > 0
-        assert any("duplicate children" in e for e in errors)
+        assert any("dubbletter" in e for e in errors)
 
     @given(family=_family_invalid_partner_role())
     @settings(max_examples=50)
@@ -737,7 +737,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 8.5, 8.6**"""
         errors = validate_family(family)
         assert len(errors) > 0
-        assert any("invalid role" in e for e in errors)
+        assert any("ogiltig roll" in e for e in errors)
 
     @given(family=_family_invalid_parentage_type())
     @settings(max_examples=50)
@@ -745,7 +745,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 8.5, 8.6**"""
         errors = validate_family(family)
         assert len(errors) > 0
-        assert any("invalid parentage_type" in e for e in errors)
+        assert any("ogiltig föräldratyp" in e for e in errors)
 
     @given(family=_family_null_parent_non_unknown_donor())
     @settings(max_examples=50)
@@ -753,7 +753,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 8.5, 8.6**"""
         errors = validate_family(family)
         assert len(errors) > 0
-        assert any("parent_id is None" in e for e in errors)
+        assert any("parent_id är None" in e for e in errors)
 
     # --- Event validation ---
 
@@ -763,7 +763,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 9.4**"""
         errors = validate_event(event)
         assert len(errors) > 0
-        assert any("at least one participant" in e for e in errors)
+        assert any("minst en deltagare" in e for e in errors)
 
     @given(event=_event_empty_type())
     @settings(max_examples=50)
@@ -771,7 +771,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 9.4**"""
         errors = validate_event(event)
         assert len(errors) > 0
-        assert any("non-empty string" in e for e in errors)
+        assert any("icke-tom sträng" in e for e in errors)
 
     @given(event=_event_invalid_date())
     @settings(max_examples=50)
@@ -779,7 +779,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 9.4**"""
         errors = validate_event(event)
         assert len(errors) > 0
-        assert any("not a valid ISO 8601" in e for e in errors)
+        assert any("giltigt ISO 8601" in e for e in errors)
 
     @given(event=_event_invalid_precision())
     @settings(max_examples=50)
@@ -797,7 +797,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 13.4**"""
         errors = validate_place(place)
         assert len(errors) > 0
-        assert any("Invalid place type" in e for e in errors)
+        assert any("Ogiltig platstyp" in e for e in errors)
 
     @given(place=_place_invalid_latitude())
     @settings(max_examples=50)
@@ -805,7 +805,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 13.4**"""
         errors = validate_place(place)
         assert len(errors) > 0
-        assert any("Latitude" in e for e in errors)
+        assert any("Latitud" in e for e in errors)
 
     @given(place=_place_invalid_longitude())
     @settings(max_examples=50)
@@ -813,7 +813,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 13.4**"""
         errors = validate_place(place)
         assert len(errors) > 0
-        assert any("Longitude" in e for e in errors)
+        assert any("Longitud" in e for e in errors)
 
     @given(place=_place_empty_name())
     @settings(max_examples=50)
@@ -821,7 +821,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 13.4**"""
         errors = validate_place(place)
         assert len(errors) > 0
-        assert any("1-200 characters" in e for e in errors)
+        assert any("1–200 tecken" in e for e in errors)
 
     # --- Source, Repository, MediaItem validation ---
 
@@ -831,7 +831,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_source(source)
         assert len(errors) > 0
-        assert any("Invalid source_type" in e for e in errors)
+        assert any("Ogiltig källtyp" in e for e in errors)
 
     @given(repository=_repository_empty_type())
     @settings(max_examples=50)
@@ -839,7 +839,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_repository(repository)
         assert len(errors) > 0
-        assert any("non-empty string" in e for e in errors)
+        assert any("icke-tom sträng" in e for e in errors)
 
     @given(media_item=_media_item_invalid_type())
     @settings(max_examples=50)
@@ -847,7 +847,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_media_item(media_item)
         assert len(errors) > 0
-        assert any("Invalid media type" in e for e in errors)
+        assert any("Ogiltig mediatyp" in e for e in errors)
 
     @given(media_item=_media_item_backslash_path())
     @settings(max_examples=50)
@@ -855,7 +855,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_media_item(media_item)
         assert len(errors) > 0
-        assert any("forward slashes" in e for e in errors)
+        assert any("snedstreck" in e for e in errors)
 
     @given(media_item=_media_item_absolute_path())
     @settings(max_examples=50)
@@ -863,7 +863,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_media_item(media_item)
         assert len(errors) > 0
-        assert any("relative" in e.lower() for e in errors)
+        assert any("relativ" in e.lower() for e in errors)
 
     # --- DNA entity validation ---
 
@@ -873,7 +873,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_dna_profile(profile)
         assert len(errors) > 0
-        assert any("Invalid test_type" in e for e in errors)
+        assert any("Ogiltig testtyp" in e for e in errors)
 
     @given(match=_dna_match_shared_cm_out_of_range())
     @settings(max_examples=50)
@@ -905,7 +905,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_dna_segment(segment)
         assert len(errors) > 0
-        assert any("Invalid chromosome" in e for e in errors)
+        assert any("Ogiltig kromosom" in e for e in errors)
 
     @given(segment=_dna_segment_cm_zero_or_negative())
     @settings(max_examples=50)
@@ -913,7 +913,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_dna_segment(segment)
         assert len(errors) > 0
-        assert any("cm must be greater than 0" in e for e in errors)
+        assert any("cm måste vara större än 0" in e for e in errors)
 
     @given(cluster=_dna_cluster_invalid_name())
     @settings(max_examples=50)
@@ -921,7 +921,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_dna_cluster(cluster)
         assert len(errors) > 0
-        assert any("1-200 characters" in e for e in errors)
+        assert any("1–200 tecken" in e for e in errors)
 
     @given(triangulation=_dna_triangulation_too_few_segments())
     @settings(max_examples=50)
@@ -931,7 +931,7 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_dna_triangulation(triangulation)
         assert len(errors) > 0
-        assert any("at least 2 segment_ids" in e for e in errors)
+        assert any("minst 2 segment_ids" in e for e in errors)
 
     @given(triangulation=_dna_triangulation_too_few_profiles())
     @settings(max_examples=50)
@@ -941,4 +941,4 @@ class TestProperty6InvalidDataRejected:
         """**Validates: Requirements 14.1**"""
         errors = validate_dna_triangulation(triangulation)
         assert len(errors) > 0
-        assert any("at least 3 profile_ids" in e for e in errors)
+        assert any("minst 3 profile_ids" in e for e in errors)
