@@ -219,13 +219,16 @@ class Application:
     def show_relationship_calculator(self) -> None:
         """Open the relationship calculator dialog.
 
-        Placeholder — full dialog implementation in a later task.
+        Creates and displays the RelationshipDialog, passing the current
+        project data for relationship computation.
         """
-        QMessageBox.information(
-            self.main_window,
-            "Släktskapsberäknare",
-            "Släktskapsberäknaren implementeras i ett kommande steg.",
+        from slaktbusken.ui.dialogs.relationship_dialog import RelationshipDialog
+
+        dialog = RelationshipDialog(
+            data=self.project_service.data,
+            parent=self.main_window,
         )
+        dialog.exec()
 
     def show_settings(self) -> None:
         """Open the settings dialog.

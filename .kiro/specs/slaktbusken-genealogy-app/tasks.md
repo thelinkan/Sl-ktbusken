@@ -225,11 +225,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 29.5 Implement DNA triangulation management: company, chromosome, overlap range, segment IDs, profile IDs, optional cluster link
   - **Requirements:** 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6
 
-- [ ] 30. Relationship Dialog
-  - [ ] 30.1 Design and implement relationship dialog (relationship_dialog.ui + relationship_dialog.py): person selection (two persons), options (blood only vs all, closest only vs all paths), result display
-  - [ ] 30.2 Integrate RelationshipCalculator: display Swedish text description and graphical path diagram with person nodes and connecting edges
-  - [ ] 30.3 Handle no-relationship-found case with Swedish message
-  - [ ] 30.4 Add print support for relationship graph
+- [x] 30. Relationship Dialog
+  - [x] 30.1 Design and implement relationship dialog (relationship_dialog.ui + relationship_dialog.py): person selection (two persons), options (blood only vs all, closest only vs all paths), result display
+  - [x] 30.2 Integrate RelationshipCalculator: display Swedish text description and graphical path diagram with person nodes and connecting edges
+  - [x] 30.3 Handle no-relationship-found case with Swedish message
+  - [x] 30.4 Add print support for relationship graph
   - **Requirements:** 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7
 
 - [ ] 31. Settings and Configurable Person Box
