@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsSceneMouseEvent,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
+    from slaktbusken.model.name_parser import ParsedGivenName
     from slaktbusken.persistence.settings_io import PersonBoxConfig
 
 # Default box dimensions
@@ -128,7 +129,8 @@ class PersonBoxItem(QGraphicsItem):
 
         Renders the box background, border (highlighted if selected),
         and configured content fields. Fields with no data are omitted
-        per Req 20.4.
+        per Req 20.4. The name line renders the tilltalsnamn (if any)
+        with an underline decoration.
 
         Args:
             painter: The QPainter to draw with.
@@ -160,16 +162,81 @@ class PersonBoxItem(QGraphicsItem):
         y = _PADDING + _LINE_HEIGHT * 0.8
         for i, line in enumerate(self._lines):
             if i == 0:
-                # Name line in bold
-                bold_font = QFont("Segoe UI", 9, QFont.Weight.Bold)
-                painter.setFont(bold_font)
-                painter.drawText(QRectF(_PADDING, y - _LINE_HEIGHT * 0.8, _BOX_WIDTH - 2 * _PADDING, _LINE_HEIGHT), Qt.AlignmentFlag.AlignLeft, line)
-                painter.setFont(font)
+                # Name line in bold — with optional tilltalsnamn underline
+                self._paint_name_line(painter, y)
             else:
                 painter.setPen(QPen(_LABEL_COLOR))
                 painter.drawText(QRectF(_PADDING, y - _LINE_HEIGHT * 0.8, _BOX_WIDTH - 2 * _PADDING, _LINE_HEIGHT), Qt.AlignmentFlag.AlignLeft, line)
                 painter.setPen(QPen(_TEXT_COLOR))
             y += _LINE_HEIGHT
+
+    def _paint_name_line(self, painter: QPainter, y: float) -> None:
+        """Paint the name line with selective underline for tilltalsnamn.
+
+        If display_data contains a valid ParsedGivenName with a
+        tilltalsnamn_index, draws each name part individually with
+        the tilltalsnamn part underlined. Otherwise renders the name
+        as a single string without underline (existing behaviour).
+
+        Args:
+            painter: The QPainter to draw with.
+            y: The baseline y-coordinate for text rendering.
+        """
+        name_parsed: ParsedGivenName | None = self._display_data.get("name_parsed")
+
+        bold_font = QFont("Segoe UI", 9, QFont.Weight.Bold)
+        painter.setPen(QPen(_TEXT_COLOR))
+
+        if (
+            name_parsed is not None
+            and name_parsed.tilltalsnamn_index is not None
+            and name_parsed.parts
+            and 0 <= name_parsed.tilltalsnamn_index < len(name_parsed.parts)
+        ):
+            # Draw name parts individually with selective underline
+            fm = QFontMetrics(bold_font)
+            x = _PADDING
+            space_width = fm.horizontalAdvance(" ")
+
+            for idx, part in enumerate(name_parsed.parts):
+                if idx == name_parsed.tilltalsnamn_index:
+                    # Underline the tilltalsnamn part
+                    underline_font = QFont(bold_font)
+                    underline_font.setUnderline(True)
+                    painter.setFont(underline_font)
+                else:
+                    bold_font.setUnderline(False)
+                    painter.setFont(bold_font)
+
+                painter.drawText(
+                    x,
+                    y,
+                    part,
+                )
+                part_width = fm.horizontalAdvance(part)
+                x += part_width + space_width
+
+            # Restore font without underline
+            bold_font.setUnderline(False)
+            painter.setFont(bold_font)
+        else:
+            # No tilltalsnamn marker — render name line normally (no underline)
+            painter.setFont(bold_font)
+            name_text = self._lines[0] if self._lines else ""
+            painter.drawText(
+                QRectF(
+                    _PADDING,
+                    y - _LINE_HEIGHT * 0.8,
+                    _BOX_WIDTH - 2 * _PADDING,
+                    _LINE_HEIGHT,
+                ),
+                Qt.AlignmentFlag.AlignLeft,
+                name_text,
+            )
+
+        # Restore regular font for subsequent lines
+        regular_font = QFont("Segoe UI", 9)
+        painter.setFont(regular_font)
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         """Handle mouse press for selection.

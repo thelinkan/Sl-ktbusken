@@ -22,6 +22,7 @@ from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QGraphicsScene
 
 from slaktbusken.model.family import Family
+from slaktbusken.model.name_parser import ParsedGivenName, parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.persistence.settings_io import PersonBoxConfig
@@ -505,7 +506,7 @@ def _find_partner_families(
 
 def _build_display_data(
     person: Person, project_data: ProjectData
-) -> dict[str, Optional[str]]:
+) -> dict:
     """Bygg display_data-dictionary för en person.
 
     Extraherar namn, födelse-/dödsdatum och -plats från personens
@@ -518,8 +519,10 @@ def _build_display_data(
     Returns:
         Dictionary med nycklar som matchar PersonBoxConfig-fält.
     """
-    data: dict[str, Optional[str]] = {
-        "name": _get_display_name(person),
+    display_name, name_parsed = _get_display_name_and_parsed(person)
+    data: dict = {
+        "name": display_name,
+        "name_parsed": name_parsed,
         "birth_date": None,
         "birth_place": None,
         "death_date": None,
@@ -575,8 +578,27 @@ def _get_display_name(person: Person) -> str:
     Returns:
         Formaterat namn som "Förnamn Efternamn", eller "(okänd)".
     """
+    display_name, _ = _get_display_name_and_parsed(person)
+    return display_name
+
+
+def _get_display_name_and_parsed(
+    person: Person,
+) -> tuple[str, Optional[ParsedGivenName]]:
+    """Formatera personens visningsnamn och returnera parsed given name.
+
+    Använder det första namnet i listan (typ "birth" prioriteras).
+    Anropar parse_given_name() för att ta bort asterisk-markör och
+    identifiera tilltalsnamn.
+
+    Args:
+        person: Personobjektet.
+
+    Returns:
+        Tuple med (visningsnamn, ParsedGivenName eller None).
+    """
     if not person.names:
-        return "(okänd)"
+        return "(okänd)", None
 
     # Prefer birth name
     name = person.names[0]
@@ -585,12 +607,25 @@ def _get_display_name(person: Person) -> str:
             name = n
             break
 
-    parts = []
+    parsed: Optional[ParsedGivenName] = None
+    given_display = name.given
+
     if name.given:
-        parts.append(name.given)
+        try:
+            parsed = parse_given_name(name.given)
+            given_display = parsed.display_string
+        except (ValueError, Exception):
+            # Fall back to raw string without underline on parse failure
+            given_display = name.given.replace("*", "")
+            parsed = None
+
+    parts = []
+    if given_display:
+        parts.append(given_display)
     if name.surname:
         parts.append(name.surname)
-    return " ".join(parts) if parts else "(okänd)"
+    display_name = " ".join(parts) if parts else "(okänd)"
+    return display_name, parsed
 
 
 def _find_place(project_data: ProjectData, place_id: str):
