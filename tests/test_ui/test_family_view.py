@@ -267,6 +267,93 @@ class TestFamilyViewRender:
 
         assert len(scene.items()) == 0
 
+    def test_render_parents_with_husband_wife_roles(self) -> None:
+        """Parents are shown when using GEDCOM-imported 'husband'/'wife' roles."""
+        data = _make_project_data()
+        # Change parent family to use GEDCOM-style roles
+        data.families[0].partners = [
+            FamilyPartner(person_id="p1", role="husband"),
+            FamilyPartner(person_id="p2", role="wife"),
+        ]
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        view.render(scene, data, "p3", config)
+
+        person_boxes = view.get_person_boxes()
+        person_ids = {box.person_id for box in person_boxes}
+        assert "p1" in person_ids  # father (husband role)
+        assert "p2" in person_ids  # mother (wife role)
+        # No parent placeholders should appear
+        placeholders = view.get_placeholder_boxes()
+        parent_placeholders = [
+            p
+            for p in placeholders
+            if p.role in (PlaceholderRole.FATHER, PlaceholderRole.MOTHER)
+        ]
+        assert len(parent_placeholders) == 0
+
+    def test_render_parents_with_partner_role(self) -> None:
+        """Parents are shown when using 'partner' role (same-sex families)."""
+        data = _make_project_data()
+        # Change parent family to use partner roles
+        data.families[0].partners = [
+            FamilyPartner(person_id="p1", role="partner"),
+            FamilyPartner(person_id="p2", role="partner"),
+        ]
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        view.render(scene, data, "p3", config)
+
+        person_boxes = view.get_person_boxes()
+        person_ids = {box.person_id for box in person_boxes}
+        assert "p1" in person_ids  # first partner in father slot
+        assert "p2" in person_ids  # second partner in mother slot
+        # No parent placeholders should appear
+        placeholders = view.get_placeholder_boxes()
+        parent_placeholders = [
+            p
+            for p in placeholders
+            if p.role in (PlaceholderRole.FATHER, PlaceholderRole.MOTHER)
+        ]
+        assert len(parent_placeholders) == 0
+
+    def test_render_switching_active_person_shows_correct_parents(self) -> None:
+        """Switching active person updates parents correctly."""
+        # Create a second family with different parents
+        grandfather = Person(id="p7", sex="male", names=[Name(type="birth", given="Olof", surname="Karlsson")])
+        grandmother = Person(id="p8", sex="female", names=[Name(type="birth", given="Brita", surname="Nilsson")])
+
+        data = _make_project_data()
+        data.persons.extend([grandfather, grandmother])
+
+        # Mother's parent family
+        mother_parent_family = Family(
+            id="f3",
+            partners=[
+                FamilyPartner(person_id="p7", role="husband"),
+                FamilyPartner(person_id="p8", role="wife"),
+            ],
+            children=["p2"],
+        )
+        data.families.append(mother_parent_family)
+
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        # Render family view for the mother (p2) as active person
+        view.render(scene, data, "p2", config)
+
+        person_boxes = view.get_person_boxes()
+        person_ids = {box.person_id for box in person_boxes}
+        # Mother's parents should be shown
+        assert "p7" in person_ids  # grandfather
+        assert "p8" in person_ids  # grandmother
+
 
 # ---------------------------------------------------------------------------
 # FamilyView selection tests

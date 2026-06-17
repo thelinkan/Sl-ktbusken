@@ -149,10 +149,16 @@ class FamilyView:
 
         if parent_family:
             for partner in parent_family.partners:
-                if partner.role == "father":
+                if partner.role in ("father", "husband"):
                     father_id = partner.person_id
-                elif partner.role == "mother":
+                elif partner.role in ("mother", "wife"):
                     mother_id = partner.person_id
+                elif partner.role == "partner":
+                    # Same-sex or gender-neutral: assign to first empty slot
+                    if father_id is None:
+                        father_id = partner.person_id
+                    elif mother_id is None:
+                        mother_id = partner.person_id
 
         # Create parent boxes to determine their heights
         father_box: Optional[PersonBoxItem] = None

@@ -255,10 +255,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 34.3 Verify filtering and sorting still work correctly after the fix
   - **Requirements:** 16.1, 16.2
 
-- [ ] 35. Bug: Parents Not Shown Correctly When Active Person Changes
-  - [ ] 35.1 Investigate the Family View update logic when the active person changes
-  - [ ] 35.2 Fix parent rendering so that the correct parents are displayed for the newly active person
-  - [ ] 35.3 Verify that switching active person updates parents, siblings, partners, and children correctly
+- [x] 35. Bug: Parents Not Shown Correctly When Active Person Changes
+  - [x] 35.1 Investigate the Family View update logic when the active person changes
+  - [x] 35.2 Fix parent rendering so that the correct parents are displayed for the newly active person
+  - [x] 35.3 Verify that switching active person updates parents, siblings, partners, and children correctly
   - **Requirements:** 17.1, 17.3
 
 - [ ] 36. Swedish Language and Formatting
