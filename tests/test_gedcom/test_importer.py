@@ -128,6 +128,37 @@ _GEDCOM_MULTIPLE_EVENTS = """\
 0 TRLR
 """
 
+_GEDCOM_WITH_MALFORMED_LINES = """\
+0 HEAD
+1 SOUR Test
+THIS IS NOT A VALID GEDCOM LINE
+0 @I1@ INDI
+1 NAME Anna /Karlsson/
+1 SEX F
+ANOTHER BAD LINE HERE
+0 TRLR
+"""
+
+_GEDCOM_WITHOUT_TRLR = """\
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 NAME Lars /Nilsson/
+1 SEX M
+1 BIRT
+2 DATE 5 MAY 1900
+"""
+
+_GEDCOM_INDI_MISSING_NAME = """\
+0 HEAD
+1 SOUR Test
+0 @I1@ INDI
+1 SEX M
+1 BIRT
+2 DATE 10 OCT 1890
+0 TRLR
+"""
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -733,6 +764,93 @@ class TestGEDCOMImporterErrors:
         importer = GEDCOMImporter(empty_project, translation_dir)
         with pytest.raises(FileNotFoundError):
             importer.import_file(missing)
+
+    def test_binary_file_raises_error(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Importing a binary file (e.g. image) raises GedcomParseError."""
+        binary_file = tmp_path / "image.ged"
+        binary_file.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 4)
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        with pytest.raises(GedcomParseError):
+            importer.import_file(binary_file)
+
+    def test_empty_file_raises_error(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Importing a completely empty file raises GedcomParseError."""
+        empty_file = tmp_path / "empty.ged"
+        empty_file.write_text("", encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        with pytest.raises(GedcomParseError):
+            importer.import_file(empty_file)
+
+    def test_malformed_lines_produce_warnings(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Malformed lines within valid GEDCOM produce warnings but import succeeds."""
+        gedcom_file = tmp_path / "malformed.ged"
+        gedcom_file.write_text(_GEDCOM_WITH_MALFORMED_LINES, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        result = importer.import_file(gedcom_file)
+
+        # Import should succeed with the valid person
+        assert result.persons_added == 1
+
+        # Should have warnings for the malformed lines in Swedish
+        malformed_warnings = [
+            w for w in result.warnings if "Felformaterad" in w
+        ]
+        assert len(malformed_warnings) >= 2
+
+    def test_unsupported_tags_import_succeeds_with_correct_counts(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Unsupported tags generate warnings but the import returns correct counts."""
+        gedcom_file = tmp_path / "unsupported.ged"
+        gedcom_file.write_text(_GEDCOM_WITH_UNSUPPORTED_TAGS, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        result = importer.import_file(gedcom_file)
+
+        # The valid person should be imported
+        assert result.persons_added == 1
+        assert len(result.warnings) >= 2
+        assert len(empty_project.persons) == 1
+
+    def test_gedcom_without_trlr_imports_successfully(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A GEDCOM file without TRLR record imports successfully (best-effort)."""
+        gedcom_file = tmp_path / "no_trlr.ged"
+        gedcom_file.write_text(_GEDCOM_WITHOUT_TRLR, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        result = importer.import_file(gedcom_file)
+
+        # Should still import the person
+        assert result.persons_added == 1
+        assert len(empty_project.persons) == 1
+        assert empty_project.persons[0].names[0].given == "Lars"
+
+    def test_indi_missing_name_imports_with_empty_name(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """An INDI record without NAME still imports with empty name fields."""
+        gedcom_file = tmp_path / "no_name.ged"
+        gedcom_file.write_text(_GEDCOM_INDI_MISSING_NAME, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        result = importer.import_file(gedcom_file)
+
+        # Should import the person despite missing NAME
+        assert result.persons_added == 1
+        person = empty_project.persons[0]
+        # The person should exist with empty/default name
+        assert person.sex == "M"
 
 
 # ---------------------------------------------------------------------------

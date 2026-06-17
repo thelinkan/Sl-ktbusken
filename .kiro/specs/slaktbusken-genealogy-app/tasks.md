@@ -268,10 +268,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 36.4 Review and ensure all error messages, confirmation prompts, and validation feedback are in Swedish
   - **Requirements:** 21.1, 21.2, 21.3, 21.4
 
-- [ ] 37. Error Handling Tests
-  - [ ] 37.1 Write unit tests for corrupted file handling: invalid gzip header, JSON parse error, missing required sections (`tests/test_persistence/test_file_io.py`)
-  - [ ] 37.2 Write unit tests for GEDCOM import error paths: non-GEDCOM file, malformed records, unsupported tags (`tests/test_gedcom/test_importer.py`)
-  - [ ] 37.3 Write unit tests for missing reference errors: non-existent person_id in family, non-existent source_id in source_ref, non-existent place_id in event (`tests/test_services/test_validation_service.py`)
+- [x] 37. Error Handling Tests
+  - [x] 37.1 Write unit tests for corrupted file handling: invalid gzip header, JSON parse error, missing required sections (`tests/test_persistence/test_file_io.py`)
+  - [x] 37.2 Write unit tests for GEDCOM import error paths: non-GEDCOM file, malformed records, unsupported tags (`tests/test_gedcom/test_importer.py`)
+  - [x] 37.3 Write unit tests for missing reference errors: non-existent person_id in family, non-existent source_id in source_ref, non-existent place_id in event (`tests/test_services/test_validation_service.py`)
   - **Requirements:** 3.4, 4.7, 4.8, 22.6
 
 - [ ] 38. Bug: Relationship Dialog Person Search Only Matches From Start

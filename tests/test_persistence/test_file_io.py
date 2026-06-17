@@ -45,3 +45,78 @@ class TestPropertyGzipRoundTrip:
             # Compare with direct serialization
             expected_json_bytes = serialize(data).encode("utf-8")
             assert stored_json_bytes == expected_json_bytes
+
+
+import json
+
+import pytest
+
+from slaktbusken.persistence.file_io import (
+    CorruptedFileError,
+    CURRENT_VERSION,
+    UnsupportedVersionError,
+)
+
+
+class TestCorruptedFileHandling:
+    """Unit tests for error handling when loading corrupted project files.
+
+    **Validates: Requirements 3.4**
+    """
+
+    def test_invalid_gzip_header_raises_corrupted_file_error(
+        self, tmp_path: Path
+    ) -> None:
+        """A file with invalid gzip data raises CorruptedFileError."""
+        bad_file = tmp_path / "bad.json.gz"
+        bad_file.write_bytes(b"this is not gzip data at all")
+
+        with pytest.raises(CorruptedFileError, match="ogiltigt gzip-format"):
+            FilePersistence.load(bad_file)
+
+    def test_invalid_json_raises_corrupted_file_error(self, tmp_path: Path) -> None:
+        """A valid gzip file with non-JSON content raises CorruptedFileError."""
+        bad_file = tmp_path / "bad_json.json.gz"
+        bad_file.write_bytes(gzip.compress(b"not valid json {{{"))
+
+        with pytest.raises(CorruptedFileError, match="ogiltig JSON"):
+            FilePersistence.load(bad_file)
+
+    def test_missing_required_sections_raises_corrupted_file_error(
+        self, tmp_path: Path
+    ) -> None:
+        """A valid gzip JSON file missing required sections raises CorruptedFileError."""
+        incomplete_data = {"format_version": CURRENT_VERSION, "some_key": "some_value"}
+        json_bytes = json.dumps(incomplete_data).encode("utf-8")
+        bad_file = tmp_path / "incomplete.json.gz"
+        bad_file.write_bytes(gzip.compress(json_bytes))
+
+        with pytest.raises(CorruptedFileError, match="saknar obligatoriska avsnitt"):
+            FilePersistence.load(bad_file)
+
+    def test_unsupported_version_raises_unsupported_version_error(
+        self, tmp_path: Path
+    ) -> None:
+        """A file with a newer version than CURRENT_VERSION raises UnsupportedVersionError."""
+        # Create a version that is guaranteed to be newer.
+        major, minor = CURRENT_VERSION.split(".")
+        newer_version = f"{int(major) + 1}.0"
+        future_data = {
+            "format_version": newer_version,
+            "format": {},
+            "version": newer_version,
+            "project": {},
+        }
+        json_bytes = json.dumps(future_data).encode("utf-8")
+        future_file = tmp_path / "future.json.gz"
+        future_file.write_bytes(gzip.compress(json_bytes))
+
+        with pytest.raises(UnsupportedVersionError):
+            FilePersistence.load(future_file)
+
+    def test_file_not_found_raises_file_not_found_error(self, tmp_path: Path) -> None:
+        """Loading a non-existent file raises FileNotFoundError."""
+        missing_file = tmp_path / "does_not_exist.json.gz"
+
+        with pytest.raises(FileNotFoundError):
+            FilePersistence.load(missing_file)

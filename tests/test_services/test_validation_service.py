@@ -627,3 +627,130 @@ class TestValidationErrorDataclass:
         err1 = ValidationError("Family", "f1", "Error A")
         err2 = ValidationError("Family", "f1", "Error A")
         assert err1 == err2
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: missing reference scenarios
+# ---------------------------------------------------------------------------
+
+
+class TestMissingReferenceEdgeCases:
+    """Edge-case tests for missing reference error reporting.
+
+    Requirements: 3.4, 22.6
+    """
+
+    def test_family_parent_child_link_invalid_parent_id(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """A ParentChildLink with a parent_id not among the family's partners produces an error."""
+        family = Family(
+            id="f_edge",
+            partners=[FamilyPartner(person_id="p1", role="father")],
+            children=["p2"],
+            parent_child_links=[
+                ParentChildLink(child_id="p2", parent_id="nonexistent_partner", parentage_type="biological"),
+            ],
+        )
+        errors = service.validate_entity(family, populated_project)
+        assert any("nonexistent_partner" in e.message for e in errors)
+
+    def test_family_parent_child_link_invalid_child_id(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """A ParentChildLink with a child_id not in the family's children list produces an error."""
+        family = Family(
+            id="f_edge",
+            partners=[FamilyPartner(person_id="p1", role="father")],
+            children=["p2"],
+            parent_child_links=[
+                ParentChildLink(child_id="not_a_child", parent_id="p1", parentage_type="biological"),
+            ],
+        )
+        errors = service.validate_entity(family, populated_project)
+        assert any("not_a_child" in e.message for e in errors)
+
+    def test_event_multiple_invalid_references(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """An event with both an invalid participant and invalid place reports multiple errors."""
+        event = Event(
+            id="e_multi",
+            type="birth",
+            participants=[Participant(person_id="ghost_person", role="subject")],
+            place=PlaceRef(place_id="ghost_place"),
+        )
+        errors = service.validate_entity(event, populated_project)
+        person_errors = [e for e in errors if "ghost_person" in e.message]
+        place_errors = [e for e in errors if "ghost_place" in e.message]
+        assert len(person_errors) >= 1
+        assert len(place_errors) >= 1
+
+    def test_source_ref_with_empty_source_id(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """A SourceRef with an empty string source_id produces an error."""
+        event = Event(
+            id="e_empty_src",
+            type="birth",
+            participants=[Participant(person_id="p1", role="subject")],
+            date=DateValue(
+                value="1900-01-01", precision="day",
+                source_refs=[SourceRef(source_id="", quality="primary")],
+            ),
+        )
+        errors = service.validate_entity(event, populated_project)
+        assert len(errors) > 0
+        assert any("source_id" in e.message for e in errors)
+
+    def test_family_with_multiple_invalid_children(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """A family with multiple non-existent children produces an error for each."""
+        family = Family(
+            id="f_multi",
+            partners=[FamilyPartner(person_id="p1", role="father")],
+            children=["bad_child_1", "bad_child_2", "bad_child_3"],
+        )
+        errors = service.validate_entity(family, populated_project)
+        child_errors = [e for e in errors if "bad_child" in e.message]
+        assert len(child_errors) == 3
+
+    def test_validate_project_reports_all_missing_references(
+        self, service: ValidationService
+    ) -> None:
+        """A project with multiple entities having broken references reports ALL errors."""
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            persons=[
+                Person(id="p1", sex="M", names=[Name(type="birth", given="A", surname="B")]),
+            ],
+            families=[
+                Family(
+                    id="f1",
+                    partners=[FamilyPartner(person_id="missing_partner", role="father")],
+                    children=["missing_child"],
+                ),
+            ],
+            events=[
+                Event(
+                    id="e1", type="birth",
+                    participants=[Participant(person_id="missing_person", role="subject")],
+                    place=PlaceRef(place_id="missing_place"),
+                ),
+            ],
+            sources=[
+                Source(
+                    id="s1", provider="X", source_type="church_book", title="X",
+                    repository_refs=[RepositoryRef(repository_id="missing_repo")],
+                ),
+            ],
+        )
+        errors = service.validate_project(project)
+        # Errors from different entities should all be reported
+        family_errors = [e for e in errors if e.entity_type == "Family"]
+        event_errors = [e for e in errors if e.entity_type == "Event"]
+        source_errors = [e for e in errors if e.entity_type == "Source"]
+        assert len(family_errors) >= 2  # invalid partner + invalid child
+        assert len(event_errors) >= 2  # invalid participant + invalid place
+        assert len(source_errors) >= 1  # invalid repository
