@@ -6,13 +6,284 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>600</width>
-    <height>400</height>
+    <width>1100</width>
+    <height>750</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Media Editor</string>
+   <string>Mediaredigerare</string>
   </property>
+  <layout class="QHBoxLayout" name="main_layout">
+   <item>
+    <widget class="QSplitter" name="splitter">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <widget class="QWidget" name="left_panel">
+      <layout class="QVBoxLayout" name="left_layout">
+       <item>
+        <widget class="QLineEdit" name="search_input">
+         <property name="placeholderText">
+          <string>Sök media (titel eller filnamn)...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="media_list"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="list_buttons_layout">
+         <item>
+          <widget class="QPushButton" name="add_media_button">
+           <property name="text">
+            <string>Lägg till</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="delete_media_button">
+           <property name="text">
+            <string>Ta bort</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="right_panel">
+      <layout class="QVBoxLayout" name="right_layout">
+       <item>
+        <widget class="QGroupBox" name="basic_group">
+         <property name="title">
+          <string>Grunduppgifter</string>
+         </property>
+         <layout class="QVBoxLayout" name="basic_layout">
+          <item>
+           <layout class="QHBoxLayout" name="file_layout">
+            <item>
+             <widget class="QLabel" name="file_label">
+              <property name="text"><string>Fil:</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="file_input">
+              <property name="placeholderText"><string>Sökväg till mediafil...</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="browse_button">
+              <property name="text"><string>Bläddra...</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="missing_file_label">
+            <property name="text"><string>⚠ Filen saknas på disk</string></property>
+            <property name="styleSheet"><string>color: red; font-weight: bold;</string></property>
+            <property name="visible"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="type_layout">
+            <item>
+             <widget class="QLabel" name="type_label">
+              <property name="text"><string>Mediatyp:</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="media_type_combo"/>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="title_layout">
+            <item>
+             <widget class="QLabel" name="title_label">
+              <property name="text"><string>Titel:</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="title_input">
+              <property name="maxLength"><number>500</number></property>
+              <property name="placeholderText"><string>Mediaobjektets titel</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="linked_entities_group">
+         <property name="title">
+          <string>Länkade entiteter</string>
+         </property>
+         <layout class="QVBoxLayout" name="linked_entities_layout">
+          <item>
+           <widget class="QListWidget" name="linked_entities_list"/>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="entity_input_layout">
+            <item>
+             <widget class="QComboBox" name="entity_type_combo"/>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="entity_id_input">
+              <property name="placeholderText"><string>Entitets-ID</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="entity_role_input">
+              <property name="placeholderText"><string>Roll (valfri)</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="entity_buttons_layout">
+            <item>
+             <widget class="QPushButton" name="add_entity_button">
+              <property name="text"><string>Lägg till entitet</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="remove_entity_button">
+              <property name="text"><string>Ta bort entitet</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="type_specific_group">
+         <property name="title">
+          <string>Typspecifika fält</string>
+         </property>
+         <layout class="QVBoxLayout" name="type_specific_layout">
+          <item>
+           <layout class="QHBoxLayout" name="newspaper_layout">
+            <item>
+             <widget class="QLabel" name="newspaper_label">
+              <property name="text"><string>Tidning:</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="newspaper_input"/>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="pub_date_layout">
+            <item>
+             <widget class="QLabel" name="pub_date_label">
+              <property name="text"><string>Publiceringsdatum:</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="pub_date_input"/>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="pub_page_layout">
+            <item>
+             <widget class="QLabel" name="pub_page_label">
+              <property name="text"><string>Sida:</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="pub_page_input"/>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="transcription_layout">
+            <item>
+             <widget class="QLabel" name="transcription_label">
+              <property name="text"><string>Transkription:</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QTextEdit" name="transcription_input">
+              <property name="maximumSize">
+               <size><width>16777215</width><height>100</height></size>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="mentioned_layout">
+            <item>
+             <widget class="QLabel" name="mentioned_label">
+              <property name="text"><string>Omnämnda personer:</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QListWidget" name="mentioned_persons_list">
+              <property name="maximumSize">
+               <size><width>16777215</width><height>80</height></size>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="mentioned_buttons_layout">
+              <item>
+               <widget class="QLineEdit" name="mentioned_person_input">
+                <property name="placeholderText"><string>Person-ID</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="add_mentioned_button">
+                <property name="text"><string>Lägg till</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="remove_mentioned_button">
+                <property name="text"><string>Ta bort</string></property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="status_label">
+         <property name="text"><string/></property>
+         <property name="styleSheet"><string>color: red;</string></property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="buttons_layout">
+         <item>
+          <spacer name="buttons_spacer">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="save_button">
+           <property name="text"><string>Spara</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="cancel_button">
+           <property name="text"><string>Avbryt</string></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
  </widget>
  <resources/>
  <connections/>

@@ -210,11 +210,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 27.4 Implement deletion warnings for places (referenced by events) and sources (referenced by source_refs) and repositories (referenced by sources)
   - **Requirements:** 10.3, 10.4, 10.5, 11.1, 11.2, 11.3, 11.4, 11.5, 23.1, 23.3, 23.4
 
-- [ ] 28. Media Editor
-  - [ ] 28.1 Design and implement media editor (media_editor.ui + media_editor.py): file selection, type selector, title, linked entities management, type-specific fields (publication info, transcription, mentioned persons)
-  - [ ] 28.2 Implement media list view for browsing all media across types
-  - [ ] 28.3 Implement missing-file indicator for media items where the file path cannot be resolved
-  - [ ] 28.4 Require at least one linked entity before saving a new MediaItem
+- [x] 28. Media Editor
+  - [x] 28.1 Design and implement media editor (media_editor.ui + media_editor.py): file selection, type selector, title, linked entities management, type-specific fields (publication info, transcription, mentioned persons)
+  - [x] 28.2 Implement media list view for browsing all media across types
+  - [x] 28.3 Implement missing-file indicator for media items where the file path cannot be resolved
+  - [x] 28.4 Require at least one linked entity before saving a new MediaItem
   - **Requirements:** 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8
 
 - [ ] 29. DNA Editor
