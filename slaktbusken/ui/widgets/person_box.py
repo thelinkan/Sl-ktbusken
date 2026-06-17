@@ -216,9 +216,16 @@ class PersonBoxItem(QGraphicsItem):
                 part_width = fm.horizontalAdvance(part)
                 x += part_width + space_width
 
-            # Restore font without underline
+            # Draw surname (if present) after the given name parts
+            # The full name line includes the surname after the given display string
             bold_font.setUnderline(False)
             painter.setFont(bold_font)
+            name_line = self._lines[0] if self._lines else ""
+            given_display = name_parsed.display_string
+            if name_line.startswith(given_display) and len(name_line) > len(given_display):
+                surname_part = name_line[len(given_display):].lstrip()
+                if surname_part:
+                    painter.drawText(x, y, surname_part)
         else:
             # No tilltalsnamn marker — render name line normally (no underline)
             painter.setFont(bold_font)

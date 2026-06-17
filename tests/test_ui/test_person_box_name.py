@@ -323,3 +323,65 @@ class TestPersonBoxNameRendering:
         for font_call in set_font_calls:
             font = font_call[1][0]
             assert not font.underline()
+
+    def test_surname_drawn_after_given_name_parts(self) -> None:
+        """Surname must be drawn after given name parts.
+
+        When the name line is "Kent Torbjörn Svensson" and name_parsed
+        only has given-name parts ["Kent", "Torbjörn"], the surname
+        "Svensson" must still be rendered after the given name parts.
+        """
+        parsed = parse_given_name("Kent Torbjörn*")
+        # The display_data["name"] includes the surname
+        config = PersonBoxConfig(name=True)
+        display_data = {
+            "name": "Kent Torbjörn Svensson",
+            "name_parsed": parsed,
+        }
+        item = PersonBoxItem("test_person", display_data, config)
+
+        painter = MagicMock()
+        with patch(
+            "slaktbusken.ui.widgets.person_box.QFontMetrics"
+        ) as mock_fm_class:
+            mock_fm = MagicMock()
+            mock_fm.horizontalAdvance.return_value = 40
+            mock_fm_class.return_value = mock_fm
+
+            item._paint_name_line(painter, 20.0)
+
+        draw_text_calls = [
+            c for c in painter.method_calls if c[0] == "drawText"
+        ]
+        # Should have 3 drawText calls: "Kent", "Torbjörn", "Svensson"
+        assert len(draw_text_calls) == 3
+        assert draw_text_calls[0][1][2] == "Kent"
+        assert draw_text_calls[1][1][2] == "Torbjörn"
+        assert draw_text_calls[2][1][2] == "Svensson"
+
+    def test_surname_not_underlined(self) -> None:
+        """Surname must not be underlined even when tilltalsnamn is marked."""
+        parsed = parse_given_name("Kent Torbjörn*")
+        config = PersonBoxConfig(name=True)
+        display_data = {
+            "name": "Kent Torbjörn Svensson",
+            "name_parsed": parsed,
+        }
+        item = PersonBoxItem("test_person", display_data, config)
+
+        painter = MagicMock()
+        with patch(
+            "slaktbusken.ui.widgets.person_box.QFontMetrics"
+        ) as mock_fm_class:
+            mock_fm = MagicMock()
+            mock_fm.horizontalAdvance.return_value = 40
+            mock_fm_class.return_value = mock_fm
+
+            item._paint_name_line(painter, 20.0)
+
+        # The last setFont before drawing "Svensson" should have underline=False
+        set_font_calls = [c for c in painter.method_calls if c[0] == "setFont"]
+        # Last font set (for surname) should not be underlined
+        last_font = set_font_calls[-2][1][0]  # -1 is the restore regular font
+        assert isinstance(last_font, QFont)
+        assert not last_font.underline(), "Surname should not be underlined"
