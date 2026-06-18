@@ -85,6 +85,8 @@ class PersonEditor(QWidget):
         self._setup_table()
         self._setup_edit_event_button()
         self._setup_cluster_buttons()
+        self._setup_dna_profile_button()
+        self._setup_dna_match_button()
         self._connect_signals()
 
         if self._person is not None:
@@ -143,6 +145,35 @@ class PersonEditor(QWidget):
         cluster_list_index = layout.indexOf(self._ui.dna_clusters_list)
         layout.insertLayout(cluster_list_index + 1, buttons_layout)
 
+    def _setup_dna_profile_button(self) -> None:
+        """Add 'Lägg till profil' button below the DNA profiles list."""
+        self._add_dna_profile_button = QPushButton(
+            "Lägg till profil", self._ui.dna_tab
+        )
+        # Insert the button after the dna_profiles_list in the dna_tab_layout
+        layout = self._ui.dna_tab_layout
+        profiles_list_index = layout.indexOf(self._ui.dna_profiles_list)
+        layout.insertWidget(profiles_list_index + 1, self._add_dna_profile_button)
+        # Initially hidden — shown when a person is loaded
+        self._add_dna_profile_button.setVisible(False)
+
+    def _setup_dna_match_button(self) -> None:
+        """Add 'Lägg till matchning' button below the DNA matches list."""
+        self._add_dna_match_button = QPushButton(
+            "Lägg till matchning", self._ui.dna_tab
+        )
+        # Insert the button after the dna_matches_list in the dna_tab_layout
+        layout = self._ui.dna_tab_layout
+        matches_list_index = layout.indexOf(self._ui.dna_matches_list)
+        layout.insertWidget(matches_list_index + 1, self._add_dna_match_button)
+        # Initially hidden — shown when a person is loaded
+        self._add_dna_match_button.setVisible(False)
+        # Initially disabled — requires at least one DNA profile
+        self._add_dna_match_button.setEnabled(False)
+        self._add_dna_match_button.setToolTip(
+            "En DNA-profil krävs för att skapa matchningar"
+        )
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
         # Name management
@@ -161,6 +192,12 @@ class PersonEditor(QWidget):
 
         # Photos
         self._ui.select_profile_button.clicked.connect(self._on_select_profile)
+
+        # DNA profile button
+        self._add_dna_profile_button.clicked.connect(self._on_add_dna_profile)
+
+        # DNA match button
+        self._add_dna_match_button.clicked.connect(self._on_add_dna_match)
 
         # DNA cluster membership
         self._add_cluster_button.clicked.connect(self._on_add_cluster)
@@ -207,6 +244,9 @@ class PersonEditor(QWidget):
         self._refresh_dna_profiles()
         self._refresh_dna_matches()
         self._refresh_dna_clusters()
+
+        # Sync DNA button visibility and enabled state
+        self._update_dna_button_states()
 
     # ------------------------------------------------------------------
     # Private: names management
@@ -650,12 +690,103 @@ class PersonEditor(QWidget):
             if p.person_id == self._person.id
         }
 
+        # Build lookup: profile_id -> person_id -> person name
+        profile_to_person: dict[str, str] = {
+            p.id: p.person_id for p in self._project_data.dna_profiles
+        }
+        person_name_map: dict[str, str] = {}
+        for person in self._project_data.persons:
+            if person.names:
+                name = person.names[0]
+                person_name_map[person.id] = f"{name.given} {name.surname}".strip()
+            else:
+                person_name_map[person.id] = person.id
+
         for match in self._project_data.dna_matches:
             if match.profile1_id in person_profile_ids or match.profile2_id in person_profile_ids:
-                display = f"Match {match.id}: {match.shared_cm} cM ({match.segment_count} segment)"
+                # Determine the "other" profile (not belonging to current person)
+                if match.profile1_id in person_profile_ids:
+                    other_profile_id = match.profile2_id
+                else:
+                    other_profile_id = match.profile1_id
+
+                other_person_id = profile_to_person.get(other_profile_id, "")
+                other_name = person_name_map.get(other_person_id, other_person_id or "Okänd")
+
+                display = f"{other_name}: {match.shared_cm} cM ({match.segment_count} segment)"
                 item = QListWidgetItem(display)
                 item.setData(Qt.ItemDataRole.UserRole, match.id)
                 self._ui.dna_matches_list.addItem(item)
+
+    def _on_add_dna_profile(self) -> None:
+        """Open the DnaProfileDialog and handle the result."""
+        if self._person is None:
+            return
+
+        from slaktbusken.ui.dialogs.dna_profile_dialog import DnaProfileDialog
+
+        dialog = DnaProfileDialog(
+            project_data=self._project_data,
+            person_id=self._person.id,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            profile = dialog.created_profile
+            if profile is not None:
+                self._project_data.dna_profiles.append(profile)
+                self._refresh_dna_profiles()
+                self._refresh_dna_matches()
+                self._update_dna_button_states()
+
+    def _on_add_dna_match(self) -> None:
+        """Open the DnaMatchDialog and handle the result."""
+        if self._person is None:
+            return
+
+        from slaktbusken.ui.dialogs.dna_match_dialog import DnaMatchDialog
+
+        dialog = DnaMatchDialog(
+            project_data=self._project_data,
+            person_id=self._person.id,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            match = dialog.created_match
+            if match is not None:
+                self._project_data.dna_matches.append(match)
+                self._refresh_dna_matches()
+
+    def _update_dna_button_states(self) -> None:
+        """Sync DNA button visibility and enabled state with current data.
+
+        - Shows/hides both DNA buttons based on whether a person is loaded.
+        - Enables match button if person has at least one DNA profile.
+        - Disables match button with tooltip if person has no profiles.
+        """
+        if self._person is None:
+            self._add_dna_profile_button.setVisible(False)
+            self._add_dna_match_button.setVisible(False)
+            return
+
+        self._add_dna_profile_button.setVisible(True)
+        self._add_dna_match_button.setVisible(True)
+
+        # Check if person has at least one DNA profile
+        has_profiles = any(
+            p.person_id == self._person.id
+            for p in self._project_data.dna_profiles
+        )
+
+        if has_profiles:
+            self._add_dna_match_button.setEnabled(True)
+            self._add_dna_match_button.setToolTip("")
+        else:
+            self._add_dna_match_button.setEnabled(False)
+            self._add_dna_match_button.setToolTip(
+                "En DNA-profil krävs för att skapa matchningar"
+            )
 
     def _refresh_dna_clusters(self) -> None:
         """Populate the DNA clusters list for this person.
