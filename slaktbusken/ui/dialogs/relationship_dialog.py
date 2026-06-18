@@ -473,6 +473,78 @@ class RelationshipDialog(QDialog):
         person_generation.setdefault(person_a_id, 0)
         person_generation.setdefault(person_b_id, 0)
 
+        # Post-process generation assignments to produce a correct visual layout.
+        # Key principle: partners must appear at the same level, and parents must
+        # be above their children. When a marriage crosses generations (e.g.,
+        # Bertil at gen 2 married Vera at gen 1), the partner with fewer
+        # descendants below them gets pulled DOWN to match the other's level.
+        #
+        # Algorithm:
+        # 1. Enforce parent > child (bump parents UP)
+        # 2. Sync partners to same level (pull the HIGHER partner DOWN to
+        #    match the lower one, since the lower one has children below)
+        # 3. Re-enforce parent > child (may need to bump parents again)
+
+        # Phase 1: Enforce all parents are strictly above all children
+        changed = True
+        iterations = 0
+        while changed and iterations < 50:
+            changed = False
+            iterations += 1
+            for parent_id, child_id, _ in all_edges:
+                p_gen = person_generation.get(parent_id, 0)
+                c_gen = person_generation.get(child_id, 0)
+                if p_gen <= c_gen:
+                    person_generation[parent_id] = c_gen + 1
+                    changed = True
+
+        # Phase 2: Sync partners. For each partner pair, pull the one WITHOUT
+        # children in the graph DOWN to match the one WITH children (who is
+        # constrained by their child's level). If both have children, pull
+        # the higher one down to the lower one's level (preserving the parent
+        # constraint for the one with deeper descendants).
+        for pa, pb in partner_edges:
+            if pa not in person_generation or pb not in person_generation:
+                continue
+            ga = person_generation[pa]
+            gb = person_generation[pb]
+            if ga == gb:
+                continue
+            # Determine who has children in the graph (using all_edges)
+            pa_has_children = any(
+                pid == pa and cid in person_generation
+                for pid, cid, _ in all_edges
+            )
+            pb_has_children = any(
+                pid == pb and cid in person_generation
+                for pid, cid, _ in all_edges
+            )
+
+            if pa_has_children and not pb_has_children:
+                # Pull pb down to pa's level
+                person_generation[pb] = ga
+            elif pb_has_children and not pa_has_children:
+                # Pull pa down to pb's level
+                person_generation[pa] = gb
+            else:
+                # Both have children (or neither) — pull the higher one down
+                target_gen = min(ga, gb)
+                person_generation[pa] = target_gen
+                person_generation[pb] = target_gen
+
+        # Phase 3: Re-enforce parent > child after partner sync
+        changed = True
+        iterations = 0
+        while changed and iterations < 50:
+            changed = False
+            iterations += 1
+            for parent_id, child_id, _ in all_edges:
+                p_gen = person_generation.get(parent_id, 0)
+                c_gen = person_generation.get(child_id, 0)
+                if p_gen <= c_gen:
+                    person_generation[parent_id] = c_gen + 1
+                    changed = True
+
         # Step 2: Group persons by generation row.
         max_gen = max(person_generation.values()) if person_generation else 0
         min_gen = min(person_generation.values()) if person_generation else 0
@@ -691,85 +763,201 @@ class RelationshipDialog(QDialog):
                 x = x_offset + idx * (node_w + spacing_x) + 20
                 positions[pid] = (x, y)
 
-        # Step 5: Draw edges (orthogonal lines from parent to child).
-        # Uses right-angle connectors: vertical down from parent, horizontal
-        # to align with child, vertical down to child (like the family view).
+        # Step 5: Draw family-tree style connectors.
+        # Pattern: couple bar → vertical trunk → sibling bar → child drops.
+        # For couples (partner pairs sharing children), draw:
+        #   - Horizontal bar connecting the two partners
+        #   - Vertical trunk down from the bar center to a midpoint
+        #   - Horizontal sibling bar at the midpoint spanning all children
+        #   - Vertical drops from sibling bar to each child's top-center
+        # For single parents, use a simple orthogonal L-shape.
+
+        connector_pen_color = QColor("#555555")
+        connector_pen = QPen(connector_pen_color, 1.5)
+        connector_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        connector_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+
         drawn_edges: set[tuple[str, str]] = set()
-        for parent_id, child_id, path_idx in all_edges:
-            edge_key = (parent_id, child_id)
-            if edge_key in drawn_edges:
+        drawn_partner_bars: set[tuple[str, str]] = set()
+
+        # Group edges by parent couple: find which children belong to which
+        # parent pair (or single parent).
+        # Build: for each generation, group children by their parent set.
+        couple_children: dict[tuple[str, ...], set[str]] = {}
+        for parent_id, child_id, _ in all_edges:
+            if parent_id not in positions or child_id not in positions:
                 continue
-            drawn_edges.add(edge_key)
+            drawn_edges.add((parent_id, child_id))
+            # Find if this parent has a partner (same gen, shared children)
+            partner = partner_of.get(parent_id)
+            if partner and partner in positions:
+                couple_key = tuple(sorted([parent_id, partner]))
+            else:
+                couple_key = (parent_id,)
+            couple_children.setdefault(couple_key, set()).add(child_id)
 
-            # Determine which paths this edge belongs to (for coloring)
-            edge_paths = [
-                pi for (pid, cid, pi) in all_edges
-                if pid == parent_id and cid == child_id
-            ]
-            color_idx = edge_paths[0] % len(self._PATH_COLORS)
-            color = QColor(self._PATH_COLORS[color_idx])
+        for couple_key, children in couple_children.items():
+            children_list = sorted(
+                children,
+                key=lambda c: positions[c][0],  # sort by x position
+            )
 
-            px, py = positions[parent_id]
-            cx, cy = positions[child_id]
+            if len(couple_key) == 2:
+                # Couple: draw partner bar and family connector
+                pa, pb = couple_key
+                ax, ay = positions[pa]
+                bx, by = positions[pb]
 
-            # Orthogonal connector: parent bottom-center → midpoint → child top-center
-            x1 = px + node_w / 2
-            y1 = py + node_h
-            x2 = cx + node_w / 2
-            y2 = cy
-            mid_y = (y1 + y2) / 2
+                # Partner bar: connect inner edges at vertical midpoint of boxes
+                left_x = min(ax, bx) + node_w
+                right_x = max(ax, bx)
+                bar_y = ay + node_h / 2  # same generation, same y
 
-            pen = QPen(color, 2.0)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                # Draw the partner bar (horizontal line between boxes)
+                pair_key = (min(pa, pb), max(pa, pb))
+                if pair_key not in drawn_partner_bars:
+                    drawn_partner_bars.add(pair_key)
+                    pen = QPen(QColor("#e74c3c"), 1.5)
+                    self._scene.addLine(left_x, bar_y, right_x, bar_y, pen)
 
-            path_line = QPainterPath()
-            path_line.moveTo(x1, y1)
-            path_line.lineTo(x1, mid_y)
-            path_line.lineTo(x2, mid_y)
-            path_line.lineTo(x2, y2)
-            self._scene.addPath(path_line, pen)
+                # Trunk: vertical line from bar center down to sibling level
+                trunk_x = (ax + node_w / 2 + bx + node_w / 2) / 2
+                trunk_top = max(ay, by) + node_h  # below the boxes
+                # Midpoint between parents' bottom and children's top
+                first_child_y = min(positions[c][1] for c in children_list)
+                trunk_bottom = (trunk_top + first_child_y) / 2
 
-        # Step 6: Draw partner edges (horizontal dashed lines at same level).
-        # Draw for both explicit partner edges in paths AND detected partner pairs.
-        drawn_partner_pairs: set[tuple[str, str]] = set()
+                path_line = QPainterPath()
+                path_line.moveTo(trunk_x, trunk_top)
+                path_line.lineTo(trunk_x, trunk_bottom)
+                self._scene.addPath(path_line, connector_pen)
 
-        # Draw explicit partner edges from paths
+                if len(children_list) == 1:
+                    # Single child: straight line down
+                    cx, cy = positions[children_list[0]]
+                    child_center_x = cx + node_w / 2
+                    path_line = QPainterPath()
+                    path_line.moveTo(trunk_x, trunk_bottom)
+                    path_line.lineTo(child_center_x, trunk_bottom)
+                    path_line.lineTo(child_center_x, cy)
+                    self._scene.addPath(path_line, connector_pen)
+                else:
+                    # Multiple children: sibling bar + drops
+                    leftmost_x = positions[children_list[0]][0] + node_w / 2
+                    rightmost_x = positions[children_list[-1]][0] + node_w / 2
+
+                    # Sibling bar
+                    path_line = QPainterPath()
+                    path_line.moveTo(leftmost_x, trunk_bottom)
+                    path_line.lineTo(rightmost_x, trunk_bottom)
+                    self._scene.addPath(path_line, connector_pen)
+
+                    # Connect trunk to sibling bar if trunk_x not on the bar
+                    if trunk_x < leftmost_x or trunk_x > rightmost_x:
+                        path_line = QPainterPath()
+                        path_line.moveTo(trunk_x, trunk_bottom)
+                        path_line.lineTo(
+                            max(leftmost_x, min(rightmost_x, trunk_x)),
+                            trunk_bottom,
+                        )
+                        self._scene.addPath(path_line, connector_pen)
+
+                    # Child drops
+                    for child_id in children_list:
+                        cx, cy = positions[child_id]
+                        child_center_x = cx + node_w / 2
+                        path_line = QPainterPath()
+                        path_line.moveTo(child_center_x, trunk_bottom)
+                        path_line.lineTo(child_center_x, cy)
+                        self._scene.addPath(path_line, connector_pen)
+
+            else:
+                # Single parent: orthogonal L-connector from parent to each child
+                parent_id = couple_key[0]
+                px, py = positions[parent_id]
+                parent_bottom_x = px + node_w / 2
+                parent_bottom_y = py + node_h
+
+                first_child_y = min(positions[c][1] for c in children_list)
+                mid_y = (parent_bottom_y + first_child_y) / 2
+
+                # Vertical trunk from parent
+                path_line = QPainterPath()
+                path_line.moveTo(parent_bottom_x, parent_bottom_y)
+                path_line.lineTo(parent_bottom_x, mid_y)
+                self._scene.addPath(path_line, connector_pen)
+
+                if len(children_list) == 1:
+                    cx, cy = positions[children_list[0]]
+                    child_center_x = cx + node_w / 2
+                    path_line = QPainterPath()
+                    path_line.moveTo(parent_bottom_x, mid_y)
+                    path_line.lineTo(child_center_x, mid_y)
+                    path_line.lineTo(child_center_x, cy)
+                    self._scene.addPath(path_line, connector_pen)
+                else:
+                    leftmost_x = positions[children_list[0]][0] + node_w / 2
+                    rightmost_x = positions[children_list[-1]][0] + node_w / 2
+
+                    # Sibling bar
+                    path_line = QPainterPath()
+                    path_line.moveTo(leftmost_x, mid_y)
+                    path_line.lineTo(rightmost_x, mid_y)
+                    self._scene.addPath(path_line, connector_pen)
+
+                    # Connect trunk to bar
+                    if parent_bottom_x < leftmost_x or parent_bottom_x > rightmost_x:
+                        path_line = QPainterPath()
+                        path_line.moveTo(parent_bottom_x, mid_y)
+                        path_line.lineTo(
+                            max(leftmost_x, min(rightmost_x, parent_bottom_x)),
+                            mid_y,
+                        )
+                        self._scene.addPath(path_line, connector_pen)
+
+                    # Child drops
+                    for child_id in children_list:
+                        cx, cy = positions[child_id]
+                        child_center_x = cx + node_w / 2
+                        path_line = QPainterPath()
+                        path_line.moveTo(child_center_x, mid_y)
+                        path_line.lineTo(child_center_x, cy)
+                        self._scene.addPath(path_line, connector_pen)
+
+        # Step 6: Draw any remaining partner lines not already drawn
+        # (explicit partner edges from paths that weren't in partner_pairs)
         for path in paths:
             for i, edge_type in enumerate(path.path_edges):
                 if edge_type == "partner":
                     pid_a = path.path_nodes[i]
                     pid_b = path.path_nodes[i + 1]
                     pair_key = (min(pid_a, pid_b), max(pid_a, pid_b))
-                    if pair_key in drawn_partner_pairs:
+                    if pair_key in drawn_partner_bars:
                         continue
-                    drawn_partner_pairs.add(pair_key)
+                    drawn_partner_bars.add(pair_key)
                     if pid_a in positions and pid_b in positions:
                         ax, ay = positions[pid_a]
                         bx, by = positions[pid_b]
-                        x1 = ax + node_w / 2
-                        y1 = ay + node_h / 2
-                        x2 = bx + node_w / 2
-                        y2 = by + node_h / 2
-                        pen = QPen(QColor("#e74c3c"), 1.5, Qt.PenStyle.DashLine)
-                        self._scene.addLine(x1, y1, x2, y2, pen)
+                        left_x = min(ax, bx) + node_w
+                        right_x = max(ax, bx)
+                        bar_y = (ay + by) / 2 + node_h / 2
+                        pen = QPen(QColor("#e74c3c"), 1.5)
+                        self._scene.addLine(left_x, bar_y, right_x, bar_y, pen)
 
-        # Draw partner lines for detected couples (shared children) not already drawn
         for gen, pairs in partner_pairs.items():
             for pa, pb in pairs:
                 pair_key = (min(pa, pb), max(pa, pb))
-                if pair_key in drawn_partner_pairs:
+                if pair_key in drawn_partner_bars:
                     continue
-                drawn_partner_pairs.add(pair_key)
+                drawn_partner_bars.add(pair_key)
                 if pa in positions and pb in positions:
                     ax, ay = positions[pa]
                     bx, by = positions[pb]
-                    x1 = ax + node_w / 2
-                    y1 = ay + node_h / 2
-                    x2 = bx + node_w / 2
-                    y2 = by + node_h / 2
-                    pen = QPen(QColor("#e74c3c"), 1.5, Qt.PenStyle.DashLine)
-                    self._scene.addLine(x1, y1, x2, y2, pen)
+                    left_x = min(ax, bx) + node_w
+                    right_x = max(ax, bx)
+                    bar_y = (ay + by) / 2 + node_h / 2
+                    pen = QPen(QColor("#e74c3c"), 1.5)
+                    self._scene.addLine(left_x, bar_y, right_x, bar_y, pen)
 
         # Step 7: Draw nodes on top.
         text_font = QFont("Sans", 9)
