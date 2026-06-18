@@ -750,6 +750,34 @@ class Application:
             self.project_service._dirty = True
             self._update_status()
 
+    def show_dna_editor(self) -> None:
+        """Open the DNA editor dialog.
+
+        Creates a DnaEditor wrapped in a QDialog, showing the current
+        project's DNA companies, profiles, matches, segments, clusters,
+        and triangulations for viewing, editing, and management.
+        """
+        from slaktbusken.ui.editors.dna_editor import DnaEditor
+
+        project_data = self.project_service.data
+
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("DNA-redigerare")
+        dialog.setMinimumSize(900, 650)
+        layout = QVBoxLayout(dialog)
+
+        editor = DnaEditor(
+            project_data=project_data,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        dialog.exec()
+
+        # Mark project dirty if any DNA data was modified
+        self.project_service._dirty = True
+        self._update_status()
+
     def confirm_close(self) -> bool:
         """Check if the application can close (confirm unsaved changes).
 

@@ -162,6 +162,13 @@ class MainWindow(QMainWindow):
         self.action_add_person.setToolTip("Skapa en ny person utan kopplingar")
         self.action_add_person.triggered.connect(self._app.add_standalone_person)
 
+        # DNA
+        self.action_dna_editor = QAction("&DNA-redigerare...", self)
+        self.action_dna_editor.setToolTip(
+            "Hantera DNA-företag, profiler, matchningar, segment, kluster och trianguleringar"
+        )
+        self.action_dna_editor.triggered.connect(self._app.show_dna_editor)
+
         # Verktyg (Tools)
         self.action_relationship = QAction("&Släktskapsberäknare...", self)
         self.action_relationship.setToolTip("Beräkna släktskap mellan två personer")
@@ -197,6 +204,8 @@ class MainWindow(QMainWindow):
         self.menu_edit.addAction(self.action_source_translation_editor)
         self.menu_edit.addAction(self.action_place_editor)
         self.menu_edit.addAction(self.action_place_translation_editor)
+        self.menu_edit.addSeparator()
+        self.menu_edit.addAction(self.action_dna_editor)
 
         # Person
         self.menu_person = menu_bar.addMenu("&Person")
@@ -310,6 +319,7 @@ class MainWindow(QMainWindow):
         self.action_source_translation_editor.setEnabled(project_open)
         self.action_place_editor.setEnabled(project_open)
         self.action_place_translation_editor.setEnabled(project_open)
+        self.action_dna_editor.setEnabled(project_open)
         self.action_view_family.setEnabled(project_open)
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)
