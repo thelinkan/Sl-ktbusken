@@ -333,10 +333,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 46.4 Verify that missing father placeholders appear for both the active person and their siblings when no father is linked, and that the "Lägg till partner" placeholder appears for the active person
   - **Requirements:** 17.1, 17.7, 17.8
 
-- [ ] 47. Bug: Relationship Calculator Shows Asterisk Instead of Underline in Names
-  - [ ] 47.1 Investigate where the asterisk (*) is appearing in names within the relationship calculator search and graph display — likely GEDCOM-style birth name markers not being stripped or converted
-  - [ ] 47.2 Fix name display in the relationship dialog so that asterisks marking birth names are either removed or rendered as underlined text (the intended Swedish genealogy convention)
-  - [ ] 47.3 Verify that names display correctly in both the person search/selection fields and in the relationship graph nodes
+- [x] 47. Bug: Relationship Calculator Shows Asterisk Instead of Underline in Names
+  - [x] 47.1 Investigate where the asterisk (*) is appearing in names within the relationship calculator search and graph display — likely GEDCOM-style birth name markers not being stripped or converted
+  - [x] 47.2 Fix name display in the relationship dialog so that asterisks marking birth names are either removed or rendered as underlined text (the intended Swedish genealogy convention)
+  - [x] 47.3 Verify that names display correctly in both the person search/selection fields and in the relationship graph nodes
   - **Requirements:** 15.1, 15.5, 7.1
 
 - [ ] 48. Bug: Relationship Calculator Shows Crossed Lines in Graph

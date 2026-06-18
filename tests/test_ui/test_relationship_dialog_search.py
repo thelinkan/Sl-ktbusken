@@ -134,3 +134,81 @@ class TestRelationshipDialogPersonSearch:
         completer.setCompletionPrefix("sofia")
         count = completer.completionCount()
         assert count == 1, f"Expected 1 match for 'sofia', got {count}"
+
+
+class TestRelationshipDialogTilltalsnamn:
+    """Verify that tilltalsnamn asterisk markers are stripped from display names."""
+
+    def test_asterisk_stripped_from_display_name(self, qtbot) -> None:
+        """A person with 'Kent Torbjörn*' should display without asterisk."""
+        persons = [
+            _make_person("p1", "Kent Torbjörn*", "Svensson"),
+        ]
+        data = ProjectData(
+            persons=persons,
+            families=[],
+            events=[],
+            sources=[],
+            places=[],
+        )
+        dialog = RelationshipDialog(data)
+        qtbot.addWidget(dialog)
+
+        # The combo box should show the clean name without asterisk
+        display_text = dialog._combo_a.itemText(0)
+        assert "*" not in display_text, (
+            f"Asterisk should be stripped from display name, got: {display_text!r}"
+        )
+        assert display_text == "Kent Torbjörn Svensson"
+
+    def test_asterisk_stripped_in_graph_node_name(self, qtbot) -> None:
+        """The _person_display_name static method strips asterisk markers."""
+        person = _make_person("p1", "Anna* Maria", "Karlsson")
+        display = RelationshipDialog._person_display_name(person)
+        assert "*" not in display, (
+            f"Asterisk should be stripped, got: {display!r}"
+        )
+        assert display == "Anna Maria Karlsson"
+
+    def test_no_marker_name_unchanged(self, qtbot) -> None:
+        """A name without asterisk should display normally."""
+        person = _make_person("p1", "Erik Gustav", "Lindqvist")
+        display = RelationshipDialog._person_display_name(person)
+        assert display == "Erik Gustav Lindqvist"
+
+    def test_unknown_person_display(self, qtbot) -> None:
+        """A person with no names shows fallback."""
+        person = Person(id="p1", sex="M", names=[])
+        display = RelationshipDialog._person_display_name(person)
+        assert display == "[Okänd] (p1)"
+
+
+    def test_tilltalsnamn_underlined_in_html(self, qtbot) -> None:
+        """The HTML name should wrap the tilltalsnamn in <u> tags."""
+        person = _make_person("p1", "Kent Torbjörn*", "Svensson")
+        html = RelationshipDialog._person_display_name_html(person)
+        assert "<u>Torbjörn</u>" in html, (
+            f"Tilltalsnamn should be underlined in HTML, got: {html!r}"
+        )
+        assert "*" not in html, (
+            f"Asterisk should not appear in HTML output, got: {html!r}"
+        )
+        # 'Kent' should NOT be underlined
+        assert "<u>Kent</u>" not in html
+
+    def test_no_marker_html_has_no_underline(self, qtbot) -> None:
+        """A name without marker should have no underline tags in HTML."""
+        person = _make_person("p1", "Erik Gustav", "Lindqvist")
+        html = RelationshipDialog._person_display_name_html(person)
+        assert "<u>" not in html, (
+            f"No underline expected without marker, got: {html!r}"
+        )
+        assert html == "Erik Gustav Lindqvist"
+
+    def test_first_name_marker_underlined_in_html(self, qtbot) -> None:
+        """When first name part is marked, it should be underlined."""
+        person = _make_person("p1", "Anna* Maria", "Karlsson")
+        html = RelationshipDialog._person_display_name_html(person)
+        assert "<u>Anna</u>" in html
+        assert "Maria" in html
+        assert "<u>Maria</u>" not in html

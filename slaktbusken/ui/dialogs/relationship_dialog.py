@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QCompleter,
     QDialog,
     QGraphicsScene,
+    QGraphicsTextItem,
     QGraphicsView,
     QGroupBox,
     QHBoxLayout,
@@ -38,6 +39,7 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from slaktbusken.model.project import ProjectData
 
+from slaktbusken.model.name_parser import parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.relationship.calculator import RelationshipCalculator, RelationshipPath
 
@@ -605,19 +607,27 @@ class RelationshipDialog(QDialog):
             )
             self._scene.addPath(path_item, pen, brush)
 
-            # Person name text
-            name = self._get_person_name(pid)
-            text_item = self._scene.addSimpleText(name)
+            # Person name text — use rich text for tilltalsnamn underline
+            name_html = self._get_person_name_html(pid)
+            text_item = QGraphicsTextItem()
             text_item.setFont(text_font)
+            text_item.document().setDocumentMargin(0)
+            text_item.setHtml(name_html)
+            text_item.setDefaultTextColor(QColor("#000000"))
+            self._scene.addItem(text_item)
+
             text_rect = text_item.boundingRect()
 
-            # Truncate if too wide
+            # Truncate if too wide — fall back to plain text with ellipsis
             if text_rect.width() > node_w - 10:
-                shortened = name
-                while text_rect.width() > node_w - 14 and len(shortened) > 3:
-                    shortened = shortened[:-1]
-                    text_item.setText(shortened + "…")
+                plain_name = self._get_person_name(pid)
+                shortened = plain_name
+                while True:
+                    text_item.setHtml(shortened + "…")
                     text_rect = text_item.boundingRect()
+                    if text_rect.width() <= node_w - 14 or len(shortened) <= 3:
+                        break
+                    shortened = shortened[:-1]
 
             text_x = x + (node_w - text_rect.width()) / 2
             text_y = y + (node_h - text_rect.height()) / 2
@@ -679,6 +689,9 @@ class RelationshipDialog(QDialog):
     def _person_display_name(person: Person) -> str:
         """Get display name for a person (Förnamn Efternamn).
 
+        Uses parse_given_name() to strip tilltalsnamn asterisk markers
+        and produce a clean display string.
+
         Args:
             person: The Person instance.
 
@@ -689,7 +702,12 @@ class RelationshipDialog(QDialog):
             name = person.names[0]
             parts = []
             if name.given:
-                parts.append(name.given)
+                try:
+                    parsed = parse_given_name(name.given)
+                    parts.append(parsed.display_string)
+                except ValueError:
+                    # Multiple markers — fall back to raw given name
+                    parts.append(name.given)
             if name.surname:
                 parts.append(name.surname)
             if parts:
@@ -709,3 +727,67 @@ class RelationshipDialog(QDialog):
             if person.id == person_id:
                 return self._person_display_name(person)
         return person_id
+
+    def _get_person_name_html(self, person_id: str) -> str:
+        """Look up a person's display name as HTML with tilltalsnamn underlined.
+
+        If the person's given name has a tilltalsnamn marker, the marked
+        name part is wrapped in <u>...</u> tags. Otherwise returns plain text.
+
+        Args:
+            person_id: The person's ID.
+
+        Returns:
+            HTML-formatted name string with underlined tilltalsnamn.
+        """
+        for person in self._data.persons:
+            if person.id == person_id:
+                return self._person_display_name_html(person)
+        return person_id
+
+    @staticmethod
+    def _person_display_name_html(person: Person) -> str:
+        """Get HTML display name for a person with tilltalsnamn underlined.
+
+        Uses parse_given_name() to identify the tilltalsnamn part and
+        wraps it in <u>...</u> for underline rendering in QGraphicsTextItem.
+
+        Args:
+            person: The Person instance.
+
+        Returns:
+            HTML-formatted display name string.
+        """
+        if person.names:
+            name = person.names[0]
+            given_html = ""
+            if name.given:
+                try:
+                    parsed = parse_given_name(name.given)
+                    if (
+                        parsed.tilltalsnamn_index is not None
+                        and parsed.parts
+                        and 0 <= parsed.tilltalsnamn_index < len(parsed.parts)
+                    ):
+                        # Build HTML with underlined tilltalsnamn part
+                        html_parts = []
+                        for idx, part in enumerate(parsed.parts):
+                            if idx == parsed.tilltalsnamn_index:
+                                html_parts.append(f"<u>{part}</u>")
+                            else:
+                                html_parts.append(part)
+                        given_html = " ".join(html_parts)
+                    else:
+                        given_html = parsed.display_string
+                except ValueError:
+                    # Multiple markers — fall back to raw given name without asterisks
+                    given_html = name.given.replace("*", "")
+
+            parts = []
+            if given_html:
+                parts.append(given_html)
+            if name.surname:
+                parts.append(name.surname)
+            if parts:
+                return " ".join(parts)
+        return f"[Okänd] ({person.id})"
