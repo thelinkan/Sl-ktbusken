@@ -339,10 +339,10 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 47.3 Verify that names display correctly in both the person search/selection fields and in the relationship graph nodes
   - **Requirements:** 15.1, 15.5, 7.1
 
-- [ ] 48. Bug: Relationship Calculator Shows Crossed Lines in Graph
-  - [ ] 48.1 Investigate the graph layout algorithm in the relationship dialog — lines between person nodes are crossing when they shouldn't
-  - [ ] 48.2 Improve the graph layout to arrange person boxes so that connecting lines do not cross (or minimize crossings), making the relationship path easy to read
-  - [ ] 48.3 Verify that relationship graphs with multiple nodes render without line crossings for common relationship patterns (parent-child, siblings, cousins)
+- [x] 48. Bug: Relationship Calculator Shows Crossed Lines in Graph
+  - [x] 48.1 Investigate the graph layout algorithm in the relationship dialog — lines between person nodes are crossing when they shouldn't
+  - [x] 48.2 Improve the graph layout to arrange person boxes so that connecting lines do not cross (or minimize crossings), making the relationship path easy to read
+  - [x] 48.3 Verify that relationship graphs with multiple nodes render without line crossings for common relationship patterns (parent-child, siblings, cousins)
   - **Requirements:** 15.5, 15.6
 
 ## Task Dependency Graph

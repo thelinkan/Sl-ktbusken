@@ -422,50 +422,56 @@ class RelationshipDialog(QDialog):
 
         # Step 1: Determine generation level for every person across all paths.
         # Generation is defined as: targets = 0, parents = 1, grandparents = 2, etc.
-        # We compute this by walking each path and tracking how far "up" we go.
+        # We compute this by walking each path and tracking relative generation.
+        # Generation 0 = the two target persons. Going up (child edge) increases,
+        # going down (parent edge) decreases.
         person_generation: dict[str, int] = {}
         all_edges: set[tuple[str, str, int]] = set()  # (parent_id, child_id, path_index)
+        partner_edges: list[tuple[str, str]] = []  # (node_a, node_b) from partner edges
 
         for path_idx, path in enumerate(paths):
             nodes = path.path_nodes
             edges = path.path_edges
 
-            # Assign generation to person A and B
-            person_generation.setdefault(person_a_id, 0)
-            person_generation.setdefault(person_b_id, 0)
+            # Start from person_a at generation 0
+            current_gen = person_generation.get(nodes[0], 0)
+            if nodes[0] not in person_generation:
+                person_generation[nodes[0]] = current_gen
 
-            # Walk the path and compute generations relative to person_a.
-            # path_nodes[0] = person_a, path goes up then down.
-            # 'child' edge means going UP (current → parent), so gen increases.
-            # 'parent' edge means going DOWN (current → child), so gen decreases.
-            current_gen = 0
             for i, edge_type in enumerate(edges):
                 current_node = nodes[i]
                 next_node = nodes[i + 1]
+                # Use the established generation of the current node if available
+                current_gen = person_generation.get(current_node, current_gen)
 
                 if edge_type == "child":
                     # Going up: next node is a parent (higher generation)
-                    current_gen += 1
-                    parent_id, child_id = next_node, current_node
+                    next_gen = current_gen + 1
+                    all_edges.add((next_node, current_node, path_idx))
                 elif edge_type == "parent":
                     # Going down: next node is a child (lower generation)
-                    current_gen -= 1
-                    parent_id, child_id = current_node, next_node
+                    next_gen = current_gen - 1
+                    all_edges.add((current_node, next_node, path_idx))
                 else:
-                    # Partner edge: same generation
-                    parent_id, child_id = None, None
+                    # Partner edge: same generation as current
+                    next_gen = current_gen
+                    partner_edges.append((current_node, next_node))
 
-                # Assign generation to next node (take the max if already set,
-                # since we want the highest generation level for proper display)
+                # Assign generation: use max to prefer higher placement
+                # (ensures a person who is both traversed as a parent and via
+                # another route always appears at the parent level)
                 if next_node not in person_generation:
-                    person_generation[next_node] = current_gen
+                    person_generation[next_node] = next_gen
                 else:
                     person_generation[next_node] = max(
-                        person_generation[next_node], current_gen
+                        person_generation[next_node], next_gen
                     )
 
-                if parent_id and child_id:
-                    all_edges.add((parent_id, child_id, path_idx))
+                current_gen = next_gen
+
+        # Ensure both targets are at generation 0 (the baseline)
+        person_generation.setdefault(person_a_id, 0)
+        person_generation.setdefault(person_b_id, 0)
 
         # Step 2: Group persons by generation row.
         max_gen = max(person_generation.values()) if person_generation else 0
@@ -476,39 +482,196 @@ class RelationshipDialog(QDialog):
             rows.setdefault(gen, []).append(pid)
 
         # Step 3: Assign X positions within each row.
-        # Strategy: for each row, sort persons so that persons connected by
-        # edges to the same parent/child are grouped together. Then spread
-        # evenly.
+        # Strategy: use the barycenter heuristic with multiple up/down sweeps
+        # to minimize edge crossings between adjacent layers.
         node_w = self._NODE_WIDTH
         node_h = self._NODE_HEIGHT
         spacing_x = 40
         spacing_y = 80
 
-        # First pass: determine ordering within rows to minimize edge crossings.
-        # Simple heuristic: sort by average X of connected nodes in adjacent rows.
-        # Start from top (highest generation) and propagate downward.
+        # Build adjacency for ordering: parent→children and child→parents
+        # (ignoring path_idx for layout purposes)
+        parent_to_children: dict[str, set[str]] = {}
+        child_to_parents: dict[str, set[str]] = {}
+        for parent_id, child_id, _ in all_edges:
+            parent_to_children.setdefault(parent_id, set()).add(child_id)
+            child_to_parents.setdefault(child_id, set()).add(parent_id)
+
+        # Detect partner pairs: two nodes at the same generation that share
+        # at least one child. These must be placed adjacent in their row.
+        partner_pairs: dict[int, list[tuple[str, str]]] = {}  # gen -> [(a, b), ...]
+        partner_of: dict[str, str] = {}  # node -> its partner
+
+        # Use the partner_edges collected during path traversal
+        explicit_partners: set[tuple[str, str]] = set()
+        for pa, pb in partner_edges:
+            explicit_partners.add((pa, pb))
+
+        for gen, pids in rows.items():
+            if len(pids) < 2:
+                continue
+            pairs_for_gen: list[tuple[str, str]] = []
+            seen: set[str] = set()
+            for i in range(len(pids)):
+                if pids[i] in seen:
+                    continue
+                for j in range(i + 1, len(pids)):
+                    if pids[j] in seen:
+                        continue
+                    a, b = pids[i], pids[j]
+                    # Check if they share a child (both are parents of same node)
+                    children_a = parent_to_children.get(a, set())
+                    children_b = parent_to_children.get(b, set())
+                    shared_children = children_a & children_b
+                    # Or if they're explicit partners from the path
+                    is_explicit = (a, b) in explicit_partners or (b, a) in explicit_partners
+                    if shared_children or is_explicit:
+                        pairs_for_gen.append((a, b))
+                        partner_of[a] = b
+                        partner_of[b] = a
+                        seen.add(a)
+                        seen.add(b)
+                        break
+            if pairs_for_gen:
+                partner_pairs[gen] = pairs_for_gen
+
+        # Initial ordering: place shortest path's nodes first, keep partners adjacent
         row_order: dict[int, list[str]] = {}
         for gen in sorted(rows.keys(), reverse=True):
-            row_order[gen] = list(rows[gen])
+            row_order[gen] = []
 
-        # Refine ordering using parent-child connectivity
-        for gen in sorted(rows.keys(), reverse=True):
-            if gen - 1 in row_order:
-                # Sort the child row based on their parent's position
-                parent_positions = {
-                    pid: idx for idx, pid in enumerate(row_order[gen])
-                }
-                children = row_order[gen - 1]
+        sorted_paths = sorted(paths, key=lambda p: len(p.path_edges))
+        placed_in_row: dict[int, set[str]] = {gen: set() for gen in rows}
 
-                def child_sort_key(child_id: str) -> float:
-                    """Sort key: average X position of parents."""
-                    parent_xs = []
-                    for parent_id, cid, _ in all_edges:
-                        if cid == child_id and parent_id in parent_positions:
-                            parent_xs.append(parent_positions[parent_id])
-                    return sum(parent_xs) / len(parent_xs) if parent_xs else 0
+        for path in sorted_paths:
+            for node_id in path.path_nodes:
+                gen = person_generation.get(node_id)
+                if gen is None:
+                    continue
+                if node_id in placed_in_row[gen]:
+                    continue
+                row = row_order[gen]
+                insert_pos = len(row) // 2
+                row.insert(insert_pos, node_id)
+                placed_in_row[gen].add(node_id)
+                # If this node has a partner, place partner immediately adjacent
+                if node_id in partner_of:
+                    partner = partner_of[node_id]
+                    if partner not in placed_in_row[gen] and partner in rows.get(gen, []):
+                        row.insert(insert_pos + 1, partner)
+                        placed_in_row[gen].add(partner)
 
-                row_order[gen - 1] = sorted(children, key=child_sort_key)
+        # Add any remaining nodes at the edges
+        for gen, pids in rows.items():
+            for pid in pids:
+                if pid not in placed_in_row[gen]:
+                    row_order[gen].append(pid)
+                    placed_in_row[gen].add(pid)
+
+        # Ensure targets are placed left-right at the bottom
+        if min_gen in row_order:
+            bottom = row_order[min_gen]
+            if person_a_id in bottom and person_b_id in bottom:
+                others = [p for p in bottom if p not in (person_a_id, person_b_id)]
+                row_order[min_gen] = [person_a_id] + others + [person_b_id]
+
+        # Barycenter crossing reduction with partner constraints:
+        # Partners must remain adjacent during reordering.
+        def _get_partner_groups(gen: int, row: list[str]) -> list[list[str]]:
+            """Group nodes into partner-pairs and singletons for ordering."""
+            groups: list[list[str]] = []
+            used: set[str] = set()
+            for pid in row:
+                if pid in used:
+                    continue
+                if pid in partner_of and partner_of[pid] in row:
+                    partner = partner_of[pid]
+                    if partner not in used:
+                        groups.append([pid, partner])
+                        used.add(pid)
+                        used.add(partner)
+                        continue
+                groups.append([pid])
+                used.add(pid)
+            return groups
+
+        def _barycenter_down(row_order: dict[int, list[str]]) -> None:
+            """Sweep top to bottom, reordering groups by parent positions."""
+            for gen in sorted(row_order.keys(), reverse=True):
+                if gen - 1 not in row_order:
+                    continue
+                upper_pos = {pid: idx for idx, pid in enumerate(row_order[gen])}
+                children_row = row_order[gen - 1]
+                groups = _get_partner_groups(gen - 1, children_row)
+
+                def group_bary(group: list[str]) -> float:
+                    xs: list[float] = []
+                    for node_id in group:
+                        parents = child_to_parents.get(node_id, set())
+                        xs.extend(upper_pos[p] for p in parents if p in upper_pos)
+                    return sum(xs) / len(xs) if xs else float("inf")
+
+                groups.sort(key=group_bary)
+                row_order[gen - 1] = [pid for group in groups for pid in group]
+
+        def _barycenter_up(row_order: dict[int, list[str]]) -> None:
+            """Sweep bottom to top, reordering groups by child positions."""
+            for gen in sorted(row_order.keys()):
+                if gen + 1 not in row_order:
+                    continue
+                lower_pos = {pid: idx for idx, pid in enumerate(row_order[gen])}
+                parents_row = row_order[gen + 1]
+                groups = _get_partner_groups(gen + 1, parents_row)
+
+                def group_bary(group: list[str]) -> float:
+                    xs: list[float] = []
+                    for node_id in group:
+                        children = parent_to_children.get(node_id, set())
+                        xs.extend(lower_pos[c] for c in children if c in lower_pos)
+                    return sum(xs) / len(xs) if xs else float("inf")
+
+                groups.sort(key=group_bary)
+                row_order[gen + 1] = [pid for group in groups for pid in group]
+
+        def _count_crossings(row_order: dict[int, list[str]]) -> int:
+            """Count edge crossings between all adjacent layers."""
+            crossings = 0
+            for gen in sorted(row_order.keys(), reverse=True):
+                if gen - 1 not in row_order:
+                    continue
+                upper_pos = {pid: idx for idx, pid in enumerate(row_order[gen])}
+                lower_pos = {pid: idx for idx, pid in enumerate(row_order[gen - 1])}
+
+                layer_edges: list[tuple[int, int]] = []
+                for parent_id, child_id, _ in all_edges:
+                    if parent_id in upper_pos and child_id in lower_pos:
+                        layer_edges.append((upper_pos[parent_id], lower_pos[child_id]))
+
+                for i in range(len(layer_edges)):
+                    for j in range(i + 1, len(layer_edges)):
+                        u1, l1 = layer_edges[i]
+                        u2, l2 = layer_edges[j]
+                        if (u1 - u2) * (l1 - l2) < 0:
+                            crossings += 1
+            return crossings
+
+        # Run multiple iterations, keeping the best result
+        best_order = {k: list(v) for k, v in row_order.items()}
+        best_crossings = _count_crossings(best_order)
+
+        for _iteration in range(12):
+            _barycenter_down(row_order)
+            _barycenter_up(row_order)
+
+            current_crossings = _count_crossings(row_order)
+            if current_crossings < best_crossings:
+                best_crossings = current_crossings
+                best_order = {k: list(v) for k, v in row_order.items()}
+
+            if best_crossings == 0:
+                break
+
+        row_order = best_order
 
         # Step 4: Compute pixel positions.
         # Center each row horizontally.
@@ -528,7 +691,9 @@ class RelationshipDialog(QDialog):
                 x = x_offset + idx * (node_w + spacing_x) + 20
                 positions[pid] = (x, y)
 
-        # Step 5: Draw edges (lines from parent to child).
+        # Step 5: Draw edges (orthogonal lines from parent to child).
+        # Uses right-angle connectors: vertical down from parent, horizontal
+        # to align with child, vertical down to child (like the family view).
         drawn_edges: set[tuple[str, str]] = set()
         for parent_id, child_id, path_idx in all_edges:
             edge_key = (parent_id, child_id)
@@ -547,21 +712,38 @@ class RelationshipDialog(QDialog):
             px, py = positions[parent_id]
             cx, cy = positions[child_id]
 
-            # Line from bottom-center of parent to top-center of child
+            # Orthogonal connector: parent bottom-center → midpoint → child top-center
             x1 = px + node_w / 2
             y1 = py + node_h
             x2 = cx + node_w / 2
             y2 = cy
+            mid_y = (y1 + y2) / 2
 
             pen = QPen(color, 2.0)
-            self._scene.addLine(x1, y1, x2, y2, pen)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+
+            path_line = QPainterPath()
+            path_line.moveTo(x1, y1)
+            path_line.lineTo(x1, mid_y)
+            path_line.lineTo(x2, mid_y)
+            path_line.lineTo(x2, y2)
+            self._scene.addPath(path_line, pen)
 
         # Step 6: Draw partner edges (horizontal dashed lines at same level).
+        # Draw for both explicit partner edges in paths AND detected partner pairs.
+        drawn_partner_pairs: set[tuple[str, str]] = set()
+
+        # Draw explicit partner edges from paths
         for path in paths:
             for i, edge_type in enumerate(path.path_edges):
                 if edge_type == "partner":
                     pid_a = path.path_nodes[i]
                     pid_b = path.path_nodes[i + 1]
+                    pair_key = (min(pid_a, pid_b), max(pid_a, pid_b))
+                    if pair_key in drawn_partner_pairs:
+                        continue
+                    drawn_partner_pairs.add(pair_key)
                     if pid_a in positions and pid_b in positions:
                         ax, ay = positions[pid_a]
                         bx, by = positions[pid_b]
@@ -571,6 +753,23 @@ class RelationshipDialog(QDialog):
                         y2 = by + node_h / 2
                         pen = QPen(QColor("#e74c3c"), 1.5, Qt.PenStyle.DashLine)
                         self._scene.addLine(x1, y1, x2, y2, pen)
+
+        # Draw partner lines for detected couples (shared children) not already drawn
+        for gen, pairs in partner_pairs.items():
+            for pa, pb in pairs:
+                pair_key = (min(pa, pb), max(pa, pb))
+                if pair_key in drawn_partner_pairs:
+                    continue
+                drawn_partner_pairs.add(pair_key)
+                if pa in positions and pb in positions:
+                    ax, ay = positions[pa]
+                    bx, by = positions[pb]
+                    x1 = ax + node_w / 2
+                    y1 = ay + node_h / 2
+                    x2 = bx + node_w / 2
+                    y2 = by + node_h / 2
+                    pen = QPen(QColor("#e74c3c"), 1.5, Qt.PenStyle.DashLine)
+                    self._scene.addLine(x1, y1, x2, y2, pen)
 
         # Step 7: Draw nodes on top.
         text_font = QFont("Sans", 9)
