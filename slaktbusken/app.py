@@ -64,6 +64,16 @@ class Application:
             self.handle_placeholder_click
         )
 
+        # Connect context menu actions from diagram panel
+        self.main_window.diagram_panel.context_menu_action.connect(
+            self.handle_context_menu_action
+        )
+
+        # Connect context menu actions from person list panel
+        self.main_window.person_list_panel.context_menu_action.connect(
+            self.handle_context_menu_action
+        )
+
     # ------------------------------------------------------------------
     # Action callbacks (invoked by MainWindow actions)
     # ------------------------------------------------------------------
@@ -205,6 +215,93 @@ class Application:
         if settings:
             panel.set_person_box_config(settings.person_box_config)
         panel.set_active_person(saved.id)
+
+    def handle_context_menu_action(self, action_type: str, person_id: str) -> None:
+        """Route context menu actions to the appropriate handler.
+
+        Dispatches actions triggered from the DiagramPanel or
+        PersonListPanel context menus.
+
+        Args:
+            action_type: The action identifier (e.g. 'make_active',
+                'edit_person', 'new_partner', etc.).
+            person_id: The ID of the person the action applies to.
+        """
+        if action_type == "make_active":
+            self.main_window.diagram_panel.set_active_person(person_id)
+        elif action_type == "edit_person":
+            self.open_person_editor(person_id)
+        elif action_type == "new_partner":
+            self._handle_context_add_relative("partner", person_id)
+        elif action_type == "new_father":
+            self._handle_context_add_relative("father", person_id)
+        elif action_type == "new_mother":
+            self._handle_context_add_relative("mother", person_id)
+        elif action_type == "new_child":
+            self._handle_context_add_relative("child", person_id)
+        elif action_type == "show_relationship":
+            self._show_relationship_for_person(person_id)
+        else:
+            logger.warning("Unknown context menu action: %s", action_type)
+
+    def _handle_context_add_relative(self, role: str, person_id: str) -> None:
+        """Handle adding a relative via context menu.
+
+        Temporarily sets the active person to the right-clicked person
+        so that handle_placeholder_click links the new person correctly,
+        then restores the original active person afterward.
+
+        Args:
+            role: The relationship role ('partner', 'father', 'mother', 'child').
+            person_id: The ID of the person to add the relative to.
+        """
+        panel = self.main_window.diagram_panel
+        original_active = panel.active_person_id
+
+        # Set the context person as active so placeholder logic links correctly
+        panel._active_person_id = person_id
+
+        # Use empty family_id — handle_placeholder_click will create a new family
+        self.handle_placeholder_click(role, "")
+
+        # Restore original active person (diagram was refreshed by handle_placeholder_click)
+        if original_active:
+            panel._active_person_id = original_active
+
+    def _show_relationship_for_person(self, person_id: str) -> None:
+        """Open relationship calculator with the person pre-selected.
+
+        Opens the RelationshipDialog and pre-selects person A as the
+        right-clicked person and person B as the main person.
+
+        Args:
+            person_id: The ID of the right-clicked person.
+        """
+        from slaktbusken.ui.dialogs.relationship_dialog import RelationshipDialog
+
+        if self.project_service.data is None:
+            return
+
+        main_person_id = self.project_service.data.project.main_person_id
+
+        dialog = RelationshipDialog(
+            data=self.project_service.data,
+            parent=self.main_window,
+        )
+
+        # Pre-select person A (right-clicked) and person B (main person)
+        if person_id:
+            for idx, pid in dialog._person_id_map.items():
+                if pid == person_id:
+                    dialog._combo_a.setCurrentIndex(idx)
+                    break
+        if main_person_id:
+            for idx, pid in dialog._person_id_map.items():
+                if pid == main_person_id:
+                    dialog._combo_b.setCurrentIndex(idx)
+                    break
+
+        dialog.exec()
 
     def handle_placeholder_click(self, role: str, family_id: str) -> None:
         """Handle click on a placeholder box to add a new person.

@@ -10,13 +10,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsSceneMouseEvent,
     QStyleOptionGraphicsItem,
     QWidget,
 )
+
+from slaktbusken.ui.icons.icon_registry import icon_registry
 
 if TYPE_CHECKING:
     from slaktbusken.model.name_parser import ParsedGivenName
@@ -28,11 +30,16 @@ _BOX_HEIGHT_MIN = 50.0
 _LINE_HEIGHT = 16.0
 _PADDING = 8.0
 _CORNER_RADIUS = 4.0
+_GENDER_ICON_SIZE = 14.0
+_EVENT_ICON_SIZE = 12.0
+_EVENT_ICON_GAP = 2.0
 
 # Colours
 _BG_COLOR = QColor(255, 255, 255)
 _BORDER_COLOR = QColor(80, 80, 80)
 _SELECTED_BORDER_COLOR = QColor(0, 120, 215)
+_ANCESTOR_BORDER_COLOR = QColor(0xC0, 0x39, 0x2B)
+_DESCENDANT_BORDER_COLOR = QColor(0x27, 0xAE, 0x60)
 _TEXT_COLOR = QColor(30, 30, 30)
 _LABEL_COLOR = QColor(100, 100, 100)
 
@@ -73,7 +80,10 @@ class PersonBoxItem(QGraphicsItem):
         self._display_data = display_data
         self._config = config
         self._selected = False
+        self._is_ancestor: bool = bool(display_data.get("is_ancestor"))
+        self._is_descendant: bool = bool(display_data.get("is_descendant"))
         self._lines: list[str] = []
+        self._line_event_types: list[Optional[str]] = []
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
@@ -96,6 +106,16 @@ class PersonBoxItem(QGraphicsItem):
     def is_selected(self) -> bool:
         """Whether this box is visually selected."""
         return self._selected
+
+    @property
+    def is_ancestor(self) -> bool:
+        """Whether this person is marked as a direct ancestor."""
+        return self._is_ancestor
+
+    @property
+    def is_descendant(self) -> bool:
+        """Whether this person is marked as a direct descendant."""
+        return self._is_descendant
 
     def set_selected(self, selected: bool) -> None:
         """Set the visual selection state.
@@ -149,10 +169,26 @@ class PersonBoxItem(QGraphicsItem):
         # Border
         if self._selected:
             pen = QPen(_SELECTED_BORDER_COLOR, 2.5)
+        elif self._is_ancestor:
+            pen = QPen(_ANCESTOR_BORDER_COLOR, 2.0)
+        elif self._is_descendant:
+            pen = QPen(_DESCENDANT_BORDER_COLOR, 2.0)
         else:
             pen = QPen(_BORDER_COLOR, 1.0)
         painter.setPen(pen)
         painter.drawRoundedRect(rect, _CORNER_RADIUS, _CORNER_RADIUS)
+
+        # Gender icon in top-right corner (Req 2.2, 2.4)
+        sex = self._display_data.get("sex")
+        if sex:
+            gender_pixmap = icon_registry.get_gender_icon(sex)
+            if not gender_pixmap.isNull():
+                icon_x = _BOX_WIDTH - _GENDER_ICON_SIZE - _PADDING / 2
+                icon_y = _PADDING / 2
+                icon_rect = QRectF(
+                    icon_x, icon_y, _GENDER_ICON_SIZE, _GENDER_ICON_SIZE
+                )
+                painter.drawPixmap(icon_rect.toRect(), gender_pixmap)
 
         # Text content
         font = QFont("Segoe UI", 9)
@@ -166,7 +202,33 @@ class PersonBoxItem(QGraphicsItem):
                 self._paint_name_line(painter, y)
             else:
                 painter.setPen(QPen(_LABEL_COLOR))
-                painter.drawText(QRectF(_PADDING, y - _LINE_HEIGHT * 0.8, _BOX_WIDTH - 2 * _PADDING, _LINE_HEIGHT), Qt.AlignmentFlag.AlignLeft, line)
+                # Check if this line has an associated event icon
+                event_type = (
+                    self._line_event_types[i]
+                    if i < len(self._line_event_types)
+                    else None
+                )
+                text_x = _PADDING
+                if event_type:
+                    event_pixmap = icon_registry.get_event_icon(event_type)
+                    if not event_pixmap.isNull():
+                        icon_y = y - _LINE_HEIGHT * 0.8 + (_LINE_HEIGHT - _EVENT_ICON_SIZE) / 2
+                        icon_rect = QRectF(
+                            _PADDING, icon_y,
+                            _EVENT_ICON_SIZE, _EVENT_ICON_SIZE,
+                        )
+                        painter.drawPixmap(icon_rect.toRect(), event_pixmap)
+                        text_x = _PADDING + _EVENT_ICON_SIZE + _EVENT_ICON_GAP
+                painter.drawText(
+                    QRectF(
+                        text_x,
+                        y - _LINE_HEIGHT * 0.8,
+                        _BOX_WIDTH - text_x - _PADDING,
+                        _LINE_HEIGHT,
+                    ),
+                    Qt.AlignmentFlag.AlignLeft,
+                    line,
+                )
                 painter.setPen(QPen(_TEXT_COLOR))
             y += _LINE_HEIGHT
 
@@ -272,8 +334,18 @@ class PersonBoxItem(QGraphicsItem):
 
         Only includes fields that are both enabled in config and
         have non-None/non-empty data (Req 20.4).
+        Also builds a parallel list of event type strings for icon
+        rendering (None for lines without an event icon).
         """
         self._lines = []
+        self._line_event_types = []
+
+        # Mapping from field names to event type strings for icon lookup
+        _FIELD_EVENT_TYPE_MAP: dict[str, str] = {
+            "birth_date": "birth",
+            "death_date": "death",
+            "marriage_date": "marriage",
+        }
 
         # Ordered fields and their display labels
         field_order: list[tuple[str, str]] = [
@@ -298,9 +370,14 @@ class PersonBoxItem(QGraphicsItem):
                 continue
             if field_name == "name":
                 self._lines.append(value)
+                self._line_event_types.append(None)
             else:
                 self._lines.append(f"{prefix}{value}")
+                self._line_event_types.append(
+                    _FIELD_EVENT_TYPE_MAP.get(field_name)
+                )
 
         # Ensure at least one line (fallback)
         if not self._lines:
             self._lines.append("(okänd)")
+            self._line_event_types.append(None)

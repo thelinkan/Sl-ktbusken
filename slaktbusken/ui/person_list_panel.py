@@ -31,6 +31,7 @@ from slaktbusken.model.name_parser import parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.dna import DnaCluster
+from slaktbusken.ui.icons.icon_registry import icon_registry
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,7 @@ class PersonDisplayInfo:
     parish_names: set[str]
     cluster_names: set[str] = field(default_factory=set)
     tilltalsnamn_index: int | None = None
+    sex: str = ""
 
 
 def extract_year(date_value_str: str) -> str:
@@ -391,6 +393,7 @@ def build_person_display_list(
                 parish_names=parish_names,
                 cluster_names=cluster_names,
                 tilltalsnamn_index=tilltalsnamn_index,
+                sex=person.sex,
             )
         )
 
@@ -553,6 +556,7 @@ class PersonListPanel(QWidget):
 
     person_selected = Signal(str)
     person_edit_requested = Signal(str)
+    context_menu_action = Signal(str, str)  # action_type, person_id
 
     def __init__(self, app: "Application", parent: Optional[QWidget] = None) -> None:
         """Initialise the PersonListPanel.
@@ -598,6 +602,9 @@ class PersonListPanel(QWidget):
 
         # Person list
         self._list_widget = QListWidget()
+        self._list_widget.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
         layout.addWidget(self._list_widget)
 
         # No results message
@@ -614,6 +621,9 @@ class PersonListPanel(QWidget):
 
         self._list_widget.currentItemChanged.connect(self._on_item_clicked)
         self._list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._list_widget.customContextMenuRequested.connect(
+            self._on_context_menu_requested
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -711,11 +721,27 @@ class PersonListPanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, person_info.person_id)
             self._list_widget.addItem(item)
 
+            # Container widget with HBoxLayout: gender icon + name label
+            container = QWidget()
+            h_layout = QHBoxLayout(container)
+            h_layout.setContentsMargins(4, 2, 4, 2)
+            h_layout.setSpacing(4)
+
+            # Gender icon (16×16 px)
+            icon_label = QLabel()
+            pixmap = icon_registry.get_gender_icon(person_info.sex)
+            icon_label.setPixmap(pixmap)
+            icon_label.setFixedSize(16, 16)
+            h_layout.addWidget(icon_label)
+
+            # Person name label
             label = QLabel(html_text)
             label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-            label.setContentsMargins(4, 2, 4, 2)
-            item.setSizeHint(QSize(label.sizeHint().width(), label.sizeHint().height() + 4))
-            self._list_widget.setItemWidget(item, label)
+            h_layout.addWidget(label)
+            h_layout.addStretch()
+
+            item.setSizeHint(QSize(container.sizeHint().width(), container.sizeHint().height() + 4))
+            self._list_widget.setItemWidget(item, container)
 
     def _format_person_display(self, info: PersonDisplayInfo) -> str:
         """Format a person's display text for the list.
@@ -798,3 +824,43 @@ class PersonListPanel(QWidget):
             person_id = item.data(Qt.ItemDataRole.UserRole)
             if person_id:
                 self.person_edit_requested.emit(person_id)
+
+    def _on_context_menu_requested(self, pos) -> None:
+        """Handle right-click context menu on a person list item.
+
+        Uses ContextMenuBuilder to create and show the standard person
+        context menu, then emits context_menu_action with the selected action.
+
+        Args:
+            pos: The local position of the right-click within the list widget.
+        """
+        from slaktbusken.ui.context_menu_builder import ContextMenuBuilder
+
+        item = self._list_widget.itemAt(pos)
+        if item is None:
+            return
+
+        person_id = item.data(Qt.ItemDataRole.UserRole)
+        if not person_id:
+            return
+
+        # Determine main person id
+        main_person_id: Optional[str] = None
+        data = self._app.project_service.data
+        if data is not None and hasattr(data, "project"):
+            main_person_id = data.project.main_person_id
+
+        builder = ContextMenuBuilder()
+        menu = builder.build_person_menu(person_id, main_person_id, self)
+
+        global_pos = self._list_widget.mapToGlobal(pos)
+        action = menu.exec(global_pos)
+        if action is None:
+            return
+
+        action_data = action.data()
+        if action_data and isinstance(action_data, tuple) and len(action_data) == 2:
+            action_type, pid = action_data
+            if action_type == "show_relationship" and pid == main_person_id:
+                return
+            self.context_menu_action.emit(action_type, pid)

@@ -65,6 +65,8 @@ class FamilyView:
         project_data: ProjectData,
         active_person_id: str,
         config: PersonBoxConfig,
+        ancestor_set: Optional[set[str]] = None,
+        descendant_set: Optional[set[str]] = None,
     ) -> None:
         """Rendera familjediagrammet i scenen.
 
@@ -73,9 +75,23 @@ class FamilyView:
             project_data: Projektdata med personer, familjer och händelser.
             active_person_id: ID för den aktiva personen.
             config: Konfiguration för personrutornas innehåll.
+            ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
+            descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
         """
         self._person_boxes = []
         self._placeholder_boxes = []
+
+        if ancestor_set is None:
+            ancestor_set = set()
+        if descendant_set is None:
+            descendant_set = set()
+
+        def _augment_display_data(person: Person) -> dict:
+            """Build display_data with lineage flags for a person."""
+            display_data = _build_display_data(person, project_data)
+            display_data["is_ancestor"] = person.id in ancestor_set
+            display_data["is_descendant"] = person.id in descendant_set
+            return display_data
 
         person = _find_person(project_data, active_person_id)
         if person is None:
@@ -102,7 +118,7 @@ class FamilyView:
             p = _find_person(project_data, pid)
             if p is None:
                 continue
-            display_data = _build_display_data(p, project_data)
+            display_data = _augment_display_data(p)
             box = PersonBoxItem(pid, display_data, config)
             sibling_boxes.append(box)
 
@@ -175,14 +191,14 @@ class FamilyView:
         if father_id:
             p = _find_person(project_data, father_id)
             if p:
-                display_data = _build_display_data(p, project_data)
+                display_data = _augment_display_data(p)
                 father_box = PersonBoxItem(father_id, display_data, config)
                 father_height = father_box.box_height
 
         if mother_id:
             p = _find_person(project_data, mother_id)
             if p:
-                display_data = _build_display_data(p, project_data)
+                display_data = _augment_display_data(p)
                 mother_box = PersonBoxItem(mother_id, display_data, config)
                 mother_height = mother_box.box_height
 
@@ -337,7 +353,7 @@ class FamilyView:
                 for fp in other_partners:
                     sp = _find_person(project_data, fp.person_id)
                     if sp:
-                        display_data = _build_display_data(sp, project_data)
+                        display_data = _augment_display_data(sp)
                         spouse_box_item = PersonBoxItem(
                             fp.person_id, display_data, config
                         )
@@ -399,7 +415,7 @@ class FamilyView:
                 for c_idx, child_id in enumerate(children_ids):
                     cp = _find_person(project_data, child_id)
                     if cp:
-                        display_data = _build_display_data(cp, project_data)
+                        display_data = _augment_display_data(cp)
                         child_box = PersonBoxItem(child_id, display_data, config)
                         child_box.setPos(spouse_x, cur_y)
                         scene.addItem(child_box)
@@ -582,6 +598,7 @@ def _build_display_data(
         "occupation": person.occupation,
         "dna_info": None,
         "notes": person.notes if person.notes else None,
+        "sex": person.sex,
     }
 
     # Find birth and death events for this person

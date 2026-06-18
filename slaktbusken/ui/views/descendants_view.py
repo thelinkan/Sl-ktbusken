@@ -63,6 +63,8 @@ class DescendantsView:
         active_person_id: str,
         config: PersonBoxConfig,
         depth: int = 4,
+        ancestor_set: Optional[set[str]] = None,
+        descendant_set: Optional[set[str]] = None,
     ) -> None:
         """Rendera ättlingsdiagrammet i scenen.
 
@@ -72,8 +74,15 @@ class DescendantsView:
             active_person_id: ID för den aktiva personen.
             config: Konfiguration för personrutornas innehåll.
             depth: Antal generationer att visa (1-10, standard 4).
+            ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
+            descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
         """
         self._person_boxes = []
+
+        if ancestor_set is None:
+            ancestor_set = set()
+        if descendant_set is None:
+            descendant_set = set()
 
         # Begränsa djup till giltigt intervall
         depth = max(1, min(10, depth))
@@ -99,6 +108,8 @@ class DescendantsView:
 
             # Rendera ändå aktiv person
             display_data = _build_display_data(person, project_data)
+            display_data["is_ancestor"] = person.id in ancestor_set
+            display_data["is_descendant"] = person.id in descendant_set
             box = PersonBoxItem(active_person_id, display_data, config)
             box.setPos(0, 0)
             scene.addItem(box)
@@ -120,7 +131,7 @@ class DescendantsView:
         _assign_positions(tree, y_offset=0.0)
 
         # Rendera alla noder
-        self._render_tree(scene, project_data, config, tree)
+        self._render_tree(scene, project_data, config, tree, ancestor_set, descendant_set)
 
         # Rita anslutningslinjer
         self._render_connections(scene, tree)
@@ -131,6 +142,8 @@ class DescendantsView:
         project_data: ProjectData,
         config: PersonBoxConfig,
         node: _TreeNode,
+        ancestor_set: set[str],
+        descendant_set: set[str],
     ) -> None:
         """Rendera alla noder i trädet rekursivt.
 
@@ -139,10 +152,14 @@ class DescendantsView:
             project_data: Projektdata.
             config: PersonBoxConfig.
             node: Rotnoden att börja rendera från.
+            ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
+            descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
         """
         person = _find_person(project_data, node.person_id)
         if person is not None:
             display_data = _build_display_data(person, project_data)
+            display_data["is_ancestor"] = person.id in ancestor_set
+            display_data["is_descendant"] = person.id in descendant_set
             box = PersonBoxItem(node.person_id, display_data, config)
             box.setPos(node.x, node.y)
             scene.addItem(box)
@@ -150,7 +167,7 @@ class DescendantsView:
             box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
 
         for child_node in node.children:
-            self._render_tree(scene, project_data, config, child_node)
+            self._render_tree(scene, project_data, config, child_node, ancestor_set, descendant_set)
 
     def _render_connections(
         self,
@@ -490,6 +507,7 @@ def _build_display_data(
         "occupation": person.occupation,
         "dna_info": None,
         "notes": person.notes if person.notes else None,
+        "sex": person.sex,
     }
 
     for event in project_data.events:

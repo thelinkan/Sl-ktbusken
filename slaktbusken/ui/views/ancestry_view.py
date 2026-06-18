@@ -61,6 +61,8 @@ class AncestryView:
         active_person_id: str,
         config: PersonBoxConfig,
         depth: int = 4,
+        ancestor_set: Optional[set[str]] = None,
+        descendant_set: Optional[set[str]] = None,
     ) -> None:
         """Rendera anordiagrammet i scenen.
 
@@ -70,9 +72,16 @@ class AncestryView:
             active_person_id: ID för den aktiva personen.
             config: Konfiguration för personrutornas innehåll.
             depth: Antal generationer att visa (1-10, standard 4).
+            ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
+            descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
         """
         self._person_boxes = []
         self._placeholder_boxes = []
+
+        if ancestor_set is None:
+            ancestor_set = set()
+        if descendant_set is None:
+            descendant_set = set()
 
         # Clamp depth to valid range
         depth = max(1, min(10, depth))
@@ -161,6 +170,8 @@ class AncestryView:
                     p = _find_person(project_data, person_id)
                     if p is not None:
                         display_data = _build_display_data(p, project_data)
+                        display_data["is_ancestor"] = p.id in ancestor_set
+                        display_data["is_descendant"] = p.id in descendant_set
                         box = PersonBoxItem(person_id, display_data, config)
                         box.setPos(col_x, y)
                         scene.addItem(box)
@@ -444,6 +455,7 @@ def _build_display_data(
         "occupation": person.occupation,
         "dna_info": None,
         "notes": person.notes if person.notes else None,
+        "sex": person.sex,
     }
 
     for event in project_data.events:

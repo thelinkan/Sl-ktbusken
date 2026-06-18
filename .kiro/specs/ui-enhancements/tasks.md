@@ -83,8 +83,8 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
 - [x] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Implement ProgressOverlay widget
-  - [ ] 5.1 Create ProgressOverlay widget
+- [x] 5. Implement ProgressOverlay widget
+  - [x] 5.1 Create ProgressOverlay widget
     - Create `slaktbusken/ui/widgets/progress_overlay.py`
     - Implement `ProgressOverlay(QWidget)` parented to MainWindow
     - Implement `show_with_message(message: str)` — show semi-transparent dark backdrop, centered spinner animation, and message text
@@ -93,75 +93,75 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
     - Block all mouse/keyboard events while visible by covering entire window area
     - _Requirements: 8.1, 8.5, 8.6, 8.7_
 
-  - [ ] 5.2 Write unit tests for ProgressOverlay
+  - [x] 5.2 Write unit tests for ProgressOverlay
     - Test show/hide state transitions (visibility, enabled state)
     - Test message text is set correctly
     - Test overlay resizes with parent
     - _Requirements: 8.5, 8.6, 8.7_
 
-- [ ] 6. Implement ContextMenuBuilder
-  - [ ] 6.1 Create ContextMenuBuilder class
+- [x] 6. Implement ContextMenuBuilder
+  - [x] 6.1 Create ContextMenuBuilder class
     - Create `slaktbusken/ui/context_menu_builder.py`
     - Implement `build_person_menu(person_id, main_person_id, parent_widget) -> QMenu`
     - Add actions in order: Gör aktuell, Redigera person, Ny partner, Ny pappa, Ny mamma, Nytt barn, Visa släktskap med huvudpersonen
     - Handle edge case: if clicked person is main person and "Visa släktskap" selected, show info message
     - _Requirements: 7.1, 7.2, 7.10_
 
-  - [ ] 6.2 Write unit tests for ContextMenuBuilder
+  - [x] 6.2 Write unit tests for ContextMenuBuilder
     - Test menu contains exactly 7 actions in correct order
     - Test action text matches Swedish labels
     - _Requirements: 7.1, 7.2_
 
-- [ ] 7. Integrate icons and lineage marking into PersonBoxItem
-  - [ ] 7.1 Extend PersonBoxItem to accept and render gender icon
+- [x] 7. Integrate icons and lineage marking into PersonBoxItem
+  - [x] 7.1 Extend PersonBoxItem to accept and render gender icon
     - Modify `slaktbusken/ui/widgets/person_box.py` to accept `sex: str` parameter
     - In `paint()`, draw Gender_Icon in top-right corner (14×14 px) using `IconRegistry.get_gender_icon(sex)`
     - _Requirements: 2.2, 2.4_
 
-  - [ ] 7.2 Extend PersonBoxItem to render event icons
+  - [x] 7.2 Extend PersonBoxItem to render event icons
     - In `paint()`, draw Event_Icons (12×12 px) adjacent to birth/death date lines using `IconRegistry.get_event_icon(type)`
     - _Requirements: 1.3, 1.4_
 
-  - [ ] 7.3 Extend PersonBoxItem to render lineage border colors
+  - [x] 7.3 Extend PersonBoxItem to render lineage border colors
     - Accept `is_ancestor: bool` and `is_descendant: bool` parameters
     - Override border color: red (#C0392B, 2px) if `is_ancestor`, green (#27AE60, 2px) if `is_descendant`, normal otherwise
     - Ancestor takes precedence if both are True
     - _Requirements: 3.2, 4.2, 4.4_
 
-  - [ ] 7.4 Write property test for border precedence (Property 6)
+  - [x] 7.4 Write property test for border precedence (Property 6)
     - **Property 6: Ancestor border precedence** — Generate random boolean pairs (is_ancestor, is_descendant), verify when both True the border color is always ancestor red
     - **Validates: Requirements 4.4**
 
-- [ ] 8. Integrate lineage and icons into DiagramPanel
-  - [ ] 8.1 Integrate LineageComputer into DiagramPanel refresh
+- [x] 8. Integrate lineage and icons into DiagramPanel
+  - [x] 8.1 Integrate LineageComputer into DiagramPanel refresh
     - Modify `slaktbusken/ui/diagram_panel.py` to instantiate `LineageComputer` and compute ancestor/descendant sets in `_refresh_diagram()`
     - Pass `is_ancestor`, `is_descendant`, and `sex` to each `PersonBoxItem` constructor
     - Recompute when `main_person_id` changes
     - _Requirements: 3.1, 3.3, 4.1, 4.3_
 
-  - [ ] 8.2 Add context menu handling to DiagramPanel
+  - [x] 8.2 Add context menu handling to DiagramPanel
     - Add right-click event handling via `contextMenuEvent` on person box items
     - Use `ContextMenuBuilder.build_person_menu()` to show the menu
     - Connect actions: "Gör aktuell" → set active person, "Redigera person" → open editor, "Ny partner/pappa/mamma/barn" → invoke respective dialogs, "Visa släktskap" → invoke Relationship_Calculator
     - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9_
 
-- [ ] 9. Integrate gender icons and context menu into PersonListPanel
-  - [ ] 9.1 Add gender icon to PersonListPanel items
+- [x] 9. Integrate gender icons and context menu into PersonListPanel
+  - [x] 9.1 Add gender icon to PersonListPanel items
     - Modify `slaktbusken/ui/person_list_panel.py` to display Gender_Icon (16×16 px) to the left of person name using a custom item delegate or decoration
     - _Requirements: 2.3_
 
-  - [ ] 9.2 Add context menu handling to PersonListPanel
+  - [x] 9.2 Add context menu handling to PersonListPanel
     - Add right-click event handling on person list items
     - Use `ContextMenuBuilder.build_person_menu()` to show the same context menu
     - Connect same actions as DiagramPanel
     - _Requirements: 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9_
 
-- [ ] 10. Integrate event icons into Edit_Window event list
-  - [ ] 10.1 Add event icons to event list in Edit_Window
+- [x] 10. Integrate event icons into Edit_Window event list
+  - [x] 10.1 Add event icons to event list in Edit_Window
     - Modify the event list display in the person editor to show Event_Icon (16×16 px) to the left of event type text
     - _Requirements: 1.2_
 
-- [ ] 11. Checkpoint - Ensure all tests pass
+- [x] 11. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 12. Integrate recent projects and default project into MainWindow

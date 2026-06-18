@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.services.lineage_computer import LineageComputer
 from slaktbusken.ui.widgets.person_box import PersonBoxItem
 from slaktbusken.ui.widgets.placeholder_box import PlaceholderBoxItem
 
@@ -148,6 +149,7 @@ class DiagramPanel(QWidget):
     person_activated = Signal(str)
     person_double_clicked = Signal(str)
     placeholder_clicked = Signal(str, str)  # role, family_id
+    context_menu_action = Signal(str, str)  # action_type, person_id
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         """Initialise the diagram panel.
@@ -326,6 +328,13 @@ class DiagramPanel(QWidget):
                     family_id = item.family_id or ""
                     self.placeholder_clicked.emit(role_str, family_id)
                     return True
+            elif event.button() == Qt.MouseButton.RightButton:
+                pos = event.position().toPoint()
+                scene_pos = self._view.mapToScene(pos)
+                item = self._scene.itemAt(scene_pos, self._view.transform())
+                if isinstance(item, PersonBoxItem):
+                    self._show_person_context_menu(item.person_id, event.globalPosition().toPoint())
+                    return True
 
         # Double-click on the viewport to open editor
         if obj == self._view.viewport() and event.type() == QEvent.Type.MouseButtonDblClick:
@@ -372,11 +381,48 @@ class DiagramPanel(QWidget):
         """
         self.person_double_clicked.emit(person_id)
 
+    def _show_person_context_menu(self, person_id: str, global_pos) -> None:
+        """Show context menu for a right-clicked person box.
+
+        Uses ContextMenuBuilder to create the menu and emits
+        context_menu_action signal with the selected action type.
+
+        Args:
+            person_id: The ID of the right-clicked person.
+            global_pos: The global screen position for the menu.
+        """
+        from PySide6.QtCore import QPoint
+        from slaktbusken.ui.context_menu_builder import ContextMenuBuilder
+
+        main_person_id: Optional[str] = None
+        if self._project_data is not None:
+            main_person_id = self._project_data.project.main_person_id
+
+        builder = ContextMenuBuilder()
+        menu = builder.build_person_menu(person_id, main_person_id, self)
+
+        action = menu.exec(QPoint(global_pos.x(), global_pos.y()) if not isinstance(global_pos, QPoint) else global_pos)
+        if action is None:
+            return
+
+        data = action.data()
+        if data and isinstance(data, tuple) and len(data) == 2:
+            action_type, pid = data
+            # "show_relationship" edge case is handled by ContextMenuBuilder
+            # internally (shows message if person == main person).
+            # For the normal case, emit signal for app.py to handle.
+            if action_type == "show_relationship" and pid == main_person_id:
+                # Already handled by ContextMenuBuilder's triggered connection
+                return
+            self.context_menu_action.emit(action_type, pid)
+
     def _refresh_diagram(self) -> None:
         """Clear and rebuild the diagram for the current state.
 
         Uses the FamilyView renderer when the current view is FAMILY,
         AncestryView when ANCESTRY, and project data is available.
+        Computes ancestor/descendant sets via LineageComputer based on
+        main_person_id and passes them to each view renderer.
         """
         from PySide6.QtCore import QRectF
 
@@ -385,6 +431,17 @@ class DiagramPanel(QWidget):
         self._scene.clear()
 
         from slaktbusken.ui.main_window import ViewType
+
+        # Compute lineage sets based on main_person_id
+        ancestor_set: set[str] = set()
+        descendant_set: set[str] = set()
+
+        if self._project_data is not None:
+            main_person_id = self._project_data.project.main_person_id
+            if main_person_id:
+                lineage = LineageComputer(self._project_data)
+                ancestor_set = lineage.get_ancestors(main_person_id)
+                descendant_set = lineage.get_descendants(main_person_id)
 
         if (
             self._current_view == ViewType.FAMILY
@@ -397,6 +454,8 @@ class DiagramPanel(QWidget):
                 self._project_data,
                 self._active_person_id,
                 self._person_box_config,
+                ancestor_set=ancestor_set,
+                descendant_set=descendant_set,
             )
 
             # Enable selection on person boxes
@@ -430,6 +489,8 @@ class DiagramPanel(QWidget):
                 self._active_person_id,
                 self._person_box_config,
                 depth=ancestry_depth,
+                ancestor_set=ancestor_set,
+                descendant_set=descendant_set,
             )
 
             # Enable selection on person boxes
@@ -461,6 +522,8 @@ class DiagramPanel(QWidget):
                 self._active_person_id,
                 self._person_box_config,
                 depth=descendants_depth,
+                ancestor_set=ancestor_set,
+                descendant_set=descendant_set,
             )
 
             # Aktivera markering på personrutor

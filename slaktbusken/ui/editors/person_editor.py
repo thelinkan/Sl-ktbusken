@@ -12,6 +12,7 @@ import uuid
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QDialog, QListWidgetItem, QTableWidgetItem, QVBoxLayout, QWidget
 
 from slaktbusken.model.event import Participant
@@ -19,6 +20,7 @@ from slaktbusken.model.name_parser import validate_given_name_markers
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
+from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import get_event_type_label
 
 logger = logging.getLogger(__name__)
@@ -308,7 +310,7 @@ class PersonEditor(QWidget):
             return
 
         # Collect events for this person
-        person_events: list[tuple[str, str, str]] = []  # (date_sort_key, display, event_id)
+        person_events: list[tuple[str, str, str, str]] = []  # (date_sort_key, display, event_id, event_type)
         for event in self._project_data.events:
             for participant in event.participants:
                 if participant.person_id == self._person.id:
@@ -318,14 +320,15 @@ class PersonEditor(QWidget):
                     if event.date:
                         display += f" — {event.date.value}"
                         date_key = event.date.value
-                    person_events.append((date_key, display, event.id))
+                    person_events.append((date_key, display, event.id, event.type))
                     break
 
         # Sort by date (empty dates last)
         person_events.sort(key=lambda x: (x[0] == "", x[0]))
 
-        for _date_key, display, event_id in person_events:
+        for _date_key, display, event_id, event_type in person_events:
             item = QListWidgetItem(display)
+            item.setIcon(QIcon(icon_registry.get_event_icon(event_type)))
             item.setData(Qt.ItemDataRole.UserRole, event_id)
             self._ui.events_list.addItem(item)
 
