@@ -6,34 +6,34 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
 
 ## Tasks
 
-- [ ] 1. Create IconRegistry and SVG icon assets
-  - [ ] 1.1 Create SVG icon files for all event types and gender values
+- [x] 1. Create IconRegistry and SVG icon assets
+  - [x] 1.1 Create SVG icon files for all event types and gender values
     - Create directory `slaktbusken/ui/icons/events/` with SVG files for all 23 event types plus `generic_event.svg` fallback
     - Create directory `slaktbusken/ui/icons/gender/` with SVG files: `male.svg` (blue), `female.svg` (red), `other.svg` (green), `unknown.svg` (yellow)
     - Each icon should be a simple, recognizable symbol at a native size suitable for 12–16px rendering
     - _Requirements: 1.1, 2.1_
 
-  - [ ] 1.2 Implement the IconRegistry class
+  - [x] 1.2 Implement the IconRegistry class
     - Create `slaktbusken/ui/icons/__init__.py` and `slaktbusken/ui/icons/icon_registry.py`
     - Implement singleton `IconRegistry` with `get_event_icon(event_type: str) -> QPixmap`, `get_gender_icon(sex: str) -> QPixmap`, `get_event_icon_path(event_type: str) -> Path`, `get_gender_icon_path(sex: str) -> Path`
     - Implement fallback logic: unrecognized event types return `generic_event.svg`; invalid sex values return `unknown.svg`
     - Cache loaded pixmaps for performance
     - _Requirements: 1.1, 1.5, 2.1_
 
-  - [ ] 1.3 Write property tests for IconRegistry (Property 1 & 2)
+  - [x] 1.3 Write property tests for IconRegistry (Property 1 & 2)
     - **Property 1: Event icon registry completeness** — For every event type in the defined set, verify `get_event_icon()` returns a valid non-null QPixmap distinct from the fallback
     - **Property 2: Event icon fallback for unrecognized types** — For arbitrary strings not in the recognized set, verify `get_event_icon()` returns the generic fallback icon without raising
     - **Validates: Requirements 1.1, 1.5**
 
-  - [ ] 1.4 Write unit tests for IconRegistry
+  - [x] 1.4 Write unit tests for IconRegistry
     - Test all 23 event types return distinct non-null icons
     - Test all 4 gender values return distinct non-null icons
     - Test invalid sex value ('Z') returns unknown icon
     - Test caching behavior (same pixmap returned on repeated calls)
     - _Requirements: 1.1, 1.5, 2.1_
 
-- [ ] 2. Implement LineageComputer service
-  - [ ] 2.1 Create LineageComputer class
+- [x] 2. Implement LineageComputer service
+  - [x] 2.1 Create LineageComputer class
     - Create `slaktbusken/services/lineage_computer.py`
     - Implement `LineageComputer.__init__(self, project_data: ProjectData)`
     - Implement `get_ancestors(person_id: str) -> set[str]` using BFS upward through Family objects (collecting partners of families where person is a child)
@@ -42,21 +42,21 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
     - Ensure the main person is NOT included in either returned set
     - _Requirements: 3.1, 3.4, 4.1, 4.4_
 
-  - [ ] 2.2 Write property tests for LineageComputer (Properties 3, 4, 5)
+  - [x] 2.2 Write property tests for LineageComputer (Properties 3, 4, 5)
     - **Property 3: Ancestor computation correctness** — Generate random family graphs, verify ancestor set matches naive recursive traversal of parent links
     - **Property 4: Descendant computation correctness** — Same graph generation, verify descendant set matches naive recursive traversal of child links
     - **Property 5: Main person excluded from lineage sets** — For any graph and person P, verify P not in `get_ancestors(P)` and P not in `get_descendants(P)`
     - **Validates: Requirements 3.1, 3.4, 4.1**
 
-  - [ ] 2.3 Write unit tests for LineageComputer
+  - [x] 2.3 Write unit tests for LineageComputer
     - Test with a hand-crafted 3-generation linear tree (grandparent → parent → child)
     - Test with sibling branches (two children, each with descendants)
     - Test with circular reference (person is both ancestor and descendant) — verify no infinite loop
     - Test with isolated person (no families) — returns empty sets
     - _Requirements: 3.1, 4.1, 3.4_
 
-- [ ] 3. Implement AppSettingsService and persistence
-  - [ ] 3.1 Create AppSettingsService and AppSettings data model
+- [x] 3. Implement AppSettingsService and persistence
+  - [x] 3.1 Create AppSettingsService and AppSettings data model
     - Create `slaktbusken/persistence/app_settings_io.py`
     - Implement `AppSettings` dataclass with `recent_projects: list[str]` (max 10, MRU order) and `default_project_path: Optional[str]`
     - Implement `AppSettingsService` with `load()`, `save()`, `add_recent_project(path)`, `set_default_project(path)`, `get_recent_projects()`, `get_default_project()`
@@ -65,12 +65,12 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
     - Handle non-writable directory gracefully (log warning, continue)
     - _Requirements: 5.1, 5.2, 5.6, 6.1, 6.2_
 
-  - [ ] 3.2 Write property tests for AppSettingsService (Properties 7, 8)
+  - [x] 3.2 Write property tests for AppSettingsService (Properties 7, 8)
     - **Property 7: Recent projects list invariants** — Generate random sequences of `add_recent_project(path)` calls, verify: MRU at index 0, no duplicates, length ≤ 10
     - **Property 8: AppSettings serialization round-trip** — Generate random AppSettings instances (0–10 paths, optional default), verify JSON round-trip produces equivalent instance
     - **Validates: Requirements 5.1, 5.6, 5.2**
 
-  - [ ] 3.3 Write unit tests for AppSettingsService
+  - [x] 3.3 Write unit tests for AppSettingsService
     - Test file creation on first save
     - Test load with known JSON content
     - Test add_recent_project moves existing entry to top
@@ -80,7 +80,7 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
     - Test load with corrupt JSON returns defaults
     - _Requirements: 5.1, 5.2, 5.6, 6.2_
 
-- [ ] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Implement ProgressOverlay widget
