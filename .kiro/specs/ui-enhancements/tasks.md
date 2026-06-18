@@ -164,31 +164,31 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
 - [x] 11. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 12. Integrate recent projects and default project into MainWindow
-  - [ ] 12.1 Add "Senaste projekt" submenu to Arkiv menu
+- [x] 12. Integrate recent projects and default project into MainWindow
+  - [x] 12.1 Add "Senaste projekt" submenu to Arkiv menu
     - Modify `slaktbusken/ui/main_window.py` to add a "Senaste projekt" submenu under the Arkiv menu
     - Populate submenu entries from `AppSettingsService.get_recent_projects()` showing project name and path
     - Connect each entry to open the corresponding project
     - Display disabled entries with tooltip "Filen hittades inte" for missing files
     - _Requirements: 5.3, 5.4, 5.5_
 
-  - [ ] 12.2 Update project open/create to record recent projects
+  - [x] 12.2 Update project open/create to record recent projects
     - On project open or create, call `AppSettingsService.add_recent_project(path)`
     - Refresh the "Senaste projekt" submenu after each update
     - _Requirements: 5.1_
 
-  - [ ] 12.3 Implement default project auto-open on startup
+  - [x] 12.3 Implement default project auto-open on startup
     - On application startup, check `AppSettingsService.get_default_project()`
     - If set and file exists, auto-open the project
     - If set but file missing, show Swedish notification, clear setting, continue to empty state
     - _Requirements: 6.3, 6.4_
 
-  - [ ] 12.4 Add default project settings to settings dialog
+  - [x] 12.4 Add default project settings to settings dialog
     - Add "Standardprojekt" section to settings dialog with "Ange som standard" button (sets current project as default) and "Rensa standard" button (clears default)
     - _Requirements: 6.1, 6.5_
 
-- [ ] 13. Integrate ProgressOverlay into long operations
-  - [ ] 13.1 Wire ProgressOverlay into MainWindow and Application
+- [x] 13. Integrate ProgressOverlay into long operations
+  - [x] 13.1 Wire ProgressOverlay into MainWindow and Application
     - Instantiate `ProgressOverlay` as child of `MainWindow`
     - Before file load: show overlay with "Laddar projekt..."
     - Before file save: show overlay with "Sparar projekt..."
@@ -198,14 +198,14 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
     - Wrap operations in try/except to ensure overlay is hidden even on error
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-- [ ] 14. Implement DNA cluster management in person editor
-  - [ ] 14.1 Add Klustermedlemskap section to DNA tab in Edit_Window
+- [x] 14. Implement DNA cluster management in person editor
+  - [x] 14.1 Add Klustermedlemskap section to DNA tab in Edit_Window
     - Add a "Klustermedlemskap" section to the DNA tab when the person has at least one DNA_Profile
     - Display a list of DNA_Clusters the person's profiles belong to, showing cluster name and associated company
     - If no clusters exist in project, show message suggesting user create them in DNA editor
     - _Requirements: 9.1, 9.6_
 
-  - [ ] 14.2 Implement add/remove cluster membership actions
+  - [x] 14.2 Implement add/remove cluster membership actions
     - Add "Lägg till kluster" button that opens a selection dialog listing available DNA_Clusters
     - Allow multi-select in the add dialog
     - If person has multiple profiles, prompt user to select which profile to associate
@@ -213,11 +213,11 @@ This plan implements nine UI enhancements for the Släktbusken genealogy applica
     - Update DNA_Cluster entity's member list on add/remove so changes reflect in DNA editor
     - _Requirements: 9.2, 9.3, 9.4, 9.5_
 
-  - [ ] 14.3 Write property test for DNA cluster membership (Property 9)
+  - [x] 14.3 Write property test for DNA cluster membership (Property 9)
     - **Property 9: DNA cluster membership consistency** — Generate random DnaCluster with random person_ids, verify add operation makes `person_id in cluster.person_ids` True, remove operation makes it False with length decreased by 1
     - **Validates: Requirements 9.3, 9.4**
 
-- [ ] 15. Final checkpoint - Ensure all tests pass
+- [x] 15. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

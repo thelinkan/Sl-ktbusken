@@ -13,7 +13,19 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QDialog, QListWidgetItem, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from slaktbusken.model.event import Participant
 from slaktbusken.model.name_parser import validate_given_name_markers
@@ -72,6 +84,7 @@ class PersonEditor(QWidget):
 
         self._setup_table()
         self._setup_edit_event_button()
+        self._setup_cluster_buttons()
         self._connect_signals()
 
         if self._person is not None:
@@ -115,6 +128,21 @@ class PersonEditor(QWidget):
         # Insert the edit button between add and remove buttons
         self._ui.events_buttons_layout.insertWidget(1, self._edit_event_button)
 
+    def _setup_cluster_buttons(self) -> None:
+        """Add 'Lägg till kluster' and 'Ta bort' buttons below the clusters list."""
+        buttons_layout = QHBoxLayout()
+        self._add_cluster_button = QPushButton("Lägg till kluster", self._ui.dna_tab)
+        self._remove_cluster_button = QPushButton("Ta bort", self._ui.dna_tab)
+        buttons_layout.addWidget(self._add_cluster_button)
+        buttons_layout.addWidget(self._remove_cluster_button)
+        buttons_layout.addStretch()
+
+        # Insert the buttons layout after the dna_clusters_list in the dna_tab_layout
+        # Find the index of dna_clusters_list and insert after it
+        layout = self._ui.dna_tab_layout
+        cluster_list_index = layout.indexOf(self._ui.dna_clusters_list)
+        layout.insertLayout(cluster_list_index + 1, buttons_layout)
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
         # Name management
@@ -133,6 +161,10 @@ class PersonEditor(QWidget):
 
         # Photos
         self._ui.select_profile_button.clicked.connect(self._on_select_profile)
+
+        # DNA cluster membership
+        self._add_cluster_button.clicked.connect(self._on_add_cluster)
+        self._remove_cluster_button.clicked.connect(self._on_remove_cluster)
 
         # Save/Cancel
         self._ui.save_button.clicked.connect(self._on_save)
@@ -626,18 +658,248 @@ class PersonEditor(QWidget):
                 self._ui.dna_matches_list.addItem(item)
 
     def _refresh_dna_clusters(self) -> None:
-        """Populate the DNA clusters list for this person."""
+        """Populate the DNA clusters list for this person.
+
+        Always shows the Klustermedlemskap section. A person can belong to
+        clusters even without a DNA profile (e.g. parents/siblings of tested
+        persons). Displays cluster name with associated company name.
+        If no clusters exist in the project, shows a suggestion message.
+        """
         self._ui.dna_clusters_list.clear()
 
         if self._person is None:
+            self._ui.dna_clusters_label.setVisible(False)
+            self._ui.dna_clusters_list.setVisible(False)
+            self._add_cluster_button.setVisible(False)
+            self._remove_cluster_button.setVisible(False)
             return
+
+        # Always show the cluster section
+        self._ui.dna_clusters_label.setVisible(True)
+        self._ui.dna_clusters_list.setVisible(True)
+        self._add_cluster_button.setVisible(True)
+        self._remove_cluster_button.setVisible(True)
+
+        # If no clusters exist in the project at all, show suggestion message
+        if not self._project_data.dna_clusters:
+            item = QListWidgetItem(
+                "Inga kluster finns i projektet. Skapa kluster i DNA-redigeraren."
+            )
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self._ui.dna_clusters_list.addItem(item)
+            self._add_cluster_button.setEnabled(False)
+            self._remove_cluster_button.setEnabled(False)
+            return
+
+        self._add_cluster_button.setEnabled(True)
+        self._remove_cluster_button.setEnabled(True)
+
+        # Build a lookup for company names
+        company_map = {c.id: c.name for c in self._project_data.dna_companies}
 
         for cluster in self._project_data.dna_clusters:
             if self._person.id in cluster.person_ids:
-                display = cluster.name or cluster.id
+                cluster_name = cluster.name or cluster.id
+                # Get associated company name(s)
+                company_names = [
+                    company_map[cid]
+                    for cid in cluster.company_ids
+                    if cid in company_map
+                ]
+                if company_names:
+                    display = f"{cluster_name} ({', '.join(company_names)})"
+                else:
+                    display = cluster_name
                 item = QListWidgetItem(display)
                 item.setData(Qt.ItemDataRole.UserRole, cluster.id)
                 self._ui.dna_clusters_list.addItem(item)
+
+    def _on_add_cluster(self) -> None:
+        """Open a dialog to add the person to one or more DNA clusters."""
+        if self._person is None:
+            return
+
+        # Get clusters the person is NOT already in
+        current_cluster_ids = {
+            c.id
+            for c in self._project_data.dna_clusters
+            if self._person.id in c.person_ids
+        }
+        available_clusters = [
+            c
+            for c in self._project_data.dna_clusters
+            if c.id not in current_cluster_ids
+        ]
+
+        if not available_clusters:
+            self._update_status("Personen är redan medlem i alla tillgängliga kluster.")
+            return
+
+        # If person has multiple profiles, ask which one to associate
+        person_profiles = [
+            p
+            for p in self._project_data.dna_profiles
+            if p.person_id == self._person.id
+        ]
+        selected_profile_id: str | None = None
+        if len(person_profiles) > 1:
+            selected_profile_id = self._select_profile_dialog(person_profiles)
+            if selected_profile_id is None:
+                return  # User cancelled
+
+        # Show cluster selection dialog
+        selected_cluster_ids = self._select_clusters_dialog(available_clusters)
+        if not selected_cluster_ids:
+            return  # User cancelled or selected nothing
+
+        # Add person to selected clusters
+        for cluster in self._project_data.dna_clusters:
+            if cluster.id in selected_cluster_ids:
+                cluster.person_ids.append(self._person.id)
+
+        self._refresh_dna_clusters()
+        self._clear_status()
+
+    def _on_remove_cluster(self) -> None:
+        """Remove the person from the currently selected cluster."""
+        if self._person is None:
+            return
+
+        current_item = self._ui.dna_clusters_list.currentItem()
+        if not current_item:
+            self._update_status("Välj ett kluster att ta bort.")
+            return
+
+        cluster_id = current_item.data(Qt.ItemDataRole.UserRole)
+        if not cluster_id:
+            self._update_status("Kunde inte identifiera klustret.")
+            return
+
+        # Find and update the cluster
+        for cluster in self._project_data.dna_clusters:
+            if cluster.id == cluster_id:
+                if self._person.id in cluster.person_ids:
+                    cluster.person_ids.remove(self._person.id)
+                break
+
+        self._refresh_dna_clusters()
+        self._clear_status()
+
+    def _select_clusters_dialog(
+        self, available_clusters: list["DnaCluster"]
+    ) -> list[str]:
+        """Show a dialog for selecting one or more clusters.
+
+        Args:
+            available_clusters: List of DnaCluster objects available for selection.
+
+        Returns:
+            List of selected cluster IDs, or empty list if cancelled.
+        """
+        from slaktbusken.model.dna import DnaCluster
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Lägg till kluster")
+        dialog.setMinimumSize(400, 300)
+        layout = QVBoxLayout(dialog)
+
+        label = QLabel("Välj kluster att lägga till:", dialog)
+        layout.addWidget(label)
+
+        list_widget = QListWidget(dialog)
+        list_widget.setSelectionMode(
+            QAbstractItemView.SelectionMode.MultiSelection
+        )
+
+        company_map = {c.id: c.name for c in self._project_data.dna_companies}
+
+        for cluster in available_clusters:
+            cluster_name = cluster.name or cluster.id
+            company_names = [
+                company_map[cid]
+                for cid in cluster.company_ids
+                if cid in company_map
+            ]
+            if company_names:
+                display = f"{cluster_name} ({', '.join(company_names)})"
+            else:
+                display = cluster_name
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, cluster.id)
+            list_widget.addItem(item)
+
+        layout.addWidget(list_widget)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            dialog,
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return [
+                item.data(Qt.ItemDataRole.UserRole)
+                for item in list_widget.selectedItems()
+            ]
+        return []
+
+    def _select_profile_dialog(self, profiles: list["DnaProfile"]) -> str | None:
+        """Show a dialog to select which DNA profile to associate.
+
+        Args:
+            profiles: List of DnaProfile objects for the person.
+
+        Returns:
+            Selected profile ID, or None if cancelled.
+        """
+        from slaktbusken.model.dna import DnaProfile
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Välj DNA-profil")
+        dialog.setMinimumSize(350, 250)
+        layout = QVBoxLayout(dialog)
+
+        label = QLabel("Personen har flera DNA-profiler. Välj vilken att associera:", dialog)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+
+        list_widget = QListWidget(dialog)
+        list_widget.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+
+        company_map = {c.id: c.name for c in self._project_data.dna_companies}
+
+        for profile in profiles:
+            company_name = company_map.get(profile.company_id, profile.company_id)
+            display = f"{profile.kit_name or profile.id} ({profile.test_type}) — {company_name}"
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, profile.id)
+            list_widget.addItem(item)
+
+        # Pre-select first item
+        if list_widget.count() > 0:
+            list_widget.setCurrentRow(0)
+
+        layout.addWidget(list_widget)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            dialog,
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            current = list_widget.currentItem()
+            if current:
+                return current.data(Qt.ItemDataRole.UserRole)
+        return None
 
     # ------------------------------------------------------------------
     # Private: save / cancel

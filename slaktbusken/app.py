@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox, QVBoxLayout
 
 from slaktbusken.relationship.calculator import RelationshipCalculator
 from slaktbusken.services.export_service import ExportService
@@ -43,8 +43,20 @@ class Application:
         self.export_service = ExportService(self.report_service)
         self.translation_service = TranslationService()
 
+        # Application-level settings service
+        from slaktbusken.persistence.app_settings_io import AppSettingsService
+
+        self.app_settings_service = AppSettingsService()
+        self.app_settings_service.load()
+
         # Main window (receives self for action callbacks)
         self.main_window = MainWindow(self)
+
+        # Populate recent projects submenu
+        self._refresh_recent_projects_menu()
+
+        # Auto-open default project if configured
+        self._auto_open_default_project()
 
         # Connect person list selection to diagram panel navigation
         self.main_window.person_list_panel.person_selected.connect(
@@ -123,24 +135,29 @@ class Application:
         if dialog.exec() == QDialog.DialogCode.Accepted:
             saved = editor.saved_person
             if saved is not None:
-                # Replace the person in project data
-                persons = self.project_service.data.persons
-                for i, existing in enumerate(persons):
-                    if existing.id == saved.id:
-                        persons[i] = saved
-                        break
+                self.main_window.show_progress("Uppdaterar...")
+                QApplication.processEvents()
+                try:
+                    # Replace the person in project data
+                    persons = self.project_service.data.persons
+                    for i, existing in enumerate(persons):
+                        if existing.id == saved.id:
+                            persons[i] = saved
+                            break
 
-                # Mark project as dirty and refresh UI without resetting active person
-                self.project_service._dirty = True
-                self._update_status()
+                    # Mark project as dirty and refresh UI without resetting active person
+                    self.project_service._dirty = True
+                    self._update_status()
 
-                # Refresh person list and re-render diagram preserving active person
-                self.main_window.person_list_panel.refresh()
-                panel = self.main_window.diagram_panel
-                panel.set_project_data(self.project_service.data)
-                settings = self.project_service.settings
-                if settings:
-                    panel.set_person_box_config(settings.person_box_config)
+                    # Refresh person list and re-render diagram preserving active person
+                    self.main_window.person_list_panel.refresh()
+                    panel = self.main_window.diagram_panel
+                    panel.set_project_data(self.project_service.data)
+                    settings = self.project_service.settings
+                    if settings:
+                        panel.set_person_box_config(settings.person_box_config)
+                finally:
+                    self.main_window.hide_progress()
 
     def add_standalone_person(self) -> None:
         """Create a new person with no family affiliations.
@@ -200,21 +217,26 @@ class Application:
         if saved is None:
             return
 
-        # Add person to project (no family affiliations)
-        data.persons.append(saved)
+        self.main_window.show_progress("Uppdaterar...")
+        QApplication.processEvents()
+        try:
+            # Add person to project (no family affiliations)
+            data.persons.append(saved)
 
-        # Mark dirty and refresh
-        self.project_service._dirty = True
-        self._update_status()
-        self.main_window.person_list_panel.refresh()
+            # Mark dirty and refresh
+            self.project_service._dirty = True
+            self._update_status()
+            self.main_window.person_list_panel.refresh()
 
-        # Set the new person as active
-        panel = self.main_window.diagram_panel
-        panel.set_project_data(data)
-        settings = self.project_service.settings
-        if settings:
-            panel.set_person_box_config(settings.person_box_config)
-        panel.set_active_person(saved.id)
+            # Set the new person as active
+            panel = self.main_window.diagram_panel
+            panel.set_project_data(data)
+            settings = self.project_service.settings
+            if settings:
+                panel.set_person_box_config(settings.person_box_config)
+            panel.set_active_person(saved.id)
+        finally:
+            self.main_window.hide_progress()
 
     def handle_context_menu_action(self, action_type: str, person_id: str) -> None:
         """Route context menu actions to the appropriate handler.
@@ -435,14 +457,19 @@ class Application:
                 data.families.append(new_family)
 
         # Mark dirty and refresh UI
-        self.project_service._dirty = True
-        self._update_status()
-        self.main_window.person_list_panel.refresh()
-        panel = self.main_window.diagram_panel
-        panel.set_project_data(data)
-        settings = self.project_service.settings
-        if settings:
-            panel.set_person_box_config(settings.person_box_config)
+        self.main_window.show_progress("Uppdaterar...")
+        QApplication.processEvents()
+        try:
+            self.project_service._dirty = True
+            self._update_status()
+            self.main_window.person_list_panel.refresh()
+            panel = self.main_window.diagram_panel
+            panel.set_project_data(data)
+            settings = self.project_service.settings
+            if settings:
+                panel.set_person_box_config(settings.person_box_config)
+        finally:
+            self.main_window.hide_progress()
 
     def new_project(self) -> None:
         """Create a new project via the New Project dialog."""
@@ -459,6 +486,12 @@ class Application:
             self.project_service.create_project(
                 dialog.project_name, dialog.project_location
             )
+            # Record in recent projects
+            project_path = self.project_service.project_path
+            if project_path is not None:
+                self.app_settings_service.add_recent_project(str(project_path))
+                self._refresh_recent_projects_menu()
+
             self._update_status()
             self._update_diagram_panel()
             self.main_window.statusBar().showMessage(
@@ -485,8 +518,14 @@ class Application:
         if not path:
             return
 
+        self.main_window.show_progress("Laddar projekt...")
+        QApplication.processEvents()
         try:
             self.project_service.open_project(Path(path))
+            # Record in recent projects
+            self.app_settings_service.add_recent_project(path)
+            self._refresh_recent_projects_menu()
+
             self._update_status()
             self._update_diagram_panel()
             self.main_window.statusBar().showMessage("Projekt öppnat", 5000)
@@ -502,9 +541,13 @@ class Application:
                 "Fel",
                 f"Kunde inte öppna projektet:\n{e}",
             )
+        finally:
+            self.main_window.hide_progress()
 
     def save_project(self) -> None:
         """Save the current project."""
+        self.main_window.show_progress("Sparar projekt...")
+        QApplication.processEvents()
         try:
             self.project_service.save_project()
             self._update_status()
@@ -515,6 +558,8 @@ class Application:
                 "Fel",
                 f"Kunde inte spara projektet:\n{e}",
             )
+        finally:
+            self.main_window.hide_progress()
 
     def import_gedcom(self) -> None:
         """Import a GEDCOM file into the current project."""
@@ -527,6 +572,8 @@ class Application:
         if not path:
             return
 
+        self.main_window.show_progress("Importerar GEDCOM...")
+        QApplication.processEvents()
         try:
             project_data = self.project_service.data
             project_path = self.project_service.project_path
@@ -565,6 +612,8 @@ class Application:
                 "Importfel",
                 f"Kunde inte importera GEDCOM-filen:\n{e}",
             )
+        finally:
+            self.main_window.hide_progress()
 
     def export_gedcom(self) -> None:
         """Export the current project to a GEDCOM file."""
@@ -577,6 +626,8 @@ class Application:
         if not path:
             return
 
+        self.main_window.show_progress("Exporterar GEDCOM...")
+        QApplication.processEvents()
         try:
             project_data = self.project_service.data
             project_path = self.project_service.project_path
@@ -599,6 +650,8 @@ class Application:
                 "Exportfel",
                 f"Kunde inte exportera GEDCOM-filen:\n{e}",
             )
+        finally:
+            self.main_window.hide_progress()
 
     def close_project(self) -> None:
         """Close the current project after confirming unsaved changes."""
@@ -629,7 +682,8 @@ class Application:
 
         Shows the SettingsDialog populated with current project settings.
         On accept: saves settings to file, applies config to the diagram
-        panel, and marks the project as dirty.
+        panel, and marks the project as dirty. Also handles default project
+        set/clear actions from the dialog.
         """
         from slaktbusken.ui.dialogs.settings_dialog import SettingsDialog
         from slaktbusken.persistence.settings_io import (
@@ -642,9 +696,14 @@ class Application:
         if settings is None:
             return
 
+        # Determine current project path for default project UI
+        current_project_path = self.project_service.project_path
+
         dialog = SettingsDialog(
             person_box_config=settings.person_box_config,
             diagram_settings=settings.diagram_settings,
+            app_settings_service=self.app_settings_service,
+            current_project_path=current_project_path,
             parent=self.main_window,
         )
 
@@ -883,6 +942,44 @@ class Application:
         """
         return self._confirm_discard_changes()
 
+    def open_recent_project(self, path: str) -> None:
+        """Open a project from the recent projects list.
+
+        Follows the same procedure as the regular open-project action
+        but uses the provided path directly instead of a file dialog.
+
+        Args:
+            path: The file path of the project to open.
+        """
+        if not self._confirm_discard_changes():
+            return
+
+        self.main_window.show_progress("Laddar projekt...")
+        QApplication.processEvents()
+        try:
+            self.project_service.open_project(Path(path))
+            # Record in recent projects (moves to top)
+            self.app_settings_service.add_recent_project(path)
+            self._refresh_recent_projects_menu()
+
+            self._update_status()
+            self._update_diagram_panel()
+            self.main_window.statusBar().showMessage("Projekt öppnat", 5000)
+        except FileNotFoundError:
+            QMessageBox.critical(
+                self.main_window,
+                "Fel",
+                "Filen hittades inte.",
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self.main_window,
+                "Fel",
+                f"Kunde inte öppna projektet:\n{e}",
+            )
+        finally:
+            self.main_window.hide_progress()
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -942,6 +1039,55 @@ class Application:
             return True
         else:
             return False
+
+    def _refresh_recent_projects_menu(self) -> None:
+        """Refresh the recent projects submenu in the main window."""
+        recent = self.app_settings_service.get_recent_projects()
+        self.main_window.refresh_recent_projects_menu(recent)
+
+    def _auto_open_default_project(self) -> None:
+        """Auto-open the default project on startup if configured.
+
+        If the default project path is set and the file exists, opens
+        the project automatically. If set but the file is missing,
+        shows a Swedish notification, clears the setting, and continues
+        to the normal empty state.
+        """
+        default_path = self.app_settings_service.get_default_project()
+        if default_path is None:
+            return
+
+        p = Path(default_path)
+        if p.exists():
+            self.main_window.show_progress("Laddar projekt...")
+            QApplication.processEvents()
+            try:
+                self.project_service.open_project(p)
+                self.app_settings_service.add_recent_project(default_path)
+                self._refresh_recent_projects_menu()
+                self._update_status()
+                self._update_diagram_panel()
+                self.main_window.statusBar().showMessage(
+                    "Standardprojekt öppnat", 5000
+                )
+            except Exception as e:
+                logger.warning("Kunde inte öppna standardprojektet: %s", e)
+                QMessageBox.warning(
+                    self.main_window,
+                    "Standardprojekt",
+                    f"Kunde inte öppna standardprojektet:\n{e}",
+                )
+            finally:
+                self.main_window.hide_progress()
+        else:
+            # File missing — notify, clear setting, continue
+            QMessageBox.information(
+                self.main_window,
+                "Standardprojekt",
+                f"Standardprojektet kunde inte hittas:\n{default_path}\n\n"
+                "Inställningen rensas.",
+            )
+            self.app_settings_service.set_default_project(None)
 
     def _update_status(self) -> None:
         """Update the main window status bar with current project state."""

@@ -304,6 +304,68 @@ class TestPersonEditorLinkedData:
         editor = PersonEditor(project_with_linked_data, person=sample_person)
         assert editor._ui.dna_clusters_list.count() == 1
 
+    def test_dna_clusters_visible_when_no_profiles(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Klustermedlemskap section should be visible even when person has no DNA profiles."""
+        person = Person(id="person_no_dna", sex="M", names=[Name(type="birth", given="Test", surname="Person")])
+        editor = PersonEditor(empty_project, person=person)
+        assert not editor._ui.dna_clusters_label.isHidden()
+        assert not editor._ui.dna_clusters_list.isHidden()
+
+    def test_dna_clusters_shows_no_clusters_message(self, qapp, sample_person: Person):
+        """When person has profiles but no clusters exist, show suggestion message."""
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            dna_profiles=[
+                DnaProfile(
+                    id="dnaprofile_1",
+                    person_id="person_1",
+                    company_id="dnacompany_1",
+                    test_type="autosomal",
+                    kit_name="Eriks kit",
+                ),
+            ],
+            dna_clusters=[],
+        )
+        editor = PersonEditor(project, person=sample_person)
+        assert editor._ui.dna_clusters_list.count() == 1
+        assert "Inga kluster finns i projektet" in editor._ui.dna_clusters_list.item(0).text()
+        assert "DNA-redigeraren" in editor._ui.dna_clusters_list.item(0).text()
+
+    def test_dna_clusters_shows_company_name(self, qapp, sample_person: Person):
+        """Cluster display should include associated company name."""
+        from slaktbusken.model.dna import DnaCompany
+
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            dna_profiles=[
+                DnaProfile(
+                    id="dnaprofile_1",
+                    person_id="person_1",
+                    company_id="dnacompany_1",
+                    test_type="autosomal",
+                    kit_name="Eriks kit",
+                ),
+            ],
+            dna_companies=[
+                DnaCompany(id="dnacompany_1", name="AncestryDNA"),
+            ],
+            dna_clusters=[
+                DnaCluster(
+                    id="dnacluster_1",
+                    name="Västergötland-kluster",
+                    person_ids=["person_1"],
+                    company_ids=["dnacompany_1"],
+                ),
+            ],
+        )
+        editor = PersonEditor(project, person=sample_person)
+        assert editor._ui.dna_clusters_list.count() == 1
+        item_text = editor._ui.dna_clusters_list.item(0).text()
+        assert "Västergötland-kluster" in item_text
+        assert "AncestryDNA" in item_text
+
     def test_remove_event_removes_from_project_data(
         self, qapp, project_with_linked_data: ProjectData, sample_person: Person
     ):
@@ -604,3 +666,198 @@ class TestPersonEditorEditEvent:
         assert editor._ui.events_list.receivers(
             SIGNAL("itemDoubleClicked(QListWidgetItem*)")
         ) > 0
+
+
+class TestPersonEditorClusterMembership:
+    """Tests for DNA cluster membership add/remove (Task 14.2)."""
+
+    def test_cluster_buttons_exist(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """Add and remove cluster buttons should be present in the DNA tab."""
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        assert editor._add_cluster_button is not None
+        assert editor._remove_cluster_button is not None
+        assert editor._add_cluster_button.text() == "Lägg till kluster"
+        assert editor._remove_cluster_button.text() == "Ta bort"
+
+    def test_cluster_buttons_visible_when_person_has_profiles(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """Cluster buttons should be visible when person has DNA profiles."""
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        assert not editor._add_cluster_button.isHidden()
+        assert not editor._remove_cluster_button.isHidden()
+
+    def test_cluster_buttons_visible_when_no_profiles(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Cluster buttons should be visible even when person has no DNA profiles."""
+        person = Person(
+            id="person_no_dna", sex="M",
+            names=[Name(type="birth", given="Test", surname="Person")],
+        )
+        editor = PersonEditor(empty_project, person=person)
+        assert not editor._add_cluster_button.isHidden()
+        assert not editor._remove_cluster_button.isHidden()
+
+    def test_remove_cluster_without_selection_shows_error(
+        self, qapp, project_with_linked_data: ProjectData, sample_person: Person
+    ):
+        """Removing without selecting a cluster shows Swedish error message."""
+        editor = PersonEditor(project_with_linked_data, person=sample_person)
+        # Ensure nothing is selected
+        editor._ui.dna_clusters_list.clearSelection()
+        editor._ui.dna_clusters_list.setCurrentItem(None)
+        editor._on_remove_cluster()
+
+        assert editor._ui.status_label.text() == "Välj ett kluster att ta bort."
+
+    def test_remove_cluster_removes_person_from_cluster(
+        self, qapp, sample_person: Person
+    ):
+        """Removing a cluster membership should remove person_id from cluster.person_ids."""
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            dna_profiles=[
+                DnaProfile(
+                    id="dnaprofile_1",
+                    person_id="person_1",
+                    company_id="dnacompany_1",
+                    test_type="autosomal",
+                    kit_name="Eriks kit",
+                ),
+            ],
+            dna_clusters=[
+                DnaCluster(
+                    id="dnacluster_1",
+                    name="Kluster A",
+                    person_ids=["person_1", "person_3"],
+                ),
+                DnaCluster(
+                    id="dnacluster_2",
+                    name="Kluster B",
+                    person_ids=["person_1"],
+                ),
+            ],
+        )
+        editor = PersonEditor(project, person=sample_person)
+
+        # Verify initial state: person is in 2 clusters
+        assert editor._ui.dna_clusters_list.count() == 2
+
+        # Select the first cluster and remove
+        editor._ui.dna_clusters_list.setCurrentRow(0)
+        editor._on_remove_cluster()
+
+        # person_1 should be removed from dnacluster_1
+        cluster_1 = project.dna_clusters[0]
+        assert "person_1" not in cluster_1.person_ids
+        assert "person_3" in cluster_1.person_ids  # Other members remain
+
+        # List should now show 1 cluster
+        assert editor._ui.dna_clusters_list.count() == 1
+
+    def test_add_cluster_all_clusters_already_member_shows_message(
+        self, qapp, sample_person: Person
+    ):
+        """If person is already in all clusters, show appropriate message."""
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            dna_profiles=[
+                DnaProfile(
+                    id="dnaprofile_1",
+                    person_id="person_1",
+                    company_id="dnacompany_1",
+                    test_type="autosomal",
+                ),
+            ],
+            dna_clusters=[
+                DnaCluster(
+                    id="dnacluster_1",
+                    name="Kluster A",
+                    person_ids=["person_1"],
+                ),
+            ],
+        )
+        editor = PersonEditor(project, person=sample_person)
+        editor._on_add_cluster()
+
+        assert "redan medlem" in editor._ui.status_label.text()
+
+    def test_cluster_buttons_disabled_when_no_clusters_in_project(
+        self, qapp, sample_person: Person
+    ):
+        """Buttons should be disabled when no clusters exist in project."""
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            dna_profiles=[
+                DnaProfile(
+                    id="dnaprofile_1",
+                    person_id="person_1",
+                    company_id="dnacompany_1",
+                    test_type="autosomal",
+                ),
+            ],
+            dna_clusters=[],
+        )
+        editor = PersonEditor(project, person=sample_person)
+        assert not editor._add_cluster_button.isEnabled()
+        assert not editor._remove_cluster_button.isEnabled()
+
+    def test_add_cluster_updates_cluster_person_ids(
+        self, qapp, sample_person: Person
+    ):
+        """Adding a cluster membership should add person_id to cluster.person_ids.
+
+        This test simulates the effect of _on_add_cluster by directly calling
+        the internal logic (since the dialog requires user interaction).
+        """
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            dna_profiles=[
+                DnaProfile(
+                    id="dnaprofile_1",
+                    person_id="person_1",
+                    company_id="dnacompany_1",
+                    test_type="autosomal",
+                ),
+            ],
+            dna_clusters=[
+                DnaCluster(
+                    id="dnacluster_1",
+                    name="Kluster A",
+                    person_ids=["person_3"],
+                ),
+            ],
+        )
+        editor = PersonEditor(project, person=sample_person)
+
+        # Initially person is not in the cluster
+        assert "person_1" not in project.dna_clusters[0].person_ids
+        assert editor._ui.dna_clusters_list.count() == 0
+
+        # Simulate what _on_add_cluster does after dialog returns cluster IDs
+        cluster = project.dna_clusters[0]
+        cluster.person_ids.append(sample_person.id)
+        editor._refresh_dna_clusters()
+
+        # Verify person was added
+        assert "person_1" in project.dna_clusters[0].person_ids
+        assert editor._ui.dna_clusters_list.count() == 1
+
+    def test_remove_cluster_no_person_does_nothing(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Remove cluster with no person set should do nothing."""
+        editor = PersonEditor(empty_project, person=None)
+        # Should not crash
+        editor._on_remove_cluster()
+
+    def test_add_cluster_no_person_does_nothing(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Add cluster with no person set should do nothing."""
+        editor = PersonEditor(empty_project, person=None)
+        # Should not crash
+        editor._on_add_cluster()

@@ -7,6 +7,7 @@ left/right panel arrangement using QSplitter, and status bar.
 from __future__ import annotations
 
 from enum import Enum, auto
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
@@ -21,6 +22,8 @@ from PySide6.QtWidgets import (
     QToolBar,
     QWidget,
 )
+
+from slaktbusken.ui.widgets.progress_overlay import ProgressOverlay
 
 if TYPE_CHECKING:
     from slaktbusken.app import Application
@@ -63,6 +66,7 @@ class MainWindow(QMainWindow):
         self._setup_toolbar()
         self._setup_central_widget()
         self._setup_status_bar()
+        self._progress_overlay = ProgressOverlay(self)
         self._update_project_actions(project_open=False)
 
     # ------------------------------------------------------------------
@@ -191,6 +195,7 @@ class MainWindow(QMainWindow):
         self.menu_file.addAction(self.action_new)
         self.menu_file.addAction(self.action_open)
         self.menu_file.addAction(self.action_save)
+        self.menu_recent_projects = self.menu_file.addMenu("Senaste projekt")
         self.menu_file.addSeparator()
         self.menu_file.addAction(self.action_import)
         self.menu_file.addAction(self.action_export)
@@ -300,6 +305,18 @@ class MainWindow(QMainWindow):
             self._status_label.setText(f"Projekt: {project_name}{marker}")
             self._update_project_actions(project_open=True)
 
+    def show_progress(self, message: str) -> None:
+        """Show the progress overlay with the given message.
+
+        Args:
+            message: The message to display on the overlay.
+        """
+        self._progress_overlay.show_with_message(message)
+
+    def hide_progress(self) -> None:
+        """Hide the progress overlay."""
+        self._progress_overlay.hide()
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -350,6 +367,37 @@ class MainWindow(QMainWindow):
             "Ett skrivbordsverktyg för svensk släktforskning.\n\n"
             "Byggt med Python och PySide6.",
         )
+
+    def refresh_recent_projects_menu(self, recent_projects: list[str]) -> None:
+        """Rebuild the 'Senaste projekt' submenu with current entries.
+
+        Each entry shows the project filename (stem) and full path.
+        Missing files are displayed as disabled with a tooltip.
+
+        Args:
+            recent_projects: List of project file paths, most recent first.
+        """
+        self.menu_recent_projects.clear()
+
+        if not recent_projects:
+            no_action = self.menu_recent_projects.addAction("(inga senaste projekt)")
+            no_action.setEnabled(False)
+            return
+
+        for project_path_str in recent_projects:
+            p = Path(project_path_str)
+            # Show stem (filename without extension) and full path
+            label = f"{p.stem}  —  {project_path_str}"
+            action = self.menu_recent_projects.addAction(label)
+
+            if p.exists():
+                # Connect to open the project
+                action.triggered.connect(
+                    lambda checked=False, path=project_path_str: self._app.open_recent_project(path)
+                )
+            else:
+                action.setEnabled(False)
+                action.setToolTip("Filen hittades inte")
 
     def closeEvent(self, event) -> None:
         """Handle window close — confirm save if project is dirty.
