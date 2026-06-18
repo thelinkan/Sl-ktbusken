@@ -120,7 +120,7 @@ class MainWindow(QMainWindow):
             lambda: self._switch_view(ViewType.ANCESTRY)
         )
 
-        self.action_view_descendants = QAction("&Descendentvy", self)
+        self.action_view_descendants = QAction("&Ättlingar", self)
         self.action_view_descendants.setToolTip("Visa ättlingar (nedåt)")
         self.action_view_descendants.triggered.connect(
             lambda: self._switch_view(ViewType.DESCENDANTS)
@@ -157,6 +157,11 @@ class MainWindow(QMainWindow):
             self._app.show_place_translation_editor
         )
 
+        # Person
+        self.action_add_person = QAction("&Lägg till person", self)
+        self.action_add_person.setToolTip("Skapa en ny person utan kopplingar")
+        self.action_add_person.triggered.connect(self._app.add_standalone_person)
+
         # Verktyg (Tools)
         self.action_relationship = QAction("&Släktskapsberäknare...", self)
         self.action_relationship.setToolTip("Beräkna släktskap mellan två personer")
@@ -192,6 +197,10 @@ class MainWindow(QMainWindow):
         self.menu_edit.addAction(self.action_source_translation_editor)
         self.menu_edit.addAction(self.action_place_editor)
         self.menu_edit.addAction(self.action_place_translation_editor)
+
+        # Person
+        self.menu_person = menu_bar.addMenu("&Person")
+        self.menu_person.addAction(self.action_add_person)
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
@@ -316,7 +325,7 @@ class MainWindow(QMainWindow):
         view_names = {
             ViewType.FAMILY: "Familjevy",
             ViewType.ANCESTRY: "Antavla",
-            ViewType.DESCENDANTS: "Descendentvy",
+            ViewType.DESCENDANTS: "Ättlingar",
         }
         self.statusBar().showMessage(f"Växlade till {view_names[view_type]}", 3000)
 

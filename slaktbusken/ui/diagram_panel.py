@@ -275,6 +275,7 @@ class DiagramPanel(QWidget):
 
         Hanterar:
         - A-tangenten: aktivera markerad person
+        - Enkelklick: markera person (kringgår ScrollHandDrag)
         - Dubbelklick: öppna redigering för klickad person
 
         Args:
@@ -297,6 +298,33 @@ class DiagramPanel(QWidget):
                 if selected_id:
                     self.person_activated.emit(selected_id)
                     self.set_active_person(selected_id)
+                    return True
+
+        # Single-click on the viewport to select person/placeholder
+        # (ScrollHandDrag consumes mouse events, so we handle selection here)
+        # NOTE: We do NOT return True for person clicks — that would prevent
+        # Qt from generating MouseButtonDblClick events needed for double-click
+        # to open the editor. We only return True for placeholder clicks.
+        if obj == self._view.viewport() and event.type() == QEvent.Type.MouseButtonPress:
+            if event.button() == Qt.MouseButton.LeftButton:
+                pos = event.position().toPoint()
+                scene_pos = self._view.mapToScene(pos)
+                item = self._scene.itemAt(scene_pos, self._view.transform())
+                if isinstance(item, PersonBoxItem):
+                    from slaktbusken.ui.main_window import ViewType
+
+                    if self._current_view == ViewType.FAMILY:
+                        self._family_view.handle_click(item.person_id)
+                    elif self._current_view == ViewType.ANCESTRY:
+                        self._ancestry_view.handle_click(item.person_id)
+                    elif self._current_view == ViewType.DESCENDANTS:
+                        self._descendants_view.handle_click(item.person_id)
+                    self.person_selected.emit(item.person_id)
+                    # Don't return True — allow double-click detection
+                elif isinstance(item, PlaceholderBoxItem):
+                    role_str = item.role.name.lower()
+                    family_id = item.family_id or ""
+                    self.placeholder_clicked.emit(role_str, family_id)
                     return True
 
         # Double-click on the viewport to open editor
@@ -350,6 +378,10 @@ class DiagramPanel(QWidget):
         Uses the FamilyView renderer when the current view is FAMILY,
         AncestryView when ANCESTRY, and project data is available.
         """
+        from PySide6.QtCore import QRectF
+
+        # Reset scene rect before clearing to avoid retaining old bounds
+        self._scene.setSceneRect(QRectF())
         self._scene.clear()
 
         from slaktbusken.ui.main_window import ViewType
@@ -367,10 +399,16 @@ class DiagramPanel(QWidget):
                 self._person_box_config,
             )
 
-            # Connect double-click on person boxes
+            # Enable selection on person boxes
             for box in self._family_view.get_person_boxes():
                 box.setFlag(
                     box.GraphicsItemFlag.ItemIsSelectable, True
+                )
+
+            # Enable selection on placeholder boxes
+            for ph in self._family_view.get_placeholder_boxes():
+                ph.setFlag(
+                    ph.GraphicsItemFlag.ItemIsSelectable, True
                 )
 
         elif (
@@ -400,6 +438,12 @@ class DiagramPanel(QWidget):
                     box.GraphicsItemFlag.ItemIsSelectable, True
                 )
 
+            # Enable selection on placeholder boxes
+            for ph in self._ancestry_view.get_placeholder_boxes():
+                ph.setFlag(
+                    ph.GraphicsItemFlag.ItemIsSelectable, True
+                )
+
         elif (
             self._current_view == ViewType.DESCENDANTS
             and self._project_data is not None
@@ -424,3 +468,8 @@ class DiagramPanel(QWidget):
                 box.setFlag(
                     box.GraphicsItemFlag.ItemIsSelectable, True
                 )
+
+        # After rendering, reset scene rect to actual content bounds
+        # and force a viewport repaint to avoid old graph remnants
+        self._scene.setSceneRect(self._scene.itemsBoundingRect())
+        self._view.viewport().update()

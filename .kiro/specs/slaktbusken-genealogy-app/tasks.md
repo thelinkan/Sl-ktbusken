@@ -326,10 +326,11 @@ This plan implements the Släktbusken genealogy desktop application in Python wi
   - [x] 45.3 Verify that editing an event from the person editor works and that saving a person does not change the active person in the diagram
   - **Requirements:** 9.1, 7.1, 7.2, 17.1
 
-- [ ] 46. Bug: Missing Father Not Shown as Placeholder in Family View
-  - [ ] 46.1 Investigate why the placeholder box for a missing father is not rendered when the active person or siblings lack a father in the family data
-  - [ ] 46.2 Fix the family view rendering so that a missing father is shown as a gray dashed-outline placeholder box (same as already implemented for missing mothers), enabling click-to-add functionality
-  - [ ] 46.3 Verify that missing father placeholders appear for both the active person and their siblings when no father is linked
+- [x] 46. Bug: Missing Father Not Shown as Placeholder in Family View
+  - [x] 46.1 Investigate why the placeholder box for a missing father is not rendered when the active person or siblings lack a father in the family data
+  - [x] 46.2 Fix the family view rendering so that a missing father is shown as a gray dashed-outline placeholder box (same as already implemented for missing mothers), enabling click-to-add functionality
+  - [x] 46.3 Add a "Lägg till partner" placeholder card for the active person — positioned below the active person (or below existing spouses and children if any), rendered with the same gray dashed-outline style as other placeholder boxes, and clickable to create a new partner/family
+  - [x] 46.4 Verify that missing father placeholders appear for both the active person and their siblings when no father is linked, and that the "Lägg till partner" placeholder appears for the active person
   - **Requirements:** 17.1, 17.7, 17.8
 
 - [ ] 47. Bug: Relationship Calculator Shows Asterisk Instead of Underline in Names

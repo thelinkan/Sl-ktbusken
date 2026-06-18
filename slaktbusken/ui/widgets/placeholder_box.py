@@ -37,6 +37,7 @@ class PlaceholderRole(Enum):
     MOTHER = auto()
     FATHER = auto()
     CHILD = auto()
+    PARTNER = auto()
 
 
 # Swedish labels for each role
@@ -44,6 +45,7 @@ _ROLE_LABELS: dict[PlaceholderRole, str] = {
     PlaceholderRole.MOTHER: "Lägg till mor",
     PlaceholderRole.FATHER: "Lägg till far",
     PlaceholderRole.CHILD: "Lägg till barn",
+    PlaceholderRole.PARTNER: "Lägg till partner",
 }
 
 

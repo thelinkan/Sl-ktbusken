@@ -59,6 +59,11 @@ class Application:
             self.open_person_editor
         )
 
+        # Connect placeholder click to add new person
+        self.main_window.diagram_panel.placeholder_clicked.connect(
+            self.handle_placeholder_click
+        )
+
     # ------------------------------------------------------------------
     # Action callbacks (invoked by MainWindow actions)
     # ------------------------------------------------------------------
@@ -126,6 +131,221 @@ class Application:
                 settings = self.project_service.settings
                 if settings:
                     panel.set_person_box_config(settings.person_box_config)
+
+    def add_standalone_person(self) -> None:
+        """Create a new person with no family affiliations.
+
+        Opens the person editor for a new person. On save, adds the person
+        to project data and sets them as the active person in the diagram.
+        """
+        from slaktbusken.model.person import Person, Name
+        from slaktbusken.model.id_generator import IDGenerator
+        from slaktbusken.ui.editors.person_editor import PersonEditor
+
+        if self.project_service.data is None:
+            return
+
+        # Collect existing IDs for generator
+        data = self.project_service.data
+        existing_ids: set[str] = set()
+        for p in data.persons:
+            existing_ids.add(p.id)
+        for f in data.families:
+            existing_ids.add(f.id)
+        for e in data.events:
+            existing_ids.add(e.id)
+        for pl in data.places:
+            existing_ids.add(pl.id)
+        for s in data.sources:
+            existing_ids.add(s.id)
+
+        id_gen = IDGenerator(existing_ids)
+        new_id = id_gen.generate("person")
+
+        new_person = Person(
+            id=new_id,
+            sex="U",
+            names=[Name(type="birth", given="", surname="")],
+        )
+
+        # Open editor
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Lägg till person")
+        dialog.setMinimumSize(600, 500)
+        layout = QVBoxLayout(dialog)
+
+        editor = PersonEditor(
+            project_data=data,
+            person=new_person,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        saved = editor.saved_person
+        if saved is None:
+            return
+
+        # Add person to project (no family affiliations)
+        data.persons.append(saved)
+
+        # Mark dirty and refresh
+        self.project_service._dirty = True
+        self._update_status()
+        self.main_window.person_list_panel.refresh()
+
+        # Set the new person as active
+        panel = self.main_window.diagram_panel
+        panel.set_project_data(data)
+        settings = self.project_service.settings
+        if settings:
+            panel.set_person_box_config(settings.person_box_config)
+        panel.set_active_person(saved.id)
+
+    def handle_placeholder_click(self, role: str, family_id: str) -> None:
+        """Handle click on a placeholder box to add a new person.
+
+        Creates a new person via the person editor, then links them
+        to the appropriate family based on the placeholder role.
+
+        Args:
+            role: The placeholder role ('father', 'mother', 'child', 'partner').
+            family_id: The associated family ID, or empty string if none.
+        """
+        from slaktbusken.model.family import Family, FamilyPartner
+        from slaktbusken.model.id_generator import IDGenerator
+        from slaktbusken.model.person import Name, Person
+        from slaktbusken.ui.editors.person_editor import PersonEditor
+
+        if self.project_service.data is None:
+            return
+
+        # Determine default sex based on role
+        if role == "father":
+            default_sex = "M"
+        elif role == "mother":
+            default_sex = "F"
+        else:
+            default_sex = "U"
+
+        # Collect all existing IDs for the generator
+        data = self.project_service.data
+        existing_ids: set[str] = set()
+        for p in data.persons:
+            existing_ids.add(p.id)
+        for f in data.families:
+            existing_ids.add(f.id)
+        for e in data.events:
+            existing_ids.add(e.id)
+        for pl in data.places:
+            existing_ids.add(pl.id)
+        for s in data.sources:
+            existing_ids.add(s.id)
+
+        id_gen = IDGenerator(existing_ids)
+        new_id = id_gen.generate("person")
+
+        new_person = Person(
+            id=new_id,
+            sex=default_sex,
+            names=[Name(type="birth", given="", surname="")],
+        )
+
+        # Open editor for the new person
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Lägg till person")
+        dialog.setMinimumSize(600, 500)
+        layout = QVBoxLayout(dialog)
+
+        editor = PersonEditor(
+            project_data=data,
+            person=new_person,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        saved = editor.saved_person
+        if saved is None:
+            return
+
+        # Add the new person to project data
+        data.persons.append(saved)
+
+        # Link to appropriate family
+        active_id = self.main_window.diagram_panel.active_person_id
+
+        if role in ("father", "mother"):
+            if family_id:
+                # Add as partner to existing family
+                fam = next(
+                    (f for f in data.families if f.id == family_id), None
+                )
+                if fam:
+                    partner_role = "father" if role == "father" else "mother"
+                    fam.partners.append(
+                        FamilyPartner(person_id=saved.id, role=partner_role)
+                    )
+            else:
+                # Create a new parent family with active person as child
+                fam_id = id_gen.generate("family")
+                partner_role = "father" if role == "father" else "mother"
+                new_family = Family(
+                    id=fam_id,
+                    partners=[FamilyPartner(person_id=saved.id, role=partner_role)],
+                    children=[active_id] if active_id else [],
+                )
+                data.families.append(new_family)
+
+        elif role == "child":
+            if family_id:
+                fam = next(
+                    (f for f in data.families if f.id == family_id), None
+                )
+                if fam:
+                    fam.children.append(saved.id)
+            else:
+                # Create new family with active person as partner and new person as child
+                if active_id:
+                    fam_id = id_gen.generate("family")
+                    new_family = Family(
+                        id=fam_id,
+                        partners=[FamilyPartner(person_id=active_id, role="partner")],
+                        children=[saved.id],
+                    )
+                    data.families.append(new_family)
+
+        elif role == "partner":
+            # Create a new family with active person and new person as partners
+            if active_id:
+                fam_id = id_gen.generate("family")
+                new_family = Family(
+                    id=fam_id,
+                    partners=[
+                        FamilyPartner(person_id=active_id, role="partner"),
+                        FamilyPartner(person_id=saved.id, role="partner"),
+                    ],
+                    children=[],
+                )
+                data.families.append(new_family)
+
+        # Mark dirty and refresh UI
+        self.project_service._dirty = True
+        self._update_status()
+        self.main_window.person_list_panel.refresh()
+        panel = self.main_window.diagram_panel
+        panel.set_project_data(data)
+        settings = self.project_service.settings
+        if settings:
+            panel.set_person_box_config(settings.person_box_config)
 
     def new_project(self) -> None:
         """Create a new project via the New Project dialog."""

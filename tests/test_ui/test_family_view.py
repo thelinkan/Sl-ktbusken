@@ -354,6 +354,169 @@ class TestFamilyViewRender:
         assert "p7" in person_ids  # grandfather
         assert "p8" in person_ids  # grandmother
 
+    def test_render_father_placeholder_when_no_parent_family(self) -> None:
+        """Father and mother placeholders appear when person has no parent family."""
+        data = _make_project_data()
+        # Make p1 (father) the active person — p1 is NOT a child in any family
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        view.render(scene, data, "p1", config)
+
+        placeholders = view.get_placeholder_boxes()
+        father_placeholders = [
+            p for p in placeholders if p.role == PlaceholderRole.FATHER
+        ]
+        mother_placeholders = [
+            p for p in placeholders if p.role == PlaceholderRole.MOTHER
+        ]
+        # Both parent placeholders should appear (no parent family)
+        assert len(father_placeholders) == 1
+        assert father_placeholders[0].family_id is None
+        assert len(mother_placeholders) == 1
+        assert mother_placeholders[0].family_id is None
+
+    def test_render_partner_placeholder_for_active_person(self) -> None:
+        """A PARTNER placeholder appears for the active person."""
+        data = _make_project_data()
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        view.render(scene, data, "p3", config)
+
+        placeholders = view.get_placeholder_boxes()
+        partner_placeholders = [
+            p for p in placeholders if p.role == PlaceholderRole.PARTNER
+        ]
+        assert len(partner_placeholders) == 1
+        assert partner_placeholders[0].family_id is None
+
+    def test_render_partner_placeholder_only_for_active_person(self) -> None:
+        """The PARTNER placeholder does NOT appear for siblings."""
+        data = _make_project_data()
+        # Add a partner family for the sibling (p4) to ensure it has a spine
+        sibling_spouse = Person(id="p7", sex="male", names=[Name(type="birth", given="Nils", surname="Olsson")])
+        data.persons.append(sibling_spouse)
+        sibling_family = Family(
+            id="f3",
+            partners=[
+                FamilyPartner(person_id="p4", role="mother"),
+                FamilyPartner(person_id="p7", role="father"),
+            ],
+            children=[],
+        )
+        data.families.append(sibling_family)
+
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        view.render(scene, data, "p3", config)
+
+        placeholders = view.get_placeholder_boxes()
+        partner_placeholders = [
+            p for p in placeholders if p.role == PlaceholderRole.PARTNER
+        ]
+        # Only one PARTNER placeholder — for the active person (p3), not the sibling
+        assert len(partner_placeholders) == 1
+
+    def test_render_partner_placeholder_when_no_existing_partners(self) -> None:
+        """PARTNER placeholder appears even when active person has no partner families."""
+        # Create a minimal project where the active person has no partner families
+        active = Person(id="p1", sex="male", names=[Name(type="birth", given="Karl", surname="Svensson")])
+        mother = Person(id="p2", sex="female", names=[Name(type="birth", given="Anna", surname="Karlsson")])
+
+        parent_family = Family(
+            id="f1",
+            partners=[FamilyPartner(person_id="p2", role="mother")],
+            children=["p1"],
+        )
+
+        data = ProjectData(
+            project=ProjectMetadata(title="Test", main_person_id="p1"),
+            persons=[active, mother],
+            families=[parent_family],
+            events=[],
+        )
+
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        view.render(scene, data, "p1", config)
+
+        placeholders = view.get_placeholder_boxes()
+        partner_placeholders = [
+            p for p in placeholders if p.role == PlaceholderRole.PARTNER
+        ]
+        assert len(partner_placeholders) == 1
+
+    def test_render_spouse_placeholder_when_only_active_person_in_family(self) -> None:
+        """FATHER placeholder appears when active person (mother) has a family with children but no spouse."""
+        # Create a family where the active person is the only partner (mother role)
+        # with children but no spouse listed
+        active = Person(id="p1", sex="female", names=[Name(type="birth", given="Anna", surname="Karlsson")])
+        child = Person(id="p2", sex="male", names=[Name(type="birth", given="Erik", surname="Karlsson")])
+
+        # Family with only one partner (the mother) and a child
+        family_no_spouse = Family(
+            id="f1",
+            partners=[
+                FamilyPartner(person_id="p1", role="mother"),
+            ],
+            children=["p2"],
+        )
+
+        data = ProjectData(
+            project=ProjectMetadata(title="Test", main_person_id="p1"),
+            persons=[active, child],
+            families=[family_no_spouse],
+            events=[],
+        )
+
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        view.render(scene, data, "p1", config)
+
+        placeholders = view.get_placeholder_boxes()
+        father_placeholders = [
+            p for p in placeholders if p.role == PlaceholderRole.FATHER
+        ]
+        # A FATHER placeholder should appear in the spouse position
+        assert len(father_placeholders) >= 1
+        # It should be associated with the family
+        assert any(p.family_id == "f1" for p in father_placeholders)
+
+    def test_render_partner_placeholder_positioned_below_existing_spouses(self) -> None:
+        """PARTNER placeholder is positioned below existing spouse/children blocks."""
+        data = _make_project_data()
+        scene = QGraphicsScene()
+        config = PersonBoxConfig()
+        view = FamilyView()
+
+        view.render(scene, data, "p3", config)
+
+        placeholders = view.get_placeholder_boxes()
+        partner_placeholders = [
+            p for p in placeholders if p.role == PlaceholderRole.PARTNER
+        ]
+        assert len(partner_placeholders) == 1
+
+        # The partner placeholder should be below the active person's spouse box
+        partner_ph = partner_placeholders[0]
+        person_boxes = view.get_person_boxes()
+        active_box = next(b for b in person_boxes if b.person_id == "p3")
+        spouse_box = next(b for b in person_boxes if b.person_id == "p5")
+
+        # Partner placeholder Y should be greater than spouse Y (below it)
+        assert partner_ph.pos().y() > spouse_box.pos().y()
+        # Also below the active person
+        assert partner_ph.pos().y() > active_box.pos().y()
+
 
 # ---------------------------------------------------------------------------
 # FamilyView selection tests

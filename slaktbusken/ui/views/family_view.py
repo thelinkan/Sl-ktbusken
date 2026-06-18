@@ -293,13 +293,14 @@ class FamilyView:
         for i, box in enumerate(sibling_boxes):
             sib_x = sibling_positions[i][0]
             sib_height = box.box_height
+            is_active = box.person_id == active_person_id
 
             # Find partner families for this sibling
             sib_partner_families = _find_partner_families(
                 project_data, box.person_id
             )
 
-            if not sib_partner_families:
+            if not sib_partner_families and not is_active:
                 continue
 
             # Spine X is to the left of the sibling box
@@ -343,6 +344,34 @@ class FamilyView:
                         spouse_box_item.setPos(spouse_x, cur_y)
                         scene.addItem(spouse_box_item)
                         self._person_boxes.append(spouse_box_item)
+
+                # If no spouse was found, show a placeholder for the missing parent
+                if spouse_box_item is None:
+                    # Determine placeholder role based on the current person's role
+                    current_partner = next(
+                        (fp for fp in family.partners if fp.person_id == box.person_id),
+                        None,
+                    )
+                    if current_partner and current_partner.role in ("mother", "wife"):
+                        ph_role = PlaceholderRole.FATHER
+                    elif current_partner and current_partner.role in ("father", "husband"):
+                        ph_role = PlaceholderRole.MOTHER
+                    else:
+                        # Fallback: check person's sex
+                        current_person = _find_person(project_data, box.person_id)
+                        if current_person and current_person.sex in ("F", "female"):
+                            ph_role = PlaceholderRole.FATHER
+                        elif current_person and current_person.sex in ("M", "male"):
+                            ph_role = PlaceholderRole.MOTHER
+                        else:
+                            ph_role = PlaceholderRole.PARTNER
+
+                    spouse_placeholder = PlaceholderBoxItem(
+                        ph_role, family_id=family.id
+                    )
+                    spouse_placeholder.setPos(spouse_x, cur_y)
+                    scene.addItem(spouse_placeholder)
+                    self._placeholder_boxes.append(spouse_placeholder)
 
                 # Determine spouse box height
                 if spouse_box_item:
@@ -400,6 +429,27 @@ class FamilyView:
                     ConnectionType.PARENT_CHILD,
                 ))
 
+                cur_y += _PLACEHOLDER_HEIGHT + _CHILD_V_GAP
+
+            # "Lägg till partner" placeholder for the active person
+            if is_active:
+                partner_placeholder = PlaceholderBoxItem(
+                    PlaceholderRole.PARTNER,
+                    family_id=None,
+                )
+                partner_placeholder.setPos(sib_x, cur_y)
+                scene.addItem(partner_placeholder)
+                self._placeholder_boxes.append(partner_placeholder)
+
+                # Connector from spine to partner placeholder
+                partner_ph_mid_y = cur_y + _PLACEHOLDER_HEIGHT / 2.0
+                scene.addItem(ConnectionLineItem(
+                    QPointF(spine_x, partner_ph_mid_y),
+                    QPointF(sib_x, partner_ph_mid_y),
+                    ConnectionType.PARTNER,
+                ))
+
+                spine_end_y = partner_ph_mid_y
                 cur_y += _PLACEHOLDER_HEIGHT + _CHILD_V_GAP
 
             # Draw the vertical spine line from sibling bottom to last spouse connector
