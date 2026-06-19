@@ -298,6 +298,7 @@ def classify_persons(
     existing_mappings: list[PersonMapping],
     existing_fingerprints: dict[str, str],
     existing_birth_fingerprints: Optional[dict[str, str]] = None,
+    existing_names: Optional[dict[str, tuple[str, str]]] = None,
 ) -> ImportDiffReport:
     """Classify incoming GEDCOM persons against existing App_JSON data.
 
@@ -314,7 +315,11 @@ def classify_persons(
        - Exact hash match → UPDATED or UNCHANGED (based on record hash).
        - Partial match (≥2/4 components) → UNCERTAIN.
        - No match → NEW.
-    3. Any App_JSON person in existing_mappings whose GEDCOM ID is not in
+    3. Second pass: match NEW persons against displaced app_ids (whose
+       xref was reassigned) using name-based comparison. This handles
+       the case where a person gained birth data, changing their
+       composite_key_hash while keeping the same name.
+    4. Any App_JSON person in existing_mappings whose GEDCOM ID is not in
        the incoming data is classified as MISSING.
 
     Args:
@@ -328,6 +333,9 @@ def classify_persons(
         existing_birth_fingerprints: Optional dict mapping App_JSON person
             IDs to birth-only hashes. Currently unused but kept for API
             compatibility.
+        existing_names: Optional dict mapping App_JSON person IDs to
+            (given_name, surname) tuples. Used for name-based fallback
+            matching when fingerprint hashes change due to added data.
 
     Returns:
         An ImportDiffReport containing all classification entries and
@@ -335,7 +343,13 @@ def classify_persons(
     """
     if existing_birth_fingerprints is None:
         existing_birth_fingerprints = {}
+    if existing_names is None:
+        existing_names = {}
     entries: list[PersonDiffEntry] = []
+
+    # Track app_ids displaced by the bidirectional identity check.
+    # These are app_ids whose mapped xref was taken by a different person.
+    displaced_app_ids: set[str] = set()
 
     # Build lookup from GEDCOM ID to existing mapping
     mapping_by_gedcom_id: dict[str, PersonMapping] = {
@@ -391,6 +405,22 @@ def classify_persons(
                     # else: no other incoming person claims this fingerprint,
                     # so this is likely the same person with changed data
                     # (e.g., married name). Trust the mapping.
+
+                    # Bidirectional check: if this incoming person's
+                    # composite_key_hash matches a DIFFERENT app_id's stored
+                    # fingerprint, this person belongs to that other app_id —
+                    # not the one at this xref. This catches the case where
+                    # a person moved to a reused xref AND the previous
+                    # occupant gained new data (e.g., birth date added),
+                    # making the forward heuristic miss the reassignment.
+                    if identity_confirmed and fingerprint.composite_key_hash in app_id_by_fingerprint:
+                        true_app_id = app_id_by_fingerprint[fingerprint.composite_key_hash]
+                        if true_app_id != app_id:
+                            identity_confirmed = False
+
+            if not identity_confirmed:
+                # This xref was reassigned — the mapping's app_id is displaced
+                displaced_app_ids.add(app_id)
 
             if identity_confirmed:
                 # Compare record hash via stored fingerprint
@@ -466,6 +496,54 @@ def classify_persons(
                     matched_app_id=best_app_id,
                 )
             )
+
+    # Second pass: match NEW persons against displaced app_ids by name.
+    # When a person gains data (e.g., birth date added) their composite_key_hash
+    # changes, so hash-based matching fails. But if their name matches a
+    # displaced app_id's name, it's almost certainly the same person.
+    if displaced_app_ids and existing_names:
+        # Build lookup of displaced app_id → (given_name, surname)
+        displaced_names: dict[str, tuple[str, str]] = {}
+        for app_id in displaced_app_ids:
+            if app_id in existing_names:
+                displaced_names[app_id] = existing_names[app_id]
+
+        if displaced_names:
+            # Track which app_ids get claimed in this pass
+            claimed_app_ids: set[str] = set()
+
+            for i, entry in enumerate(entries):
+                if entry.category != DiffCategory.NEW:
+                    continue
+
+                # Get the incoming person's name
+                person = next(
+                    (p for p in incoming if p.xref_id == entry.gedcom_xref),
+                    None,
+                )
+                if person is None:
+                    continue
+
+                incoming_given = _normalize(person.given_name)
+                incoming_surname = _normalize(person.surname)
+
+                # Check against all displaced names
+                for app_id, (existing_given, existing_surname) in displaced_names.items():
+                    if app_id in claimed_app_ids:
+                        continue
+                    if (
+                        _normalize(existing_given) == incoming_given
+                        and _normalize(existing_surname) == incoming_surname
+                    ):
+                        # Name match — reclassify as UPDATED
+                        entries[i] = PersonDiffEntry(
+                            gedcom_xref=entry.gedcom_xref,
+                            app_id=app_id,
+                            category=DiffCategory.UPDATED,
+                            fingerprint=entry.fingerprint,
+                        )
+                        claimed_app_ids.add(app_id)
+                        break
 
     # Case 4: Detect MISSING persons — in existing mappings but not in incoming
     for mapping in existing_mappings:

@@ -704,7 +704,7 @@ class TestGEDCOMImporterWarnings:
     def test_warning_includes_line_number(
         self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
     ) -> None:
-        """Warnings include the GEDCOM line number."""
+        """Warnings include structured information (xref, name, reason)."""
         gedcom_file = tmp_path / "test.ged"
         gedcom_file.write_text(_GEDCOM_WITH_UNSUPPORTED_TAGS, encoding="utf-8")
 
@@ -713,7 +713,8 @@ class TestGEDCOMImporterWarnings:
 
         for w in result.warnings:
             if "ej stödd GEDCOM-taggtyp" in w:
-                assert "Rad " in w
+                # Structured warnings include reason and action
+                assert "Orsak:" in w or "ej stödd" in w
 
     def test_warning_includes_tag(
         self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path

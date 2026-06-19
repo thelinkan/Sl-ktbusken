@@ -84,6 +84,59 @@ class ImportResult:
     warnings: list[str] = field(default_factory=list)
 
 
+@dataclass
+class WarningEntry:
+    """Structured warning entry for GEDCOM import diagnostics.
+
+    All fields except ``reason`` are optional. When formatted as a string,
+    only non-None fields are included.
+
+    Attributes:
+        gedcom_file: Name of the GEDCOM file being imported.
+        record_xref: The @I..@ or @F..@ xref of the related record.
+        person_or_family_name: Person or family name if available.
+        event_type: Event type if applicable.
+        raw_value: The raw GEDCOM value/tag that triggered the warning.
+        reason: The reason for the warning (Swedish).
+        action_taken: What was done (e.g. "ignorerades").
+    """
+
+    gedcom_file: Optional[str] = None
+    record_xref: Optional[str] = None
+    person_or_family_name: Optional[str] = None
+    event_type: Optional[str] = None
+    raw_value: Optional[str] = None
+    reason: str = ""
+    action_taken: Optional[str] = None
+
+    def __str__(self) -> str:
+        """Format as a human-readable warning string with all available fields."""
+        parts: list[str] = []
+
+        if self.record_xref:
+            parts.append(f"[{self.record_xref}]")
+
+        if self.person_or_family_name:
+            parts.append(self.person_or_family_name)
+
+        if self.event_type:
+            parts.append(self.event_type)
+
+        if self.raw_value:
+            parts.append(f"Råvärde: '{self.raw_value}'")
+
+        if self.reason:
+            parts.append(f"Orsak: {self.reason}")
+
+        if self.action_taken:
+            parts.append(f"Åtgärd: {self.action_taken}")
+
+        if self.gedcom_file:
+            parts.append(f"Fil: {self.gedcom_file}")
+
+        return " | ".join(parts) if parts else self.reason
+
+
 # ---------------------------------------------------------------------------
 # GEDCOM month mapping
 # ---------------------------------------------------------------------------
@@ -535,7 +588,8 @@ class GEDCOMImporter:
         self._project_data = project_data
         self._translation_dir = translation_dir
         self._translation_mgr = TranslationManager(translation_dir)
-        self._warnings: list[str] = []
+        self._warnings: list[WarningEntry] = []
+        self._gedcom_filename: Optional[str] = None
 
         # Collect all existing IDs for the ID generator
         existing_ids: set[str] = set()
@@ -609,12 +663,19 @@ class GEDCOMImporter:
         # Read the file with BOM handling
         text = self._read_gedcom_file(gedcom_path)
 
+        # Store filename for structured warnings
+        self._gedcom_filename = gedcom_path.name
+
         # Parse into tree
         parse_result = parse_gedcom(text)
 
         # Collect parser warnings
         for pw in parse_result.warnings:
-            self._warnings.append(pw.message)
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                raw_value=pw.message,
+                reason=pw.message,
+            ))
 
         # Load existing translation data
         translation_data = self._translation_mgr.load_translations()
@@ -625,19 +686,36 @@ class GEDCOMImporter:
         fam_records: list[GedcomLine] = []
         sour_records: list[GedcomLine] = []
 
+        # Track last-seen INDI context for unsupported tag warnings
+        _last_indi_xref: Optional[str] = None
+        _last_indi_name: Optional[str] = None
+
         for record in parse_result.records:
             tag = record.tag.upper()
             if tag == "INDI":
                 indi_records.append(record)
+                _last_indi_xref = record.xref_id
+                _last_indi_name = _get_child_value(record, "NAME")
             elif tag == "FAM":
                 fam_records.append(record)
             elif tag == "SOUR":
                 sour_records.append(record)
             elif tag not in _SUPPORTED_LEVEL0_TAGS:
-                self._warnings.append(
-                    f"Rad {record.line_number}: Ignorerade post med tagg "
-                    f"'{record.tag}' (ej stödd GEDCOM-taggtyp)"
-                )
+                # Use the record's own xref if available, otherwise
+                # fall back to the last-seen INDI record's xref as context
+                context_xref = record.xref_id or _last_indi_xref
+                context_name = _last_indi_name
+                # Clean up NAME value (remove slashes around surname)
+                if context_name:
+                    context_name = context_name.replace("/", "").strip()
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    record_xref=context_xref,
+                    person_or_family_name=context_name or None,
+                    raw_value=record.tag,
+                    reason=f"ej stödd GEDCOM-taggtyp '{record.tag}'",
+                    action_taken="Ignorerades",
+                ))
 
         # Step 1: Process sources
         self._process_sources(sour_records, translation_data)
@@ -664,7 +742,7 @@ class GEDCOMImporter:
             events_added=self._events_added,
             sources_added=self._sources_added,
             places_added=self._places_added,
-            warnings=self._warnings,
+            warnings=[str(w) for w in self._warnings],
         )
 
     # ------------------------------------------------------------------
@@ -772,7 +850,7 @@ class GEDCOMImporter:
                     f.write("ALL WARNINGS\n")
                     f.write("=" * 72 + "\n\n")
                     for i, warning in enumerate(self._warnings, 1):
-                        f.write(f"  {i}. {warning}\n")
+                        f.write(f"  {i}. {str(warning)}\n")
                     f.write("\n")
 
                 # Family records with unresolved partner/child references
@@ -948,10 +1026,14 @@ class GEDCOMImporter:
                 person_records_by_xref[gp.xref_id] = record
             except Exception as exc:
                 line_num = record.line_number if record else "?"
-                self._warnings.append(
-                    f"Rad {line_num}: Kunde inte importera person "
-                    f"(xref={record.xref_id or '?'}): {exc}"
-                )
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    record_xref=record.xref_id or "?",
+                    person_or_family_name=_get_child_value(record, "NAME") or None,
+                    raw_value=f"Rad {line_num}",
+                    reason=f"Kunde inte importera person: {exc}",
+                    action_taken="Hoppades över",
+                ))
 
         families: list[GedcomFamily] = []
         for fam_rec in fam_records:
@@ -1008,11 +1090,19 @@ class GEDCOMImporter:
                 existing_fingerprints[person.id] = fp_hash
 
         # Classify persons using fingerprint-based matching
+        # Build name lookup for fallback matching when fingerprints change
+        existing_names: dict[str, tuple[str, str]] = {}
+        for person in self._project_data.persons:
+            given = person.names[0].given or "" if person.names else ""
+            surname = person.names[0].surname or "" if person.names else ""
+            existing_names[person.id] = (given, surname)
+
         diff_report = classify_persons(
             incoming=incoming_persons,
             families=families,
             existing_mappings=translation_data.persons,
             existing_fingerprints=existing_fingerprints,
+            existing_names=existing_names,
         )
 
         # Build lookup: xref_id → PersonDiffEntry
@@ -1079,10 +1169,14 @@ class GEDCOMImporter:
 
             except Exception as exc:
                 line_num = record.line_number if record else "?"
-                self._warnings.append(
-                    f"Rad {line_num}: Kunde inte importera person "
-                    f"(xref={record.xref_id or '?'}): {exc}"
-                )
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    record_xref=record.xref_id or "?",
+                    person_or_family_name=_get_child_value(record, "NAME") or None,
+                    raw_value=f"Rad {line_num}",
+                    reason=f"Kunde inte importera person: {exc}",
+                    action_taken="Hoppades över",
+                ))
 
     def _update_translation_xref(
         self,
@@ -1778,6 +1872,12 @@ class GEDCOMImporter:
             self._project_data.places.append(new_place)
             self._places_added += 1
 
+        # Fallback for single-word place values: if map_place returned None
+        # and the place string has no commas (single word/name), try to find
+        # an existing place by name or create a minimal record.
+        if place_id is None and "," not in normalized:
+            place_id = self._resolve_single_word_place(normalized)
+
         if place_id:
             self._place_cache[normalized] = place_id
 
@@ -1800,3 +1900,54 @@ class GEDCOMImporter:
                     )
 
         return place_id
+
+    def _resolve_single_word_place(self, place_name: str) -> Optional[str]:
+        """Resolve a single-word PLAC value by name matching or creation.
+
+        When the normal place mapping pipeline returns None for a single-word
+        place string (no commas), this method provides a fallback:
+        1. Search existing places for a case-insensitive name match.
+        2. If found, reuse that place's ID.
+        3. If not found, create a minimal Place record with type="unknown".
+
+        A structured warning is always logged so the user is aware that
+        a single-word place was resolved via fallback rather than the
+        normal hierarchy-based mapping.
+
+        Args:
+            place_name: The single-word place string (already stripped).
+
+        Returns:
+            The place ID of the matched or newly created place.
+        """
+        name_lower = place_name.lower()
+
+        # Search existing places by name (case-insensitive)
+        for existing_place in self._project_data.places:
+            if existing_place.name.lower() == name_lower:
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    raw_value=place_name,
+                    reason=f"Plats '{place_name}' (ett ord) matchades mot befintlig plats '{existing_place.name}' (id: {existing_place.id}, typ: {existing_place.type})",
+                    action_taken="Använde befintlig plats",
+                ))
+                return existing_place.id
+
+        # No existing match — create a minimal Place record
+        new_id = self._id_gen.generate("place")
+        new_place = Place(
+            id=new_id,
+            type="unknown",
+            name=place_name,
+            parent_place_id=None,
+        )
+        self._project_data.places.append(new_place)
+        self._places_added += 1
+
+        self._warnings.append(WarningEntry(
+            gedcom_file=self._gedcom_filename,
+            raw_value=place_name,
+            reason=f"Plats '{place_name}' (ett ord) kunde inte matchas mot platshierarkin",
+            action_taken=f"Skapade fristående platspost (id: {new_id}, typ: unknown)",
+        ))
+        return new_id

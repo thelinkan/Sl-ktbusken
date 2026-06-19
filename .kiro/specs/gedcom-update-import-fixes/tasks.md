@@ -86,9 +86,9 @@ The workflow follows the bug condition methodology: write exploration and preser
     - _Preservation: Events for correctly-structured new persons are still attached properly_
     - _Requirements: 2.3, 3.2_
 
-- [ ] 6. Fix Bug 4: Single-word PLAC value preservation
+- [x] 6. Fix Bug 4: Single-word PLAC value preservation
 
-  - [ ] 6.1 Implement single-word place fallback in _resolve_place
+  - [x] 6.1 Implement single-word place fallback in _resolve_place
     - In `slaktbusken/gedcom/importer.py`, modify `_resolve_place` to handle single-word PLAC values
     - When `map_place` returns `None` for a single-word place: store raw place string on the event (create minimal Place record or use raw_place field)
     - Log a structured warning with person, event type, and raw PLAC value
@@ -98,9 +98,9 @@ The workflow follows the bug condition methodology: write exploration and preser
     - _Preservation: Multi-word PLAC values ("Falun, Dalarna, Sverige") continue to normalize correctly_
     - _Requirements: 2.4, 3.3_
 
-- [ ] 7. Fix Bug 5: Structured import warnings
+- [x] 7. Fix Bug 5: Structured import warnings
 
-  - [ ] 7.1 Introduce WarningEntry dataclass and structured warning generation
+  - [x] 7.1 Introduce WarningEntry dataclass and structured warning generation
     - Create a `WarningEntry` dataclass (or structured dict) with fields: gedcom_file, record_xref, person_or_family_name, event_type, raw_value, reason, action_taken
     - Replace free-text `self._warnings.append(...)` calls with structured `WarningEntry` instances
     - Update `format_result` and report rendering to include all structured fields
@@ -110,9 +110,9 @@ The workflow follows the bug condition methodology: write exploration and preser
     - _Preservation: Clean imports with no issues produce no warnings (no false positives from new warning system)_
     - _Requirements: 2.5, 3.5_
 
-- [ ] 8. Verify all fixes pass exploration and preservation tests
+- [x] 8. Verify all fixes pass exploration and preservation tests
 
-  - [ ] 8.1 Verify bug condition exploration tests now pass
+  - [x] 8.1 Verify bug condition exploration tests now pass
     - **Property 1: Expected Behavior** - GEDCOM Update Import Defects Fixed
     - **IMPORTANT**: Re-run the SAME tests from task 1 — do NOT write new tests
     - The tests from task 1 encode the expected behavior for all 5 bugs
@@ -126,7 +126,7 @@ The workflow follows the bug condition methodology: write exploration and preser
     - **EXPECTED OUTCOME**: Tests PASS (confirms all bugs are fixed)
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-  - [ ] 8.2 Verify preservation tests still pass
+  - [x] 8.2 Verify preservation tests still pass
     - **Property 2: Preservation** - Existing GEDCOM Import Behavior Still Unchanged
     - **IMPORTANT**: Re-run the SAME tests from task 2 — do NOT write new tests
     - Run preservation property tests from step 2
@@ -134,7 +134,7 @@ The workflow follows the bug condition methodology: write exploration and preser
     - Confirm: full initial import still works, multi-word places still normalize, unchanged events still untouched, new persons still created correctly, clean imports still produce no warnings
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 9. Checkpoint - Ensure all tests pass
+- [x] 9. Checkpoint - Ensure all tests pass
   - Run full test suite including both bug condition and preservation tests
   - Verify no regressions in existing tests
   - Ensure all tests pass, ask the user if questions arise
