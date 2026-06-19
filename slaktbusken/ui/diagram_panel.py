@@ -424,113 +424,123 @@ class DiagramPanel(QWidget):
         Computes ancestor/descendant sets via LineageComputer based on
         main_person_id and passes them to each view renderer.
         """
-        from PySide6.QtCore import QRectF
+        from PySide6.QtCore import QRectF, QSignalBlocker
 
-        # Reset scene rect before clearing to avoid retaining old bounds
-        self._scene.setSceneRect(QRectF())
-        self._scene.clear()
+        # Block selectionChanged during the entire clear+rebuild cycle to
+        # prevent _on_scene_selection_changed from accessing stale refs.
+        with QSignalBlocker(self._scene):
+            # Reset scene rect before clearing to avoid retaining old bounds
+            self._scene.setSceneRect(QRectF())
 
-        from slaktbusken.ui.main_window import ViewType
+            # Defense in depth: clear stale person box references before scene.clear()
+            # so deselect_all() iterates an empty list if selectionChanged fires
+            self._family_view._person_boxes = []
+            self._ancestry_view._person_boxes = []
+            self._descendants_view._person_boxes = []
 
-        # Compute lineage sets based on main_person_id
-        ancestor_set: set[str] = set()
-        descendant_set: set[str] = set()
+            self._scene.clear()
 
-        if self._project_data is not None:
-            main_person_id = self._project_data.project.main_person_id
-            if main_person_id:
-                lineage = LineageComputer(self._project_data)
-                ancestor_set = lineage.get_ancestors(main_person_id)
-                descendant_set = lineage.get_descendants(main_person_id)
+            from slaktbusken.ui.main_window import ViewType
 
-        if (
-            self._current_view == ViewType.FAMILY
-            and self._project_data is not None
-            and self._active_person_id is not None
-            and self._person_box_config is not None
-        ):
-            self._family_view.render(
-                self._scene,
-                self._project_data,
-                self._active_person_id,
-                self._person_box_config,
-                ancestor_set=ancestor_set,
-                descendant_set=descendant_set,
-            )
+            # Compute lineage sets based on main_person_id
+            ancestor_set: set[str] = set()
+            descendant_set: set[str] = set()
 
-            # Enable selection on person boxes
-            for box in self._family_view.get_person_boxes():
-                box.setFlag(
-                    box.GraphicsItemFlag.ItemIsSelectable, True
+            if self._project_data is not None:
+                main_person_id = self._project_data.project.main_person_id
+                if main_person_id:
+                    lineage = LineageComputer(self._project_data)
+                    ancestor_set = lineage.get_ancestors(main_person_id)
+                    descendant_set = lineage.get_descendants(main_person_id)
+
+            if (
+                self._current_view == ViewType.FAMILY
+                and self._project_data is not None
+                and self._active_person_id is not None
+                and self._person_box_config is not None
+            ):
+                self._family_view.render(
+                    self._scene,
+                    self._project_data,
+                    self._active_person_id,
+                    self._person_box_config,
+                    ancestor_set=ancestor_set,
+                    descendant_set=descendant_set,
                 )
 
-            # Enable selection on placeholder boxes
-            for ph in self._family_view.get_placeholder_boxes():
-                ph.setFlag(
-                    ph.GraphicsItemFlag.ItemIsSelectable, True
+                # Enable selection on person boxes
+                for box in self._family_view.get_person_boxes():
+                    box.setFlag(
+                        box.GraphicsItemFlag.ItemIsSelectable, True
+                    )
+
+                # Enable selection on placeholder boxes
+                for ph in self._family_view.get_placeholder_boxes():
+                    ph.setFlag(
+                        ph.GraphicsItemFlag.ItemIsSelectable, True
+                    )
+
+            elif (
+                self._current_view == ViewType.ANCESTRY
+                and self._project_data is not None
+                and self._active_person_id is not None
+                and self._person_box_config is not None
+            ):
+                from slaktbusken.persistence.settings_io import DiagramSettings
+
+                # Get ancestry depth from the config; default to 4
+                ancestry_depth = 4
+                if hasattr(self, "_diagram_settings") and self._diagram_settings:
+                    ancestry_depth = self._diagram_settings.ancestry_depth
+
+                self._ancestry_view.render(
+                    self._scene,
+                    self._project_data,
+                    self._active_person_id,
+                    self._person_box_config,
+                    depth=ancestry_depth,
+                    ancestor_set=ancestor_set,
+                    descendant_set=descendant_set,
                 )
 
-        elif (
-            self._current_view == ViewType.ANCESTRY
-            and self._project_data is not None
-            and self._active_person_id is not None
-            and self._person_box_config is not None
-        ):
-            from slaktbusken.persistence.settings_io import DiagramSettings
+                # Enable selection on person boxes
+                for box in self._ancestry_view.get_person_boxes():
+                    box.setFlag(
+                        box.GraphicsItemFlag.ItemIsSelectable, True
+                    )
 
-            # Get ancestry depth from the config; default to 4
-            ancestry_depth = 4
-            if hasattr(self, "_diagram_settings") and self._diagram_settings:
-                ancestry_depth = self._diagram_settings.ancestry_depth
+                # Enable selection on placeholder boxes
+                for ph in self._ancestry_view.get_placeholder_boxes():
+                    ph.setFlag(
+                        ph.GraphicsItemFlag.ItemIsSelectable, True
+                    )
 
-            self._ancestry_view.render(
-                self._scene,
-                self._project_data,
-                self._active_person_id,
-                self._person_box_config,
-                depth=ancestry_depth,
-                ancestor_set=ancestor_set,
-                descendant_set=descendant_set,
-            )
+            elif (
+                self._current_view == ViewType.DESCENDANTS
+                and self._project_data is not None
+                and self._active_person_id is not None
+                and self._person_box_config is not None
+            ):
+                # Hämta djup för ättlingar från inställningar; standard 4
+                descendants_depth = 4
+                if hasattr(self, "_diagram_settings") and self._diagram_settings:
+                    descendants_depth = self._diagram_settings.descendants_depth
 
-            # Enable selection on person boxes
-            for box in self._ancestry_view.get_person_boxes():
-                box.setFlag(
-                    box.GraphicsItemFlag.ItemIsSelectable, True
+                self._descendants_view.render(
+                    self._scene,
+                    self._project_data,
+                    self._active_person_id,
+                    self._person_box_config,
+                    depth=descendants_depth,
+                    ancestor_set=ancestor_set,
+                    descendant_set=descendant_set,
                 )
 
-            # Enable selection on placeholder boxes
-            for ph in self._ancestry_view.get_placeholder_boxes():
-                ph.setFlag(
-                    ph.GraphicsItemFlag.ItemIsSelectable, True
-                )
-
-        elif (
-            self._current_view == ViewType.DESCENDANTS
-            and self._project_data is not None
-            and self._active_person_id is not None
-            and self._person_box_config is not None
-        ):
-            # Hämta djup för ättlingar från inställningar; standard 4
-            descendants_depth = 4
-            if hasattr(self, "_diagram_settings") and self._diagram_settings:
-                descendants_depth = self._diagram_settings.descendants_depth
-
-            self._descendants_view.render(
-                self._scene,
-                self._project_data,
-                self._active_person_id,
-                self._person_box_config,
-                depth=descendants_depth,
-                ancestor_set=ancestor_set,
-                descendant_set=descendant_set,
-            )
-
-            # Aktivera markering på personrutor
-            for box in self._descendants_view.get_person_boxes():
-                box.setFlag(
-                    box.GraphicsItemFlag.ItemIsSelectable, True
-                )
+                # Aktivera markering på personrutor
+                for box in self._descendants_view.get_person_boxes():
+                    box.setFlag(
+                        box.GraphicsItemFlag.ItemIsSelectable, True
+                    )
 
         # After rendering, reset scene rect to actual content bounds
         # and force a viewport repaint to avoid old graph remnants

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+import shiboken6
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QGraphicsScene
 
@@ -306,13 +307,15 @@ class AncestryView:
         """
         self.selected_person_id = person_id
         for box in self._person_boxes:
-            box.set_selected(box.person_id == person_id)
+            if shiboken6.isValid(box):
+                box.set_selected(box.person_id == person_id)
 
     def deselect_all(self) -> None:
         """Avmarkera alla personrutor."""
         self.selected_person_id = None
         for box in self._person_boxes:
-            box.set_selected(False)
+            if shiboken6.isValid(box):
+                box.set_selected(False)
 
     def get_person_boxes(self) -> list[PersonBoxItem]:
         """Returnera alla personrutor i diagrammet.

@@ -18,6 +18,8 @@ förgreningsfaktor.
 
 from __future__ import annotations
 
+import shiboken6
+
 import logging
 from typing import Optional
 
@@ -231,13 +233,15 @@ class DescendantsView:
         """
         self.selected_person_id = person_id
         for box in self._person_boxes:
-            box.set_selected(box.person_id == person_id)
+            if shiboken6.isValid(box):
+                box.set_selected(box.person_id == person_id)
 
     def deselect_all(self) -> None:
         """Avmarkera alla personrutor."""
         self.selected_person_id = None
         for box in self._person_boxes:
-            box.set_selected(False)
+            if shiboken6.isValid(box):
+                box.set_selected(False)
 
     def get_person_boxes(self) -> list[PersonBoxItem]:
         """Returnera alla personrutor i diagrammet.
