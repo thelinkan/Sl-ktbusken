@@ -28,9 +28,15 @@ from typing import Optional
 from slaktbusken.gedcom.parser import GedcomLine, GedcomParseError, parse_gedcom
 from slaktbusken.gedcom.translation import TranslationManager
 from slaktbusken.gedcom.translation.models import (
+    DiffCategory,
     GedcomFamily,
     GedcomPerson,
     GedcomSource,
+    PersonDiffEntry,
+)
+from slaktbusken.gedcom.translation.person_mapping import (
+    classify_persons,
+    compute_composite_key_hash,
 )
 from slaktbusken.gedcom.translation.source_translation import detect_arkiv_digital
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
@@ -559,6 +565,11 @@ class GEDCOMImporter:
         # Translation data reference (set during import_file)
         self._translation_data: Optional[TranslationData] = None
 
+        # Event deduplication: set of keys for existing events when updating
+        # a person. Used by _create_event to skip duplicates.
+        # Key format: (event_type, date_value_str_or_none, place_id_or_none)
+        self._existing_event_keys: Optional[set[tuple[str, Optional[str], Optional[str]]]] = None
+
         # Counters
         self._persons_added = 0
         self._persons_updated = 0
@@ -631,8 +642,8 @@ class GEDCOMImporter:
         # Step 1: Process sources
         self._process_sources(sour_records, translation_data)
 
-        # Step 2: Process persons
-        self._process_persons(indi_records, translation_data)
+        # Step 2: Process persons (pass fam_records for fingerprint matching)
+        self._process_persons(indi_records, translation_data, fam_records)
 
         # Step 3: Process families
         self._process_families(fam_records, translation_data)
@@ -904,42 +915,210 @@ class GEDCOMImporter:
         self,
         indi_records: list[GedcomLine],
         translation_data: TranslationData,
+        fam_records: list[GedcomLine],
     ) -> None:
         """Process all INDI records from the GEDCOM file.
 
+        Uses fingerprint-based classification (via classify_persons) to
+        correctly identify persons even when GEDCOM xrefs are renumbered
+        between exports. This prevents the event isolation bug where a
+        new person (with a reused xref) would incorrectly match an
+        existing person.
+
         For each person record:
         1. Extract into GedcomPerson
-        2. Check translation mappings for existing App_JSON ID (re-import)
-        3. Create or update Person record
+        2. Classify using fingerprints (composite_key_hash matching)
+        3. Create or update Person record based on classification
         4. Create events (birth, death, baptism, burial, etc.)
         5. Update translation mappings
 
         Args:
             indi_records: Level-0 INDI GedcomLine records.
             translation_data: Translation data to update with new mappings.
+            fam_records: Level-0 FAM GedcomLine records (needed for
+                fingerprint computation in classify_persons).
         """
-        # Build mapping from gedcom_id → PersonMapping for re-import
-        person_mapping_by_xref: dict[str, PersonMapping] = {
-            m.gedcom_id: m for m in translation_data.persons
-        }
-
+        # Extract all GedcomPerson and GedcomFamily objects for classification
+        incoming_persons: list[GedcomPerson] = []
+        person_records_by_xref: dict[str, GedcomLine] = {}
         for record in indi_records:
             try:
-                gedcom_person = _extract_gedcom_person(record)
-                existing_mapping = person_mapping_by_xref.get(gedcom_person.xref_id)
-
-                if existing_mapping:
-                    # Re-import: update existing person
-                    self._update_person(gedcom_person, existing_mapping, record)
-                else:
-                    # New person
-                    self._create_person(gedcom_person, record, translation_data)
+                gp = _extract_gedcom_person(record)
+                incoming_persons.append(gp)
+                person_records_by_xref[gp.xref_id] = record
             except Exception as exc:
                 line_num = record.line_number if record else "?"
                 self._warnings.append(
                     f"Rad {line_num}: Kunde inte importera person "
                     f"(xref={record.xref_id or '?'}): {exc}"
                 )
+
+        families: list[GedcomFamily] = []
+        for fam_rec in fam_records:
+            try:
+                families.append(_extract_gedcom_family(fam_rec))
+            except Exception:
+                pass  # Family extraction failures handled in _process_families
+
+        # Build existing_fingerprints: app_id → composite_key_hash
+        # Use stored fingerprints from translation mappings (these were
+        # computed from GEDCOM raw values during previous imports and will
+        # match incoming GEDCOM data format)
+        existing_fingerprints: dict[str, str] = {}
+        for mapping in translation_data.persons:
+            if mapping.fingerprint:
+                existing_fingerprints[mapping.app_id] = mapping.fingerprint
+
+        # If no stored fingerprints (first re-import after upgrading),
+        # fall back to computing from project data. This won't match
+        # perfectly due to format differences (ISO dates vs GEDCOM dates,
+        # leaf place names vs full PLAC strings) but is better than nothing.
+        if not existing_fingerprints:
+            for person in self._project_data.persons:
+                given_name = ""
+                surname = ""
+                if person.names:
+                    given_name = person.names[0].given or ""
+                    surname = person.names[0].surname or ""
+
+                # Find birth event for this person to get date and place
+                birth_date: Optional[str] = None
+                birth_place: Optional[str] = None
+                for evt in self._project_data.events:
+                    if evt.type == "birth":
+                        for participant in evt.participants:
+                            if participant.person_id == person.id:
+                                birth_date = evt.date.value if evt.date else None
+                                if evt.place and evt.place.place_id:
+                                    # Look up the place name
+                                    for pl in self._project_data.places:
+                                        if pl.id == evt.place.place_id:
+                                            birth_place = pl.name
+                                            break
+                                break
+                        if birth_date is not None or birth_place is not None:
+                            break
+
+                fp_hash = compute_composite_key_hash(
+                    given_name=given_name,
+                    surname=surname,
+                    birth_date=birth_date,
+                    birth_place=birth_place,
+                )
+                existing_fingerprints[person.id] = fp_hash
+
+        # Classify persons using fingerprint-based matching
+        diff_report = classify_persons(
+            incoming=incoming_persons,
+            families=families,
+            existing_mappings=translation_data.persons,
+            existing_fingerprints=existing_fingerprints,
+        )
+
+        # Build lookup: xref_id → PersonDiffEntry
+        diff_by_xref: dict[str, PersonDiffEntry] = {
+            entry.gedcom_xref: entry for entry in diff_report.entries
+            if entry.category != DiffCategory.MISSING
+        }
+
+        # Process each person according to classification
+        for gedcom_person in incoming_persons:
+            # Reset event-related state at the start of each INDI record
+            # to prevent leakage between persons (Bug 3 fix)
+            self._existing_event_keys = None
+
+            record = person_records_by_xref.get(gedcom_person.xref_id)
+            if record is None:
+                continue
+
+            try:
+                diff_entry = diff_by_xref.get(gedcom_person.xref_id)
+
+                if diff_entry is None or diff_entry.category == DiffCategory.NEW:
+                    # New person — no match found via fingerprint
+                    self._create_person(gedcom_person, record, translation_data)
+
+                elif diff_entry.category in (
+                    DiffCategory.UPDATED,
+                    DiffCategory.UNCHANGED,
+                ):
+                    # Matched an existing person via fingerprint
+                    app_id = diff_entry.app_id
+                    if app_id is None:
+                        # Shouldn't happen for UPDATED/UNCHANGED, but treat as new
+                        self._create_person(gedcom_person, record, translation_data)
+                        continue
+
+                    # Build a PersonMapping with the correct app_id
+                    # (from fingerprint match, NOT from xref lookup)
+                    mapping = PersonMapping(
+                        gedcom_id=gedcom_person.xref_id,
+                        app_id=app_id,
+                    )
+                    self._update_person(gedcom_person, mapping, record)
+
+                    # Update translation mapping to reflect new xref for this
+                    # person (xref may have changed between exports)
+                    fp_hash = compute_composite_key_hash(
+                        given_name=gedcom_person.given_name,
+                        surname=gedcom_person.surname,
+                        birth_date=gedcom_person.birth_date,
+                        birth_place=gedcom_person.birth_place,
+                    )
+                    self._update_translation_xref(
+                        translation_data, app_id, gedcom_person.xref_id, fp_hash
+                    )
+
+                elif diff_entry.category == DiffCategory.UNCERTAIN:
+                    # Uncertain match — treat as new to be safe
+                    self._create_person(gedcom_person, record, translation_data)
+
+                else:
+                    # Fallback: treat as new
+                    self._create_person(gedcom_person, record, translation_data)
+
+            except Exception as exc:
+                line_num = record.line_number if record else "?"
+                self._warnings.append(
+                    f"Rad {line_num}: Kunde inte importera person "
+                    f"(xref={record.xref_id or '?'}): {exc}"
+                )
+
+    def _update_translation_xref(
+        self,
+        translation_data: TranslationData,
+        app_id: str,
+        new_xref: str,
+        fingerprint_hash: Optional[str] = None,
+    ) -> None:
+        """Update or add a translation mapping for a person's xref.
+
+        When a person is matched via fingerprint but their xref has changed
+        (due to renumbering in MinSläkt), we update the translation mapping
+        so subsequent imports use the new xref.
+
+        Args:
+            translation_data: Translation data containing person mappings.
+            app_id: The App_JSON person ID.
+            new_xref: The new GEDCOM cross-reference ID.
+            fingerprint_hash: Optional composite_key_hash to store.
+        """
+        # Check if there's already a mapping for this app_id
+        for mapping in translation_data.persons:
+            if mapping.app_id == app_id:
+                mapping.gedcom_id = new_xref
+                if fingerprint_hash:
+                    mapping.fingerprint = fingerprint_hash
+                return
+
+        # No existing mapping — create one
+        translation_data.persons.append(
+            PersonMapping(
+                gedcom_id=new_xref,
+                app_id=app_id,
+                fingerprint=fingerprint_hash,
+            )
+        )
 
     def _create_person(
         self,
@@ -983,11 +1162,19 @@ class GEDCOMImporter:
         # Create events for this person
         self._create_person_events(person_id, record)
 
-        # Update translation mapping
+        # Update translation mapping with composite_key_hash fingerprint
+        # so future re-imports can match this person even if xref changes
+        fp_hash = compute_composite_key_hash(
+            given_name=gedcom_person.given_name,
+            surname=gedcom_person.surname,
+            birth_date=gedcom_person.birth_date,
+            birth_place=gedcom_person.birth_place,
+        )
         translation_data.persons.append(
             PersonMapping(
                 gedcom_id=gedcom_person.xref_id,
                 app_id=person_id,
+                fingerprint=fp_hash,
             )
         )
 
@@ -1057,10 +1244,22 @@ class GEDCOMImporter:
         existing_person.occupation = gedcom_person.occupation
         self._persons_updated += 1
 
-        # Re-create events (remove old person events, add new ones)
-        # For simplicity, we add new events; a more sophisticated approach
-        # would merge/deduplicate
-        self._create_person_events(person_id, record)
+        # Event deduplication: build set of existing event keys for this person
+        # so _create_event can skip duplicates during re-import
+        existing_keys: set[tuple[str, Optional[str], Optional[str]]] = set()
+        for evt in self._project_data.events:
+            for participant in evt.participants:
+                if participant.person_id == person_id:
+                    date_val = evt.date.value if evt.date else None
+                    place_id = evt.place.place_id if evt.place else None
+                    existing_keys.add((evt.type, date_val, place_id))
+                    break
+
+        self._existing_event_keys = existing_keys
+        try:
+            self._create_person_events(person_id, record)
+        finally:
+            self._existing_event_keys = None
 
     def _create_person_events(self, person_id: str, record: GedcomLine) -> None:
         """Create events for a person from GEDCOM event tags.
@@ -1338,6 +1537,14 @@ class GEDCOMImporter:
         existing_family.parent_child_links = parent_child_links
         self._families_updated += 1
 
+        # Remove old family events from project data before re-creating
+        # to prevent duplicates on re-import
+        old_event_ids = set(existing_family.event_ids) if existing_family.event_ids else set()
+        if old_event_ids:
+            self._project_data.events = [
+                e for e in self._project_data.events if e.id not in old_event_ids
+            ]
+
         # Re-create family events
         event_ids: list[str] = []
         for child_node in record.children:
@@ -1425,6 +1632,14 @@ class GEDCOMImporter:
             place_id = self._resolve_place(place_str)
             if place_id:
                 place_ref = PlaceRef(place_id=place_id)
+
+        # Event deduplication: skip if an identical event already exists
+        if self._existing_event_keys is not None:
+            date_val_str = date_value.value if date_value else None
+            place_id_str = place_ref.place_id if place_ref else None
+            key = (event_type, date_val_str, place_id_str)
+            if key in self._existing_event_keys:
+                return None
 
         # Parse source citations on the event
         source_refs: list[SourceRef] = []

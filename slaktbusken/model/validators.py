@@ -51,6 +51,17 @@ _CUSTOM_EVENT_TYPES = {"custom_individual_event", "custom_family_event"}
 
 _VALID_PLACE_TYPES = {"country", "county", "parish", "church", "cemetery", "village", "farm", "school"}
 
+_PLACE_TYPE_SWEDISH: dict[str, str] = {
+    "country": "land",
+    "county": "län",
+    "parish": "församling",
+    "church": "kyrka",
+    "cemetery": "kyrkogård",
+    "village": "by",
+    "farm": "gård",
+    "school": "skola",
+}
+
 _VALID_SOURCE_TYPES = {
     "church_book",
     "database",
@@ -249,8 +260,9 @@ def validate_place(
     errors: list[str] = []
 
     if place.type not in _VALID_PLACE_TYPES:
+        swedish_types = sorted(_PLACE_TYPE_SWEDISH[t] for t in _VALID_PLACE_TYPES)
         errors.append(
-            f"Ogiltig platstyp '{place.type}'; måste vara en av {sorted(_VALID_PLACE_TYPES)}."
+            f"Ogiltig platstyp '{place.type}'; måste vara en av {swedish_types}."
         )
 
     if not place.name or len(place.name) < 1 or len(place.name) > 200:
@@ -319,7 +331,7 @@ def _validate_place_hierarchy(
     # All other types require a parent
     if place.parent_place_id is None:
         errors.append(
-            f"En plats av typen {place.type} måste ha en överordnad plats av typen '{expected_parent_type}'."
+            f"En plats av typen {_PLACE_TYPE_SWEDISH.get(place.type, place.type)} måste ha en överordnad plats av typen '{_PLACE_TYPE_SWEDISH.get(expected_parent_type, expected_parent_type)}'."
         )
         return
 
@@ -332,8 +344,8 @@ def _validate_place_hierarchy(
             )
         elif parent.type != expected_parent_type:
             errors.append(
-                f"En plats av typen {place.type} måste ha en överordnad plats av typen '{expected_parent_type}', "
-                f"men överordnad plats '{place.parent_place_id}' är av typen '{parent.type}'."
+                f"En plats av typen {_PLACE_TYPE_SWEDISH.get(place.type, place.type)} måste ha en överordnad plats av typen '{_PLACE_TYPE_SWEDISH.get(expected_parent_type, expected_parent_type)}', "
+                f"men överordnad plats '{place.parent_place_id}' är av typen '{_PLACE_TYPE_SWEDISH.get(parent.type, parent.type)}'."
             )
 
 

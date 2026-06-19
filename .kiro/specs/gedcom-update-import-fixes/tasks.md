@@ -31,7 +31,7 @@ The workflow follows the bug condition methodology: write exploration and preser
   - Mark task complete when tests are written, run, and failures are documented
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 2. Write preservation property tests (BEFORE implementing fixes)
+- [x] 2. Write preservation property tests (BEFORE implementing fixes)
   - **Property 2: Preservation** - Existing GEDCOM Import Behavior Unchanged
   - **IMPORTANT**: Follow observation-first methodology
   - Observe: Full initial import of Test-1.ged creates 3 persons, 1 family, correct events on UNFIXED code
@@ -50,9 +50,9 @@ The workflow follows the bug condition methodology: write exploration and preser
   - Mark task complete when tests are written, run, and passing on unfixed code
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 3. Fix Bug 1: Swedish-only validation messages
+- [x] 3. Fix Bug 1: Swedish-only validation messages
 
-  - [ ] 3.1 Translate place type names in validation error messages
+  - [x] 3.1 Translate place type names in validation error messages
     - Add a `_PLACE_TYPE_SWEDISH` dictionary in `slaktbusken/model/validators.py` mapping English place type identifiers to Swedish: county→län, country→land, parish→församling, church→kyrka, cemetery→kyrkogård, village→by, farm→gård, school→skola
     - Update `_validate_place_hierarchy` to use `_PLACE_TYPE_SWEDISH.get(place.type, place.type)` in all error messages
     - Update the `_VALID_PLACE_TYPES` error message in `validate_place` to show Swedish names
@@ -62,9 +62,9 @@ The workflow follows the bug condition methodology: write exploration and preser
     - _Preservation: Validation logic unchanged — only display names translated_
     - _Requirements: 2.1_
 
-- [ ] 4. Fix Bug 2: Event deduplication on update import
+- [x] 4. Fix Bug 2: Event deduplication on update import
 
-  - [ ] 4.1 Implement event matching and deduplication in _update_person
+  - [x] 4.1 Implement event matching and deduplication in _update_person
     - In `slaktbusken/gedcom/importer.py`, modify `_update_person` to query existing events for the person before calling `_create_person_events`
     - Match incoming events by (person_id, event_type, date, place) tuple
     - If matching event exists: skip or update if changed
@@ -74,9 +74,9 @@ The workflow follows the bug condition methodology: write exploration and preser
     - _Preservation: New events for persons who didn't previously have them are still created_
     - _Requirements: 2.2, 3.2, 3.4_
 
-- [ ] 5. Fix Bug 3: Event isolation between INDI records
+- [x] 5. Fix Bug 3: Event isolation between INDI records
 
-  - [ ] 5.1 Implement event state reset between INDI records
+  - [x] 5.1 Implement event state reset between INDI records
     - In `slaktbusken/gedcom/importer.py`, locate `_process_persons` loop over INDI records
     - Add explicit reset of event-related state at the start of each INDI record iteration
     - Verify `person_id` is correctly scoped to each iteration — no variable leaking from previous iteration

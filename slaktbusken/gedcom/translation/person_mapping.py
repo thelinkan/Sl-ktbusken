@@ -297,6 +297,7 @@ def classify_persons(
     families: list[GedcomFamily],
     existing_mappings: list[PersonMapping],
     existing_fingerprints: dict[str, str],
+    existing_birth_fingerprints: Optional[dict[str, str]] = None,
 ) -> ImportDiffReport:
     """Classify incoming GEDCOM persons against existing App_JSON data.
 
@@ -305,7 +306,9 @@ def classify_persons(
     uncertain. The classification process follows this logic:
 
     1. For persons with a known GEDCOM→App_JSON mapping in the translation
-       file: compare record hashes to determine UPDATED vs UNCHANGED.
+       file: verify identity via fingerprint before trusting the mapping.
+       Uses "claimed elsewhere" heuristic to detect xref reassignment.
+       Compare record hashes to determine UPDATED vs UNCHANGED.
     2. For persons without a mapping: compare composite_key_hash against
        existing_fingerprints to find potential matches.
        - Exact hash match → UPDATED or UNCHANGED (based on record hash).
@@ -322,11 +325,16 @@ def classify_persons(
         existing_fingerprints: Maps App_JSON person IDs to their stored
             composite_key_hash values, enabling matching even when
             translation files don't have a direct mapping.
+        existing_birth_fingerprints: Optional dict mapping App_JSON person
+            IDs to birth-only hashes. Currently unused but kept for API
+            compatibility.
 
     Returns:
         An ImportDiffReport containing all classification entries and
         summary counts.
     """
+    if existing_birth_fingerprints is None:
+        existing_birth_fingerprints = {}
     entries: list[PersonDiffEntry] = []
 
     # Build lookup from GEDCOM ID to existing mapping
@@ -342,30 +350,65 @@ def classify_persons(
         fp_hash: app_id for app_id, fp_hash in existing_fingerprints.items()
     }
 
+    # Pre-compute all incoming fingerprints and build a set of all incoming
+    # composite_key_hashes. This is used for the "claimed elsewhere" heuristic:
+    # if an existing app_id's stored fingerprint matches ANOTHER incoming person,
+    # it means the xref was reassigned.
+    incoming_fingerprints: dict[str, PersonFingerprint] = {}
+    incoming_composite_keys: dict[str, str] = {}  # composite_key_hash → xref_id
     for person in incoming:
-        fingerprint = compute_fingerprint(person, families)
+        fp = compute_fingerprint(person, families)
+        incoming_fingerprints[person.xref_id] = fp
+        incoming_composite_keys[fp.composite_key_hash] = person.xref_id
+
+    for person in incoming:
+        fingerprint = incoming_fingerprints[person.xref_id]
         seen_gedcom_ids.add(person.xref_id)
 
         # Case 1: Known mapping exists in translation file
+        # Verify identity using "claimed elsewhere" heuristic:
+        # If the stored fingerprint for this app_id matches ANOTHER incoming
+        # person's composite_key_hash, the xref was reassigned.
         if person.xref_id in mapping_by_gedcom_id:
             mapping = mapping_by_gedcom_id[person.xref_id]
             app_id = mapping.app_id
 
-            # Compare record hash via stored fingerprint
-            if mapping.fingerprint and mapping.fingerprint == fingerprint.record_hash:
-                category = DiffCategory.UNCHANGED
-            else:
-                category = DiffCategory.UPDATED
+            identity_confirmed = True
+            if app_id in existing_fingerprints:
+                existing_fp_hash = existing_fingerprints[app_id]
+                if existing_fp_hash != fingerprint.composite_key_hash:
+                    # Composite key mismatch — could be name change OR
+                    # xref reassignment. Use "claimed elsewhere" heuristic:
+                    # If another incoming person's composite_key matches
+                    # this app_id's stored fingerprint, the real person moved
+                    # to a different xref and this xref was reassigned.
+                    if existing_fp_hash in incoming_composite_keys:
+                        other_xref = incoming_composite_keys[existing_fp_hash]
+                        if other_xref != person.xref_id:
+                            # Another incoming person matches this app_id's
+                            # fingerprint — xref was reassigned
+                            identity_confirmed = False
+                    # else: no other incoming person claims this fingerprint,
+                    # so this is likely the same person with changed data
+                    # (e.g., married name). Trust the mapping.
 
-            entries.append(
-                PersonDiffEntry(
-                    gedcom_xref=person.xref_id,
-                    app_id=app_id,
-                    category=category,
-                    fingerprint=fingerprint,
+            if identity_confirmed:
+                # Compare record hash via stored fingerprint
+                if mapping.fingerprint and mapping.fingerprint == fingerprint.record_hash:
+                    category = DiffCategory.UNCHANGED
+                else:
+                    category = DiffCategory.UPDATED
+
+                entries.append(
+                    PersonDiffEntry(
+                        gedcom_xref=person.xref_id,
+                        app_id=app_id,
+                        category=category,
+                        fingerprint=fingerprint,
+                    )
                 )
-            )
-            continue
+                continue
+            # else: fall through to Case 2 (fingerprint-based matching)
 
         # Case 2: No known mapping — try composite_key_hash matching
         if fingerprint.composite_key_hash in app_id_by_fingerprint:
