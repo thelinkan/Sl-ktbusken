@@ -132,8 +132,8 @@ This plan implements enhancements to the `PersonListPanel` in stages: first exte
     - **Property 11: Multiple names tooltip format**
     - **Validates: Requirements 7.2**
 
-- [ ] 8. Implement cluster filter in Filter Dialog
-  - [~] 8.1 Add cluster filter field to `FilterDialog`
+- [x] 8. Implement cluster filter in Filter Dialog
+  - [x] 8.1 Add cluster filter field to `FilterDialog`
     - Add text field with case-insensitive substring-matching autocomplete
     - Populate autocomplete from all DNA cluster names in the project
     - Show empty autocomplete list when project has no clusters

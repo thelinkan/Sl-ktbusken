@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QPixmap
+from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QStyleOptionViewItem,
+    QStyledItemDelegate,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -666,6 +668,71 @@ def filter_persons(
 
 
 # ---------------------------------------------------------------------------
+# Custom delegate for colored dot indicators
+# ---------------------------------------------------------------------------
+
+# Custom data roles for lineage flags
+_ROLE_IS_ANCESTOR = Qt.ItemDataRole.UserRole + 1
+_ROLE_IS_DESCENDANT = Qt.ItemDataRole.UserRole + 2
+
+_ANCESTOR_DOT_COLOR = QColor("#C0392B")
+_DESCENDANT_DOT_COLOR = QColor("#27AE60")
+_DOT_DIAMETER = 8
+
+
+class _DotDelegate(QStyledItemDelegate):
+    """Delegate for column 0 that draws colored ancestor/descendant dots."""
+
+    def paint(
+        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
+    ) -> None:
+        """Paint the item with colored dots overlaid after the icon."""
+        # Let the base class handle everything: background, selection,
+        # hover highlight, icon, and text.
+        super().paint(painter, option, index)
+
+        is_ancestor = index.data(_ROLE_IS_ANCESTOR) or False
+        is_descendant = index.data(_ROLE_IS_DESCENDANT) or False
+
+        if not is_ancestor and not is_descendant:
+            return
+
+        # Paint colored dots between icon and text
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        rect = option.rect
+        icon_size = option.decorationSize
+        # Position after icon + a small gap
+        x_offset = rect.left() + icon_size.width() + 4
+
+        dot_y = rect.top() + (rect.height() - _DOT_DIAMETER) // 2
+        if is_ancestor:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(_ANCESTOR_DOT_COLOR))
+            painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
+            x_offset += _DOT_DIAMETER + 2
+        if is_descendant:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(_DESCENDANT_DOT_COLOR))
+            painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
+
+        painter.restore()
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        """Return size hint accounting for dot space."""
+        size = super().sizeHint(option, index)
+        is_ancestor = index.data(_ROLE_IS_ANCESTOR) or False
+        is_descendant = index.data(_ROLE_IS_DESCENDANT) or False
+        extra = 0
+        if is_ancestor:
+            extra += _DOT_DIAMETER + 2
+        if is_descendant:
+            extra += _DOT_DIAMETER + 2
+        return QSize(size.width() + extra, max(size.height(), _DOT_DIAMETER + 4))
+
+
+# ---------------------------------------------------------------------------
 # Qt Widget
 # ---------------------------------------------------------------------------
 
@@ -745,6 +812,10 @@ class PersonListPanel(QWidget):
         self._tree_widget.setIndentation(0)
         self._tree_widget.setUniformRowHeights(True)
         self._tree_widget.setAlternatingRowColors(True)
+
+        # Custom delegate for colored dot indicators in column 0
+        self._dot_delegate = _DotDelegate(self._tree_widget)
+        self._tree_widget.setItemDelegateForColumn(0, self._dot_delegate)
 
         # Configure header
         header = self._tree_widget.header()
@@ -1040,24 +1111,15 @@ class PersonListPanel(QWidget):
         try:
             items: list[QTreeWidgetItem] = []
             for person_info in self._filtered_list:
-                # Build name display text with dot indicators and names marker
+                # Build name display text
                 name_text = self._format_person_display(person_info)
-
-                # Prepend dot indicators
-                dot_prefix = ""
-                if person_info.is_ancestor and person_info.is_descendant:
-                    dot_prefix = "●● "
-                elif person_info.is_ancestor:
-                    dot_prefix = "● "
-                elif person_info.is_descendant:
-                    dot_prefix = "● "
 
                 # Append multiple-names indicator
                 names_suffix = ""
                 if person_info.name_count > 1:
                     names_suffix = " ²"
 
-                display_name = dot_prefix + name_text + names_suffix
+                display_name = name_text + names_suffix
 
                 # DNA company names (comma-separated)
                 dna_text = ""
@@ -1080,18 +1142,25 @@ class PersonListPanel(QWidget):
                 # Store person_id in UserRole on column 0
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, person_info.person_id)
 
+                # Store lineage flags for the dot delegate
+                if person_info.is_ancestor:
+                    tree_item.setData(0, _ROLE_IS_ANCESTOR, True)
+                if person_info.is_descendant:
+                    tree_item.setData(0, _ROLE_IS_DESCENDANT, True)
+
                 # Set gender icon
                 pixmap = icon_registry.get_gender_icon(person_info.sex)
                 from PySide6.QtGui import QIcon
                 tree_item.setIcon(0, QIcon(pixmap))
 
-                # Color the dot prefix
-                if person_info.is_ancestor or person_info.is_descendant:
-                    # Set foreground for the full item isn't ideal, so use tooltip
-                    pass
-
                 # Tooltips
                 tooltip_parts: list[str] = []
+                if person_info.is_ancestor and person_info.is_descendant:
+                    tooltip_parts.append("Anfader & ättling")
+                elif person_info.is_ancestor:
+                    tooltip_parts.append("Anfader")
+                elif person_info.is_descendant:
+                    tooltip_parts.append("Ättling")
                 if person_info.name_count > 1:
                     tooltip_parts.append(self._format_names_tooltip(person_info.all_names))
                 if person_info.title:
