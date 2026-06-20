@@ -263,6 +263,7 @@ class MainWindow(QMainWindow):
 
         # Left panel: PersonListPanel
         self.person_list_panel = PersonListPanel(self._app)
+        self.person_list_panel.setMinimumWidth(250)
         self.left_panel = self.person_list_panel
 
         # Right panel: DiagramPanel
@@ -272,10 +273,20 @@ class MainWindow(QMainWindow):
 
         self.splitter.addWidget(self.left_panel)
         self.splitter.addWidget(self.right_panel)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 3)
+
+        # Set initial sizes: ~40% for person list, 60% for diagram
+        total = max(self.width(), 800)
+        left_width = int(total * 0.4)
+        self.splitter.setSizes([left_width, total - left_width])
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
 
         self.setCentralWidget(self.splitter)
+
+        # Connect diagram person activation to person list sync
+        self.diagram_panel.person_activated.connect(
+            self.person_list_panel.select_person_from_diagram
+        )
 
     # ------------------------------------------------------------------
     # Status Bar
@@ -398,6 +409,16 @@ class MainWindow(QMainWindow):
             else:
                 action.setEnabled(False)
                 action.setToolTip("Filen hittades inte")
+
+    def resizeEvent(self, event) -> None:
+        """Constrain PersonListPanel max width to 50% of window width on resize.
+
+        Args:
+            event: The resize event.
+        """
+        super().resizeEvent(event)
+        max_left_width = self.width() // 2
+        self.person_list_panel.setMaximumWidth(max_left_width)
 
     def closeEvent(self, event) -> None:
         """Handle window close — confirm save if project is dirty.

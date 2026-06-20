@@ -6,7 +6,7 @@ This plan implements enhancements to the `PersonListPanel` in stages: first exte
 
 ## Tasks
 
-- [-] 1. Extend data model and display info construction
+- [x] 1. Extend data model and display info construction
   - [x] 1.1 Extend `PersonDisplayInfo` dataclass with new fields
     - Add `occupation: str`, `cluster_names_display: str`, `dna_company_ids: list[str]`, `name_count: int`, `all_names: list[tuple[str, str, str]]`, `is_ancestor: bool`, `is_descendant: bool` fields
     - Ensure defaults for backward compatibility
@@ -21,7 +21,7 @@ This plan implements enhancements to the `PersonListPanel` in stages: first exte
     - Set `is_ancestor`/`is_descendant` from provided sets (False for main person itself)
     - _Requirements: 1.3, 1.4, 1.5, 1.6, 3.1, 3.2, 4.1, 4.2, 4.8, 7.1, 7.2_
 
-  - [~] 1.3 Write property tests for display info construction
+  - [x] 1.3 Write property tests for display info construction
     - **Property 1: Person field propagation to display info**
     - **Property 2: Cluster names display construction**
     - **Property 3: DNA company ID collection**
@@ -41,7 +41,7 @@ This plan implements enhancements to the `PersonListPanel` in stages: first exte
     - **Property 5: Column visibility round-trip persistence**
     - **Validates: Requirements 2.4**
 
-- [~] 3. Checkpoint - Ensure all tests pass
+- [x] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 4. Implement name filtering across all name versions
@@ -66,7 +66,7 @@ This plan implements enhancements to the `PersonListPanel` in stages: first exte
     - **Property 9: Cluster filter AND logic**
     - **Validates: Requirements 5.2, 5.3, 6.1, 6.2, 6.3, 6.4, 6.5**
 
-- [~] 5. Checkpoint - Ensure all tests pass
+- [x] 5. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 6. Implement column header and visibility UI
@@ -140,45 +140,45 @@ This plan implements enhancements to the `PersonListPanel` in stages: first exte
     - Clearing the field removes the cluster restriction
     - _Requirements: 5.1, 5.3, 5.4_
 
-- [~] 9. Checkpoint - Ensure all tests pass
+- [x] 9. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. Implement reduced width and compact mode
-  - [~] 10.1 Configure splitter for reduced `PersonListPanel` width
+- [x] 10. Implement reduced width and compact mode
+  - [x] 10.1 Configure splitter for reduced `PersonListPanel` width
     - Set initial splitter sizes to [250, remaining] at startup
     - Set minimum width of `PersonListPanel` to 250px
     - Allow manual resize up to max 50% of window width
     - _Requirements: 8.1, 8.2, 8.3_
 
-  - [~] 10.2 Implement compact column layout mode
+  - [x] 10.2 Implement compact column layout mode
     - When panel width < 350px: truncate column headers to max 4 chars + ellipsis, reduce cell padding to 2px
     - When panel width ≥ 350px: full headers, default padding 6px
     - Respond to resize events to switch modes dynamically
     - _Requirements: 8.4, 8.5_
 
-  - [~] 10.3 Write property test for compact mode threshold
+  - [x] 10.3 Write property test for compact mode threshold
     - **Property 12: Compact mode threshold**
     - **Validates: Requirements 8.4, 8.5**
 
-- [ ] 11. Implement bidirectional selection synchronization
-  - [~] 11.1 Implement `select_person_from_diagram()` method
+- [x] 11. Implement bidirectional selection synchronization
+  - [x] 11.1 Implement `select_person_from_diagram()` method
     - Select and scroll to person without emitting `person_selected` signal
     - Use signal blocking or guard flag to prevent circular loops
     - If person not in filtered view: switch to unfiltered view, update toggle button state, then select
     - If person_id not found in full list: clear selection, do not change view
     - _Requirements: 9.1, 9.2, 9.3, 9.5_
 
-  - [~] 11.2 Wire `DiagramPanel.person_activated` signal to `PersonListPanel`
+  - [x] 11.2 Wire `DiagramPanel.person_activated` signal to `PersonListPanel`
     - Connect signal in `MainWindow._setup_central_widget()` or equivalent
     - Preserve existing single-click → `person_selected` behavior
     - _Requirements: 9.1, 9.4_
 
-  - [~] 11.3 Write property tests for bidirectional sync
+  - [x] 11.3 Write property tests for bidirectional sync
     - **Property 13: Diagram sync does not emit person_selected**
     - **Property 14: Diagram sync switches to unfiltered view when person not in filter**
     - **Validates: Requirements 9.2, 9.3**
 
-- [~] 12. Final checkpoint - Ensure all tests pass
+- [x] 12. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

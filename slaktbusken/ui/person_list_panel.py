@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPixmap
+from PySide6.QtCore import QModelIndex, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -674,62 +674,177 @@ def filter_persons(
 # Custom data roles for lineage flags
 _ROLE_IS_ANCESTOR = Qt.ItemDataRole.UserRole + 1
 _ROLE_IS_DESCENDANT = Qt.ItemDataRole.UserRole + 2
+_ROLE_HAS_MULTI_NAMES = Qt.ItemDataRole.UserRole + 3
+_ROLE_DNA_COMPANY_IDS = Qt.ItemDataRole.UserRole + 10
 
 _ANCESTOR_DOT_COLOR = QColor("#C0392B")
 _DESCENDANT_DOT_COLOR = QColor("#27AE60")
+_MULTI_NAMES_COLOR = QColor("#2980B9")  # Blue marker for multiple names
 _DOT_DIAMETER = 8
 
 
 class _DotDelegate(QStyledItemDelegate):
-    """Delegate for column 0 that draws colored ancestor/descendant dots."""
+    """Delegate for column 0 that draws colored ancestor/descendant dots and multi-names marker.
+
+    Shifts the text rightward to make room for indicators between the icon and name.
+    Indicators (left to right): multi-names marker, ancestor dot, descendant dot.
+    """
+
+    def _indicator_width(self, index: QModelIndex) -> int:
+        """Calculate total pixel width needed for indicators."""
+        width = 0
+        has_multi = index.data(_ROLE_HAS_MULTI_NAMES) or False
+        is_ancestor = index.data(_ROLE_IS_ANCESTOR) or False
+        is_descendant = index.data(_ROLE_IS_DESCENDANT) or False
+        if has_multi:
+            width += 14  # multi-names marker width + gap
+        if is_ancestor:
+            width += _DOT_DIAMETER + 3
+        if is_descendant:
+            width += _DOT_DIAMETER + 3
+        return width
 
     def paint(
         self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
     ) -> None:
-        """Paint the item with colored dots overlaid after the icon."""
-        # Let the base class handle everything: background, selection,
-        # hover highlight, icon, and text.
-        super().paint(painter, option, index)
-
+        """Paint the item with indicators between icon and text, text shifted right."""
         is_ancestor = index.data(_ROLE_IS_ANCESTOR) or False
         is_descendant = index.data(_ROLE_IS_DESCENDANT) or False
+        has_multi = index.data(_ROLE_HAS_MULTI_NAMES) or False
 
-        if not is_ancestor and not is_descendant:
+        indicator_w = self._indicator_width(index)
+
+        if indicator_w > 0:
+            self.initStyleOption(option, index)
+            from PySide6.QtWidgets import QApplication
+            style = option.widget.style() if option.widget else QApplication.style()
+
+            # Save text for manual drawing; keep icon for style to draw
+            text = option.text
+            option.text = ""
+
+            # Let style draw background + icon normally (this reliably renders the icon)
+            style.drawControl(style.ControlElement.CE_ItemViewItem, option, painter, option.widget)
+
+            # Calculate where the icon ends
+            rect = option.rect
+            icon_size = option.decorationSize
+            if icon_size.width() <= 0:
+                icon_size = QSize(20, 20)
+
+            # Position for indicators: after icon area + gap
+            x_offset = rect.left() + icon_size.width() + 6
+
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+            # Multi-names marker: "≡" character in blue, drawn before dots
+            if has_multi:
+                painter.setPen(QPen(_MULTI_NAMES_COLOR))
+                font = painter.font()
+                font.setPointSize(10)
+                font.setBold(True)
+                painter.setFont(font)
+                marker_rect = QRect(x_offset, rect.top(), 14, rect.height())
+                painter.drawText(marker_rect, Qt.AlignmentFlag.AlignCenter, "≡")
+                x_offset += 14
+
+            # Ancestor dot
+            dot_y = rect.top() + (rect.height() - _DOT_DIAMETER) // 2
+            if is_ancestor:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(_ANCESTOR_DOT_COLOR))
+                painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
+                x_offset += _DOT_DIAMETER + 3
+
+            # Descendant dot
+            if is_descendant:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(_DESCENDANT_DOT_COLOR))
+                painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
+                x_offset += _DOT_DIAMETER + 3
+
+            painter.restore()
+
+            # Draw text after indicators
+            text_left = x_offset + 2
+            text_rect = QRect(text_left, rect.top(), rect.right() - text_left, rect.height())
+            painter.save()
+            if option.state & style.StateFlag.State_Selected:
+                painter.setPen(QPen(option.palette.highlightedText().color()))
+            else:
+                painter.setPen(QPen(option.palette.text().color()))
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
+            painter.restore()
+        else:
+            # No indicators — use default rendering
+            super().paint(painter, option, index)
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        """Return size hint accounting for indicator space."""
+        size = super().sizeHint(option, index)
+        extra = self._indicator_width(index)
+        return QSize(size.width() + extra, max(size.height(), _DOT_DIAMETER + 4))
+
+
+# ---------------------------------------------------------------------------
+# DNA icon delegate
+# ---------------------------------------------------------------------------
+
+_DNA_ICON_SIZE = 16
+_DNA_ICON_SPACING = 2
+
+
+class _DnaIconDelegate(QStyledItemDelegate):
+    """Delegate for column 4 that draws DNA company logo icons side-by-side."""
+
+    def __init__(self, panel: "PersonListPanel") -> None:
+        super().__init__(panel)
+        self._panel = panel
+
+    def paint(
+        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
+    ) -> None:
+        """Paint DNA company icons horizontally, vertically centered."""
+        # Let base class handle background, selection highlight, etc.
+        # We call initStyleOption to get proper background painting.
+        self.initStyleOption(option, index)
+        option.text = ""
+        from PySide6.QtWidgets import QApplication
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawControl(style.ControlElement.CE_ItemViewItem, option, painter, option.widget)
+
+        company_ids = index.data(_ROLE_DNA_COMPANY_IDS)
+        if not company_ids:
             return
 
-        # Paint colored dots between icon and text
+        company_by_id = getattr(self._panel, "_company_by_id", {})
+        media_by_id = getattr(self._panel, "_media_by_id", {})
+
         painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
         rect = option.rect
-        icon_size = option.decorationSize
-        # Position after icon + a small gap
-        x_offset = rect.left() + icon_size.width() + 4
+        x = rect.left() + 4
+        y = rect.top() + (rect.height() - _DNA_ICON_SIZE) // 2
 
-        dot_y = rect.top() + (rect.height() - _DOT_DIAMETER) // 2
-        if is_ancestor:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(_ANCESTOR_DOT_COLOR))
-            painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
-            x_offset += _DOT_DIAMETER + 2
-        if is_descendant:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(_DESCENDANT_DOT_COLOR))
-            painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
+        for cid in company_ids:
+            pixmap = self._panel._resolve_dna_icon_cached(
+                cid, company_by_id, media_by_id
+            )
+            painter.drawPixmap(x, y, pixmap)
+            x += _DNA_ICON_SIZE + _DNA_ICON_SPACING
 
         painter.restore()
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
-        """Return size hint accounting for dot space."""
-        size = super().sizeHint(option, index)
-        is_ancestor = index.data(_ROLE_IS_ANCESTOR) or False
-        is_descendant = index.data(_ROLE_IS_DESCENDANT) or False
-        extra = 0
-        if is_ancestor:
-            extra += _DOT_DIAMETER + 2
-        if is_descendant:
-            extra += _DOT_DIAMETER + 2
-        return QSize(size.width() + extra, max(size.height(), _DOT_DIAMETER + 4))
+        """Return width based on number of icons, height from row."""
+        company_ids = index.data(_ROLE_DNA_COMPANY_IDS)
+        n = len(company_ids) if company_ids else 0
+        if n == 0:
+            width = _DNA_ICON_SIZE
+        else:
+            width = n * _DNA_ICON_SIZE + (n - 1) * _DNA_ICON_SPACING + 8
+        height = max(super().sizeHint(option, index).height(), _DNA_ICON_SIZE + 4)
+        return QSize(width, height)
 
 
 # ---------------------------------------------------------------------------
@@ -748,6 +863,8 @@ class PersonListPanel(QWidget):
         person_selected: Emitted with person_id on single-click.
         person_edit_requested: Emitted with person_id on double-click.
     """
+
+    _FULL_HEADERS = ["Namn", "Titel", "Yrke", "Kluster", "DNA"]
 
     person_selected = Signal(str)
     person_edit_requested = Signal(str)
@@ -770,6 +887,8 @@ class PersonListPanel(QWidget):
         self._ancestor_ids: set[str] = set()
         self._descendant_ids: set[str] = set()
         self._lineage_main_person_id: str | None = None
+        self._compact_mode: bool = False
+        self._syncing_from_diagram: bool = False
 
         self._setup_ui()
         self._connect_signals()
@@ -802,6 +921,7 @@ class PersonListPanel(QWidget):
         # Columns: 0=Namn, 1=Titel, 2=Yrke, 3=Kluster, 4=DNA
         self._tree_widget = QTreeWidget()
         self._tree_widget.setHeaderLabels(["Namn", "Titel", "Yrke", "Kluster", "DNA"])
+        self._tree_widget.setIconSize(QSize(20, 20))
         self._tree_widget.setRootIsDecorated(False)
         self._tree_widget.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection
@@ -816,6 +936,10 @@ class PersonListPanel(QWidget):
         # Custom delegate for colored dot indicators in column 0
         self._dot_delegate = _DotDelegate(self._tree_widget)
         self._tree_widget.setItemDelegateForColumn(0, self._dot_delegate)
+
+        # Custom delegate for DNA company icons in column 4
+        self._dna_delegate = _DnaIconDelegate(self)
+        self._tree_widget.setItemDelegateForColumn(4, self._dna_delegate)
 
         # Configure header
         header = self._tree_widget.header()
@@ -843,6 +967,37 @@ class PersonListPanel(QWidget):
 
         # Apply saved column visibility settings on startup
         self._restore_column_visibility()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Check panel width and toggle compact column mode accordingly."""
+        super().resizeEvent(event)
+        compact = self.width() < 350
+        self._apply_compact_mode(compact)
+
+    def _apply_compact_mode(self, compact: bool) -> None:
+        """Switch between compact and full column header/padding modes.
+
+        Args:
+            compact: True to use truncated headers and reduced padding.
+        """
+        if compact == self._compact_mode:
+            return
+        self._compact_mode = compact
+
+        if compact:
+            headers = [
+                (label[:4] + "\u2026") if len(label) > 4 else label
+                for label in self._FULL_HEADERS
+            ]
+            self._tree_widget.setHeaderLabels(headers)
+            self._tree_widget.setStyleSheet(
+                "QTreeWidget::item { padding-left: 2px; padding-right: 2px; }"
+            )
+        else:
+            self._tree_widget.setHeaderLabels(self._FULL_HEADERS)
+            self._tree_widget.setStyleSheet(
+                "QTreeWidget::item { padding-left: 6px; padding-right: 6px; }"
+            )
 
     def _build_column_header(self) -> QWidget:
         """Legacy method — column header is now built into the QTreeWidget.
@@ -1023,6 +1178,47 @@ class PersonListPanel(QWidget):
         if self._showing_filtered:
             self._update_list_widget()
 
+    def select_person_from_diagram(self, person_id: str) -> None:
+        """Select and scroll to a person without emitting person_selected signal.
+
+        Called when the diagram panel activates a person (e.g. via A-key shortcut).
+        Uses a guard flag to prevent circular signal loops.
+
+        Args:
+            person_id: The ID of the person to select.
+        """
+        # Check if person_id exists in the full (unfiltered) list
+        person_in_full_list = any(
+            p.person_id == person_id for p in self._display_list
+        )
+        if not person_in_full_list:
+            # Person not found at all — clear selection, don't change view
+            self._tree_widget.setCurrentItem(None)
+            return
+
+        self._syncing_from_diagram = True
+        try:
+            # If currently showing filtered view and person not in filtered list,
+            # switch to unfiltered view
+            if self._showing_filtered:
+                person_in_filtered = any(
+                    p.person_id == person_id for p in self._filtered_list
+                )
+                if not person_in_filtered:
+                    # Switch to unfiltered: setChecked(False) triggers
+                    # _on_toggle_changed which updates text and rebuilds list
+                    self._toggle_button.setChecked(False)
+
+            # Find and select the item in the tree widget
+            for i in range(self._tree_widget.topLevelItemCount()):
+                item = self._tree_widget.topLevelItem(i)
+                if item and item.data(0, Qt.ItemDataRole.UserRole) == person_id:
+                    self._tree_widget.setCurrentItem(item)
+                    self._tree_widget.scrollToItem(item)
+                    break
+        finally:
+            self._syncing_from_diagram = False
+
     # ------------------------------------------------------------------
     # Private slots
     # ------------------------------------------------------------------
@@ -1105,6 +1301,9 @@ class PersonListPanel(QWidget):
         company_name_by_id: dict[str, str] = {
             c.id: c.name for c in data.dna_companies
         }
+        # Store lookups for the DNA icon delegate
+        self._company_by_id = {c.id: c for c in data.dna_companies}
+        self._media_by_id = {m.id: m for m in data.media}
 
         # Suspend UI updates while populating
         self._tree_widget.setUpdatesEnabled(False)
@@ -1114,14 +1313,9 @@ class PersonListPanel(QWidget):
                 # Build name display text
                 name_text = self._format_person_display(person_info)
 
-                # Append multiple-names indicator
-                names_suffix = ""
-                if person_info.name_count > 1:
-                    names_suffix = " ²"
+                display_name = name_text
 
-                display_name = name_text + names_suffix
-
-                # DNA company names (comma-separated)
+                # DNA company names (for tooltip only; icons drawn by delegate)
                 dna_text = ""
                 if person_info.dna_company_ids:
                     dna_names = [
@@ -1130,27 +1324,32 @@ class PersonListPanel(QWidget):
                     ]
                     dna_text = ", ".join(dna_names)
 
-                # Create tree item with columns
+                # Create tree item with columns (column 4 text empty; delegate paints icons)
                 tree_item = QTreeWidgetItem([
                     display_name,
                     person_info.title,
                     person_info.occupation,
                     person_info.cluster_names_display,
-                    dna_text,
+                    "",
                 ])
 
                 # Store person_id in UserRole on column 0
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, person_info.person_id)
+
+                # Store DNA company IDs for the icon delegate
+                if person_info.dna_company_ids:
+                    tree_item.setData(4, _ROLE_DNA_COMPANY_IDS, person_info.dna_company_ids[:5])
 
                 # Store lineage flags for the dot delegate
                 if person_info.is_ancestor:
                     tree_item.setData(0, _ROLE_IS_ANCESTOR, True)
                 if person_info.is_descendant:
                     tree_item.setData(0, _ROLE_IS_DESCENDANT, True)
+                if person_info.name_count > 1:
+                    tree_item.setData(0, _ROLE_HAS_MULTI_NAMES, True)
 
                 # Set gender icon
                 pixmap = icon_registry.get_gender_icon(person_info.sex)
-                from PySide6.QtGui import QIcon
                 tree_item.setIcon(0, QIcon(pixmap))
 
                 # Tooltips
@@ -1380,6 +1579,8 @@ class PersonListPanel(QWidget):
             current: The newly selected item.
             previous: The previously selected item.
         """
+        if self._syncing_from_diagram:
+            return
         if current is not None:
             person_id = current.data(0, Qt.ItemDataRole.UserRole)
             if person_id:
