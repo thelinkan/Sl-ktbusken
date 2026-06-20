@@ -9,11 +9,22 @@ All UI text is in Swedish.
 from __future__ import annotations
 
 import logging
+import shutil
 import uuid
+from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QListWidgetItem, QWidget
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QWidget,
+)
 
 from slaktbusken.model.dna import (
     DnaCluster,
@@ -23,6 +34,7 @@ from slaktbusken.model.dna import (
     DnaSegment,
     DnaTriangulation,
 )
+from slaktbusken.model.media import MediaItem
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.generated.ui_dna_editor import Ui_DnaEditor
 
@@ -40,6 +52,309 @@ ADMIN_STATUSES: list[str] = ["self", "managed_by_user", "self_managed"]
 # Match source options
 MATCH_SOURCES: list[str] = ["internal", "external"]
 
+# Supported logo image file extensions
+LOGO_EXTENSIONS: tuple[str, ...] = ("png", "jpg", "jpeg", "gif", "svg", "bmp", "webp")
+
+# File dialog filter string
+LOGO_FILE_FILTER: str = "Bildfiler (*.png *.jpg *.jpeg *.gif *.svg *.bmp *.webp)"
+
+# Preview/icon dimensions
+LOGO_PREVIEW_SIZE: int = 64  # company form preview
+LOGO_ICON_SIZE: int = 24  # match list icon
+
+
+# ------------------------------------------------------------------
+# Pure helper functions for logo path logic
+# ------------------------------------------------------------------
+
+
+def _is_inside_logo_folder(file_path: Path, logo_folder: Path) -> bool:
+    """Check whether *file_path* is located within *logo_folder*.
+
+    Uses resolved paths and case-insensitive comparison for Windows
+    compatibility.
+    """
+    try:
+        resolved_file = file_path.resolve()
+        resolved_folder = logo_folder.resolve()
+        return str(resolved_file).lower().startswith(str(resolved_folder).lower() + "\\") or \
+            str(resolved_file).lower().startswith(str(resolved_folder).lower() + "/") or \
+            str(resolved_file).lower() == str(resolved_folder).lower()
+    except (OSError, ValueError):
+        return False
+
+
+def _compute_relative_path(file_path: Path, project_folder: Path) -> str:
+    """Return the forward-slash relative path of *file_path* within *project_folder*."""
+    resolved_file = file_path.resolve()
+    resolved_folder = project_folder.resolve()
+    relative = resolved_file.relative_to(resolved_folder)
+    return relative.as_posix()
+
+
+def _unique_filename(folder: Path, name: str) -> Path:
+    """Generate a unique filename in *folder* by appending numeric suffix if needed.
+
+    If ``folder / name`` does not exist, returns it directly. Otherwise
+    appends ``_1``, ``_2``, etc. to the stem until a non-conflicting name
+    is found.
+    """
+    target = folder / name
+    if not target.exists():
+        return target
+
+    stem = Path(name).stem
+    suffix = Path(name).suffix
+    counter = 1
+    while True:
+        candidate = folder / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _find_media_by_path(
+    media_list: list[MediaItem], rel_path: str
+) -> MediaItem | None:
+    """Find a MediaItem whose file path matches *rel_path* case-insensitively."""
+    lower_path = rel_path.lower()
+    for item in media_list:
+        if item.file.lower() == lower_path:
+            return item
+    return None
+
+
+def _create_logo_media_item(rel_path: str, filename: str) -> MediaItem:
+    """Create a new MediaItem for a logo image.
+
+    Args:
+        rel_path: Forward-slash relative path from the project folder.
+        filename: The image filename (used to derive the title).
+
+    Returns:
+        A new MediaItem with type="logo", a generated uuid4 id, and
+        title set to the filename stem.
+    """
+    return MediaItem(
+        id=str(uuid.uuid4()),
+        type="logo",
+        file=rel_path,
+        title=Path(filename).stem,
+    )
+
+
+def _copy_to_logo_folder(source: Path, logo_folder: Path) -> Path | None:
+    """Copy an external image file to the logo folder.
+
+    Creates the logo folder if it does not exist. Uses
+    :func:`_unique_filename` to avoid overwriting existing files.
+
+    Args:
+        source: Absolute path to the source image file.
+        logo_folder: Absolute path to the destination logo folder.
+
+    Returns:
+        The destination :class:`Path` on success, or ``None`` if the
+        copy fails due to a filesystem error.
+    """
+    try:
+        logo_folder.mkdir(parents=True, exist_ok=True)
+        destination = _unique_filename(logo_folder, source.name)
+        shutil.copy2(source, destination)
+        return destination
+    except OSError as e:
+        logger.error("Misslyckades kopiera logofil %s: %s", source, e)
+        return None
+
+
+# Sentinel value indicating the logo file path was resolved but the file
+# does not exist on disk.
+_LOGO_FILE_MISSING: str = "__MISSING__"
+
+
+def _resolve_logo_file_path_for_company_id(
+    company_id: str,
+    project_data: ProjectData,
+    project_folder: Path | None,
+) -> Path | None | str:
+    """Resolve the chain from a company_id to the logo file's absolute path.
+
+    Returns:
+        - ``None`` if any link in the chain is missing (no logo assigned).
+        - The sentinel string :data:`_LOGO_FILE_MISSING` if the path resolves
+          but the file does not exist on disk.
+        - A :class:`Path` instance if the file exists on disk.
+    """
+    if project_folder is None:
+        return None
+
+    # Step 1: company_id → DnaCompany
+    company: DnaCompany | None = None
+    for c in project_data.dna_companies:
+        if c.id == company_id:
+            company = c
+            break
+    if company is None:
+        return None
+
+    # Step 2: DnaCompany.logo_media_id → MediaItem
+    if company.logo_media_id is None:
+        return None
+    media_item: MediaItem | None = None
+    for m in project_data.media:
+        if m.id == company.logo_media_id:
+            media_item = m
+            break
+    if media_item is None:
+        return None
+
+    # Step 3: MediaItem.file → absolute path
+    abs_path = project_folder / Path(media_item.file)
+
+    # Step 4: Check if file exists on disk
+    if not abs_path.is_file():
+        return _LOGO_FILE_MISSING
+
+    return abs_path
+
+
+def _resolve_logo_file_path(
+    match: DnaMatch,
+    project_data: ProjectData,
+    project_folder: Path | None,
+) -> Path | None | str:
+    """Resolve the chain from a DnaMatch to the logo file's absolute path.
+
+    Returns:
+        - ``None`` if any link in the chain is missing (no logo assigned).
+        - The sentinel string :data:`_LOGO_FILE_MISSING` if the path resolves
+          but the file does not exist on disk.
+        - A :class:`Path` instance if the file exists on disk.
+    """
+    if project_folder is None:
+        return None
+
+    # Step 1: match.profile2_id → DnaProfile
+    profile: DnaProfile | None = None
+    for p in project_data.dna_profiles:
+        if p.id == match.profile2_id:
+            profile = p
+            break
+    if profile is None:
+        return None
+
+    # Delegate remaining resolution to the company-level helper
+    return _resolve_logo_file_path_for_company_id(
+        profile.company_id, project_data, project_folder
+    )
+
+
+def resolve_company_logo_icon(
+    match: DnaMatch,
+    project_data: ProjectData,
+    project_folder: Path | None,
+    size: int = LOGO_ICON_SIZE,
+) -> QIcon:
+    """Resolve the company logo for a DNA match and return it as a QIcon.
+
+    Follows the chain: DnaMatch → profile2 → company → logo_media_id →
+    MediaItem → file → disk path → QIcon scaled to *size* × *size*.
+
+    Returns:
+        - A scaled :class:`QIcon` when the logo file exists on disk.
+        - An empty :class:`QIcon` (default placeholder) when any link in the
+          resolution chain is missing or ``None``.
+        - A distinct "missing file" :class:`QIcon` (red-bordered pixmap) when
+          the file path resolves but the file does not exist on disk.
+    """
+    result = _resolve_logo_file_path(match, project_data, project_folder)
+
+    if result is None:
+        # No logo assigned — return empty placeholder icon
+        return QIcon()
+
+    if result == _LOGO_FILE_MISSING:
+        # File path resolved but file missing on disk — distinct indicator
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.white)
+        from PySide6.QtGui import QPainter, QPen
+        from PySide6.QtCore import QRect
+
+        painter = QPainter(pixmap)
+        pen = QPen(Qt.GlobalColor.red, 2)
+        painter.setPen(pen)
+        painter.drawRect(QRect(1, 1, size - 2, size - 2))
+        # Draw an X to indicate missing
+        painter.drawLine(1, 1, size - 2, size - 2)
+        painter.drawLine(size - 2, 1, 1, size - 2)
+        painter.end()
+        return QIcon(pixmap)
+
+    # result is a Path — load and scale
+    pixmap = QPixmap(str(result))
+    if pixmap.isNull():
+        # Could not load the image (unsupported format, corrupt, etc.)
+        return QIcon()
+    scaled = pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    return QIcon(scaled)
+
+
+def resolve_profile_logo_icon(
+    profile: DnaProfile,
+    project_data: ProjectData,
+    project_folder: Path | None,
+    size: int = LOGO_ICON_SIZE,
+) -> QIcon:
+    """Resolve the company logo for a DNA profile and return it as a QIcon.
+
+    Follows the chain: DnaProfile → company → logo_media_id →
+    MediaItem → file → disk path → QIcon scaled to *size* × *size*.
+
+    Returns:
+        - A scaled :class:`QIcon` when the logo file exists on disk.
+        - An empty :class:`QIcon` (default placeholder) when any link in the
+          resolution chain is missing or ``None``.
+        - A distinct "missing file" :class:`QIcon` (red-bordered pixmap) when
+          the file path resolves but the file does not exist on disk.
+    """
+    result = _resolve_logo_file_path_for_company_id(
+        profile.company_id, project_data, project_folder
+    )
+
+    if result is None:
+        return QIcon()
+
+    if result == _LOGO_FILE_MISSING:
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.white)
+        from PySide6.QtGui import QPainter, QPen
+        from PySide6.QtCore import QRect
+
+        painter = QPainter(pixmap)
+        pen = QPen(Qt.GlobalColor.red, 2)
+        painter.setPen(pen)
+        painter.drawRect(QRect(1, 1, size - 2, size - 2))
+        painter.drawLine(1, 1, size - 2, size - 2)
+        painter.drawLine(size - 2, 1, 1, size - 2)
+        painter.end()
+        return QIcon(pixmap)
+
+    pixmap = QPixmap(str(result))
+    if pixmap.isNull():
+        return QIcon()
+    scaled = pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    return QIcon(scaled)
+
 
 class DnaEditor(QWidget):
     """Editor widget for DNA-related records with tabbed interface.
@@ -50,23 +365,33 @@ class DnaEditor(QWidget):
 
     Args:
         project_data: The current project data containing all entities.
+        project_path: Optional path to the project file on disk.
         parent: Optional parent widget.
     """
 
     def __init__(
         self,
         project_data: ProjectData,
+        project_path: Path | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Initialise the DNA editor.
 
         Args:
             project_data: The current project data containing all entities.
+            project_path: Optional path to the project file on disk.
             parent: Optional parent widget.
         """
         super().__init__(parent)
 
         self._project_data = project_data
+        self._project_path = project_path
+        self._project_folder = project_path.parent if project_path else None
+        self._logo_folder = (
+            self._project_folder / "media" / "logo"
+            if self._project_folder
+            else None
+        )
         self._editing_company: Optional[DnaCompany] = None
         self._editing_profile: Optional[DnaProfile] = None
         self._editing_match: Optional[DnaMatch] = None
@@ -77,6 +402,20 @@ class DnaEditor(QWidget):
         # Set up UI from generated form
         self._ui = Ui_DnaEditor()
         self._ui.setupUi(self)
+
+        # Add logo choose button and preview label to company form
+        self._logo_choose_button = QPushButton("Välj logo...")
+        self._logo_choose_button.setEnabled(False)
+        self._logo_preview_label = QLabel()
+        self._logo_preview_label.setFixedSize(LOGO_PREVIEW_SIZE, LOGO_PREVIEW_SIZE)
+
+        logo_row_layout = QHBoxLayout()
+        logo_row_layout.addWidget(self._logo_choose_button)
+        logo_row_layout.addWidget(self._logo_preview_label)
+
+        self._ui.company_form_layout.insertRow(3, "", logo_row_layout)
+
+        self._logo_choose_button.clicked.connect(self._on_choose_logo)
 
         self._populate_combos()
         self._connect_signals()
@@ -264,20 +603,30 @@ class DnaEditor(QWidget):
     def _refresh_profiles_list(self) -> None:
         """Rebuild the profiles list widget."""
         self._ui.profiles_list.clear()
+        self._ui.profiles_list.setIconSize(QSize(LOGO_ICON_SIZE, LOGO_ICON_SIZE))
         for profile in self._project_data.dna_profiles:
             display = profile.kit_name or profile.id
             display = f"{display} ({profile.test_type})"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, profile.id)
+            icon = resolve_profile_logo_icon(
+                profile, self._project_data, self._project_folder, LOGO_ICON_SIZE
+            )
+            item.setIcon(icon)
             self._ui.profiles_list.addItem(item)
 
     def _refresh_matches_list(self) -> None:
         """Rebuild the matches list widget."""
         self._ui.matches_list.clear()
+        self._ui.matches_list.setIconSize(QSize(LOGO_ICON_SIZE, LOGO_ICON_SIZE))
         for match in self._project_data.dna_matches:
             display = f"{match.shared_cm} cM ({match.segment_count} segment)"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, match.id)
+            icon = resolve_company_logo_icon(
+                match, self._project_data, self._project_folder, LOGO_ICON_SIZE
+            )
+            item.setIcon(icon)
             self._ui.matches_list.addItem(item)
 
     def _refresh_segments_list(self) -> None:
@@ -311,6 +660,141 @@ class DnaEditor(QWidget):
     # Companies: selection, add, remove, save
     # ------------------------------------------------------------------
 
+    def _on_choose_logo(self) -> None:
+        """Handle the 'Välj logo...' button click.
+
+        Orchestrates the full logo chooser workflow:
+        1. Ensure logo folder exists
+        2. Open file dialog for image selection
+        3. Copy file to logo folder if external
+        4. Create or reuse MediaItem
+        5. Associate with current company
+        6. Update UI
+        """
+        if self._editing_company is None or self._project_folder is None:
+            return
+
+        # Step 1: Ensure logo folder exists (Req 1.6)
+        logo_folder = self._logo_folder
+        if logo_folder is None:
+            return
+        try:
+            logo_folder.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+
+        # Step 2: Open file dialog (Req 1.3, 1.4, 1.5)
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Välj logo...",
+            str(logo_folder),
+            LOGO_FILE_FILTER,
+        )
+
+        # Step 3: If user cancels, return without changes (Req 4.5)
+        if not file_path:
+            return
+
+        selected_path = Path(file_path)
+
+        # Step 4: Determine if file is inside logo folder (Req 2.1)
+        if _is_inside_logo_folder(selected_path, logo_folder):
+            dest_path = selected_path
+        else:
+            # Step 5: Copy to logo folder (Req 3.1, 3.7)
+            dest_path = _copy_to_logo_folder(selected_path, logo_folder)
+            if dest_path is None:
+                QMessageBox.warning(
+                    self,
+                    "Fel",
+                    f"Kunde inte kopiera filen: {selected_path.name}",
+                )
+                return
+
+        # Step 6: Compute relative path (Req 2.1)
+        rel_path = _compute_relative_path(dest_path, self._project_folder)
+
+        # Step 7: Search for existing MediaItem (Req 2.3, 3.6, 4.2)
+        media_item = _find_media_by_path(self._project_data.media, rel_path)
+
+        # Step 8: Create new MediaItem if needed (Req 2.2, 3.5, 4.1)
+        if media_item is None:
+            media_item = _create_logo_media_item(rel_path, dest_path.name)
+            self._project_data.media.append(media_item)
+
+        # Step 9: Set company logo_media_id (Req 2.4, 4.1, 4.4)
+        self._editing_company.logo_media_id = media_item.id
+
+        # Step 10: Update text field (Req 4.3)
+        self._ui.company_logo_input.setText(media_item.id)
+
+        # Step 11: Update logo preview (Req 5.2)
+        self._update_logo_preview()
+
+    def _update_logo_preview(self) -> None:
+        """Update the logo preview label based on the current company's logo.
+
+        Resolves the company's logo_media_id to a file path and displays
+        the logo image scaled to 64×64, or shows an appropriate placeholder
+        when no logo is assigned or the file is missing on disk.
+        """
+        # No company or no logo assigned → empty placeholder (Req 5.3)
+        if (
+            self._editing_company is None
+            or not self._editing_company.logo_media_id
+        ):
+            self._logo_preview_label.clear()
+            self._logo_preview_label.setStyleSheet("")
+            return
+
+        # Find the MediaItem by id
+        media_item: MediaItem | None = None
+        for item in self._project_data.media:
+            if item.id == self._editing_company.logo_media_id:
+                media_item = item
+                break
+
+        if media_item is None:
+            self._logo_preview_label.clear()
+            self._logo_preview_label.setStyleSheet("")
+            return
+
+        # Resolve absolute path
+        if self._project_folder is None:
+            self._logo_preview_label.clear()
+            self._logo_preview_label.setStyleSheet("")
+            return
+
+        abs_path = self._project_folder / media_item.file
+
+        # Check if file exists on disk (Req 5.4)
+        if not abs_path.exists():
+            self._logo_preview_label.setText("?")
+            self._logo_preview_label.setStyleSheet(
+                "border: 2px solid red; color: red; font-size: 24px; "
+                "qproperty-alignment: AlignCenter;"
+            )
+            return
+
+        # Load and scale the image (Req 5.1, 5.2)
+        pixmap = QPixmap(str(abs_path))
+        if pixmap.isNull():
+            self._logo_preview_label.setText("?")
+            self._logo_preview_label.setStyleSheet(
+                "border: 2px solid red; color: red; font-size: 24px; "
+                "qproperty-alignment: AlignCenter;"
+            )
+            return
+
+        scaled = pixmap.scaled(
+            LOGO_PREVIEW_SIZE,
+            LOGO_PREVIEW_SIZE,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._logo_preview_label.setPixmap(scaled)
+        self._logo_preview_label.setStyleSheet("")  # Clear any previous error style
+
     def _on_company_selected(
         self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
     ) -> None:
@@ -321,12 +805,18 @@ class DnaEditor(QWidget):
             _previous: The previously selected item (unused).
         """
         if current is None:
+            self._logo_choose_button.setEnabled(False)
+            self._update_logo_preview()
             return
         company_id = current.data(Qt.ItemDataRole.UserRole)
         for company in self._project_data.dna_companies:
             if company.id == company_id:
                 self._editing_company = company
                 self._load_company(company)
+                self._update_logo_preview()
+                self._logo_choose_button.setEnabled(
+                    self._project_path is not None
+                )
                 break
 
     def _load_company(self, company: DnaCompany) -> None:
@@ -345,6 +835,8 @@ class DnaEditor(QWidget):
         self._ui.company_name_input.clear()
         self._ui.company_notes_input.clear()
         self._ui.company_logo_input.clear()
+        self._update_logo_preview()
+        self._logo_choose_button.setEnabled(False)
         self._clear_status()
 
     def _on_remove_company(self) -> None:

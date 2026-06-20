@@ -924,6 +924,7 @@ class Application:
 
         editor = DnaEditor(
             project_data=project_data,
+            project_path=self.project_service.project_path,
             parent=dialog,
         )
         layout.addWidget(editor)
