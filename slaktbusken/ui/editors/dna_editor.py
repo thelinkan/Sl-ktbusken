@@ -36,6 +36,7 @@ from slaktbusken.model.dna import (
 )
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.project import ProjectData
+from slaktbusken.ui.dna_match_display import format_match_entry, matches_filter
 from slaktbusken.ui.generated.ui_dna_editor import Ui_DnaEditor
 
 logger = logging.getLogger(__name__)
@@ -524,6 +525,9 @@ class DnaEditor(QWidget):
         self._ui.add_match_button.clicked.connect(self._on_add_match)
         self._ui.remove_match_button.clicked.connect(self._on_remove_match)
         self._ui.save_match_button.clicked.connect(self._on_save_match)
+        self._ui.match_filter_input.textChanged.connect(
+            self._on_match_filter_changed
+        )
 
         # Segments tab
         self._ui.segments_list.currentItemChanged.connect(
@@ -619,8 +623,12 @@ class DnaEditor(QWidget):
         """Rebuild the matches list widget."""
         self._ui.matches_list.clear()
         self._ui.matches_list.setIconSize(QSize(LOGO_ICON_SIZE, LOGO_ICON_SIZE))
-        for match in self._project_data.dna_matches:
-            display = f"{match.shared_cm} cM ({match.segment_count} segment)"
+        filter_text = self._ui.match_filter_input.text()
+        filtered_matches = matches_filter(
+            self._project_data.dna_matches, filter_text, self._project_data
+        )
+        for match in filtered_matches:
+            display = format_match_entry(match, self._project_data)
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, match.id)
             icon = resolve_company_logo_icon(
@@ -1160,6 +1168,10 @@ class DnaEditor(QWidget):
         self._refresh_match_combos()
         self._clear_status()
         logger.info("DNA-matchning sparad: %s cM", shared_cm)
+
+    def _on_match_filter_changed(self, text: str) -> None:
+        """Re-filter matches list when filter text changes."""
+        self._refresh_matches_list()
 
     # ------------------------------------------------------------------
     # Segments: selection, add, remove, save
