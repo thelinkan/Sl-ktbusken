@@ -653,22 +653,6 @@ def _dna_cluster_invalid_name(draw: DrawFn) -> DnaCluster:
 
 
 @st.composite
-def _dna_triangulation_too_few_segments(draw: DrawFn) -> DnaTriangulation:
-    """Generate a DnaTriangulation with fewer than 2 segment_ids."""
-    seg_count = draw(st.integers(min_value=0, max_value=1))
-    segment_ids = [f"dnasegment_{i}" for i in range(seg_count)]
-    return DnaTriangulation(
-        id="dnatri_1",
-        company_id="dnacompany_1",
-        chromosome="1",
-        overlap_start=100,
-        overlap_end=200,
-        segment_ids=segment_ids,
-        profile_ids=["dnaprofile_1", "dnaprofile_2", "dnaprofile_3"],
-    )
-
-
-@st.composite
 def _dna_triangulation_too_few_profiles(draw: DrawFn) -> DnaTriangulation:
     """Generate a DnaTriangulation with fewer than 3 profile_ids."""
     profile_count = draw(st.integers(min_value=0, max_value=2))
@@ -676,11 +660,10 @@ def _dna_triangulation_too_few_profiles(draw: DrawFn) -> DnaTriangulation:
     return DnaTriangulation(
         id="dnatri_1",
         company_id="dnacompany_1",
-        chromosome="1",
-        overlap_start=100,
-        overlap_end=200,
-        segment_ids=["dnasegment_1", "dnasegment_2"],
         profile_ids=profile_ids,
+        shared_cm=45.5,
+        segment_count=3,
+        largest_segment_cm=22.1,
     )
 
 
@@ -922,16 +905,6 @@ class TestProperty6InvalidDataRejected:
         errors = validate_dna_cluster(cluster)
         assert len(errors) > 0
         assert any("1–200 tecken" in e for e in errors)
-
-    @given(triangulation=_dna_triangulation_too_few_segments())
-    @settings(max_examples=50)
-    def test_dna_triangulation_too_few_segments_rejected(
-        self, triangulation: DnaTriangulation
-    ) -> None:
-        """**Validates: Requirements 14.1**"""
-        errors = validate_dna_triangulation(triangulation)
-        assert len(errors) > 0
-        assert any("minst 2 segment_ids" in e for e in errors)
 
     @given(triangulation=_dna_triangulation_too_few_profiles())
     @settings(max_examples=50)

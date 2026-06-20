@@ -263,17 +263,22 @@ class Ui_PersonEditor(object):
 
         self.dna_tab_layout.addWidget(self.dna_matches_list)
 
-        self.dna_clusters_label = QLabel(self.dna_tab)
+        self.tab_widget.addTab(self.dna_tab, "")
+        self.cluster_tab = QWidget()
+        self.cluster_tab.setObjectName(u"cluster_tab")
+        self.cluster_tab_layout = QVBoxLayout(self.cluster_tab)
+        self.cluster_tab_layout.setObjectName(u"cluster_tab_layout")
+        self.dna_clusters_label = QLabel(self.cluster_tab)
         self.dna_clusters_label.setObjectName(u"dna_clusters_label")
 
-        self.dna_tab_layout.addWidget(self.dna_clusters_label)
+        self.cluster_tab_layout.addWidget(self.dna_clusters_label)
 
-        self.dna_clusters_list = QListWidget(self.dna_tab)
+        self.dna_clusters_list = QListWidget(self.cluster_tab)
         self.dna_clusters_list.setObjectName(u"dna_clusters_list")
 
-        self.dna_tab_layout.addWidget(self.dna_clusters_list)
+        self.cluster_tab_layout.addWidget(self.dna_clusters_list)
 
-        self.tab_widget.addTab(self.dna_tab, "")
+        self.tab_widget.addTab(self.cluster_tab, "")
 
         self.main_layout.addWidget(self.tab_widget)
 
@@ -353,7 +358,8 @@ class Ui_PersonEditor(object):
         self.dna_profiles_label.setText(QCoreApplication.translate("PersonEditor", u"DNA-profiler:", None))
         self.dna_matches_label.setText(QCoreApplication.translate("PersonEditor", u"DNA-matchningar:", None))
         self.dna_clusters_label.setText(QCoreApplication.translate("PersonEditor", u"Klustermedlemskap:", None))
-        self.tab_widget.setTabText(self.tab_widget.indexOf(self.dna_tab), QCoreApplication.translate("PersonEditor", u"DNA & Kluster", None))
+        self.tab_widget.setTabText(self.tab_widget.indexOf(self.dna_tab), QCoreApplication.translate("PersonEditor", u"DNA", None))
+        self.tab_widget.setTabText(self.tab_widget.indexOf(self.cluster_tab), QCoreApplication.translate("PersonEditor", u"Kluster", None))
         self.status_label.setText("")
         self.status_label.setStyleSheet(QCoreApplication.translate("PersonEditor", u"color: red;", None))
         self.save_button.setText(QCoreApplication.translate("PersonEditor", u"Spara", None))

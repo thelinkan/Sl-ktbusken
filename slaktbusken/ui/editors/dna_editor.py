@@ -659,7 +659,7 @@ class DnaEditor(QWidget):
         """Rebuild the triangulations list widget."""
         self._ui.triangulations_list.clear()
         for tri in self._project_data.dna_triangulations:
-            display = f"Chr {tri.chromosome}: {tri.overlap_start}-{tri.overlap_end}"
+            display = f"{tri.shared_cm:.2f} cM ({len(tri.profile_ids)} profiler)"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, tri.id)
             self._ui.triangulations_list.addItem(item)
@@ -1487,22 +1487,13 @@ class DnaEditor(QWidget):
         idx = self._ui.triangulation_company_combo.findData(tri.company_id)
         if idx >= 0:
             self._ui.triangulation_company_combo.setCurrentIndex(idx)
-        idx = self._ui.triangulation_chromosome_combo.findData(tri.chromosome)
-        if idx >= 0:
-            self._ui.triangulation_chromosome_combo.setCurrentIndex(idx)
-        self._ui.triangulation_start_input.setValue(tri.overlap_start)
-        self._ui.triangulation_end_input.setValue(tri.overlap_end)
+        self._ui.triangulation_shared_cm_input.setValue(tri.shared_cm)
+        self._ui.triangulation_segment_count_input.setValue(tri.segment_count)
+        self._ui.triangulation_largest_segment_input.setValue(tri.largest_segment_cm)
         idx = self._ui.triangulation_cluster_combo.findData(tri.cluster_id or "")
         if idx >= 0:
             self._ui.triangulation_cluster_combo.setCurrentIndex(idx)
         self._ui.triangulation_notes_input.setPlainText(tri.notes)
-
-        # Populate segment IDs list
-        self._ui.triangulation_segments_list.clear()
-        for seg_id in tri.segment_ids:
-            item = QListWidgetItem(seg_id)
-            item.setData(Qt.ItemDataRole.UserRole, seg_id)
-            self._ui.triangulation_segments_list.addItem(item)
 
         # Populate profile IDs list
         self._ui.triangulation_profiles_list.clear()
@@ -1595,28 +1586,9 @@ class DnaEditor(QWidget):
             self._update_status("Välj ett företag för trianguleringen.")
             return
 
-        chromosome = self._ui.triangulation_chromosome_combo.currentData() or ""
-        overlap_start = self._ui.triangulation_start_input.value()
-        overlap_end = self._ui.triangulation_end_input.value()
-
-        if overlap_start >= overlap_end:
-            self._update_status(
-                "Överlappning start måste vara mindre än slut."
-            )
-            return
-
-        # Collect segment IDs
-        segment_ids: list[str] = []
-        for i in range(self._ui.triangulation_segments_list.count()):
-            item = self._ui.triangulation_segments_list.item(i)
-            if item:
-                sid = item.data(Qt.ItemDataRole.UserRole)
-                if sid:
-                    segment_ids.append(sid)
-
-        if len(segment_ids) < 2:
-            self._update_status("Minst 2 segment-ID krävs.")
-            return
+        shared_cm = self._ui.triangulation_shared_cm_input.value()
+        segment_count = self._ui.triangulation_segment_count_input.value()
+        largest_segment_cm = self._ui.triangulation_largest_segment_input.value()
 
         # Collect profile IDs
         profile_ids: list[str] = []
@@ -1636,10 +1608,9 @@ class DnaEditor(QWidget):
 
         if self._editing_triangulation:
             self._editing_triangulation.company_id = company_id
-            self._editing_triangulation.chromosome = chromosome
-            self._editing_triangulation.overlap_start = overlap_start
-            self._editing_triangulation.overlap_end = overlap_end
-            self._editing_triangulation.segment_ids = segment_ids
+            self._editing_triangulation.shared_cm = shared_cm
+            self._editing_triangulation.segment_count = segment_count
+            self._editing_triangulation.largest_segment_cm = largest_segment_cm
             self._editing_triangulation.profile_ids = profile_ids
             self._editing_triangulation.cluster_id = cluster_id
             self._editing_triangulation.notes = notes
@@ -1647,11 +1618,10 @@ class DnaEditor(QWidget):
             new_tri = DnaTriangulation(
                 id=str(uuid.uuid4()),
                 company_id=company_id,
-                chromosome=chromosome,
-                overlap_start=overlap_start,
-                overlap_end=overlap_end,
-                segment_ids=segment_ids,
                 profile_ids=profile_ids,
+                shared_cm=shared_cm,
+                segment_count=segment_count,
+                largest_segment_cm=largest_segment_cm,
                 cluster_id=cluster_id,
                 notes=notes,
             )
@@ -1661,8 +1631,8 @@ class DnaEditor(QWidget):
         self._refresh_triangulations_list()
         self._clear_status()
         logger.info(
-            "DNA-triangulering sparad: Chr %s, %s-%s",
-            chromosome, overlap_start, overlap_end,
+            "DNA-triangulering sparad: %.2f cM, %d profiler",
+            shared_cm, len(profile_ids),
         )
 
     # ------------------------------------------------------------------

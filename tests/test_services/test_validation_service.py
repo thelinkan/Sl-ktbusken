@@ -460,37 +460,21 @@ class TestDnaReferences:
     ) -> None:
         """A DnaTriangulation with invalid company_id produces an error."""
         tri = DnaTriangulation(
-            id="dt_bad", company_id="ghost_co", chromosome="1",
-            overlap_start=100, overlap_end=5000,
-            segment_ids=["ds1", "ds2"],
+            id="dt_bad", company_id="ghost_co",
             profile_ids=["dp1", "dp2", "ghost_dp"],
+            shared_cm=45.5,
         )
         errors = service.validate_entity(tri, populated_project)
         assert any("ghost_co" in e.message for e in errors)
-
-    def test_dna_triangulation_invalid_segment_ids(
-        self, service: ValidationService, populated_project: ProjectData
-    ) -> None:
-        """A DnaTriangulation with invalid segment_ids produces errors."""
-        tri = DnaTriangulation(
-            id="dt_bad", company_id="dc1", chromosome="1",
-            overlap_start=100, overlap_end=5000,
-            segment_ids=["ghost_seg1", "ghost_seg2"],
-            profile_ids=["dp1", "dp2", "dp2"],
-        )
-        errors = service.validate_entity(tri, populated_project)
-        segment_errors = [e for e in errors if "segment_id" in e.message]
-        assert len(segment_errors) == 2
 
     def test_dna_triangulation_invalid_profile_ids(
         self, service: ValidationService, populated_project: ProjectData
     ) -> None:
         """A DnaTriangulation with invalid profile_ids produces errors."""
         tri = DnaTriangulation(
-            id="dt_bad", company_id="dc1", chromosome="1",
-            overlap_start=100, overlap_end=5000,
-            segment_ids=["ds1", "ds2"],
+            id="dt_bad", company_id="dc1",
             profile_ids=["dp1", "ghost_dp2", "ghost_dp3"],
+            shared_cm=45.5,
         )
         errors = service.validate_entity(tri, populated_project)
         profile_errors = [e for e in errors if "profile_id" in e.message]
@@ -501,10 +485,9 @@ class TestDnaReferences:
     ) -> None:
         """A DnaTriangulation with invalid cluster_id produces an error."""
         tri = DnaTriangulation(
-            id="dt_bad", company_id="dc1", chromosome="1",
-            overlap_start=100, overlap_end=5000,
-            segment_ids=["ds1", "ds2"],
+            id="dt_bad", company_id="dc1",
             profile_ids=["dp1", "dp2", "dp2"],
+            shared_cm=45.5,
             cluster_id="ghost_cluster",
         )
         errors = service.validate_entity(tri, populated_project)

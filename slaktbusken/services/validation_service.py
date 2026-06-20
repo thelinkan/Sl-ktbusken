@@ -475,7 +475,7 @@ class ValidationService:
     def _validate_dna_triangulation(
         self, triangulation: DnaTriangulation, id_sets: _IdSets
     ) -> list[ValidationError]:
-        """Validate a DNA triangulation: structural + company/segment/profile/cluster references."""
+        """Validate a DNA triangulation: structural + company/profile/cluster references."""
         errors: list[ValidationError] = []
 
         # Structural validation
@@ -489,14 +489,6 @@ class ValidationService:
                 "DnaTriangulation", triangulation.id,
                 f"company_id '{triangulation.company_id}' refererar inte till ett giltigt DNA-företag."
             ))
-
-        # segment_ids references
-        for segment_id in triangulation.segment_ids:
-            if segment_id not in id_sets.dna_segment_ids:
-                errors.append(ValidationError(
-                    "DnaTriangulation", triangulation.id,
-                    f"segment_id '{segment_id}' refererar inte till ett giltigt DNA-segment."
-                ))
 
         # profile_ids references
         for profile_id in triangulation.profile_ids:

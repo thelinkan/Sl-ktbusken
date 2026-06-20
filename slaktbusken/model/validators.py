@@ -507,9 +507,6 @@ def validate_dna_triangulation(triangulation: DnaTriangulation) -> list[str]:
     """Validate a DnaTriangulation instance."""
     errors: list[str] = []
 
-    if len(triangulation.segment_ids) < 2:
-        errors.append("DNA-triangulering måste ha minst 2 segment_ids.")
-
     if len(triangulation.profile_ids) < 3:
         errors.append("DNA-triangulering måste ha minst 3 profile_ids.")
 

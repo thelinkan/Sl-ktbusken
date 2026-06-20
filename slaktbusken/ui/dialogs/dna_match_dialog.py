@@ -1,6 +1,6 @@
-"""DNA Match creation dialog for Släktbusken.
+"""DNA Match creation/editing dialog for Släktbusken.
 
-Provides a modal form for creating a new DnaMatch between two DNA profiles.
+Provides a modal form for creating or editing a DnaMatch between two DNA profiles.
 All UI text is in Swedish.
 """
 
@@ -43,11 +43,12 @@ def _profile_display_label(profile: DnaProfile, project_data: ProjectData) -> st
 
 
 class DnaMatchDialog(QDialog):
-    """Modal dialog for creating a new DNA match.
+    """Modal dialog for creating or editing a DNA match.
 
     Args:
         project_data: The ProjectData containing DNA profiles.
         person_id: The ID of the current person.
+        existing_match: Optional existing DnaMatch to edit.
         parent: Optional parent widget.
     """
 
@@ -55,12 +56,15 @@ class DnaMatchDialog(QDialog):
         self,
         project_data: ProjectData,
         person_id: str,
+        existing_match: Optional[DnaMatch] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._project_data = project_data
         self._person_id = person_id
+        self._existing_match = existing_match
         self._created_match: Optional[DnaMatch] = None
+        self._edited_match: Optional[DnaMatch] = None
 
         self.setWindowTitle("Ny DNA-matchning")
         self.setMinimumWidth(400)
@@ -68,6 +72,9 @@ class DnaMatchDialog(QDialog):
         self._setup_ui()
         self._populate_fields()
         self._check_profiles()
+
+        if self._existing_match is not None:
+            self._apply_edit_mode()
 
     # ------------------------------------------------------------------
     # Public properties
@@ -77,6 +84,11 @@ class DnaMatchDialog(QDialog):
     def created_match(self) -> Optional[DnaMatch]:
         """The created DnaMatch, or None if dialog was cancelled."""
         return self._created_match
+
+    @property
+    def edited_match(self) -> Optional[DnaMatch]:
+        """The edited DnaMatch, or None if dialog was cancelled."""
+        return self._edited_match
 
     # ------------------------------------------------------------------
     # UI Setup
@@ -177,22 +189,19 @@ class DnaMatchDialog(QDialog):
             label = _profile_display_label(profile, self._project_data)
             self._combo_profile1.addItem(label, profile.id)
 
+        # Profile 2: initially disabled with placeholder only
+        self._combo_profile2.addItem("— Välj profil —", "")
+        self._combo_profile2.setEnabled(False)
+
+        # Connect profile1 change signal to filter profile2
+        self._combo_profile1.currentIndexChanged.connect(
+            self._on_profile1_changed
+        )
+
         # Pre-select if exactly one profile; disable dropdown in that case
         if len(person_profiles) == 1:
             self._combo_profile1.setCurrentIndex(1)
             self._combo_profile1.setEnabled(False)
-
-        # Profile 2: all other profiles (not belonging to current person)
-        other_profiles = [
-            p
-            for p in self._project_data.dna_profiles
-            if p.person_id != self._person_id
-        ]
-
-        self._combo_profile2.addItem("— Välj profil —", "")
-        for profile in other_profiles:
-            label = _profile_display_label(profile, self._project_data)
-            self._combo_profile2.addItem(label, profile.id)
 
     def _check_profiles(self) -> None:
         """Check if other profiles exist; if not, show info and disable OK."""
@@ -202,12 +211,105 @@ class DnaMatchDialog(QDialog):
             if p.person_id != self._person_id
         ]
         if not other_profiles:
+            self._label_info.setText(
+                "Inga andra DNA-profiler finns att matcha mot."
+            )
             self._label_info.setVisible(True)
             ok_button = self._button_box.button(
                 QDialogButtonBox.StandardButton.Ok
             )
             if ok_button:
                 ok_button.setEnabled(False)
+
+    # ------------------------------------------------------------------
+    # Edit mode
+    # ------------------------------------------------------------------
+
+    def _apply_edit_mode(self) -> None:
+        """Pre-fill the form with values from the existing match."""
+        assert self._existing_match is not None
+
+        self.setWindowTitle("Redigera DNA-matchning")
+
+        # Select profile1
+        idx1 = self._combo_profile1.findData(self._existing_match.profile1_id)
+        if idx1 != -1:
+            self._combo_profile1.setCurrentIndex(idx1)
+
+        # Select profile2 (profile1 change triggers filtering of profile2 dropdown)
+        idx2 = self._combo_profile2.findData(self._existing_match.profile2_id)
+        if idx2 != -1:
+            self._combo_profile2.setCurrentIndex(idx2)
+
+        # Populate numeric fields
+        self._spin_shared_cm.setValue(self._existing_match.shared_cm)
+        self._spin_shared_pct.setValue(self._existing_match.shared_percentage)
+        self._spin_segment_count.setValue(self._existing_match.segment_count)
+        self._spin_largest_segment.setValue(self._existing_match.largest_segment_cm)
+
+        # Populate text fields
+        self._edit_match_source.setText(self._existing_match.match_source)
+        self._edit_notes.setPlainText(self._existing_match.notes)
+
+    # ------------------------------------------------------------------
+    # Profile filtering
+    # ------------------------------------------------------------------
+
+    def _on_profile1_changed(self) -> None:
+        """Filter profile2 options to same-company profiles when profile1 changes."""
+        profile1_id = self._combo_profile1.currentData()
+
+        ok_button = self._button_box.button(
+            QDialogButtonBox.StandardButton.Ok
+        )
+
+        # No valid selection — disable profile2, hide info
+        if not profile1_id:
+            self._combo_profile2.clear()
+            self._combo_profile2.addItem("— Välj profil —", "")
+            self._combo_profile2.setEnabled(False)
+            self._label_info.setVisible(False)
+            if ok_button:
+                ok_button.setEnabled(True)
+            return
+
+        # Look up profile1's company_id
+        profile1_company_id = None
+        for p in self._project_data.dna_profiles:
+            if p.id == profile1_id:
+                profile1_company_id = p.company_id
+                break
+
+        # Clear and repopulate profile2
+        self._combo_profile2.clear()
+        self._combo_profile2.addItem("— Välj profil —", "")
+
+        # Filter: same company_id, exclude profile1 itself
+        matching_profiles = [
+            p
+            for p in self._project_data.dna_profiles
+            if p.company_id == profile1_company_id and p.id != profile1_id
+        ]
+
+        for profile in matching_profiles:
+            label = _profile_display_label(profile, self._project_data)
+            self._combo_profile2.addItem(label, profile.id)
+
+        if not matching_profiles:
+            # No matching profiles for this company
+            self._label_info.setText(
+                "Det finns inga matchbara profiler för detta företag."
+            )
+            self._label_info.setVisible(True)
+            self._combo_profile2.setEnabled(False)
+            if ok_button:
+                ok_button.setEnabled(False)
+        else:
+            # Matching profiles exist
+            self._label_info.setVisible(False)
+            self._combo_profile2.setEnabled(True)
+            if ok_button:
+                ok_button.setEnabled(True)
 
     # ------------------------------------------------------------------
     # Validation
@@ -247,7 +349,7 @@ class DnaMatchDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _on_accept(self) -> None:
-        """Handle OK click: validate and create match or show errors."""
+        """Handle OK click: validate and create/edit match or show errors."""
         errors = self._validate()
         if errors:
             self._label_error.setText("\n".join(errors))
@@ -257,8 +359,14 @@ class DnaMatchDialog(QDialog):
         self._label_error.setText("")
 
         # Build the DnaMatch
-        self._created_match = DnaMatch(
-            id=str(uuid4()),
+        match_id = (
+            self._existing_match.id
+            if self._existing_match is not None
+            else str(uuid4())
+        )
+
+        match = DnaMatch(
+            id=match_id,
             profile1_id=self._combo_profile1.currentData(),
             profile2_id=self._combo_profile2.currentData(),
             shared_cm=self._spin_shared_cm.value(),
@@ -268,4 +376,10 @@ class DnaMatchDialog(QDialog):
             match_source=self._edit_match_source.text().strip(),
             notes=self._edit_notes.toPlainText().strip(),
         )
+
+        if self._existing_match is not None:
+            self._edited_match = match
+        else:
+            self._created_match = match
+
         self.accept()

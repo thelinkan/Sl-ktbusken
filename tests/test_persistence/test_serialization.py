@@ -224,11 +224,10 @@ def _make_full_project_data() -> ProjectData:
             DnaTriangulation(
                 id="dna_tri_1",
                 company_id="dna_co_1",
-                chromosome="7",
-                overlap_start=1500000,
-                overlap_end=4000000,
-                segment_ids=["dna_seg_1", "dna_seg_2"],
                 profile_ids=["dna_prof_1", "dna_prof_2", "dna_prof_3"],
+                shared_cm=45.5,
+                segment_count=3,
+                largest_segment_cm=22.1,
                 cluster_id="dna_cluster_1",
                 notes="Triangulated overlap",
             ),
@@ -403,7 +402,9 @@ class TestRoundTrip:
         assert len(result.dna_triangulations) == 1
         tri = result.dna_triangulations[0]
         assert tri.cluster_id == "dna_cluster_1"
-        assert len(tri.segment_ids) == 2
+        assert tri.shared_cm == 45.5
+        assert tri.segment_count == 3
+        assert tri.largest_segment_cm == 22.1
         assert len(tri.profile_ids) == 3
 
         # Research notes

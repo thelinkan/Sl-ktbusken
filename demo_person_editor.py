@@ -171,7 +171,7 @@ def main():
     project_data, sample_person = create_sample_project()
 
     # Show the editor with an existing person
-    editor = PersonEditor(project_data, person=sample_person)
+    editor = PersonEditor(project_data, person=sample_person, project_folder=None)
     editor.setWindowTitle("Personredigerare — Demo (Erik Eriksson)")
     editor.resize(750, 600)
     editor.show()

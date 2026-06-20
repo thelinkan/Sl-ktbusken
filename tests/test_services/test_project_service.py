@@ -452,22 +452,24 @@ class TestAddEntities:
     def test_add_valid_dna_triangulation(self, service: ProjectService) -> None:
         """Adding a valid DNA triangulation succeeds."""
         tri = DnaTriangulation(
-            id="dt1", company_id="dc1", chromosome="5",
-            overlap_start=100, overlap_end=5000,
-            segment_ids=["ds1", "ds2"],
+            id="dt1", company_id="dc1",
             profile_ids=["dp1", "dp2", "dp3"],
+            shared_cm=45.5,
+            segment_count=3,
+            largest_segment_cm=22.1,
         )
         result = service.add_dna_triangulation(tri)
         assert result.id == "dt1"
         assert len(service.data.dna_triangulations) == 1
 
     def test_add_invalid_dna_triangulation_raises(self, service: ProjectService) -> None:
-        """Adding a triangulation with < 2 segments raises ValidationError."""
+        """Adding a triangulation with < 3 profiles raises ValidationError."""
         tri = DnaTriangulation(
-            id="dt1", company_id="dc1", chromosome="5",
-            overlap_start=100, overlap_end=5000,
-            segment_ids=["ds1"],
-            profile_ids=["dp1", "dp2", "dp3"],
+            id="dt1", company_id="dc1",
+            profile_ids=["dp1", "dp2"],
+            shared_cm=45.5,
+            segment_count=3,
+            largest_segment_cm=22.1,
         )
         with pytest.raises(ValidationError):
             service.add_dna_triangulation(tri)

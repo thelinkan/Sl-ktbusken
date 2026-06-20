@@ -646,31 +646,26 @@ def dna_cluster_strategy(draw: DrawFn) -> DnaCluster:
 
 @st.composite
 def dna_triangulation_strategy(draw: DrawFn) -> DnaTriangulation:
-    """Generate a valid DnaTriangulation (>=2 segments, >=3 profiles)."""
+    """Generate a valid DnaTriangulation (>=3 profiles)."""
     tri_id = draw(_id_strategy("dnatri"))
     company_id = draw(_id_strategy("dnacompany"))
-    chromosome = draw(st.sampled_from(_CHROMOSOMES))
 
-    overlap_start = draw(st.integers(min_value=1, max_value=250_000_000))
-    overlap_end = draw(st.integers(min_value=overlap_start + 1, max_value=250_000_001))
-
-    segment_ids = draw(st.lists(
-        _id_strategy("dnasegment"), min_size=2, max_size=5, unique=True,
-    ))
     profile_ids = draw(st.lists(
         _id_strategy("dnaprofile"), min_size=3, max_size=5, unique=True,
     ))
+    shared_cm = draw(st.floats(min_value=0.01, max_value=3500.0, allow_nan=False))
+    segment_count = draw(st.integers(min_value=1, max_value=100))
+    largest_segment_cm = draw(st.floats(min_value=0.01, max_value=300.0, allow_nan=False))
     cluster_id = draw(st.none() | _id_strategy("dnacluster"))
     notes = draw(_safe_text_or_empty)
 
     return DnaTriangulation(
         id=tri_id,
         company_id=company_id,
-        chromosome=chromosome,
-        overlap_start=overlap_start,
-        overlap_end=overlap_end,
-        segment_ids=segment_ids,
         profile_ids=profile_ids,
+        shared_cm=shared_cm,
+        segment_count=segment_count,
+        largest_segment_cm=largest_segment_cm,
         cluster_id=cluster_id,
         notes=notes,
     )

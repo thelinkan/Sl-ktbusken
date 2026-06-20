@@ -74,14 +74,13 @@ class DnaCluster:
 
 @dataclass
 class DnaTriangulation:
-    """A triangulated overlap of segments across multiple profiles."""
+    """A triangulated DNA match between three or more profiles."""
 
     id: str
     company_id: str
-    chromosome: str
-    overlap_start: int
-    overlap_end: int
-    segment_ids: list[str]
     profile_ids: list[str]
+    shared_cm: float = 0.0
+    segment_count: int = 0
+    largest_segment_cm: float = 0.0
     cluster_id: Optional[str] = None
     notes: str = ""

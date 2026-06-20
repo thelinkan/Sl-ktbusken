@@ -124,6 +124,7 @@ class Application:
             project_data=self.project_service.data,
             person=person,
             parent=dialog,
+            project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
         )
         layout.addWidget(editor)
 
@@ -205,6 +206,7 @@ class Application:
             project_data=data,
             person=new_person,
             parent=dialog,
+            project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
         )
         layout.addWidget(editor)
         editor.save_requested.connect(dialog.accept)
@@ -384,6 +386,7 @@ class Application:
             project_data=data,
             person=new_person,
             parent=dialog,
+            project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
         )
         layout.addWidget(editor)
         editor.save_requested.connect(dialog.accept)

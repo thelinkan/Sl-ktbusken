@@ -1,6 +1,6 @@
-"""DNA Profile creation dialog for Släktbusken.
+"""DNA Profile creation/edit dialog for Släktbusken.
 
-Provides a modal form for creating a new DnaProfile associated with a person.
+Provides a modal form for creating or editing a DnaProfile associated with a person.
 All UI text is in Swedish.
 """
 
@@ -34,11 +34,13 @@ _TEST_TYPE_ITEMS: list[tuple[str, str]] = [
 
 
 class DnaProfileDialog(QDialog):
-    """Modal dialog for creating a new DNA profile for the current person.
+    """Modal dialog for creating or editing a DNA profile for the current person.
 
     Args:
         project_data: The ProjectData containing DNA companies.
         person_id: The ID of the person this profile belongs to.
+        existing_profile: Optional existing profile to edit. When provided,
+            the dialog enters edit mode with pre-populated fields.
         parent: Optional parent widget.
     """
 
@@ -46,18 +48,25 @@ class DnaProfileDialog(QDialog):
         self,
         project_data: ProjectData,
         person_id: str,
+        existing_profile: Optional[DnaProfile] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._project_data = project_data
         self._person_id = person_id
+        self._existing_profile = existing_profile
         self._created_profile: Optional[DnaProfile] = None
+        self._edited_profile: Optional[DnaProfile] = None
 
-        self.setWindowTitle("Ny DNA-profil")
+        if self._existing_profile is not None:
+            self.setWindowTitle("Redigera DNA-profil")
+        else:
+            self.setWindowTitle("Ny DNA-profil")
         self.setMinimumWidth(400)
 
         self._setup_ui()
         self._populate_fields()
+        self._prepopulate_edit_fields()
         self._check_companies()
 
     # ------------------------------------------------------------------
@@ -68,6 +77,11 @@ class DnaProfileDialog(QDialog):
     def created_profile(self) -> Optional[DnaProfile]:
         """The created DnaProfile, or None if dialog was cancelled."""
         return self._created_profile
+
+    @property
+    def edited_profile(self) -> Optional[DnaProfile]:
+        """The edited DnaProfile, or None if dialog was cancelled or not in edit mode."""
+        return self._edited_profile
 
     # ------------------------------------------------------------------
     # UI Setup
@@ -152,6 +166,30 @@ class DnaProfileDialog(QDialog):
             if ok_button:
                 ok_button.setEnabled(False)
 
+    def _prepopulate_edit_fields(self) -> None:
+        """Pre-populate form fields when editing an existing profile."""
+        if self._existing_profile is None:
+            return
+
+        # Pre-select company
+        company_index = self._combo_company.findData(
+            self._existing_profile.company_id
+        )
+        if company_index >= 0:
+            self._combo_company.setCurrentIndex(company_index)
+
+        # Pre-select test type
+        test_type_index = self._combo_test_type.findData(
+            self._existing_profile.test_type
+        )
+        if test_type_index >= 0:
+            self._combo_test_type.setCurrentIndex(test_type_index)
+
+        # Pre-fill text fields
+        self._edit_kit_name.setText(self._existing_profile.kit_name or "")
+        self._edit_kit_id.setText(self._existing_profile.kit_id or "")
+        self._edit_notes.setPlainText(self._existing_profile.notes or "")
+
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
@@ -182,7 +220,7 @@ class DnaProfileDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _on_accept(self) -> None:
-        """Handle OK click: validate and create profile or show errors."""
+        """Handle OK click: validate and create/update profile or show errors."""
         errors = self._validate()
         if errors:
             self._label_error.setText("\n".join(errors))
@@ -191,14 +229,26 @@ class DnaProfileDialog(QDialog):
         # Clear any previous error
         self._label_error.setText("")
 
-        # Build the DnaProfile
-        self._created_profile = DnaProfile(
-            id=str(uuid4()),
-            person_id=self._person_id,
-            company_id=self._combo_company.currentData(),
-            test_type=self._combo_test_type.currentData(),
-            kit_name=self._edit_kit_name.text().strip(),
-            kit_id=self._edit_kit_id.text().strip(),
-            notes=self._edit_notes.toPlainText().strip(),
-        )
+        if self._existing_profile is not None:
+            # Edit mode: preserve original id and person_id
+            self._edited_profile = DnaProfile(
+                id=self._existing_profile.id,
+                person_id=self._existing_profile.person_id,
+                company_id=self._combo_company.currentData(),
+                test_type=self._combo_test_type.currentData(),
+                kit_name=self._edit_kit_name.text().strip(),
+                kit_id=self._edit_kit_id.text().strip(),
+                notes=self._edit_notes.toPlainText().strip(),
+            )
+        else:
+            # Create mode: generate new uuid4
+            self._created_profile = DnaProfile(
+                id=str(uuid4()),
+                person_id=self._person_id,
+                company_id=self._combo_company.currentData(),
+                test_type=self._combo_test_type.currentData(),
+                kit_name=self._edit_kit_name.text().strip(),
+                kit_id=self._edit_kit_id.text().strip(),
+                notes=self._edit_notes.toPlainText().strip(),
+            )
         self.accept()

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -31,6 +32,11 @@ from slaktbusken.model.event import Participant
 from slaktbusken.model.name_parser import validate_given_name_markers
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
+from slaktbusken.ui.editors.dna_editor import (
+    resolve_company_logo_icon,
+    resolve_profile_logo_icon,
+    _resolve_logo_file_path_for_company_id,
+)
 from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import get_event_type_label
@@ -63,6 +69,7 @@ class PersonEditor(QWidget):
         project_data: ProjectData,
         person: Optional[Person] = None,
         parent: QWidget | None = None,
+        project_folder: Path | None = None,
     ) -> None:
         """Initialise the person editor.
 
@@ -70,10 +77,12 @@ class PersonEditor(QWidget):
             project_data: The current project data containing all entities.
             person: Optional existing Person to edit. If None, creates a new person.
             parent: Optional parent widget.
+            project_folder: Optional path to the project folder for resolving media files.
         """
         super().__init__(parent)
 
         self._project_data = project_data
+        self._project_folder = project_folder
         self._person = person
         self._saved_person: Optional[Person] = None
         self._editing_name_row: Optional[int] = None
@@ -87,6 +96,7 @@ class PersonEditor(QWidget):
         self._setup_cluster_buttons()
         self._setup_dna_profile_button()
         self._setup_dna_match_button()
+        self._setup_triangulation_section()
         self._connect_signals()
 
         if self._person is not None:
@@ -133,46 +143,97 @@ class PersonEditor(QWidget):
     def _setup_cluster_buttons(self) -> None:
         """Add 'Lägg till kluster' and 'Ta bort' buttons below the clusters list."""
         buttons_layout = QHBoxLayout()
-        self._add_cluster_button = QPushButton("Lägg till kluster", self._ui.dna_tab)
-        self._remove_cluster_button = QPushButton("Ta bort", self._ui.dna_tab)
+        self._add_cluster_button = QPushButton("Lägg till kluster", self._ui.cluster_tab)
+        self._remove_cluster_button = QPushButton("Ta bort", self._ui.cluster_tab)
         buttons_layout.addWidget(self._add_cluster_button)
         buttons_layout.addWidget(self._remove_cluster_button)
         buttons_layout.addStretch()
 
-        # Insert the buttons layout after the dna_clusters_list in the dna_tab_layout
+        # Insert the buttons layout after the dna_clusters_list in the cluster_tab_layout
         # Find the index of dna_clusters_list and insert after it
-        layout = self._ui.dna_tab_layout
+        layout = self._ui.cluster_tab_layout
         cluster_list_index = layout.indexOf(self._ui.dna_clusters_list)
         layout.insertLayout(cluster_list_index + 1, buttons_layout)
 
     def _setup_dna_profile_button(self) -> None:
-        """Add 'Lägg till profil' button below the DNA profiles list."""
+        """Add 'Lägg till profil' and 'Redigera' buttons below the DNA profiles list."""
+        buttons_layout = QHBoxLayout()
         self._add_dna_profile_button = QPushButton(
             "Lägg till profil", self._ui.dna_tab
         )
-        # Insert the button after the dna_profiles_list in the dna_tab_layout
+        self._edit_dna_profile_button = QPushButton(
+            "Redigera", self._ui.dna_tab
+        )
+        buttons_layout.addWidget(self._add_dna_profile_button)
+        buttons_layout.addWidget(self._edit_dna_profile_button)
+        buttons_layout.addStretch()
+
+        # Insert the buttons layout after the dna_profiles_list in the dna_tab_layout
         layout = self._ui.dna_tab_layout
         profiles_list_index = layout.indexOf(self._ui.dna_profiles_list)
-        layout.insertWidget(profiles_list_index + 1, self._add_dna_profile_button)
+        layout.insertLayout(profiles_list_index + 1, buttons_layout)
         # Initially hidden — shown when a person is loaded
         self._add_dna_profile_button.setVisible(False)
+        self._edit_dna_profile_button.setVisible(False)
+        self._edit_dna_profile_button.setEnabled(False)
 
     def _setup_dna_match_button(self) -> None:
-        """Add 'Lägg till matchning' button below the DNA matches list."""
+        """Add 'Lägg till matchning' and 'Redigera' buttons below the DNA matches list."""
+        buttons_layout = QHBoxLayout()
         self._add_dna_match_button = QPushButton(
             "Lägg till matchning", self._ui.dna_tab
         )
-        # Insert the button after the dna_matches_list in the dna_tab_layout
+        self._edit_dna_match_button = QPushButton(
+            "Redigera", self._ui.dna_tab
+        )
+        buttons_layout.addWidget(self._add_dna_match_button)
+        buttons_layout.addWidget(self._edit_dna_match_button)
+        buttons_layout.addStretch()
+
+        # Insert the buttons layout after the dna_matches_list in the dna_tab_layout
         layout = self._ui.dna_tab_layout
         matches_list_index = layout.indexOf(self._ui.dna_matches_list)
-        layout.insertWidget(matches_list_index + 1, self._add_dna_match_button)
+        layout.insertLayout(matches_list_index + 1, buttons_layout)
         # Initially hidden — shown when a person is loaded
         self._add_dna_match_button.setVisible(False)
+        self._edit_dna_match_button.setVisible(False)
+        self._edit_dna_match_button.setEnabled(False)
         # Initially disabled — requires at least one DNA profile
         self._add_dna_match_button.setEnabled(False)
         self._add_dna_match_button.setToolTip(
             "En DNA-profil krävs för att skapa matchningar"
         )
+
+    def _setup_triangulation_section(self) -> None:
+        """Add 'Trianguleringar' label, list widget, and buttons below the matches section."""
+        layout = self._ui.dna_tab_layout
+
+        # Label
+        self._triangulations_label = QLabel("Trianguleringar", self._ui.dna_tab)
+        layout.addWidget(self._triangulations_label)
+
+        # List widget
+        self._triangulations_list = QListWidget(self._ui.dna_tab)
+        self._triangulations_list.setIconSize(QSize(24, 24))
+        layout.addWidget(self._triangulations_list)
+
+        # Buttons
+        buttons_layout = QHBoxLayout()
+        self._add_triangulation_button = QPushButton(
+            "Lägg till triangulering", self._ui.dna_tab
+        )
+        self._edit_triangulation_button = QPushButton(
+            "Redigera", self._ui.dna_tab
+        )
+        buttons_layout.addWidget(self._add_triangulation_button)
+        buttons_layout.addWidget(self._edit_triangulation_button)
+        buttons_layout.addStretch()
+        layout.addLayout(buttons_layout)
+
+        # Initially hidden — shown when a person is loaded
+        self._add_triangulation_button.setVisible(False)
+        self._edit_triangulation_button.setVisible(False)
+        self._edit_triangulation_button.setEnabled(False)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
@@ -195,9 +256,31 @@ class PersonEditor(QWidget):
 
         # DNA profile button
         self._add_dna_profile_button.clicked.connect(self._on_add_dna_profile)
+        self._edit_dna_profile_button.clicked.connect(self._on_edit_dna_profile)
+        self._ui.dna_profiles_list.itemDoubleClicked.connect(self._on_edit_dna_profile)
+        self._ui.dna_profiles_list.itemSelectionChanged.connect(
+            self._update_dna_button_states
+        )
 
         # DNA match button
         self._add_dna_match_button.clicked.connect(self._on_add_dna_match)
+
+        # DNA match edit
+        self._edit_dna_match_button.clicked.connect(self._on_edit_dna_match)
+        self._ui.dna_matches_list.itemDoubleClicked.connect(
+            self._on_edit_dna_match
+        )
+        self._ui.dna_matches_list.itemSelectionChanged.connect(
+            self._update_dna_button_states
+        )
+
+        # DNA triangulation
+        self._triangulations_list.itemSelectionChanged.connect(
+            self._update_dna_button_states
+        )
+        self._add_triangulation_button.clicked.connect(self._on_add_triangulation)
+        self._edit_triangulation_button.clicked.connect(self._on_edit_triangulation)
+        self._triangulations_list.itemDoubleClicked.connect(self._on_edit_triangulation)
 
         # DNA cluster membership
         self._add_cluster_button.clicked.connect(self._on_add_cluster)
@@ -243,6 +326,7 @@ class PersonEditor(QWidget):
         # DNA
         self._refresh_dna_profiles()
         self._refresh_dna_matches()
+        self._refresh_triangulations()
         self._refresh_dna_clusters()
 
         # Sync DNA button visibility and enabled state
@@ -665,6 +749,7 @@ class PersonEditor(QWidget):
     def _refresh_dna_profiles(self) -> None:
         """Populate the DNA profiles list for this person."""
         self._ui.dna_profiles_list.clear()
+        self._ui.dna_profiles_list.setIconSize(QSize(24, 24))
 
         if self._person is None:
             return
@@ -674,11 +759,16 @@ class PersonEditor(QWidget):
                 display = f"{profile.kit_name or profile.id} ({profile.test_type})"
                 item = QListWidgetItem(display)
                 item.setData(Qt.ItemDataRole.UserRole, profile.id)
+                icon = resolve_profile_logo_icon(
+                    profile, self._project_data, self._project_folder
+                )
+                item.setIcon(icon)
                 self._ui.dna_profiles_list.addItem(item)
 
     def _refresh_dna_matches(self) -> None:
         """Populate the DNA matches list for this person's profiles."""
         self._ui.dna_matches_list.clear()
+        self._ui.dna_matches_list.setIconSize(QSize(24, 24))
 
         if self._person is None:
             return
@@ -716,7 +806,63 @@ class PersonEditor(QWidget):
                 display = f"{other_name}: {match.shared_cm} cM ({match.segment_count} segment)"
                 item = QListWidgetItem(display)
                 item.setData(Qt.ItemDataRole.UserRole, match.id)
+                icon = resolve_company_logo_icon(
+                    match, self._project_data, self._project_folder
+                )
+                item.setIcon(icon)
                 self._ui.dna_matches_list.addItem(item)
+
+    def _refresh_triangulations(self) -> None:
+        """Populate the triangulations list for this person's profiles."""
+        self._triangulations_list.clear()
+
+        if self._person is None:
+            return
+
+        # Get profile IDs for this person
+        person_profile_ids = {
+            p.id
+            for p in self._project_data.dna_profiles
+            if p.person_id == self._person.id
+        }
+
+        for triangulation in self._project_data.dna_triangulations:
+            # Check if any of the triangulation's profile_ids intersect with this person's profiles
+            tri_profile_set = set(triangulation.profile_ids)
+            if not tri_profile_set.intersection(person_profile_ids):
+                continue
+
+            n = len(triangulation.profile_ids)
+            display = (
+                f"{triangulation.shared_cm:.2f} cM, "
+                f"{triangulation.segment_count} segment "
+                f"({n} profiler)"
+            )
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, triangulation.id)
+
+            # Resolve company logo icon by company_id
+            result = _resolve_logo_file_path_for_company_id(
+                triangulation.company_id, self._project_data, self._project_folder
+            )
+            if result is not None and isinstance(result, Path):
+                from PySide6.QtGui import QPixmap
+
+                pixmap = QPixmap(str(result))
+                if not pixmap.isNull():
+                    scaled = pixmap.scaled(
+                        24,
+                        24,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                    item.setIcon(QIcon(scaled))
+                else:
+                    item.setIcon(QIcon())
+            else:
+                item.setIcon(QIcon())
+
+            self._triangulations_list.addItem(item)
 
     def _on_add_dna_profile(self) -> None:
         """Open the DnaProfileDialog and handle the result."""
@@ -735,6 +881,45 @@ class PersonEditor(QWidget):
             profile = dialog.created_profile
             if profile is not None:
                 self._project_data.dna_profiles.append(profile)
+                self._refresh_dna_profiles()
+                self._refresh_dna_matches()
+                self._update_dna_button_states()
+
+    def _on_edit_dna_profile(self) -> None:
+        """Open DnaProfileDialog in edit mode for the selected profile."""
+        if self._person is None:
+            return
+
+        current_item = self._ui.dna_profiles_list.currentItem()
+        if current_item is None:
+            return
+
+        profile_id = current_item.data(Qt.ItemDataRole.UserRole)
+        # Find the profile in project data
+        selected_profile = next(
+            (p for p in self._project_data.dna_profiles if p.id == profile_id),
+            None,
+        )
+        if selected_profile is None:
+            return
+
+        from slaktbusken.ui.dialogs.dna_profile_dialog import DnaProfileDialog
+
+        dialog = DnaProfileDialog(
+            project_data=self._project_data,
+            person_id=self._person.id,
+            existing_profile=selected_profile,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            edited = dialog.edited_profile
+            if edited is not None:
+                # Replace the profile in project data
+                for i, p in enumerate(self._project_data.dna_profiles):
+                    if p.id == edited.id:
+                        self._project_data.dna_profiles[i] = edited
+                        break
                 self._refresh_dna_profiles()
                 self._refresh_dna_matches()
                 self._update_dna_button_states()
@@ -758,20 +943,139 @@ class PersonEditor(QWidget):
                 self._project_data.dna_matches.append(match)
                 self._refresh_dna_matches()
 
+    def _on_edit_dna_match(self) -> None:
+        """Open DnaMatchDialog in edit mode for the selected match."""
+        if self._person is None:
+            return
+
+        current_item = self._ui.dna_matches_list.currentItem()
+        if current_item is None:
+            return
+
+        match_id = current_item.data(Qt.ItemDataRole.UserRole)
+        selected_match = next(
+            (m for m in self._project_data.dna_matches if m.id == match_id),
+            None,
+        )
+        if selected_match is None:
+            return
+
+        from slaktbusken.ui.dialogs.dna_match_dialog import DnaMatchDialog
+
+        dialog = DnaMatchDialog(
+            project_data=self._project_data,
+            person_id=self._person.id,
+            existing_match=selected_match,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            edited = dialog.edited_match
+            if edited is not None:
+                for i, m in enumerate(self._project_data.dna_matches):
+                    if m.id == edited.id:
+                        self._project_data.dna_matches[i] = edited
+                        break
+                self._refresh_dna_matches()
+                self._update_dna_button_states()
+
+    def _on_add_triangulation(self) -> None:
+        """Open the DnaTriangulationDialog in create mode and handle the result."""
+        if self._person is None:
+            return
+
+        from slaktbusken.ui.dialogs.dna_triangulation_dialog import DnaTriangulationDialog
+
+        dialog = DnaTriangulationDialog(
+            project_data=self._project_data,
+            person_id=self._person.id,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            triangulation = dialog.created_triangulation
+            if triangulation is not None:
+                self._project_data.dna_triangulations.append(triangulation)
+                self._refresh_triangulations()
+
+    def _on_edit_triangulation(self) -> None:
+        """Open DnaTriangulationDialog in edit mode for the selected triangulation."""
+        if self._person is None:
+            return
+
+        current_item = self._triangulations_list.currentItem()
+        if current_item is None:
+            return
+
+        tri_id = current_item.data(Qt.ItemDataRole.UserRole)
+        selected_tri = next(
+            (t for t in self._project_data.dna_triangulations if t.id == tri_id),
+            None,
+        )
+        if selected_tri is None:
+            return
+
+        from slaktbusken.ui.dialogs.dna_triangulation_dialog import DnaTriangulationDialog
+
+        dialog = DnaTriangulationDialog(
+            project_data=self._project_data,
+            person_id=self._person.id,
+            existing_triangulation=selected_tri,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            edited = dialog.edited_triangulation
+            if edited is not None:
+                for i, t in enumerate(self._project_data.dna_triangulations):
+                    if t.id == edited.id:
+                        self._project_data.dna_triangulations[i] = edited
+                        break
+                self._refresh_triangulations()
+                self._update_dna_button_states()
+
     def _update_dna_button_states(self) -> None:
         """Sync DNA button visibility and enabled state with current data.
 
-        - Shows/hides both DNA buttons based on whether a person is loaded.
+        - Shows/hides DNA buttons based on whether a person is loaded.
+        - Enables edit button only when a profile is selected.
+        - Enables match edit button only when a match is selected.
         - Enables match button if person has at least one DNA profile.
         - Disables match button with tooltip if person has no profiles.
+        - Shows/hides triangulation buttons based on whether a person is loaded.
+        - Enables triangulation edit button only when a triangulation is selected.
         """
         if self._person is None:
             self._add_dna_profile_button.setVisible(False)
+            self._edit_dna_profile_button.setVisible(False)
             self._add_dna_match_button.setVisible(False)
+            self._edit_dna_match_button.setVisible(False)
+            self._add_triangulation_button.setVisible(False)
+            self._edit_triangulation_button.setVisible(False)
             return
 
         self._add_dna_profile_button.setVisible(True)
+        self._edit_dna_profile_button.setVisible(True)
         self._add_dna_match_button.setVisible(True)
+        self._edit_dna_match_button.setVisible(True)
+        self._add_triangulation_button.setVisible(True)
+        self._edit_triangulation_button.setVisible(True)
+
+        # Enable edit button only when a profile is selected
+        has_selection = self._ui.dna_profiles_list.currentItem() is not None
+        self._edit_dna_profile_button.setEnabled(has_selection)
+
+        # Enable match edit button only when a match is selected
+        has_match_selection = (
+            self._ui.dna_matches_list.currentItem() is not None
+        )
+        self._edit_dna_match_button.setEnabled(has_match_selection)
+
+        # Enable triangulation edit button only when a triangulation is selected
+        has_triangulation_selection = (
+            self._triangulations_list.currentItem() is not None
+        )
+        self._edit_triangulation_button.setEnabled(has_triangulation_selection)
 
         # Check if person has at least one DNA profile
         has_profiles = any(

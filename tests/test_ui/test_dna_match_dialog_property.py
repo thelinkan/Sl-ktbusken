@@ -130,7 +130,8 @@ class TestDnaMatchCreationRoundTrip:
         if person1_id == person2_id:
             person2_id = person1_id + "_other"
 
-        # Assign profiles to distinct persons
+        # Assign profiles to distinct persons; profile2 must share company_id
+        # with profile1 for same-company filtering to include it in the dropdown.
         profile1 = DnaProfile(
             id=profile1.id,
             person_id=person1_id,
@@ -142,7 +143,7 @@ class TestDnaMatchCreationRoundTrip:
         profile2 = DnaProfile(
             id=profile2.id,
             person_id=person2_id,
-            company_id=profile2.company_id,
+            company_id=profile1.company_id,
             test_type=profile2.test_type,
             kit_name=profile2.kit_name,
             kit_id=profile2.kit_id,
@@ -159,14 +160,13 @@ class TestDnaMatchCreationRoundTrip:
                 kit_id=profile2.kit_id,
             )
 
-        # Create DnaCompanies for label rendering
+        # Create DnaCompanies for label rendering (both profiles share company)
         company = DnaCompany(id=profile1.company_id, name="TestDNA")
-        company2 = DnaCompany(id=profile2.company_id, name="TestDNA2")
 
-        # Build ProjectData with both profiles and their companies
+        # Build ProjectData with both profiles and their company
         project_data = ProjectData(
             project=ProjectMetadata(title="Test"),
-            dna_companies=[company, company2],
+            dna_companies=[company],
             dna_profiles=[profile1, profile2],
         )
 
