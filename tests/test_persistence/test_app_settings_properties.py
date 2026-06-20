@@ -14,7 +14,7 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from slaktbusken.persistence.app_settings_io import AppSettings, AppSettingsService
+from slaktbusken.persistence.app_settings_io import AppSettings, AppSettingsService, ColumnVisibility
 
 
 class TestPropertyRecentProjectsInvariants:
@@ -79,12 +79,20 @@ class TestPropertyAppSettingsRoundTrip:
         default_project_path=st.one_of(
             st.none(), st.text(min_size=1, max_size=100)
         ),
+        cv_titel=st.booleans(),
+        cv_yrke=st.booleans(),
+        cv_kluster=st.booleans(),
+        cv_dna_company=st.booleans(),
     )
     @settings(max_examples=100)
     def test_serialize_deserialize_round_trip(
         self,
         recent_projects: list[str],
         default_project_path: str | None,
+        cv_titel: bool,
+        cv_yrke: bool,
+        cv_kluster: bool,
+        cv_dna_company: bool,
     ) -> None:
         """For any valid AppSettings, JSON round-trip produces equivalent instance.
 
@@ -93,6 +101,12 @@ class TestPropertyAppSettingsRoundTrip:
         original = AppSettings(
             recent_projects=recent_projects,
             default_project_path=default_project_path,
+            column_visibility=ColumnVisibility(
+                titel=cv_titel,
+                yrke=cv_yrke,
+                kluster=cv_kluster,
+                dna_company=cv_dna_company,
+            ),
         )
 
         svc = AppSettingsService()
@@ -103,3 +117,4 @@ class TestPropertyAppSettingsRoundTrip:
 
         assert deserialized.recent_projects == original.recent_projects
         assert deserialized.default_project_path == original.default_project_path
+        assert deserialized.column_visibility == original.column_visibility

@@ -11,6 +11,7 @@ import pytest
 from slaktbusken.persistence.app_settings_io import (
     AppSettings,
     AppSettingsService,
+    ColumnVisibility,
 )
 
 
@@ -32,6 +33,14 @@ class TestAppSettingsDefaults:
     def test_default_project_path_is_none(self) -> None:
         settings = AppSettings()
         assert settings.default_project_path is None
+
+    def test_default_column_visibility_all_true(self) -> None:
+        settings = AppSettings()
+        cv = settings.column_visibility
+        assert cv.titel is True
+        assert cv.yrke is True
+        assert cv.kluster is True
+        assert cv.dna_company is True
 
 
 class TestLoad:
@@ -125,6 +134,52 @@ class TestLoad:
 
         result = service.load()
         assert result.default_project_path is None
+
+    def test_missing_column_visibility_returns_all_true(
+        self, service: AppSettingsService
+    ) -> None:
+        data = {"recent_projects": []}
+        service.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        service.SETTINGS_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+        result = service.load()
+        assert result.column_visibility == ColumnVisibility()
+
+    def test_non_dict_column_visibility_returns_all_true(
+        self, service: AppSettingsService
+    ) -> None:
+        data = {"column_visibility": "not a dict"}
+        service.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        service.SETTINGS_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+        result = service.load()
+        assert result.column_visibility == ColumnVisibility()
+
+    def test_column_visibility_partial_keys_defaults_missing_to_true(
+        self, service: AppSettingsService
+    ) -> None:
+        data = {"column_visibility": {"titel": False, "yrke": False}}
+        service.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        service.SETTINGS_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+        result = service.load()
+        assert result.column_visibility.titel is False
+        assert result.column_visibility.yrke is False
+        assert result.column_visibility.kluster is True
+        assert result.column_visibility.dna_company is True
+
+    def test_column_visibility_non_bool_value_defaults_to_true(
+        self, service: AppSettingsService
+    ) -> None:
+        data = {"column_visibility": {"titel": "yes", "yrke": 1, "kluster": None, "dna_company": False}}
+        service.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        service.SETTINGS_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+        result = service.load()
+        assert result.column_visibility.titel is True
+        assert result.column_visibility.yrke is True
+        assert result.column_visibility.kluster is True
+        assert result.column_visibility.dna_company is False
 
 
 class TestSave:
@@ -262,11 +317,15 @@ class TestRoundTrip:
         loaded = svc2.load()
         assert loaded.recent_projects == []
         assert loaded.default_project_path is None
+        assert loaded.column_visibility == ColumnVisibility()
 
     def test_full_settings_round_trip(self, service: AppSettingsService) -> None:
         settings = AppSettings(
             recent_projects=["/path/a.json.gz", "/path/b.json.gz"],
             default_project_path="/path/a.json.gz",
+            column_visibility=ColumnVisibility(
+                titel=False, yrke=True, kluster=False, dna_company=True
+            ),
         )
         service.save(settings)
 
@@ -275,3 +334,7 @@ class TestRoundTrip:
         loaded = svc2.load()
         assert loaded.recent_projects == ["/path/a.json.gz", "/path/b.json.gz"]
         assert loaded.default_project_path == "/path/a.json.gz"
+        assert loaded.column_visibility.titel is False
+        assert loaded.column_visibility.yrke is True
+        assert loaded.column_visibility.kluster is False
+        assert loaded.column_visibility.dna_company is True

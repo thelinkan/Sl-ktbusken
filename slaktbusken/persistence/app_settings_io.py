@@ -23,6 +23,20 @@ _MAX_RECENT_PROJECTS = 10
 
 
 @dataclass
+class ColumnVisibility:
+    """Per-column visibility flags for the person list table.
+
+    Each field corresponds to an optional column that the user can
+    show or hide. All columns are visible by default.
+    """
+
+    titel: bool = True
+    yrke: bool = True
+    kluster: bool = True
+    dna_company: bool = True
+
+
+@dataclass
 class AppSettings:
     """Application-level settings persisted across sessions.
 
@@ -31,10 +45,13 @@ class AppSettings:
             recent first. Limited to a maximum of 10 entries.
         default_project_path: Path to the project that should be opened
             automatically on application start, or None if not set.
+        column_visibility: Visibility flags for optional columns in the
+            person list table.
     """
 
     recent_projects: list[str] = field(default_factory=list)
     default_project_path: Optional[str] = None
+    column_visibility: ColumnVisibility = field(default_factory=ColumnVisibility)
 
 
 class AppSettingsService:
@@ -164,9 +181,16 @@ class AppSettingsService:
         Returns:
             A dictionary ready for JSON serialization.
         """
+        cv = settings.column_visibility
         return {
             "recent_projects": settings.recent_projects,
             "default_project_path": settings.default_project_path,
+            "column_visibility": {
+                "titel": cv.titel,
+                "yrke": cv.yrke,
+                "kluster": cv.kluster,
+                "dna_company": cv.dna_company,
+            },
         }
 
     def _deserialize(self, data: dict) -> AppSettings:
@@ -194,7 +218,25 @@ class AppSettingsService:
         ):
             default_project_path = None
 
+        # Deserialize column visibility with graceful fallback
+        cv_data = data.get("column_visibility")
+        if isinstance(cv_data, dict):
+            titel = cv_data.get("titel", True)
+            yrke = cv_data.get("yrke", True)
+            kluster = cv_data.get("kluster", True)
+            dna_company = cv_data.get("dna_company", True)
+            # Fall back to True for non-boolean values
+            column_visibility = ColumnVisibility(
+                titel=titel if isinstance(titel, bool) else True,
+                yrke=yrke if isinstance(yrke, bool) else True,
+                kluster=kluster if isinstance(kluster, bool) else True,
+                dna_company=dna_company if isinstance(dna_company, bool) else True,
+            )
+        else:
+            column_visibility = ColumnVisibility()
+
         return AppSettings(
             recent_projects=recent_projects,
             default_project_path=default_project_path,
+            column_visibility=column_visibility,
         )
