@@ -154,22 +154,21 @@ class AncestryView:
         # distribute evenly centred around y=0.
 
         # Calculate total height needed based on deepest generation
+        # Two-pass approach: first create boxes to know actual heights,
+        # then position them to avoid overlap.
         max_gen = depth  # deepest generation index
         max_slots = 2**max_gen
-        total_height = max_slots * (_BOX_HEIGHT_ESTIMATE + _V_GAP) - _V_GAP
 
-        # Render each generation
+        # Pass 1: Create all boxes and track actual heights per (gen, pos)
+        box_map: dict[tuple[int, int], PersonBoxItem] = {}
+        placeholder_positions: list[tuple[int, int, float]] = []  # (gen, pos, col_x)
+
         for gen in range(depth + 1):
             num_slots = 2**gen
             col_x = gen * (_BOX_WIDTH + _H_GAP)
 
             for pos in range(num_slots):
                 person_id = ancestor_map.get((gen, pos))
-
-                # Calculate y position - evenly space within total_height
-                # Each slot in this generation occupies total_height / num_slots
-                slot_height = total_height / num_slots
-                y = pos * slot_height + (slot_height - _BOX_HEIGHT_ESTIMATE) / 2.0
 
                 if person_id is not None:
                     p = _find_person(project_data, person_id)
@@ -181,28 +180,48 @@ class AncestryView:
                             p.id == project_data.project.main_person_id
                         )
                         box = PersonBoxItem(person_id, display_data, config)
-                        box.setPos(col_x, y)
-                        scene.addItem(box)
-                        self._person_boxes.append(box)
-                        box.setFlag(
-                            box.GraphicsItemFlag.ItemIsSelectable, True
-                        )
+                        box_map[(gen, pos)] = box
                     else:
-                        # Person ID exists but person not found in data
-                        self._add_placeholder(scene, gen, pos, col_x, y)
-                elif gen > 0 and gen < depth:
-                    # Missing ancestor at intermediate level - show placeholder
-                    # But only if parent (one generation back) is known
+                        placeholder_positions.append((gen, pos, col_x))
+                elif gen > 0:
                     parent_pos = pos // 2
                     parent_id = ancestor_map.get((gen - 1, parent_pos))
                     if parent_id is not None:
-                        self._add_placeholder(scene, gen, pos, col_x, y)
-                elif gen > 0 and gen == depth:
-                    # Deepest level - only show placeholder if parent is known
-                    parent_pos = pos // 2
-                    parent_id = ancestor_map.get((gen - 1, parent_pos))
-                    if parent_id is not None:
-                        self._add_placeholder(scene, gen, pos, col_x, y)
+                        placeholder_positions.append((gen, pos, col_x))
+
+        # Determine the effective box height for layout: use the maximum
+        # actual height across all created boxes to prevent any overlap.
+        max_box_height = _BOX_HEIGHT_ESTIMATE
+        for box in box_map.values():
+            if box.box_height > max_box_height:
+                max_box_height = box.box_height
+
+        # Compute total_height using actual max box height
+        effective_box_height = max_box_height
+        total_height = max_slots * (effective_box_height + _V_GAP) - _V_GAP
+
+        # Pass 2: Position and add boxes to scene
+        for gen in range(depth + 1):
+            num_slots = 2**gen
+            col_x = gen * (_BOX_WIDTH + _H_GAP)
+
+            for pos in range(num_slots):
+                slot_height = total_height / num_slots
+                y = pos * slot_height + (slot_height - effective_box_height) / 2.0
+
+                box = box_map.get((gen, pos))
+                if box is not None:
+                    box.setPos(col_x, y)
+                    scene.addItem(box)
+                    self._person_boxes.append(box)
+                    box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
+
+        # Add placeholders at correct positions
+        for gen, pos, col_x in placeholder_positions:
+            num_slots = 2**gen
+            slot_height = total_height / num_slots
+            y = pos * slot_height + (slot_height - effective_box_height) / 2.0
+            self._add_placeholder(scene, gen, pos, col_x, y)
 
         # Draw connection lines between parent and child positions
         # Uses orthogonal routing: horizontal from child → vertical midpoint → horizontal to ancestor
@@ -235,11 +254,17 @@ class AncestryView:
                     continue  # Nothing at this position to connect to
 
                 # Calculate Y positions (mid-height of each box)
-                child_y = child_pos * child_slot_height + (child_slot_height - _BOX_HEIGHT_ESTIMATE) / 2.0
-                ancestor_y = pos * slot_height + (slot_height - _BOX_HEIGHT_ESTIMATE) / 2.0
+                child_y = child_pos * child_slot_height + (child_slot_height - effective_box_height) / 2.0
+                ancestor_y = pos * slot_height + (slot_height - effective_box_height) / 2.0
 
-                child_mid_y = child_y + _BOX_HEIGHT_ESTIMATE / 2.0
-                ancestor_mid_y = ancestor_y + _BOX_HEIGHT_ESTIMATE / 2.0
+                # Use actual box height for mid-y if box exists, else estimate
+                child_box = box_map.get((child_gen, child_pos))
+                child_h = child_box.box_height if child_box else effective_box_height
+                ancestor_box = box_map.get((gen, pos))
+                ancestor_h = ancestor_box.box_height if ancestor_box else effective_box_height
+
+                child_mid_y = child_y + child_h / 2.0
+                ancestor_mid_y = ancestor_y + ancestor_h / 2.0
 
                 # Segment 1: horizontal from child box right edge to mid_x
                 scene.addItem(ConnectionLineItem(
