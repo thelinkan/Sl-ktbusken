@@ -699,6 +699,8 @@ def _load_media_pixmap(
 ) -> "QPixmap | None":
     """Load a media item as a QPixmap, optionally scaled.
 
+    Tries multiple path resolution strategies for backward compatibility.
+
     Args:
         media_id: The MediaItem ID to load.
         project_data: Project data containing media items.
@@ -720,9 +722,24 @@ def _load_media_pixmap(
     if media_item is None:
         return None
 
-    # Resolve file path relative to project folder
-    file_path = project_folder / Path(media_item.file)
-    if not file_path.is_file():
+    # Resolve file path — try multiple strategies
+    file_path: Path | None = None
+    # Strategy 1: relative to project folder (e.g. "media/photos/photo.jpg")
+    candidate = project_folder / Path(media_item.file)
+    if candidate.is_file():
+        file_path = candidate
+    else:
+        # Strategy 2: relative to media subfolder (legacy, e.g. just "photo.jpg")
+        candidate = project_folder / "media" / Path(media_item.file)
+        if candidate.is_file():
+            file_path = candidate
+        else:
+            # Strategy 3: absolute path
+            candidate = Path(media_item.file)
+            if candidate.is_file():
+                file_path = candidate
+
+    if file_path is None:
         return None
 
     pixmap = QPixmap(str(file_path))

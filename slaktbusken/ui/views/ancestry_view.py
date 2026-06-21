@@ -565,8 +565,21 @@ def _load_media_pixmap(
     if media_item is None:
         return None
 
-    file_path = project_folder / Path(media_item.file)
-    if not file_path.is_file():
+    # Resolve file path — try multiple strategies
+    file_path: Path | None = None
+    candidate = project_folder / Path(media_item.file)
+    if candidate.is_file():
+        file_path = candidate
+    else:
+        candidate = project_folder / "media" / Path(media_item.file)
+        if candidate.is_file():
+            file_path = candidate
+        else:
+            candidate = Path(media_item.file)
+            if candidate.is_file():
+                file_path = candidate
+
+    if file_path is None:
         return None
 
     pixmap = QPixmap(str(file_path))
