@@ -417,7 +417,13 @@ class FamilyView:
                 cur_y += sp_height + _CHILD_V_GAP
 
                 # --- Children below spouse, stacked vertically ---
-                children_ids = family.children
+                children_ids = [
+                    cid for cid in family.children
+                    if any(
+                        link.child_id == cid and link.parent_id == box.person_id
+                        for link in family.parent_child_links
+                    )
+                ]
                 child_center_x = spouse_x + _BOX_WIDTH / 2.0
 
                 for c_idx, child_id in enumerate(children_ids):

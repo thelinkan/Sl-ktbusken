@@ -488,7 +488,11 @@ def _find_children(project_data: ProjectData, person_id: str) -> list[str]:
         )
         if is_partner:
             for child_id in family.children:
-                if child_id not in children:
+                has_link = any(
+                    link.child_id == child_id and link.parent_id == person_id
+                    for link in family.parent_child_links
+                )
+                if has_link and child_id not in children:
                     children.append(child_id)
     return children
 

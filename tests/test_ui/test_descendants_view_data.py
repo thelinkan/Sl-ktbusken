@@ -11,7 +11,7 @@ from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
 
-from slaktbusken.model.family import Family, FamilyPartner
+from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.ui.views.descendants_view import collect_descendants
@@ -96,6 +96,10 @@ def descendant_tree_strategy(draw: DrawFn) -> tuple[ProjectData, str, int]:
             id=next_family_id(),
             partners=[FamilyPartner(person_id=pid, role="father")],
             children=children_ids,
+            parent_child_links=[
+                ParentChildLink(child_id=cid, parent_id=pid, parentage_type="biological")
+                for cid in children_ids
+            ],
         )
         families.append(family)
 
@@ -156,6 +160,10 @@ def multi_family_tree_strategy(draw: DrawFn) -> tuple[ProjectData, str, int]:
             id=next_family_id(),
             partners=[FamilyPartner(person_id=active_id, role="father")],
             children=children_ids,
+            parent_child_links=[
+                ParentChildLink(child_id=cid, parent_id=active_id, parentage_type="biological")
+                for cid in children_ids
+            ],
         )
         families.append(family)
 
@@ -175,6 +183,10 @@ def multi_family_tree_strategy(draw: DrawFn) -> tuple[ProjectData, str, int]:
                     id=next_family_id(),
                     partners=[FamilyPartner(person_id=child_id, role="mother")],
                     children=gc_ids,
+                    parent_child_links=[
+                        ParentChildLink(child_id=gc, parent_id=child_id, parentage_type="biological")
+                        for gc in gc_ids
+                    ],
                 )
                 families.append(family)
 
@@ -200,8 +212,8 @@ def _collect_descendants_reference(
     """Reference implementation: collect all descendant IDs reachable within depth.
 
     Uses BFS traversal through parent-child links where the person is a
-    partner in a family. Returns the set of all person IDs that are
-    descendants within the given number of generations.
+    partner in a family. Only includes children that have a valid
+    ParentChildLink connecting them to the parent.
 
     Args:
         project_data: Project data to search.
@@ -228,7 +240,11 @@ def _collect_descendants_reference(
             )
             if is_partner:
                 for child_id in family.children:
-                    if child_id not in visited:
+                    has_link = any(
+                        link.child_id == child_id and link.parent_id == pid
+                        for link in family.parent_child_links
+                    )
+                    if has_link and child_id not in visited:
                         visited.add(child_id)
                         descendants.add(child_id)
                         queue.append((child_id, gen + 1))

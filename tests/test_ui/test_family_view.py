@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtWidgets import QApplication, QGraphicsScene
 
 from slaktbusken.model.event import DateValue, Event, Participant
-from slaktbusken.model.family import Family, FamilyPartner
+from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
@@ -53,6 +53,12 @@ def _make_project_data() -> ProjectData:
             FamilyPartner(person_id="p2", role="mother"),
         ],
         children=["p3", "p4"],
+        parent_child_links=[
+            ParentChildLink(child_id="p3", parent_id="p1", parentage_type="biological"),
+            ParentChildLink(child_id="p3", parent_id="p2", parentage_type="biological"),
+            ParentChildLink(child_id="p4", parent_id="p1", parentage_type="biological"),
+            ParentChildLink(child_id="p4", parent_id="p2", parentage_type="biological"),
+        ],
     )
 
     # Active person's own family: active + partner, child
@@ -63,6 +69,10 @@ def _make_project_data() -> ProjectData:
             FamilyPartner(person_id="p5", role="mother"),
         ],
         children=["p6"],
+        parent_child_links=[
+            ParentChildLink(child_id="p6", parent_id="p3", parentage_type="biological"),
+            ParentChildLink(child_id="p6", parent_id="p5", parentage_type="biological"),
+        ],
     )
 
     birth_event = Event(

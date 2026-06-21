@@ -274,26 +274,16 @@ class Application:
     def _handle_context_add_relative(self, role: str, person_id: str) -> None:
         """Handle adding a relative via context menu.
 
-        Temporarily sets the active person to the right-clicked person
-        so that handle_placeholder_click links the new person correctly,
-        then restores the original active person afterward.
+        Directly calls handle_placeholder_click with an explicit target
+        person ID, avoiding fragile active-person swapping.
 
         Args:
             role: The relationship role ('partner', 'father', 'mother', 'child').
             person_id: The ID of the person to add the relative to.
         """
-        panel = self.main_window.diagram_panel
-        original_active = panel.active_person_id
-
-        # Set the context person as active so placeholder logic links correctly
-        panel._active_person_id = person_id
-
         # Use empty family_id — handle_placeholder_click will create a new family
-        self.handle_placeholder_click(role, "")
-
-        # Restore original active person (diagram was refreshed by handle_placeholder_click)
-        if original_active:
-            panel._active_person_id = original_active
+        # Pass target_person_id explicitly so it doesn't depend on active_person_id
+        self.handle_placeholder_click(role, "", target_person_id=person_id)
 
     def _show_relationship_for_person(self, person_id: str) -> None:
         """Open relationship calculator with the person pre-selected.
@@ -330,7 +320,7 @@ class Application:
 
         dialog.exec()
 
-    def handle_placeholder_click(self, role: str, family_id: str) -> None:
+    def handle_placeholder_click(self, role: str, family_id: str, target_person_id: str = "") -> None:
         """Handle click on a placeholder box to add a new person.
 
         Creates a new person via the person editor, then links them
@@ -339,8 +329,10 @@ class Application:
         Args:
             role: The placeholder role ('father', 'mother', 'child', 'partner').
             family_id: The associated family ID, or empty string if none.
+            target_person_id: Explicit target person ID (used by context menu).
+                If empty, falls back to the diagram's active person.
         """
-        from slaktbusken.model.family import Family, FamilyPartner
+        from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
         from slaktbusken.model.id_generator import IDGenerator
         from slaktbusken.model.person import Name, Person
         from slaktbusken.ui.editors.person_editor import PersonEditor
@@ -395,6 +387,11 @@ class Application:
         editor.save_requested.connect(dialog.accept)
         editor.cancel_requested.connect(dialog.reject)
 
+        # Capture active person ID BEFORE the modal dialog runs.
+        # Use explicit target_person_id if provided (from context menu),
+        # otherwise fall back to the diagram's active person (from placeholder click).
+        active_id = target_person_id if target_person_id else self.main_window.diagram_panel.active_person_id
+
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -406,7 +403,6 @@ class Application:
         data.persons.append(saved)
 
         # Link to appropriate family
-        active_id = self.main_window.diagram_panel.active_person_id
 
         if role in ("father", "mother"):
             if family_id:
@@ -419,6 +415,15 @@ class Application:
                     fam.partners.append(
                         FamilyPartner(person_id=saved.id, role=partner_role)
                     )
+                    # Add parent_child_links for all children in this family
+                    for child_id in fam.children:
+                        fam.parent_child_links.append(
+                            ParentChildLink(
+                                child_id=child_id,
+                                parent_id=saved.id,
+                                parentage_type="biological",
+                            )
+                        )
             else:
                 # Create a new parent family with active person as child
                 fam_id = id_gen.generate("family")
@@ -427,6 +432,9 @@ class Application:
                     id=fam_id,
                     partners=[FamilyPartner(person_id=saved.id, role=partner_role)],
                     children=[active_id] if active_id else [],
+                    parent_child_links=[
+                        ParentChildLink(child_id=active_id, parent_id=saved.id, parentage_type="biological")
+                    ] if active_id else [],
                 )
                 data.families.append(new_family)
 
