@@ -40,6 +40,7 @@ _VALID_PARENTAGE_TYPES = {
     "foster",
     "step",
     "unknown_donor",
+    "donation",
 }
 
 _VALID_DATE_PRECISIONS = {"day", "month", "year", "approximate"}
@@ -93,6 +94,14 @@ _VALID_MEDIA_TYPES = {
     "map",
     "logo",
     "document",
+    # Death event media types
+    "dödruna",
+    "dödsannons",
+    "bouppteckning",
+    "dödsbevis",
+    # Funeral event media types
+    "begravningsprogram",
+    "minnesord",
 }
 
 _VALID_DNA_TEST_TYPES = {"autosomal", "y-dna", "mtdna"}
@@ -397,6 +406,14 @@ def validate_media_item(media_item: MediaItem) -> list[str]:
             f"Ogiltig mediatyp '{media_item.type}'; "
             f"måste vara en av {sorted(_VALID_MEDIA_TYPES)}."
         )
+
+    # Annotations count validation (max 100)
+    if len(media_item.annotations) > 100:
+        errors.append("MediaItem får ha max 100 annoteringar.")
+
+    # Title length validation (1–200 characters)
+    if len(media_item.title) < 1 or len(media_item.title) > 200:
+        errors.append("Mediatitel måste vara 1–200 tecken.")
 
     # File path must be relative
     file_path = media_item.file

@@ -16,13 +16,17 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -32,16 +36,35 @@ from slaktbusken.model.event import Participant
 from slaktbusken.model.name_parser import validate_given_name_markers
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.parent_service import ParentInfo, ParentService
+from slaktbusken.services.photo_service import PhotoService
+from slaktbusken.services.project_service import ValidationError
 from slaktbusken.ui.editors.dna_editor import (
     resolve_company_logo_icon,
     resolve_profile_logo_icon,
     _resolve_logo_file_path_for_company_id,
 )
+from slaktbusken.services.name_event_service import (
+    get_events_for_person,
+    is_event_id_valid,
+)
 from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import get_event_type_label
+from slaktbusken.ui.widgets.foto_tab import FotoTab
 
 logger = logging.getLogger(__name__)
+
+# Swedish labels for parentage types (Requirement 1.10)
+_PARENTAGE_TYPE_LABELS: dict[str, str] = {
+    "biological": "biologisk",
+    "foster": "fosterförälder",
+    "adoptive": "adoptivförälder",
+    "donation": "donationsförälder",
+}
+
+# Reverse mapping for combo selection
+_PARENTAGE_LABEL_TO_TYPE: dict[str, str] = {v: k for k, v in _PARENTAGE_TYPE_LABELS.items()}
 
 
 class PersonEditor(QWidget):
@@ -91,12 +114,22 @@ class PersonEditor(QWidget):
         self._ui = Ui_PersonEditor()
         self._ui.setupUi(self)
 
+        # Parent service for managing parent relationships
+        self._parent_service = ParentService(project_data)
+
+        # Photo service and FotoTab for the dedicated photo management tab
+        foto_mapp = (project_folder / "media" / "photos") if project_folder else Path("media/photos")
+        self._photo_service = PhotoService(project_data, foto_mapp)
+        self._foto_tab: FotoTab | None = None
+
         self._setup_table()
         self._setup_edit_event_button()
         self._setup_cluster_buttons()
         self._setup_dna_profile_button()
         self._setup_dna_match_button()
         self._setup_triangulation_section()
+        self._setup_parents_section()
+        self._setup_foto_tab()
         self._connect_signals()
 
         if self._person is not None:
@@ -126,6 +159,10 @@ class PersonEditor(QWidget):
     def _setup_table(self) -> None:
         """Configure the names table appearance."""
         table = self._ui.names_table
+        # Add a 4th column for event association
+        table.setColumnCount(4)
+        header_item = QTableWidgetItem("Händelse")
+        table.setHorizontalHeaderItem(3, header_item)
         table.horizontalHeader().setStretchLastSection(True)
         table.setEditTriggers(table.EditTrigger.NoEditTriggers)
 
@@ -235,6 +272,132 @@ class PersonEditor(QWidget):
         self._edit_triangulation_button.setVisible(False)
         self._edit_triangulation_button.setEnabled(False)
 
+    def _setup_parents_section(self) -> None:
+        """Add 'Föräldrar' section to the first (names) tab below notes."""
+        names_layout = self._ui.names_tab_layout
+
+        # Group box for parent relationships
+        self._parents_group = QGroupBox("Föräldrar", self._ui.names_tab)
+        parents_layout = QVBoxLayout(self._parents_group)
+
+        # Table showing current parents (name + parentage type)
+        self._parents_table = QTableWidget(self._parents_group)
+        self._parents_table.setColumnCount(2)
+        self._parents_table.setHorizontalHeaderLabels(["Namn", "Föräldratyp"])
+        self._parents_table.horizontalHeader().setStretchLastSection(True)
+        self._parents_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._parents_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._parents_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        parents_layout.addWidget(self._parents_table)
+
+        # Buttons row: edit (change type) and remove
+        parent_buttons_layout = QHBoxLayout()
+        self._edit_parent_button = QPushButton("Ändra typ", self._parents_group)
+        self._edit_parent_button.setEnabled(False)
+        self._remove_parent_button = QPushButton("Ta bort", self._parents_group)
+        self._remove_parent_button.setEnabled(False)
+        parent_buttons_layout.addWidget(self._edit_parent_button)
+        parent_buttons_layout.addWidget(self._remove_parent_button)
+        parent_buttons_layout.addStretch()
+        parents_layout.addLayout(parent_buttons_layout)
+
+        # Add parent controls: person search combo + parentage type combo + add button
+        add_parent_layout = QHBoxLayout()
+
+        add_parent_label = QLabel("Lägg till förälder:", self._parents_group)
+        add_parent_layout.addWidget(add_parent_label)
+
+        # Searchable person dropdown
+        self._parent_person_combo = QComboBox(self._parents_group)
+        self._parent_person_combo.setEditable(True)
+        self._parent_person_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._parent_person_combo.lineEdit().setPlaceholderText("Sök person...")
+        self._parent_person_combo.setMinimumWidth(200)
+        add_parent_layout.addWidget(self._parent_person_combo, stretch=1)
+
+        # Parentage type combo
+        self._parent_type_combo = QComboBox(self._parents_group)
+        for label in _PARENTAGE_TYPE_LABELS.values():
+            self._parent_type_combo.addItem(label)
+        add_parent_layout.addWidget(self._parent_type_combo)
+
+        # Add button
+        self._add_parent_button = QPushButton("Lägg till förälder", self._parents_group)
+        add_parent_layout.addWidget(self._add_parent_button)
+
+        parents_layout.addLayout(add_parent_layout)
+
+        # Add the group box to the names tab layout
+        names_layout.addWidget(self._parents_group)
+
+        # Populate person dropdown (exclude current person)
+        self._populate_parent_person_combo()
+
+    def _populate_parent_person_combo(self) -> None:
+        """Populate the parent person combo box with all project persons except the edited person."""
+        self._parent_person_combo.clear()
+        self._parent_person_combo.addItem("", "")  # Placeholder
+
+        current_id = self._person.id if self._person else None
+        for person in self._project_data.persons:
+            if person.id == current_id:
+                continue
+            display = self._get_person_display_name(person)
+            self._parent_person_combo.addItem(display, person.id)
+
+        # Set up completer for searchable filtering
+        item_texts = [
+            self._parent_person_combo.itemText(i)
+            for i in range(self._parent_person_combo.count())
+        ]
+        completer = QCompleter(item_texts, self._parent_person_combo)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._parent_person_combo.setCompleter(completer)
+
+    @staticmethod
+    def _get_person_display_name(person: Person) -> str:
+        """Return display name for a person: 'given surname' from first name entry."""
+        if not person.names:
+            return f"(Person {person.id})"
+        name = person.names[0]
+        parts = []
+        if name.given:
+            parts.append(name.given)
+        if name.surname:
+            parts.append(name.surname)
+        return " ".join(parts) if parts else f"(Person {person.id})"
+
+    def _setup_foto_tab(self) -> None:
+        """Set up the FotoTab widget inside the existing photos tab.
+
+        Adds the FotoTab below the profile photo section, replacing the
+        simple media_list with the full photo management widget.
+        """
+        if self._person is None:
+            return
+
+        # Create FotoTab and add it to the photos tab layout
+        self._foto_tab = FotoTab(
+            project_data=self._project_data,
+            person=self._person,
+            photo_service=self._photo_service,
+            parent=self._ui.photos_tab,
+        )
+
+        # Hide the old simple media list label and list widget
+        self._ui.media_list_label.setVisible(False)
+        self._ui.media_list.setVisible(False)
+
+        # Add FotoTab to the photos tab layout
+        self._ui.photos_tab_layout.addWidget(self._foto_tab)
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
         # Name management
@@ -286,6 +449,14 @@ class PersonEditor(QWidget):
         self._add_cluster_button.clicked.connect(self._on_add_cluster)
         self._remove_cluster_button.clicked.connect(self._on_remove_cluster)
 
+        # Parent relationship management
+        self._add_parent_button.clicked.connect(self._on_add_parent)
+        self._edit_parent_button.clicked.connect(self._on_edit_parent)
+        self._remove_parent_button.clicked.connect(self._on_remove_parent)
+        self._parents_table.itemSelectionChanged.connect(
+            self._on_parent_selection_changed
+        )
+
         # Save/Cancel
         self._ui.save_button.clicked.connect(self._on_save)
         self._ui.cancel_button.clicked.connect(self._on_cancel)
@@ -329,6 +500,9 @@ class PersonEditor(QWidget):
         self._refresh_triangulations()
         self._refresh_dna_clusters()
 
+        # Parents
+        self._refresh_parents_table()
+
         # Sync DNA button visibility and enabled state
         self._update_dna_button_states()
 
@@ -369,6 +543,75 @@ class PersonEditor(QWidget):
         table.setItem(row, 0, type_item)
         table.setItem(row, 1, given_item)
         table.setItem(row, 2, surname_item)
+
+        # Add event association control for non-birth name types
+        self._setup_event_combo_for_row(row, name)
+
+    def _setup_event_combo_for_row(self, row: int, name: Name) -> None:
+        """Set up the event association combo box for a name table row.
+
+        For birth names, shows an empty non-editable cell.
+        For non-birth names, shows a dropdown with available events
+        where the person is a participant.
+
+        Args:
+            row: The table row index to configure.
+            name: The Name record with potential event_id.
+        """
+        table = self._ui.names_table
+
+        if name.type == "birth":
+            # Birth names don't get event association
+            empty_item = QTableWidgetItem("")
+            empty_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            table.setItem(row, 3, empty_item)
+            return
+
+        # Get events where person is participant
+        person_id = self._person.id if self._person else None
+        events = []
+        if person_id:
+            events = get_events_for_person(self._project_data, person_id)
+
+        combo = QComboBox()
+        combo.setProperty("row", row)
+
+        if not events:
+            # No events available - disable and show info
+            combo.addItem("Inga händelser tillgängliga", "")
+            combo.setEnabled(False)
+            combo.setToolTip("Det finns inga händelser kopplade till denna person.")
+            table.setCellWidget(row, 3, combo)
+            return
+
+        # Populate with a blank option and available events
+        combo.addItem("– Välj händelse –", "")
+
+        for event in events:
+            # Display: "EventType (date)" or "EventType" if no date
+            label = get_event_type_label(event.type)
+            if event.date:
+                label = f"{label} ({event.date.value})"
+            combo.addItem(label, event.id)
+
+        # Set current selection based on name.event_id
+        if name.event_id:
+            if is_event_id_valid(self._project_data, name.event_id):
+                # Find the combo index for this event_id
+                for i in range(combo.count()):
+                    if combo.itemData(i) == name.event_id:
+                        combo.setCurrentIndex(i)
+                        break
+            else:
+                # Orphaned event_id - show warning entry and allow clearing
+                combo.insertItem(1, "⚠ Händelsen saknas – rensa", name.event_id)
+                combo.setCurrentIndex(1)
+                combo.setToolTip(
+                    "Den kopplade händelsen finns inte längre. "
+                    "Välj en annan händelse eller rensa kopplingen."
+                )
+
+        table.setCellWidget(row, 3, combo)
 
     def _on_add_name(self) -> None:
         """Add a new name entry from the edit fields."""
@@ -419,6 +662,19 @@ class PersonEditor(QWidget):
         table.item(row, 0).setText(name_type)
         table.item(row, 1).setText(given)
         table.item(row, 2).setText(surname)
+
+        # Re-setup event combo in case name type changed (birth <-> non-birth)
+        # Preserve existing event_id if the combo already exists
+        existing_event_id = None
+        existing_combo = table.cellWidget(row, 3)
+        if isinstance(existing_combo, QComboBox) and existing_combo.isEnabled():
+            current_data = existing_combo.currentData()
+            if current_data:
+                existing_event_id = current_data
+
+        name = Name(type=name_type, given=given, surname=surname, event_id=existing_event_id)
+        self._setup_event_combo_for_row(row, name)
+
         self._clear_name_fields()
         self._clear_status()
 
@@ -453,6 +709,148 @@ class PersonEditor(QWidget):
 
         self._ui.given_name_input.setText(given)
         self._ui.surname_input.setText(surname)
+
+    # ------------------------------------------------------------------
+    # Private: parent relationship management
+    # ------------------------------------------------------------------
+
+    def _refresh_parents_table(self) -> None:
+        """Rebuild the parents table from ParentService data."""
+        self._parents_table.setRowCount(0)
+
+        if self._person is None:
+            return
+
+        parents = self._parent_service.get_parents_for_person(self._person.id)
+        for info in parents:
+            row = self._parents_table.rowCount()
+            self._parents_table.insertRow(row)
+
+            name_item = QTableWidgetItem(info.parent_name)
+            name_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            name_item.setData(Qt.ItemDataRole.UserRole, info.parent_id)
+
+            type_label = _PARENTAGE_TYPE_LABELS.get(info.parentage_type, info.parentage_type)
+            type_item = QTableWidgetItem(type_label)
+            type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            type_item.setData(Qt.ItemDataRole.UserRole, info.parentage_type)
+
+            self._parents_table.setItem(row, 0, name_item)
+            self._parents_table.setItem(row, 1, type_item)
+
+        self._edit_parent_button.setEnabled(False)
+        self._remove_parent_button.setEnabled(False)
+
+    def _on_parent_selection_changed(self) -> None:
+        """Enable/disable edit and remove buttons based on parent row selection."""
+        has_selection = len(self._parents_table.selectedItems()) > 0
+        self._edit_parent_button.setEnabled(has_selection)
+        self._remove_parent_button.setEnabled(has_selection)
+
+    def _on_add_parent(self) -> None:
+        """Add a parent relationship using ParentService."""
+        if self._person is None:
+            return
+
+        # Get selected person from combo
+        index = self._parent_person_combo.currentIndex()
+        if index <= 0:
+            self._update_status("Välj en person som förälder.")
+            return
+
+        parent_id = self._parent_person_combo.currentData()
+        if not parent_id:
+            self._update_status("Välj en person som förälder.")
+            return
+
+        # Get selected parentage type
+        type_label = self._parent_type_combo.currentText()
+        parentage_type = _PARENTAGE_LABEL_TO_TYPE.get(type_label, "biological")
+
+        try:
+            self._parent_service.add_parent(
+                child_id=self._person.id,
+                parent_id=parent_id,
+                parentage_type=parentage_type,
+            )
+            self._refresh_parents_table()
+            self._parent_person_combo.setCurrentIndex(0)
+            self._clear_status()
+        except ValidationError as e:
+            self._update_status(e.errors[0] if e.errors else str(e))
+
+    def _on_edit_parent(self) -> None:
+        """Change the parentage type of the selected parent relationship."""
+        if self._person is None:
+            return
+
+        selected = self._parents_table.selectedItems()
+        if not selected:
+            return
+
+        row = selected[0].row()
+        parent_id = self._parents_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        old_type = self._parents_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+
+        # Show a dialog to select new parentage type
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Ändra föräldratyp")
+        dialog_layout = QVBoxLayout(dialog)
+
+        label = QLabel("Välj ny föräldratyp:", dialog)
+        dialog_layout.addWidget(label)
+
+        type_combo = QComboBox(dialog)
+        for lbl in _PARENTAGE_TYPE_LABELS.values():
+            type_combo.addItem(lbl)
+        # Pre-select current type
+        current_label = _PARENTAGE_TYPE_LABELS.get(old_type, "")
+        current_idx = type_combo.findText(current_label)
+        if current_idx >= 0:
+            type_combo.setCurrentIndex(current_idx)
+        dialog_layout.addWidget(type_combo)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            dialog,
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        dialog_layout.addWidget(button_box)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_label = type_combo.currentText()
+            new_type = _PARENTAGE_LABEL_TO_TYPE.get(new_label, old_type)
+            if new_type != old_type:
+                self._parent_service.update_parentage_type(
+                    child_id=self._person.id,
+                    parent_id=parent_id,
+                    old_type=old_type,
+                    new_type=new_type,
+                )
+                self._refresh_parents_table()
+                self._clear_status()
+
+    def _on_remove_parent(self) -> None:
+        """Remove the selected parent relationship."""
+        if self._person is None:
+            return
+
+        selected = self._parents_table.selectedItems()
+        if not selected:
+            return
+
+        row = selected[0].row()
+        parent_id = self._parents_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        parentage_type = self._parents_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+
+        self._parent_service.remove_parent(
+            child_id=self._person.id,
+            parent_id=parent_id,
+            parentage_type=parentage_type,
+        )
+        self._refresh_parents_table()
+        self._clear_status()
 
     # ------------------------------------------------------------------
     # Private: events
@@ -705,7 +1103,14 @@ class PersonEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _refresh_media_list(self) -> None:
-        """Populate the media list with photo media linked to this person."""
+        """Populate the media list with photo media linked to this person.
+
+        If FotoTab is active, refreshes it instead of the legacy media list.
+        """
+        # Refresh FotoTab if available
+        if self._foto_tab is not None:
+            self._foto_tab.refresh()
+
         self._ui.media_list.clear()
 
         if self._person is None:
@@ -1359,7 +1764,18 @@ class PersonEditor(QWidget):
             name_type = table.item(row, 0).text()
             given = table.item(row, 1).text()
             surname = table.item(row, 2).text()
-            names.append(Name(type=name_type, given=given, surname=surname))
+
+            # Get event_id from the event combo if present
+            event_id: Optional[str] = None
+            event_combo = table.cellWidget(row, 3)
+            if isinstance(event_combo, QComboBox) and event_combo.isEnabled():
+                selected_data = event_combo.currentData()
+                if selected_data:
+                    # Only store valid event_id (not orphaned ones being cleared)
+                    if is_event_id_valid(self._project_data, selected_data):
+                        event_id = selected_data
+
+            names.append(Name(type=name_type, given=given, surname=surname, event_id=event_id))
 
         # Sex
         sex = self._ui.sex_combo.currentText()

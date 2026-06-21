@@ -49,6 +49,16 @@ def _logo_filename_strategy(draw: st.DrawFn) -> str:
     return f"{stem}.{ext}"
 
 
+# Windows reserved device names — cannot be used as file/directory names
+_WINDOWS_RESERVED_NAMES = frozenset(
+    name.upper()
+    for name in (
+        "CON", "PRN", "AUX", "NUL",
+        *(f"COM{i}" for i in range(10)),
+        *(f"LPT{i}" for i in range(10)),
+    )
+)
+
 # Strategy for safe filename characters (no path separators, no null bytes)
 _safe_filename_chars = st.text(
     alphabet=st.characters(
@@ -57,7 +67,7 @@ _safe_filename_chars = st.text(
     ),
     min_size=1,
     max_size=20,
-).filter(lambda s: s.strip() not in ("", ".", ".."))
+).filter(lambda s: s.strip() not in ("", ".", "..") and s.split(".")[0].upper() not in _WINDOWS_RESERVED_NAMES)
 
 # Strategy for directory segment names
 _dir_segment = st.text(
@@ -67,7 +77,7 @@ _dir_segment = st.text(
     ),
     min_size=1,
     max_size=10,
-).filter(lambda s: s.strip() not in ("", ".", ".."))
+).filter(lambda s: s.strip() not in ("", ".", "..") and s.upper() not in _WINDOWS_RESERVED_NAMES)
 
 
 # ---------------------------------------------------------------------------

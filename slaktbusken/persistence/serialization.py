@@ -20,7 +20,7 @@ from slaktbusken.model.dna import (
 )
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
-from slaktbusken.model.media import LinkedEntity, MediaItem
+from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
@@ -117,6 +117,9 @@ def _serialize_dataclass(obj: Any) -> dict[str, Any]:
         # Omit None values only for fields that have a default value.
         if value is None and _is_optional_field(f) and _has_default(f):
             continue
+        # Omit empty lists for fields that have default_factory=list.
+        if value == [] and _has_default_factory_list(f):
+            continue
         result[f.name] = _serialize_value(value)
     return result
 
@@ -158,6 +161,19 @@ def _has_default(f: Any) -> bool:
     )
 
 
+def _has_default_factory_list(f: Any) -> bool:
+    """Check if a dataclass field has default_factory=list.
+
+    Used to determine whether an empty list value can be safely omitted
+    from serialized output.
+    """
+    import dataclasses
+    return (
+        f.default_factory is not dataclasses.MISSING
+        and f.default_factory is list
+    )
+
+
 # ---------------------------------------------------------------------------
 # Deserialization helpers
 # ---------------------------------------------------------------------------
@@ -189,6 +205,7 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (Event, "participants"): Participant,
     (Source, "repository_refs"): RepositoryRef,
     (MediaItem, "linked_entities"): LinkedEntity,
+    (MediaItem, "annotations"): Annotation,
     (ResearchNote, "linked_entities"): LinkedEntity,
 }
 

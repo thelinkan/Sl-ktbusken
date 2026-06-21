@@ -27,7 +27,7 @@ from slaktbusken.model.event import (
     SourceRef,
 )
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
-from slaktbusken.model.media import LinkedEntity, MediaItem
+from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
@@ -487,6 +487,31 @@ def linked_entity_strategy(draw: DrawFn) -> LinkedEntity:
 
 
 @st.composite
+def annotation_strategy(draw: DrawFn) -> Annotation:
+    """Generate a valid Annotation instance with normalized coordinates."""
+    x = draw(st.floats(min_value=0.0, max_value=1.0, allow_nan=False))
+    y = draw(st.floats(min_value=0.0, max_value=1.0, allow_nan=False))
+    width = draw(st.floats(min_value=0.0, max_value=1.0, allow_nan=False))
+    height = draw(st.floats(min_value=0.0, max_value=1.0, allow_nan=False))
+    entity_type = draw(st.sampled_from(_LINKED_ENTITY_TYPES))
+    prefix_map = {
+        "person": "person",
+        "event": "event",
+        "source": "source",
+        "place": "place",
+    }
+    entity_id = draw(_id_strategy(prefix_map[entity_type]))
+    return Annotation(
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        entity_type=entity_type,
+        entity_id=entity_id,
+    )
+
+
+@st.composite
 def media_item_strategy(draw: DrawFn) -> MediaItem:
     """Generate a valid MediaItem instance with relative forward-slash paths."""
     media_id = draw(_id_strategy("media"))
@@ -497,6 +522,8 @@ def media_item_strategy(draw: DrawFn) -> MediaItem:
     publication = draw(st.none())  # Keep simple — dict generation is complex
     transcription = draw(st.none() | _safe_text)
     mentioned_person_ids = draw(st.lists(_id_strategy("person"), min_size=0, max_size=3))
+    mentioned_names = draw(st.lists(_safe_text, min_size=0, max_size=3))
+    annotations = draw(st.lists(annotation_strategy(), min_size=0, max_size=5))
     return MediaItem(
         id=media_id,
         type=media_type,
@@ -506,6 +533,8 @@ def media_item_strategy(draw: DrawFn) -> MediaItem:
         publication=publication,
         transcription=transcription,
         mentioned_person_ids=mentioned_person_ids,
+        mentioned_names=mentioned_names,
+        annotations=annotations,
     )
 
 

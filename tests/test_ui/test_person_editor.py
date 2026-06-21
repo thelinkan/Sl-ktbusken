@@ -861,3 +861,278 @@ class TestPersonEditorClusterMembership:
         editor = PersonEditor(empty_project, person=None)
         # Should not crash
         editor._on_add_cluster()
+
+
+class TestPersonEditorNameEventAssociation:
+    """Tests for name-event association control (Task 10.1).
+
+    Validates Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7.
+    """
+
+    @pytest.fixture()
+    def person_with_events(self) -> tuple[Person, ProjectData]:
+        """Create a person with events where they participate."""
+        from slaktbusken.model.event import DateValue
+
+        person = Person(
+            id="person_1",
+            sex="M",
+            names=[
+                Name(type="birth", given="Erik", surname="Johansson"),
+                Name(type="married", given="Erik", surname="Eriksson", event_id="event_marriage"),
+            ],
+        )
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            persons=[person],
+            events=[
+                Event(
+                    id="event_marriage",
+                    type="marriage",
+                    participants=[
+                        Participant(person_id="person_1", role="husband"),
+                        Participant(person_id="person_2", role="wife"),
+                    ],
+                    date=DateValue(value="1920-06-15", precision="exact"),
+                ),
+                Event(
+                    id="event_name_change",
+                    type="name_change",
+                    participants=[
+                        Participant(person_id="person_1", role="subject"),
+                    ],
+                ),
+            ],
+        )
+        return person, project
+
+    def test_names_table_has_event_column(self, qapp, empty_project: ProjectData):
+        """Names table should have 4 columns including event association."""
+        editor = PersonEditor(empty_project, person=None)
+        table = editor._ui.names_table
+        assert table.columnCount() == 4
+        assert table.horizontalHeaderItem(3).text() == "Händelse"
+
+    def test_birth_name_has_no_event_combo(self, qapp, person_with_events):
+        """Birth name rows should not have an event association combo."""
+        from PySide6.QtWidgets import QComboBox
+
+        person, project = person_with_events
+        editor = PersonEditor(project, person=person)
+        table = editor._ui.names_table
+
+        # Row 0 is birth type - should have no combo widget
+        widget = table.cellWidget(0, 3)
+        assert widget is None or not isinstance(widget, QComboBox)
+
+    def test_non_birth_name_has_event_combo(self, qapp, person_with_events):
+        """Non-birth name rows should have an event association combo."""
+        from PySide6.QtWidgets import QComboBox
+
+        person, project = person_with_events
+        editor = PersonEditor(project, person=person)
+        table = editor._ui.names_table
+
+        # Row 1 is married type - should have a combo widget
+        widget = table.cellWidget(1, 3)
+        assert isinstance(widget, QComboBox)
+
+    def test_event_combo_populated_with_participant_events(self, qapp, person_with_events):
+        """Event combo should contain events where person is participant."""
+        from PySide6.QtWidgets import QComboBox
+
+        person, project = person_with_events
+        editor = PersonEditor(project, person=person)
+        table = editor._ui.names_table
+
+        combo = table.cellWidget(1, 3)
+        assert isinstance(combo, QComboBox)
+
+        # Should have: blank + 2 events = 3 items
+        assert combo.count() == 3
+
+    def test_event_combo_displays_type_and_date(self, qapp, person_with_events):
+        """Event combo items should show event type and date."""
+        from PySide6.QtWidgets import QComboBox
+
+        person, project = person_with_events
+        editor = PersonEditor(project, person=person)
+        table = editor._ui.names_table
+
+        combo = table.cellWidget(1, 3)
+        assert isinstance(combo, QComboBox)
+
+        # Find the marriage event item (should include date)
+        found_marriage = False
+        for i in range(combo.count()):
+            text = combo.itemText(i)
+            if "1920-06-15" in text:
+                found_marriage = True
+                break
+        assert found_marriage, "Event combo should display the date for events with dates"
+
+    def test_event_combo_selects_existing_event_id(self, qapp, person_with_events):
+        """When a name has event_id set, the combo should select that event."""
+        from PySide6.QtWidgets import QComboBox
+
+        person, project = person_with_events
+        editor = PersonEditor(project, person=person)
+        table = editor._ui.names_table
+
+        combo = table.cellWidget(1, 3)
+        assert isinstance(combo, QComboBox)
+
+        # The married name has event_id="event_marriage", combo should select it
+        assert combo.currentData() == "event_marriage"
+
+    def test_save_captures_event_id_from_combo(self, qapp, person_with_events):
+        """Saving should store the selected event_id on the Name record."""
+        from PySide6.QtWidgets import QComboBox
+
+        person, project = person_with_events
+        editor = PersonEditor(project, person=person)
+        editor._on_save()
+
+        saved = editor.saved_person
+        assert saved is not None
+        assert saved.names[1].event_id == "event_marriage"
+
+    def test_save_clears_event_id_when_blank_selected(self, qapp, person_with_events):
+        """Clearing the combo selection should set event_id to None on save."""
+        from PySide6.QtWidgets import QComboBox
+
+        person, project = person_with_events
+        editor = PersonEditor(project, person=person)
+        table = editor._ui.names_table
+
+        combo = table.cellWidget(1, 3)
+        assert isinstance(combo, QComboBox)
+
+        # Select the blank item (index 0 = "– Välj händelse –")
+        combo.setCurrentIndex(0)
+
+        editor._on_save()
+        saved = editor.saved_person
+        assert saved is not None
+        assert saved.names[1].event_id is None
+
+    def test_orphaned_event_id_shows_warning(self, qapp):
+        """When event_id references a non-existent event, show warning item."""
+        from PySide6.QtWidgets import QComboBox
+
+        person = Person(
+            id="person_1",
+            sex="M",
+            names=[
+                Name(type="birth", given="Erik", surname="Johansson"),
+                Name(type="married", given="Erik", surname="Eriksson", event_id="deleted_event"),
+            ],
+        )
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            persons=[person],
+            events=[
+                Event(
+                    id="event_1",
+                    type="marriage",
+                    participants=[Participant(person_id="person_1", role="husband")],
+                ),
+            ],
+        )
+        editor = PersonEditor(project, person=person)
+        table = editor._ui.names_table
+
+        combo = table.cellWidget(1, 3)
+        assert isinstance(combo, QComboBox)
+
+        # Should show warning item and select it
+        current_text = combo.currentText()
+        assert "saknas" in current_text or "⚠" in current_text
+
+    def test_no_events_disables_combo(self, qapp):
+        """When no events exist for person, the combo should be disabled."""
+        from PySide6.QtWidgets import QComboBox
+
+        person = Person(
+            id="person_1",
+            sex="M",
+            names=[
+                Name(type="birth", given="Erik", surname="Johansson"),
+                Name(type="married", given="Erik", surname="Eriksson"),
+            ],
+        )
+        # Project with no events where person_1 participates
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            persons=[person],
+            events=[],
+        )
+        editor = PersonEditor(project, person=person)
+        table = editor._ui.names_table
+
+        combo = table.cellWidget(1, 3)
+        assert isinstance(combo, QComboBox)
+        assert not combo.isEnabled()
+
+    def test_birth_name_event_id_not_saved(self, qapp):
+        """Birth names should have None event_id regardless of any combo state."""
+        person = Person(
+            id="person_1",
+            sex="M",
+            names=[
+                Name(type="birth", given="Erik", surname="Johansson"),
+            ],
+        )
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            persons=[person],
+            events=[
+                Event(
+                    id="event_1",
+                    type="birth",
+                    participants=[Participant(person_id="person_1", role="child")],
+                ),
+            ],
+        )
+        editor = PersonEditor(project, person=person)
+        editor._on_save()
+
+        saved = editor.saved_person
+        assert saved is not None
+        assert saved.names[0].event_id is None
+
+    def test_add_non_birth_name_gets_event_combo(self, qapp):
+        """Adding a non-birth name should create an event combo for the new row."""
+        from PySide6.QtWidgets import QComboBox
+
+        person = Person(
+            id="person_1",
+            sex="M",
+            names=[Name(type="birth", given="Erik", surname="Johansson")],
+        )
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            persons=[person],
+            events=[
+                Event(
+                    id="event_1",
+                    type="marriage",
+                    participants=[Participant(person_id="person_1", role="husband")],
+                ),
+            ],
+        )
+        editor = PersonEditor(project, person=person)
+
+        # Add a married name
+        editor._ui.name_type_combo.setCurrentIndex(1)  # married
+        editor._ui.given_name_input.setText("Erik")
+        editor._ui.surname_input.setText("Larsson")
+        editor._on_add_name()
+
+        table = editor._ui.names_table
+        assert table.rowCount() == 2
+
+        # New row should have a combo
+        combo = table.cellWidget(1, 3)
+        assert isinstance(combo, QComboBox)
+        assert combo.isEnabled()

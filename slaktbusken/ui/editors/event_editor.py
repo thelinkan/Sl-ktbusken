@@ -14,13 +14,20 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QCompleter,
     QDialog,
+    QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -33,8 +40,10 @@ from slaktbusken.model.event import (
     PlaceRef,
     SourceRef,
 )
+from slaktbusken.model.media import LinkedEntity, MediaItem
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.source import Source
+from slaktbusken.services.event_media_service import EventMediaService
 from slaktbusken.ui.generated.ui_event_editor import Ui_EventEditor
 from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS, DATE_PRECISION_LABELS
 
@@ -76,6 +85,10 @@ ALL_EVENT_TYPES: list[str] = INDIVIDUAL_EVENT_TYPES + FAMILY_EVENT_TYPES
 
 # Custom event type identifiers (require custom_type_name)
 CUSTOM_EVENT_TYPES: set[str] = {"custom_individual_event", "custom_family_event"}
+
+# Event types that support the event-media section
+EVENT_MEDIA_TYPES: set[str] = {"death", "funeral"}
+
 
 # Default participant role per event type
 EVENT_TYPE_ROLES: dict[str, str] = {
@@ -174,6 +187,7 @@ class EventEditor(QWidget):
         self._populate_combos()
         self._setup_reference_paste()
         self._setup_new_place_button()
+        self._setup_event_media_section()
         self._connect_signals()
         self._update_type_specific_fields()
 
@@ -257,6 +271,113 @@ class EventEditor(QWidget):
         self._new_place_button = QPushButton("Ny plats...", self._ui.place_group)
         # Add the button to the place group layout (after the place combo)
         self._ui.place_group_layout.addWidget(self._new_place_button)
+
+    def _setup_event_media_section(self) -> None:
+        """Create the conditional event media section for death/funeral events.
+
+        Builds a QGroupBox with:
+        - A list showing currently linked event media items (type + title)
+        - A media type combo populated per event type via EventMediaService
+        - A file selection button and label
+        - A title input (max 200 chars)
+        - Add and remove buttons
+        - Validation labels for missing fields
+
+        The section is inserted into the main layout before the status label.
+        Visibility is controlled by _update_type_specific_fields.
+        """
+        self._event_media_service = EventMediaService(self._project_data)
+        self._event_media_file_path: str = ""
+        self._event_media_items: list[MediaItem] = []
+
+        # Group box
+        self._event_media_group = QGroupBox("Händelsemedia")
+        event_media_layout = QVBoxLayout(self._event_media_group)
+
+        # List of linked media items
+        self._event_media_list = QListWidget(self._event_media_group)
+        self._event_media_list.setMaximumHeight(120)
+        event_media_layout.addWidget(self._event_media_list)
+
+        # Media type combo
+        type_layout = QHBoxLayout()
+        type_label = QLabel("Mediatyp:", self._event_media_group)
+        type_layout.addWidget(type_label)
+        self._event_media_type_combo = QComboBox(self._event_media_group)
+        type_layout.addWidget(self._event_media_type_combo)
+        event_media_layout.addLayout(type_layout)
+
+        # File selection
+        file_layout = QHBoxLayout()
+        file_label = QLabel("Fil:", self._event_media_group)
+        file_layout.addWidget(file_label)
+        self._event_media_file_label = QLabel(
+            "(ingen fil vald)", self._event_media_group
+        )
+        self._event_media_file_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        file_layout.addWidget(self._event_media_file_label)
+        self._event_media_browse_button = QPushButton(
+            "Välj fil...", self._event_media_group
+        )
+        file_layout.addWidget(self._event_media_browse_button)
+        event_media_layout.addLayout(file_layout)
+
+        # Title input
+        title_layout = QHBoxLayout()
+        title_label = QLabel("Titel:", self._event_media_group)
+        title_layout.addWidget(title_label)
+        self._event_media_title_input = QLineEdit(self._event_media_group)
+        self._event_media_title_input.setMaxLength(200)
+        self._event_media_title_input.setPlaceholderText("Ange titel (1–200 tecken)")
+        title_layout.addWidget(self._event_media_title_input)
+        event_media_layout.addLayout(title_layout)
+
+        # Validation indicator
+        self._event_media_validation_label = QLabel("", self._event_media_group)
+        self._event_media_validation_label.setStyleSheet("color: red;")
+        event_media_layout.addWidget(self._event_media_validation_label)
+
+        # Buttons
+        buttons_layout = QHBoxLayout()
+        self._event_media_add_button = QPushButton(
+            "Lägg till media", self._event_media_group
+        )
+        buttons_layout.addWidget(self._event_media_add_button)
+        self._event_media_remove_button = QPushButton(
+            "Ta bort media", self._event_media_group
+        )
+        buttons_layout.addWidget(self._event_media_remove_button)
+        buttons_layout.addItem(
+            QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        )
+        event_media_layout.addLayout(buttons_layout)
+
+        # Insert into main layout before the status label
+        # The status_label is the second-to-last item in main_layout
+        # (before the buttons_layout). Find its index.
+        main_layout = self._ui.main_layout
+        status_index = main_layout.indexOf(self._ui.status_label)
+        main_layout.insertWidget(status_index, self._event_media_group)
+
+        # Initially hidden (toggled by _update_type_specific_fields)
+        self._event_media_group.setVisible(False)
+
+        # Connect event media signals
+        self._event_media_browse_button.clicked.connect(
+            self._on_event_media_browse
+        )
+        self._event_media_add_button.clicked.connect(self._on_event_media_add)
+        self._event_media_remove_button.clicked.connect(
+            self._on_event_media_remove
+        )
+        self._event_media_title_input.textChanged.connect(
+            self._update_event_media_validation
+        )
+
+        # Initial validation state
+        self._update_event_media_validation()
 
     def _populate_combos(self) -> None:
         """Fill combo boxes with available options from project data."""
@@ -370,6 +491,7 @@ class EventEditor(QWidget):
         For individual events with a subject person, the participants section
         is hidden (person is added automatically). For family events, the
         participants section is shown so additional persons can be added.
+        The event media section is visible only for death and funeral events.
         """
         current_type = self._ui.type_combo.currentData() or ""
 
@@ -382,6 +504,12 @@ class EventEditor(QWidget):
         is_death = current_type == "death"
         self._ui.cause_of_death_label.setVisible(is_death)
         self._ui.cause_of_death_input.setVisible(is_death)
+
+        # Event media section: visible only for death and funeral events
+        has_event_media = current_type in EVENT_MEDIA_TYPES
+        self._event_media_group.setVisible(has_event_media)
+        if has_event_media:
+            self._populate_event_media_type_combo(current_type)
 
         # Update participants visibility
         self._update_participants_visibility()
@@ -469,6 +597,14 @@ class EventEditor(QWidget):
         # Media
         for media_id in self._event.media_ids:
             self._add_media_item(media_id)
+
+        # Event media (death/funeral specific)
+        # Update visibility based on event's actual type (which may not be
+        # in the type combo, e.g. "funeral" vs "burial")
+        if self._event.type in EVENT_MEDIA_TYPES:
+            self._event_media_group.setVisible(True)
+            self._populate_event_media_type_combo(self._event.type)
+            self._load_event_media()
 
     # ------------------------------------------------------------------
     # Private: participants management
@@ -820,6 +956,145 @@ class EventEditor(QWidget):
         self._clear_status()
 
     # ------------------------------------------------------------------
+    # Private: event media management (death/funeral)
+    # ------------------------------------------------------------------
+
+    def _populate_event_media_type_combo(self, event_type: str) -> None:
+        """Populate the event media type combo with types for the given event type.
+
+        Args:
+            event_type: The current event type ("death" or "funeral").
+        """
+        self._event_media_type_combo.clear()
+        media_types = self._event_media_service.get_media_types_for_event(event_type)
+        for media_type in media_types:
+            self._event_media_type_combo.addItem(media_type, media_type)
+
+    def _update_event_media_validation(self, _text: str = "") -> None:
+        """Update validation state for event media add controls.
+
+        Disables the add button when file or title is missing and shows
+        indication of which fields are missing.
+        """
+        missing: list[str] = []
+        if not self._event_media_file_path:
+            missing.append("fil")
+        title = self._event_media_title_input.text().strip()
+        if not title:
+            missing.append("titel")
+
+        if missing:
+            self._event_media_validation_label.setText(
+                f"Saknas: {', '.join(missing)}"
+            )
+            self._event_media_add_button.setEnabled(False)
+        else:
+            self._event_media_validation_label.setText("")
+            self._event_media_add_button.setEnabled(True)
+
+    def _on_event_media_browse(self) -> None:
+        """Open a file dialog to select a media file for event media."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Välj mediafil",
+            "",
+            "Alla filer (*)",
+        )
+        if file_path:
+            self._event_media_file_path = file_path
+            # Show just the filename for display
+            from pathlib import Path
+
+            self._event_media_file_label.setText(Path(file_path).name)
+        else:
+            # User cancelled — keep previous selection
+            pass
+        self._update_event_media_validation()
+
+    def _on_event_media_add(self) -> None:
+        """Add a new media item to the current event via EventMediaService.
+
+        Creates a MediaItem with uuid id, selected type, file path, and title.
+        Links it to the event using EventMediaService.add_media_to_event.
+        """
+        title = self._event_media_title_input.text().strip()
+        if not self._event_media_file_path or not title:
+            return
+
+        media_type = self._event_media_type_combo.currentData()
+        if not media_type:
+            self._update_status("Välj en mediatyp.")
+            return
+
+        # Create the MediaItem
+        media_item = MediaItem(
+            id=str(uuid.uuid4()),
+            type=media_type,
+            file=self._event_media_file_path,
+            title=title,
+        )
+
+        # Add to project data
+        self._project_data.media.append(media_item)
+
+        # Track locally for linking during save
+        self._event_media_items.append(media_item)
+
+        # Display in list
+        display = f"{media_type} — {title}"
+        item = QListWidgetItem(display)
+        item.setData(Qt.ItemDataRole.UserRole, media_item.id)
+        self._event_media_list.addItem(item)
+
+        # Reset input fields
+        self._event_media_file_path = ""
+        self._event_media_file_label.setText("(ingen fil vald)")
+        self._event_media_title_input.clear()
+        self._update_event_media_validation()
+        self._clear_status()
+
+    def _on_event_media_remove(self) -> None:
+        """Remove the selected event media item (unlink only, preserve MediaItem)."""
+        current = self._event_media_list.currentItem()
+        if not current:
+            self._update_status("Välj ett mediaobjekt att ta bort.")
+            return
+
+        media_id = current.data(Qt.ItemDataRole.UserRole)
+        row = self._event_media_list.row(current)
+        self._event_media_list.takeItem(row)
+
+        # If editing an existing event, unlink via service
+        if self._event and media_id in self._event.media_ids:
+            self._event_media_service.remove_media_from_event(
+                self._event, media_id
+            )
+
+        # Remove from local tracking if it was newly added
+        self._event_media_items = [
+            m for m in self._event_media_items if m.id != media_id
+        ]
+
+        self._clear_status()
+
+    def _load_event_media(self) -> None:
+        """Load existing event media items into the event media list.
+
+        Called during _load_event when the event type supports media.
+        """
+        if not self._event:
+            return
+
+        for media_id in self._event.media_ids:
+            for media_item in self._project_data.media:
+                if media_item.id == media_id:
+                    display = f"{media_item.type} — {media_item.title}"
+                    item = QListWidgetItem(display)
+                    item.setData(Qt.ItemDataRole.UserRole, media_id)
+                    self._event_media_list.addItem(item)
+                    break
+
+    # ------------------------------------------------------------------
     # Private: save / cancel
     # ------------------------------------------------------------------
 
@@ -903,8 +1178,33 @@ class EventEditor(QWidget):
                 if media_id:
                     media_ids.append(media_id)
 
+        # Event media validation: if event type supports media, check that
+        # no partial input is left (file or title filled but not both)
+        if event_type in EVENT_MEDIA_TYPES:
+            has_file = bool(self._event_media_file_path)
+            has_title = bool(self._event_media_title_input.text().strip())
+            if has_file != has_title:
+                # One is filled, the other is not — cannot save
+                self._update_status(
+                    "Fyll i både fil och titel för händelsemedia, eller rensa fälten."
+                )
+                return
+
+        # Collect event media IDs from the event media list
+        event_media_ids: list[str] = []
+        if event_type in EVENT_MEDIA_TYPES:
+            for i in range(self._event_media_list.count()):
+                item = self._event_media_list.item(i)
+                if item:
+                    media_id = item.data(Qt.ItemDataRole.UserRole)
+                    if media_id:
+                        event_media_ids.append(media_id)
+
         # Determine event ID
         event_id = self._event.id if self._event else str(uuid.uuid4())
+
+        # Merge regular media_ids with event media_ids
+        all_media_ids = media_ids + event_media_ids
 
         self._saved_event = Event(
             id=event_id,
@@ -912,10 +1212,17 @@ class EventEditor(QWidget):
             participants=participants,
             date=date,
             place=place,
-            media_ids=media_ids,
+            media_ids=all_media_ids,
             custom_type_name=custom_type_name,
             cause_of_death=cause_of_death,
         )
+
+        # Link newly added event media items via EventMediaService
+        for media_item in self._event_media_items:
+            if media_item.id in event_media_ids:
+                self._event_media_service.add_media_to_event(
+                    self._saved_event, media_item
+                )
 
         self._clear_status()
         logger.info("Händelse sparad: %s", event_id)

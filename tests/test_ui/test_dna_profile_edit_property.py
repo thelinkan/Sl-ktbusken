@@ -43,13 +43,13 @@ _person_id_strategy = st.integers(min_value=1, max_value=9999).map(
 )
 
 _kit_name_strategy = st.text(
-    alphabet=st.characters(categories=("L", "N")),
+    alphabet=st.characters(categories=("L", "N"), max_codepoint=0xFFFF),
     min_size=0,
     max_size=100,
 )
 
 _kit_id_strategy = st.text(
-    alphabet=st.characters(categories=("L", "N")),
+    alphabet=st.characters(categories=("L", "N"), max_codepoint=0xFFFF),
     min_size=0,
     max_size=50,
 )

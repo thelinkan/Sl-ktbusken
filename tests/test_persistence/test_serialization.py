@@ -482,7 +482,7 @@ class TestDeserializeDefaults:
 # ---------------------------------------------------------------------------
 
 
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 
 from tests.conftest import media_item_strategy, project_data_strategy
 
@@ -536,3 +536,66 @@ class TestPropertyMediaFilePaths:
             assert not media_item.file.startswith("/")
             if len(media_item.file) >= 2:
                 assert media_item.file[1] != ":"
+
+
+class TestPropertyAnnotationRoundTrip:
+    """Property 14: Annotation serialization round-trip.
+
+    Feature: redigera-person-media, Property 14: Annotation serialization round-trip
+
+    **Validates: Requirements 6.3, 6.4**
+    """
+
+    @given(media_item=media_item_strategy())
+    @settings(max_examples=100)
+    def test_annotation_serialization_round_trip(self, media_item: MediaItem) -> None:
+        """For any MediaItem with annotations, serialize then deserialize preserves
+        annotation count and field values.
+
+        Feature: redigera-person-media, Property 14: Annotation serialization round-trip
+        """
+        from slaktbusken.model.media import Annotation
+
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.1",
+            project=ProjectMetadata(title="Test"),
+            media=[media_item],
+        )
+        json_str = serialize(data)
+        result = deserialize(json_str)
+
+        assert len(result.media) == 1
+        deserialized_item = result.media[0]
+        assert len(deserialized_item.annotations) == len(media_item.annotations)
+
+        for orig, deser in zip(media_item.annotations, deserialized_item.annotations):
+            assert deser.x == orig.x
+            assert deser.y == orig.y
+            assert deser.width == orig.width
+            assert deser.height == orig.height
+            assert deser.entity_type == orig.entity_type
+            assert deser.entity_id == orig.entity_id
+
+    @given(media_item=media_item_strategy())
+    @settings(max_examples=100)
+    def test_empty_annotations_omitted_from_json(self, media_item: MediaItem) -> None:
+        """When annotations is empty, the serialized JSON SHALL NOT contain
+        an 'annotations' key for the media item.
+
+        Feature: redigera-person-media, Property 14: Annotation serialization round-trip
+        """
+        assume(len(media_item.annotations) == 0)
+
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.1",
+            project=ProjectMetadata(title="Test"),
+            media=[media_item],
+        )
+        json_str = serialize(data)
+        parsed = json.loads(json_str)
+
+        assert len(parsed["media"]) == 1
+        media_dict = parsed["media"][0]
+        assert "annotations" not in media_dict
