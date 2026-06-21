@@ -109,6 +109,7 @@ class PersonEditor(QWidget):
         self._person = person
         self._saved_person: Optional[Person] = None
         self._editing_name_row: Optional[int] = None
+        self._profile_media_id: Optional[str] = None
 
         # Set up UI from generated form
         self._ui = Ui_PersonEditor()
@@ -1130,22 +1131,91 @@ class PersonEditor(QWidget):
 
         # Show profile photo indicator
         if self._person.profile_media_id:
-            self._ui.profile_photo_display.setText(
-                f"ID: {self._person.profile_media_id}"
-            )
+            self._profile_media_id = self._person.profile_media_id
+            self._display_profile_photo(self._person.profile_media_id)
         else:
             self._ui.profile_photo_display.setText("Ingen bild")
 
     def _on_select_profile(self) -> None:
-        """Set the selected media item as the profile photo."""
-        current = self._ui.media_list.currentItem()
-        if not current:
+        """Set the selected media item as the profile photo.
+
+        Uses the FotoTab's currently selected photo if available,
+        otherwise falls back to the legacy media_list selection.
+        """
+        media_id: str | None = None
+
+        # Try to get selection from FotoTab first
+        if self._foto_tab is not None and self._foto_tab._selected_media_item is not None:
+            media_id = self._foto_tab._selected_media_item.id
+        else:
+            # Fall back to legacy media_list
+            current = self._ui.media_list.currentItem()
+            if current:
+                media_id = current.data(Qt.ItemDataRole.UserRole)
+
+        if not media_id:
             self._update_status("Välj ett foto från listan.")
             return
 
-        media_id = current.data(Qt.ItemDataRole.UserRole)
-        self._ui.profile_photo_display.setText(f"ID: {media_id}")
+        self._profile_media_id = media_id
+        self._display_profile_photo(media_id)
         self._clear_status()
+
+    def _display_profile_photo(self, media_id: str) -> None:
+        """Display the profile photo image in the profile_photo_display label.
+
+        Resolves the media_id to a file path and displays the image scaled
+        to fit the 100x100 label. Shows fallback text if the file can't be found.
+
+        Args:
+            media_id: The MediaItem ID to display.
+        """
+        from PySide6.QtGui import QPixmap
+
+        # Find the MediaItem
+        media_item: MediaItem | None = None
+        for item in self._project_data.media:
+            if item.id == media_id:
+                media_item = item
+                break
+
+        if media_item is None:
+            self._ui.profile_photo_display.setText("Ingen bild")
+            return
+
+        # Resolve file path — try multiple strategies for backward compatibility
+        file_path: Path | None = None
+        if self._project_folder:
+            # Strategy 1: file path relative to project folder (e.g. "media/photos/photo.jpg")
+            candidate = self._project_folder / Path(media_item.file)
+            if candidate.is_file():
+                file_path = candidate
+            else:
+                # Strategy 2: file path relative to foto_mapp (legacy, e.g. just "photo.jpg")
+                candidate = self._photo_service._foto_mapp / Path(media_item.file)
+                if candidate.is_file():
+                    file_path = candidate
+        else:
+            candidate = Path(media_item.file)
+            if candidate.is_file():
+                file_path = candidate
+
+        if file_path is None:
+            self._ui.profile_photo_display.setText("Fil saknas")
+            return
+
+        # Load and scale the pixmap
+        pixmap = QPixmap(str(file_path))
+        if pixmap.isNull():
+            self._ui.profile_photo_display.setText("Kan inte läsa bild")
+            return
+
+        scaled = pixmap.scaled(
+            self._ui.profile_photo_display.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._ui.profile_photo_display.setPixmap(scaled)
 
     # ------------------------------------------------------------------
     # Private: DNA
@@ -1788,11 +1858,8 @@ class PersonEditor(QWidget):
         notes = self._ui.notes_input.toPlainText()
 
         # Profile media ID
-        profile_display = self._ui.profile_photo_display.text()
-        profile_media_id: Optional[str] = None
-        if profile_display.startswith("ID: "):
-            profile_media_id = profile_display[4:]
-        elif self._person and self._person.profile_media_id:
+        profile_media_id: Optional[str] = self._profile_media_id
+        if profile_media_id is None and self._person and self._person.profile_media_id:
             profile_media_id = self._person.profile_media_id
 
         # Determine person ID

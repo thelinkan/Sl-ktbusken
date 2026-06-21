@@ -116,7 +116,8 @@ class Application:
         # Create dialog wrapper
         dialog = QDialog(self.main_window)
         dialog.setWindowTitle("Redigera person")
-        dialog.setMinimumSize(600, 500)
+        dialog.setMinimumSize(600, 700)
+        dialog.resize(700, 850)
         layout = QVBoxLayout(dialog)
 
         # Create editor widget
@@ -199,7 +200,7 @@ class Application:
         # Open editor
         dialog = QDialog(self.main_window)
         dialog.setWindowTitle("Lägg till person")
-        dialog.setMinimumSize(600, 500)
+        dialog.setMinimumSize(600, 700)
         layout = QVBoxLayout(dialog)
 
         editor = PersonEditor(
@@ -379,7 +380,7 @@ class Application:
         # Open editor for the new person
         dialog = QDialog(self.main_window)
         dialog.setWindowTitle("Lägg till person")
-        dialog.setMinimumSize(600, 500)
+        dialog.setMinimumSize(600, 700)
         layout = QVBoxLayout(dialog)
 
         editor = PersonEditor(

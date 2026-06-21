@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -98,8 +99,8 @@ class FotoTab(QWidget):
 
         # Photo table
         self._table = QTableWidget()
-        self._table.setColumnCount(2)
-        self._table.setHorizontalHeaderLabels(["Fototyp", "Titel"])
+        self._table.setColumnCount(3)
+        self._table.setHorizontalHeaderLabels(["Fototyp", "Titel", "Fil"])
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )
@@ -127,6 +128,10 @@ class FotoTab(QWidget):
         self._stack_layout.addWidget(self._empty_label)
 
         layout.addWidget(self._stack_widget)
+
+        # Preview window (separate non-modal popup)
+        self._preview_window: QWidget | None = None
+        self._preview_image_label: QLabel | None = None
 
         # --- Metadata editing panel ---
         self._edit_group = QGroupBox("Redigera foto")
@@ -181,12 +186,14 @@ class FotoTab(QWidget):
 
         Loads the selected photo's metadata into editing fields and
         person list into the PersonListWidget, and shows both sections.
+        Shows a preview of the selected image.
         """
         self._clear_status()
         selected_items = self._table.selectedItems()
         if not selected_items:
             self._edit_group.setVisible(False)
             self._person_list_group.setVisible(False)
+            self._close_preview_window()
             self._selected_media_item = None
             self._person_list_widget.clear()
             return
@@ -207,6 +214,9 @@ class FotoTab(QWidget):
             return
 
         self._selected_media_item = media_item
+
+        # Show image preview
+        self._show_preview(media_item)
 
         # Populate metadata editing fields
         foto_typ, title = self._photo_service.parse_title(media_item.title)
@@ -312,6 +322,89 @@ class FotoTab(QWidget):
                 return item
         return None
 
+    def _resolve_media_file_path(self, media_item: MediaItem) -> Path | None:
+        """Resolve a MediaItem's file field to an absolute path on disk.
+
+        Tries the path relative to the project folder (foto_mapp's grandparent),
+        then falls back to relative to foto_mapp directly.
+
+        Returns:
+            The resolved Path if the file exists, or None.
+        """
+        foto_mapp = self._photo_service._foto_mapp
+        # Project folder is foto_mapp's grandparent (media/photos -> media -> project)
+        project_folder = foto_mapp.parent.parent
+
+        # Strategy 1: relative to project folder (e.g. "media/photos/photo.jpg")
+        candidate = project_folder / Path(media_item.file)
+        if candidate.is_file():
+            return candidate
+
+        # Strategy 2: relative to foto_mapp directly (legacy, e.g. "photo.jpg")
+        candidate = foto_mapp / Path(media_item.file)
+        if candidate.is_file():
+            return candidate
+
+        return None
+
+    def _show_preview(self, media_item: MediaItem) -> None:
+        """Show the selected photo in a separate non-modal preview window.
+
+        Creates or updates a popup window displaying the full image.
+        The window stays open until another photo is selected or deselected.
+
+        Args:
+            media_item: The MediaItem to preview.
+        """
+        file_path = self._resolve_media_file_path(media_item)
+
+        if file_path is None:
+            self._close_preview_window()
+            return
+
+        pixmap = QPixmap(str(file_path))
+        if pixmap.isNull():
+            self._close_preview_window()
+            return
+
+        # Create or reuse preview window
+        if self._preview_window is None:
+            from PySide6.QtWidgets import QDialog
+            self._preview_window = QDialog(self)
+            self._preview_window.setWindowTitle("Förhandsgranskning")
+            self._preview_window.setModal(False)
+            preview_layout = QVBoxLayout(self._preview_window)
+            preview_layout.setContentsMargins(0, 0, 0, 0)
+            self._preview_image_label = QLabel()
+            self._preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._preview_image_label.setStyleSheet("background: #222;")
+            preview_layout.addWidget(self._preview_image_label)
+
+        # Scale image to fit a reasonable window size
+        max_w, max_h = 800, 600
+        scaled = pixmap.scaled(
+            max_w, max_h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._preview_image_label.setPixmap(scaled)
+
+        # Resize window to fit the scaled image
+        self._preview_window.resize(scaled.width() + 2, scaled.height() + 2)
+
+        # Update window title with filename
+        _, title = self._photo_service.parse_title(media_item.title)
+        self._preview_window.setWindowTitle(f"Förhandsgranskning – {title}")
+
+        self._preview_window.show()
+        self._preview_window.raise_()
+
+    def _close_preview_window(self) -> None:
+        """Close the preview window if open."""
+        if self._preview_window is not None:
+            self._preview_window.close()
+            self._preview_window = None
+
     def refresh(self) -> None:
         """Reload the photo list from PhotoService.
 
@@ -327,6 +420,7 @@ class FotoTab(QWidget):
             self._stack_layout.setCurrentWidget(self._empty_label)
             self._edit_group.setVisible(False)
             self._person_list_group.setVisible(False)
+            self._close_preview_window()
             self._selected_media_item = None
             self._person_list_widget.clear()
             return
@@ -344,6 +438,9 @@ class FotoTab(QWidget):
             title_item = QTableWidgetItem(title)
             self._table.setItem(row, 1, title_item)
 
+            file_item = QTableWidgetItem(media_item.file)
+            self._table.setItem(row, 2, file_item)
+
         # Re-select previously selected item if still present
         if self._selected_media_item:
             for row in range(self._table.rowCount()):
@@ -359,6 +456,7 @@ class FotoTab(QWidget):
         # If no re-selection, hide editing panels
         self._edit_group.setVisible(False)
         self._person_list_group.setVisible(False)
+        self._close_preview_window()
         self._selected_media_item = None
         self._person_list_widget.clear()
 

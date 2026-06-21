@@ -279,9 +279,9 @@ class TestPersonEditorLinkedData:
     def test_profile_photo_display(
         self, qapp, project_with_linked_data: ProjectData, sample_person: Person
     ):
-        """Profile photo display should show the media ID."""
+        """Profile photo should store the media ID when set."""
         editor = PersonEditor(project_with_linked_data, person=sample_person)
-        assert "media_1" in editor._ui.profile_photo_display.text()
+        assert editor._profile_media_id == "media_1"
 
     def test_dna_profiles_populated(
         self, qapp, project_with_linked_data: ProjectData, sample_person: Person
