@@ -86,6 +86,16 @@ class Ui_SettingsDialog(object):
 
         self.personBoxLayout.addWidget(self.checkNotes)
 
+        self.checkCauseOfDeath = QCheckBox(self.personBoxGroup)
+        self.checkCauseOfDeath.setObjectName(u"checkCauseOfDeath")
+
+        self.personBoxLayout.addWidget(self.checkCauseOfDeath)
+
+        self.checkClusters = QCheckBox(self.personBoxGroup)
+        self.checkClusters.setObjectName(u"checkClusters")
+
+        self.personBoxLayout.addWidget(self.checkClusters)
+
 
         self.verticalLayout.addWidget(self.personBoxGroup)
 
@@ -155,6 +165,8 @@ class Ui_SettingsDialog(object):
         self.checkPhoto.setText(QCoreApplication.translate("SettingsDialog", u"Profilfoto", None))
         self.checkDnaInfo.setText(QCoreApplication.translate("SettingsDialog", u"DNA-information", None))
         self.checkNotes.setText(QCoreApplication.translate("SettingsDialog", u"Anteckningar", None))
+        self.checkCauseOfDeath.setText(QCoreApplication.translate("SettingsDialog", u"D\u00f6dsorsak", None))
+        self.checkClusters.setText(QCoreApplication.translate("SettingsDialog", u"DNA-kluster", None))
         self.diagramDepthGroup.setTitle(QCoreApplication.translate("SettingsDialog", u"Diagramdjup", None))
         self.labelAncestryDepth.setText(QCoreApplication.translate("SettingsDialog", u"Antal generationer upp\u00e5t (anor):", None))
         self.labelDescendantsDepth.setText(QCoreApplication.translate("SettingsDialog", u"Antal generationer ned\u00e5t (\u00e4ttlingar):", None))

@@ -1,8 +1,8 @@
-"""Property-based tests for PersonBoxItem border precedence.
+"""Property-based tests for PersonBoxItem border color precedence.
 
-Feature: ui-enhancements, Property 6: Ancestor border precedence
+Feature: enhanced-name-cards, Property 6: Border color precedence chain
 
-Validates: Requirements 4.4
+Validates: Requirements 3.1, 3.2, 3.3, 3.4
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ from slaktbusken.ui.widgets.person_box import (
     _ANCESTOR_BORDER_COLOR,
     _BORDER_COLOR,
     _DESCENDANT_BORDER_COLOR,
+    _MAIN_PERSON_BORDER_COLOR,
+    _SELECTED_BORDER_COLOR,
 )
 
 
@@ -33,33 +35,46 @@ def qapp():
     return app
 
 
-class TestAncestorBorderPrecedence:
-    """Feature: ui-enhancements, Property 6: Ancestor border precedence
+class TestBorderColorPrecedenceChain:
+    """Feature: enhanced-name-cards, Property 6: Border color precedence chain
 
-    Generate random boolean pairs (is_ancestor, is_descendant), verify
-    when both True the border color is always ancestor red.
+    Generate all boolean combinations of (is_selected, is_main_person,
+    is_ancestor, is_descendant) and verify the correct border color and
+    width is applied per the priority chain:
 
-    **Validates: Requirements 4.4**
+    selected (blue, 2.5px) > main person (orange, 2.5px) >
+    ancestor (red, 2.0px) > descendant (green, 2.0px) > default (gray, 1.0px)
+
+    **Validates: Requirements 3.1, 3.2, 3.3, 3.4**
     """
 
     @given(
+        is_selected=st.booleans(),
+        is_main_person=st.booleans(),
         is_ancestor=st.booleans(),
         is_descendant=st.booleans(),
     )
     @settings(max_examples=100, deadline=None)
-    def test_ancestor_border_takes_precedence_over_descendant(
-        self, is_ancestor: bool, is_descendant: bool
+    def test_border_color_precedence_chain(
+        self,
+        is_selected: bool,
+        is_main_person: bool,
+        is_ancestor: bool,
+        is_descendant: bool,
     ) -> None:
-        """Property 6: When is_ancestor is True, the border color is
-        always ancestor red (#C0392B) regardless of is_descendant value.
+        """Property 6: Border color follows strict priority chain.
 
-        Feature: ui-enhancements, Property 6: Ancestor border precedence
-        **Validates: Requirements 4.4**
+        Priority: selected (blue, 2.5) > main person (orange, 2.5) >
+        ancestor (red, 2.0) > descendant (green, 2.0) > default (gray, 1.0).
+
+        Feature: enhanced-name-cards, Property 6: Border color precedence chain
+        **Validates: Requirements 3.1, 3.2, 3.3, 3.4**
         """
         display_data: dict = {
             "name": "Test Person",
             "is_ancestor": is_ancestor,
             "is_descendant": is_descendant,
+            "is_main_person": is_main_person,
         }
         config = PersonBoxConfig(name=True)
         item = PersonBoxItem(
@@ -67,6 +82,9 @@ class TestAncestorBorderPrecedence:
             display_data=display_data,
             config=config,
         )
+
+        # Set selection state
+        item.set_selected(is_selected)
 
         # Use a mock painter to capture the pen set during paint()
         painter = MagicMock()
@@ -78,11 +96,10 @@ class TestAncestorBorderPrecedence:
             mock_pixmap = MagicMock()
             mock_pixmap.isNull.return_value = True
             mock_registry.get_gender_icon.return_value = mock_pixmap
+            mock_registry.get_multiple_names_icon.return_value = mock_pixmap
             item.paint(painter, option, None)
 
-        # Extract the pen that was set for the border (the setPen call
-        # before drawRoundedRect). The first setPen call in paint() is
-        # for the border.
+        # Extract the pen that was set for the border (the first setPen call)
         set_pen_calls = [
             c for c in painter.method_calls if c[0] == "setPen"
         ]
@@ -91,25 +108,38 @@ class TestAncestorBorderPrecedence:
         # The first setPen call is the border pen
         border_pen: QPen = set_pen_calls[0][1][0]
         border_color: QColor = border_pen.color()
+        border_width: float = border_pen.widthF()
 
-        if is_ancestor:
-            # Ancestor always takes precedence — border must be red
-            assert border_color == _ANCESTOR_BORDER_COLOR, (
-                f"When is_ancestor=True, is_descendant={is_descendant}: "
-                f"expected ancestor red {_ANCESTOR_BORDER_COLOR.name()}, "
-                f"got {border_color.name()}"
-            )
+        # Determine expected color and width based on priority chain
+        if is_selected:
+            expected_color = _SELECTED_BORDER_COLOR
+            expected_width = 2.5
+            label = "selected (blue)"
+        elif is_main_person:
+            expected_color = _MAIN_PERSON_BORDER_COLOR
+            expected_width = 2.5
+            label = "main person (orange)"
+        elif is_ancestor:
+            expected_color = _ANCESTOR_BORDER_COLOR
+            expected_width = 2.0
+            label = "ancestor (red)"
         elif is_descendant:
-            # Only descendant — border must be green
-            assert border_color == _DESCENDANT_BORDER_COLOR, (
-                f"When is_ancestor=False, is_descendant=True: "
-                f"expected descendant green {_DESCENDANT_BORDER_COLOR.name()}, "
-                f"got {border_color.name()}"
-            )
+            expected_color = _DESCENDANT_BORDER_COLOR
+            expected_width = 2.0
+            label = "descendant (green)"
         else:
-            # Neither — default border color
-            assert border_color == _BORDER_COLOR, (
-                f"When is_ancestor=False, is_descendant=False: "
-                f"expected default {_BORDER_COLOR.name()}, "
-                f"got {border_color.name()}"
-            )
+            expected_color = _BORDER_COLOR
+            expected_width = 1.0
+            label = "default (gray)"
+
+        assert border_color == expected_color, (
+            f"With is_selected={is_selected}, is_main_person={is_main_person}, "
+            f"is_ancestor={is_ancestor}, is_descendant={is_descendant}: "
+            f"expected {label} color {expected_color.name()}, "
+            f"got {border_color.name()}"
+        )
+        assert border_width == pytest.approx(expected_width, abs=0.01), (
+            f"With is_selected={is_selected}, is_main_person={is_main_person}, "
+            f"is_ancestor={is_ancestor}, is_descendant={is_descendant}: "
+            f"expected {label} width {expected_width}, got {border_width}"
+        )

@@ -802,7 +802,15 @@ class TestPropertyMultipleNamesTooltipFormat:
             name_str = " ".join(name_parts)
 
             if name_type:
-                expected = f"{name_type}: {name_str}"
+                # Name types are translated to Swedish
+                _NAME_TYPE_SV = {
+                    "birth": "Födelsenamn",
+                    "married": "Giftnamn",
+                    "adopted": "Adoptivnamn",
+                    "other": "Övrigt",
+                }
+                type_label = _NAME_TYPE_SV.get(name_type, name_type)
+                expected = f"{type_label}: {name_str}"
             else:
                 expected = name_str
 

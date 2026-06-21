@@ -130,6 +130,79 @@ class TestFallbackBehavior:
         assert invalid_pixmap.cacheKey() == unknown_pixmap.cacheKey()
 
 
+class TestDnaCompanyLogo:
+    """Tests for DNA company logo loading via IconRegistry."""
+
+    def test_returns_scaled_pixmap_on_success(self, registry: IconRegistry):
+        """A valid media_loader result is scaled to 16×16 (max dimension)."""
+        from PySide6.QtGui import QPixmap
+
+        source = QPixmap(64, 32)  # 2:1 aspect ratio
+        source.fill()
+
+        def loader(mid: str) -> QPixmap:
+            return source
+
+        result = registry.get_dna_company_logo("logo1", loader)
+        assert result is not None
+        assert not result.isNull()
+        # KeepAspectRatio with 64×32 scaled to fit 16×16 → 16×8
+        assert result.width() == 16
+        assert result.height() == 8
+
+    def test_returns_none_when_loader_returns_none(self, registry: IconRegistry):
+        """Returns None when media_loader cannot load the media."""
+
+        def loader(mid: str):
+            return None
+
+        result = registry.get_dna_company_logo("missing", loader)
+        assert result is None
+
+    def test_returns_none_when_loader_returns_null_pixmap(self, registry: IconRegistry):
+        """Returns None when media_loader returns a null QPixmap."""
+        from PySide6.QtGui import QPixmap
+
+        def loader(mid: str) -> QPixmap:
+            return QPixmap()  # null pixmap
+
+        result = registry.get_dna_company_logo("null_px", loader)
+        assert result is None
+
+    def test_caches_result_by_media_id(self, registry: IconRegistry):
+        """Subsequent calls with the same media_id return cached pixmap."""
+        from PySide6.QtGui import QPixmap
+
+        source = QPixmap(16, 16)
+        source.fill()
+        call_count = 0
+
+        def loader(mid: str) -> QPixmap:
+            nonlocal call_count
+            call_count += 1
+            return source
+
+        result1 = registry.get_dna_company_logo("cached", loader)
+        result2 = registry.get_dna_company_logo("cached", loader)
+        assert result1 is result2
+        assert call_count == 1, "Loader should only be called once due to caching"
+
+    def test_does_not_cache_failures(self, registry: IconRegistry):
+        """Failed loads (None) are not cached — loader is called again."""
+        from PySide6.QtGui import QPixmap
+
+        call_count = 0
+
+        def loader(mid: str):
+            nonlocal call_count
+            call_count += 1
+            return None
+
+        registry.get_dna_company_logo("fail_id", loader)
+        registry.get_dna_company_logo("fail_id", loader)
+        assert call_count == 2, "Loader should be called each time since failures aren't cached"
+
+
 class TestCaching:
     """Tests for pixmap caching behavior."""
 

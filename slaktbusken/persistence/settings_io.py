@@ -23,7 +23,7 @@ class PersonBoxConfig:
 
     Each boolean flag controls visibility of the corresponding content
     field in person box rendering. Default for new projects enables
-    name, birth_date, and death_date only.
+    all enhanced fields; users can toggle them off in settings.
 
     Attributes:
         name: Show the person's display name.
@@ -37,19 +37,23 @@ class PersonBoxConfig:
         photo: Show the profile photo.
         dna_info: Show DNA cluster/match indicators.
         notes: Show research notes excerpt.
+        cause_of_death: Show the cause of death field.
+        clusters: Show DNA cluster names on the card.
     """
 
     name: bool = True
     birth_date: bool = True
-    birth_place: bool = False
+    birth_place: bool = True
     death_date: bool = True
-    death_place: bool = False
+    death_place: bool = True
     marriage_date: bool = False
     marriage_place: bool = False
     occupation: bool = False
-    photo: bool = False
-    dna_info: bool = False
+    photo: bool = True
+    dna_info: bool = True
     notes: bool = False
+    cause_of_death: bool = True
+    clusters: bool = True
 
 
 @dataclass
@@ -193,15 +197,17 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
     person_box_config = PersonBoxConfig(
         name=person_box_data.get("name", True),
         birth_date=person_box_data.get("birth_date", True),
-        birth_place=person_box_data.get("birth_place", False),
+        birth_place=person_box_data.get("birth_place", True),
         death_date=person_box_data.get("death_date", True),
-        death_place=person_box_data.get("death_place", False),
+        death_place=person_box_data.get("death_place", True),
         marriage_date=person_box_data.get("marriage_date", False),
         marriage_place=person_box_data.get("marriage_place", False),
         occupation=person_box_data.get("occupation", False),
-        photo=person_box_data.get("photo", False),
-        dna_info=person_box_data.get("dna_info", False),
+        photo=person_box_data.get("photo", True),
+        dna_info=person_box_data.get("dna_info", True),
         notes=person_box_data.get("notes", False),
+        cause_of_death=person_box_data.get("cause_of_death", True),
+        clusters=person_box_data.get("clusters", True),
     )
 
     diagram_settings = DiagramSettings(

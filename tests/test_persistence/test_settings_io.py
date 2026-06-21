@@ -30,17 +30,19 @@ class TestCreateDefaultSettings:
         settings = create_default_settings()
         assert settings.person_box_config.name is True
         assert settings.person_box_config.birth_date is True
+        assert settings.person_box_config.birth_place is True
         assert settings.person_box_config.death_date is True
+        assert settings.person_box_config.death_place is True
+        assert settings.person_box_config.photo is True
+        assert settings.person_box_config.dna_info is True
+        assert settings.person_box_config.cause_of_death is True
+        assert settings.person_box_config.clusters is True
 
     def test_default_person_box_config_disabled_fields(self) -> None:
         settings = create_default_settings()
-        assert settings.person_box_config.birth_place is False
-        assert settings.person_box_config.death_place is False
         assert settings.person_box_config.marriage_date is False
         assert settings.person_box_config.marriage_place is False
         assert settings.person_box_config.occupation is False
-        assert settings.person_box_config.photo is False
-        assert settings.person_box_config.dna_info is False
         assert settings.person_box_config.notes is False
 
     def test_default_diagram_settings(self) -> None:

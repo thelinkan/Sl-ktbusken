@@ -94,6 +94,8 @@ class SettingsDialog(QDialog):
             photo=self._ui.checkPhoto.isChecked(),
             dna_info=self._ui.checkDnaInfo.isChecked(),
             notes=self._ui.checkNotes.isChecked(),
+            cause_of_death=self._ui.checkCauseOfDeath.isChecked(),
+            clusters=self._ui.checkClusters.isChecked(),
         )
 
     @property
@@ -125,6 +127,8 @@ class SettingsDialog(QDialog):
         self._ui.checkPhoto.setChecked(config.photo)
         self._ui.checkDnaInfo.setChecked(config.dna_info)
         self._ui.checkNotes.setChecked(config.notes)
+        self._ui.checkCauseOfDeath.setChecked(config.cause_of_death)
+        self._ui.checkClusters.setChecked(config.clusters)
 
     def _load_diagram_settings(self, settings: DiagramSettings) -> None:
         """Populate spinboxes from a DiagramSettings.

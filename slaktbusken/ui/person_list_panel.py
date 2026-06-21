@@ -533,8 +533,8 @@ def _year_in_range(year_str: str, from_str: str, to_str: str) -> bool:
 def format_names_tooltip(all_names: list[tuple[str, str, str]]) -> str:
     """Format the multiple-names tooltip text.
 
-    Each name record is shown on one line as "type: given surname",
-    omitting empty components.
+    Each name record is shown on one line as "typ: förnamn efternamn",
+    with name types translated to Swedish. Omits empty components.
 
     Args:
         all_names: List of (type, given, surname) tuples.
@@ -542,6 +542,12 @@ def format_names_tooltip(all_names: list[tuple[str, str, str]]) -> str:
     Returns:
         Multi-line tooltip text.
     """
+    _NAME_TYPE_SV: dict[str, str] = {
+        "birth": "Födelsenamn",
+        "married": "Giftnamn",
+        "adopted": "Adoptivnamn",
+        "other": "Övrigt",
+    }
     lines: list[str] = []
     for name_type, given, surname in all_names:
         parts: list[str] = []
@@ -551,7 +557,8 @@ def format_names_tooltip(all_names: list[tuple[str, str, str]]) -> str:
             parts.append(surname)
         name_str = " ".join(parts)
         if name_type:
-            lines.append(f"{name_type}: {name_str}")
+            type_label = _NAME_TYPE_SV.get(name_type, name_type)
+            lines.append(f"{type_label}: {name_str}")
         else:
             lines.append(name_str)
     return "\n".join(lines)

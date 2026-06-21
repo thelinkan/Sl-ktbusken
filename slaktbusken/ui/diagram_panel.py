@@ -8,6 +8,7 @@ Supports switching between Family, Ancestry, and Descendants views.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -163,6 +164,7 @@ class DiagramPanel(QWidget):
         self._project_data: Optional[ProjectData] = None
         self._person_box_config: Optional[PersonBoxConfig] = None
         self._diagram_settings = None
+        self._project_folder: Optional[Path] = None
 
         self._scene = QGraphicsScene(self)
         self._view = ZoomableGraphicsView(self._scene, self)
@@ -218,6 +220,14 @@ class DiagramPanel(QWidget):
         """
         self._project_data = project_data
         self._refresh_diagram()
+
+    def set_project_folder(self, folder: Optional["Path"]) -> None:
+        """Ange projektmapp för att kunna ladda mediafiler (foton, logotyper).
+
+        Args:
+            folder: Sökväg till projektmappen eller None.
+        """
+        self._project_folder = folder
 
     def set_person_box_config(self, config: PersonBoxConfig) -> None:
         """Ange konfiguration för personrutor.
@@ -466,6 +476,7 @@ class DiagramPanel(QWidget):
                     self._person_box_config,
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
+                    project_folder=self._project_folder,
                 )
 
                 # Enable selection on person boxes
@@ -501,6 +512,7 @@ class DiagramPanel(QWidget):
                     depth=ancestry_depth,
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
+                    project_folder=self._project_folder,
                 )
 
                 # Enable selection on person boxes
@@ -534,6 +546,7 @@ class DiagramPanel(QWidget):
                     depth=descendants_depth,
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
+                    project_folder=self._project_folder,
                 )
 
                 # Aktivera markering på personrutor

@@ -15,6 +15,7 @@ _ICONS_DIR = Path(__file__).parent
 
 _EVENTS_DIR = _ICONS_DIR / "events"
 _GENDER_DIR = _ICONS_DIR / "gender"
+_MISC_DIR = _ICONS_DIR / "misc"
 
 # All recognized event types and their corresponding SVG filenames.
 _EVENT_TYPE_MAP: dict[str, str] = {
@@ -91,6 +92,38 @@ class IconRegistry:
         path = self.get_gender_icon_path(sex)
         return self._load_pixmap(path)
 
+    def get_multiple_names_icon(self) -> QPixmap:
+        """Return a 14×14 QPixmap for the multiple-names indicator icon."""
+        path = _MISC_DIR / "multiple_names.svg"
+        return self._load_pixmap_sized(path, 14)
+
+    def get_dna_company_logo(self, media_id: str, media_loader) -> QPixmap | None:
+        """Return a 16×16 QPixmap for a DNA company logo.
+
+        Uses *media_loader* (a callable accepting a media_id and returning
+        QPixmap | None) to fetch the logo image, then scales it to 16×16
+        keeping aspect ratio with smooth transformation.
+
+        Results are cached by media_id.  Returns None if the media cannot
+        be loaded or the resulting pixmap is null.
+        """
+        cache_key = f"dna_logo:{media_id}"
+        if cache_key in self._pixmap_cache:
+            return self._pixmap_cache[cache_key]
+
+        pixmap = media_loader(media_id)
+        if pixmap is None or pixmap.isNull():
+            return None
+
+        scaled = pixmap.scaled(
+            16,
+            16,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._pixmap_cache[cache_key] = scaled
+        return scaled
+
     def get_event_icon_path(self, event_type: str) -> Path:
         """Return the file path to the SVG icon for the given event type."""
         filename = _EVENT_TYPE_MAP.get(event_type)
@@ -119,11 +152,15 @@ class IconRegistry:
 
     def _load_pixmap(self, svg_path: Path) -> QPixmap:
         """Load an SVG file as a 16×16 QPixmap, caching the result."""
-        cache_key = str(svg_path)
+        return self._load_pixmap_sized(svg_path, 16)
+
+    def _load_pixmap_sized(self, svg_path: Path, size: int) -> QPixmap:
+        """Load an SVG file as a size×size QPixmap, caching the result."""
+        cache_key = f"{svg_path}@{size}"
         if cache_key in self._pixmap_cache:
             return self._pixmap_cache[cache_key]
 
-        pixmap = QPixmap(16, 16)
+        pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
 
         renderer = QSvgRenderer(str(svg_path))

@@ -154,6 +154,7 @@ class Application:
                     # Refresh person list and re-render diagram preserving active person
                     self.main_window.person_list_panel.refresh()
                     panel = self.main_window.diagram_panel
+                    panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
                     panel.set_project_data(self.project_service.data)
                     settings = self.project_service.settings
                     if settings:
@@ -233,6 +234,7 @@ class Application:
 
             # Set the new person as active
             panel = self.main_window.diagram_panel
+            panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
             panel.set_project_data(data)
             settings = self.project_service.settings
             if settings:
@@ -468,6 +470,7 @@ class Application:
             self._update_status()
             self.main_window.person_list_panel.refresh()
             panel = self.main_window.diagram_panel
+            panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
             panel.set_project_data(data)
             settings = self.project_service.settings
             if settings:
@@ -1117,6 +1120,7 @@ class Application:
 
         if self.project_service.project_path is not None:
             project_data = self.project_service.data
+            panel.set_project_folder(self.project_service.project_path.parent)
             panel.set_project_data(project_data)
 
             if settings:
@@ -1132,6 +1136,7 @@ class Application:
             # Refresh the person list panel with current project data
             self.main_window.person_list_panel.refresh()
         else:
+            panel.set_project_folder(None)
             panel.set_project_data(None)
             # Clear the person list when no project is open
             self.main_window.person_list_panel._display_list = []

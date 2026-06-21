@@ -15,6 +15,7 @@ Layout (left to right):
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 import shiboken6
@@ -64,6 +65,7 @@ class AncestryView:
         depth: int = 4,
         ancestor_set: Optional[set[str]] = None,
         descendant_set: Optional[set[str]] = None,
+        project_folder: Optional[Path] = None,
     ) -> None:
         """Rendera anordiagrammet i scenen.
 
@@ -75,9 +77,11 @@ class AncestryView:
             depth: Antal generationer att visa (1-10, standard 4).
             ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
             descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
+            project_folder: Path to the project folder for resolving media files.
         """
         self._person_boxes = []
         self._placeholder_boxes = []
+        self._project_folder = project_folder
 
         if ancestor_set is None:
             ancestor_set = set()
@@ -170,9 +174,12 @@ class AncestryView:
                 if person_id is not None:
                     p = _find_person(project_data, person_id)
                     if p is not None:
-                        display_data = _build_display_data(p, project_data)
+                        display_data = _build_display_data(p, project_data, self._project_folder)
                         display_data["is_ancestor"] = p.id in ancestor_set
                         display_data["is_descendant"] = p.id in descendant_set
+                        display_data["is_main_person"] = (
+                            p.id == project_data.project.main_person_id
+                        )
                         box = PersonBoxItem(person_id, display_data, config)
                         box.setPos(col_x, y)
                         scene.addItem(box)
@@ -431,7 +438,8 @@ def _find_parent_family(
 
 
 def _build_display_data(
-    person: Person, project_data: ProjectData
+    person: Person, project_data: ProjectData,
+    project_folder: Optional[Path] = None,
 ) -> dict:
     """Bygg display_data-dictionary för en person.
 
@@ -441,6 +449,7 @@ def _build_display_data(
     Args:
         person: Personobjektet.
         project_data: Projektdata för att hämta händelser och platser.
+        project_folder: Projektmappens sökväg för att ladda mediafiler.
 
     Returns:
         Dictionary med nycklar som matchar PersonBoxConfig-fält.
@@ -449,6 +458,12 @@ def _build_display_data(
     data: dict = {
         "name": display_name,
         "name_parsed": name_parsed,
+        "has_multiple_names": len(person.names) > 1,
+        "names_tooltip": _build_names_tooltip(person) if len(person.names) > 1 else "",
+        "profile_photo": None,
+        "dna_companies": [],
+        "clusters": [],
+        "cause_of_death": None,
         "birth_date": None,
         "birth_place": None,
         "death_date": None,
@@ -482,6 +497,8 @@ def _build_display_data(
                 place = _find_place(project_data, event.place.place_id)
                 if place:
                     data["death_place"] = place.name
+            if event.cause_of_death:
+                data["cause_of_death"] = event.cause_of_death
         elif event.type == "marriage":
             if event.date:
                 data["marriage_date"] = event.date.value
@@ -490,7 +507,80 @@ def _build_display_data(
                 if place:
                     data["marriage_place"] = place.name
 
+    # Load profile photo if project_folder is available
+    if project_folder and person.profile_media_id:
+        data["profile_photo"] = _load_media_pixmap(
+            person.profile_media_id, project_data, project_folder, size=40
+        )
+
+    # Build dna_companies list from DnaProfile records
+    company_ids: set[str] = set()
+    for profile in project_data.dna_profiles:
+        if profile.person_id == person.id:
+            company_ids.add(profile.company_id)
+
+    if company_ids:
+        from slaktbusken.ui.icons.icon_registry import icon_registry
+
+        companies_list: list[dict] = []
+        for company in project_data.dna_companies:
+            if company.id in company_ids:
+                logo = None
+                if company.logo_media_id and project_folder:
+                    def _logo_loader(mid: str) -> "QPixmap | None":
+                        return _load_media_pixmap(mid, project_data, project_folder)
+                    logo = icon_registry.get_dna_company_logo(
+                        company.logo_media_id, _logo_loader
+                    )
+                companies_list.append({"name": company.name, "logo": logo})
+        companies_list.sort(key=lambda c: c["name"])
+        data["dna_companies"] = companies_list
+
+    # Build clusters list from DnaCluster records
+    person_clusters: list[dict] = []
+    for cluster in project_data.dna_clusters:
+        if person.id in cluster.person_ids:
+            person_clusters.append({"name": cluster.name, "color": cluster.color})
+    person_clusters.sort(key=lambda c: c["name"])
+    data["clusters"] = person_clusters[:5]
+
     return data
+
+
+def _load_media_pixmap(
+    media_id: str,
+    project_data: ProjectData,
+    project_folder: Path,
+    size: Optional[int] = None,
+) -> "QPixmap | None":
+    """Load a media item as a QPixmap, optionally scaled."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QPixmap
+
+    media_item = None
+    for item in project_data.media:
+        if item.id == media_id:
+            media_item = item
+            break
+    if media_item is None:
+        return None
+
+    file_path = project_folder / Path(media_item.file)
+    if not file_path.is_file():
+        return None
+
+    pixmap = QPixmap(str(file_path))
+    if pixmap.isNull():
+        return None
+
+    if size is not None:
+        pixmap = pixmap.scaled(
+            size, size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
+    return pixmap
 
 
 def _get_display_name(person: Person) -> str:
@@ -565,3 +655,37 @@ def _find_place(project_data: ProjectData, place_id: str):
         if place.id == place_id:
             return place
     return None
+
+
+def _build_names_tooltip(person: Person) -> str:
+    """Build tooltip text listing all names for a person.
+
+    Each name is shown on one line as "typ: förnamn efternamn",
+    with name types translated to Swedish.
+
+    Args:
+        person: The person with multiple names.
+
+    Returns:
+        Multi-line tooltip text.
+    """
+    _NAME_TYPE_SV: dict[str, str] = {
+        "birth": "Födelsenamn",
+        "married": "Giftnamn",
+        "adopted": "Adoptivnamn",
+        "other": "Övrigt",
+    }
+    lines: list[str] = []
+    for name in person.names:
+        parts: list[str] = []
+        if name.given:
+            parts.append(name.given.replace("*", ""))
+        if name.surname:
+            parts.append(name.surname)
+        name_str = " ".join(parts)
+        if name.type:
+            type_label = _NAME_TYPE_SV.get(name.type, name.type)
+            lines.append(f"{type_label}: {name_str}")
+        else:
+            lines.append(name_str)
+    return "\n".join(lines)
