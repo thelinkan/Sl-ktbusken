@@ -198,7 +198,9 @@ class TestPersonBoxItem:
             "notes": "Forskning pågår",
         }
         item = PersonBoxItem("person_6", data, config)
-        assert len(item._lines) == 10
+        # Date+place combined on same line: 7 lines total
+        # name, birth+place, death+place, marriage+place, occupation, dna, notes
+        assert len(item._lines) == 7
 
 
 # ---------------------------------------------------------------------------

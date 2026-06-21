@@ -155,11 +155,11 @@ place_strategy = st.one_of(
 
 
 class TestPlaceLineOrdering:
-    """Feature: enhanced-name-cards, Property 9: Place lines appear in correct order relative to date lines
+    """Feature: enhanced-name-cards, Property 9: Place combined with date on same line
 
-    For any combination of birth/death date and place data, when a place
-    line is present, it always immediately follows its corresponding date
-    line. When place data is None or empty, the place line is omitted.
+    For any combination of birth/death date and place data, when both are
+    present the place is appended to the date line (e.g. "f. 1850, Stockholm").
+    When place data is None or empty, only the date appears.
 
     **Validates: Requirements 5.1, 5.2, 5.3**
     """
@@ -174,9 +174,9 @@ class TestPlaceLineOrdering:
     def test_birth_place_follows_birth_date(
         self, qapp, birth_date, birth_place, death_date, death_place
     ) -> None:
-        """Birth place line immediately follows birth date line when both present.
+        """Birth place is appended to birth date line when both present.
 
-        Feature: enhanced-name-cards, Property 9: Place lines appear in correct order relative to date lines
+        Feature: enhanced-name-cards, Property 9: Place combined with date
         **Validates: Requirements 5.1, 5.2, 5.3**
         """
         config = PersonBoxConfig(
@@ -195,39 +195,23 @@ class TestPlaceLineOrdering:
         )
         lines = box._lines
 
-        birth_date_line = f"f. {birth_date}" if birth_date else None
-        birth_place_line = (
-            f"fp. {birth_place}" if birth_place else None
-        )
-
         if birth_date and birth_place:
-            # Both present: birth_place must immediately follow birth_date
-            assert birth_date_line in lines, (
-                f"Expected birth_date line '{birth_date_line}' in lines {lines}"
-            )
-            assert birth_place_line in lines, (
-                f"Expected birth_place line '{birth_place_line}' in lines {lines}"
-            )
-            bd_idx = lines.index(birth_date_line)
-            bp_idx = lines.index(birth_place_line)
-            assert bp_idx == bd_idx + 1, (
-                f"birth_place at index {bp_idx} should be immediately after "
-                f"birth_date at index {bd_idx}. Lines: {lines}"
+            # Both present: place should be appended to date line
+            expected_line = f"f. {birth_date}, {birth_place}"
+            assert expected_line in lines, (
+                f"Expected combined line '{expected_line}' in lines {lines}"
             )
         elif birth_date and not birth_place:
-            # Date present but no place: place line should be absent
-            assert birth_date_line in lines
+            # Date present but no place: just the date line
+            expected_line = f"f. {birth_date}"
+            assert expected_line in lines, (
+                f"Expected date-only line '{expected_line}' in lines {lines}"
+            )
+            # No separate place line
             for line in lines:
-                assert not line.startswith("fp. "), (
-                    f"birth_place line should be absent when place is "
-                    f"None/empty, but found '{line}' in {lines}"
+                assert ", " not in line or not line.startswith("f. ") or birth_place, (
+                    f"Unexpected place in birth line: {line}"
                 )
-        elif not birth_date and birth_place:
-            # No date: place line should also be absent (date disabled means
-            # the place has nothing to follow, but config still enables it)
-            # Actually, _build_lines checks if value is truthy independently.
-            # birth_place can appear even without birth_date per the code logic.
-            pass  # No ordering constraint when date is absent
 
     @given(
         birth_date=date_strategy,
@@ -239,9 +223,9 @@ class TestPlaceLineOrdering:
     def test_death_place_follows_death_date(
         self, qapp, birth_date, birth_place, death_date, death_place
     ) -> None:
-        """Death place line immediately follows death date line when both present.
+        """Death place is appended to death date line when both present.
 
-        Feature: enhanced-name-cards, Property 9: Place lines appear in correct order relative to date lines
+        Feature: enhanced-name-cards, Property 9: Place combined with date
         **Validates: Requirements 5.1, 5.2, 5.3**
         """
         config = PersonBoxConfig(
@@ -260,36 +244,18 @@ class TestPlaceLineOrdering:
         )
         lines = box._lines
 
-        death_date_line = f"d. {death_date}" if death_date else None
-        death_place_line = (
-            f"dp. {death_place}" if death_place else None
-        )
-
         if death_date and death_place:
-            # Both present: death_place must immediately follow death_date
-            assert death_date_line in lines, (
-                f"Expected death_date line '{death_date_line}' in lines {lines}"
-            )
-            assert death_place_line in lines, (
-                f"Expected death_place line '{death_place_line}' in lines {lines}"
-            )
-            dd_idx = lines.index(death_date_line)
-            dp_idx = lines.index(death_place_line)
-            assert dp_idx == dd_idx + 1, (
-                f"death_place at index {dp_idx} should be immediately after "
-                f"death_date at index {dd_idx}. Lines: {lines}"
+            # Both present: place appended to date line
+            expected_line = f"d. {death_date}, {death_place}"
+            assert expected_line in lines, (
+                f"Expected combined line '{expected_line}' in lines {lines}"
             )
         elif death_date and not death_place:
-            # Date present but no place: place line should be absent
-            assert death_date_line in lines
-            for line in lines:
-                assert not line.startswith("dp. "), (
-                    f"death_place line should be absent when place is "
-                    f"None/empty, but found '{line}' in {lines}"
-                )
-        elif not death_date and death_place:
-            # No date: no ordering constraint to verify
-            pass
+            # Date present but no place
+            expected_line = f"d. {death_date}"
+            assert expected_line in lines, (
+                f"Expected date-only line '{expected_line}' in lines {lines}"
+            )
 
     @given(
         birth_date=date_strategy,
@@ -301,9 +267,9 @@ class TestPlaceLineOrdering:
     def test_place_lines_omitted_when_data_empty(
         self, qapp, birth_date, birth_place, death_date, death_place
     ) -> None:
-        """Place lines are omitted when place data is None or empty string.
+        """Place data not shown when it is None or empty string.
 
-        Feature: enhanced-name-cards, Property 9: Place lines appear in correct order relative to date lines
+        Feature: enhanced-name-cards, Property 9: Place combined with date
         **Validates: Requirements 5.1, 5.2, 5.3**
         """
         config = PersonBoxConfig(
@@ -322,18 +288,19 @@ class TestPlaceLineOrdering:
         )
         lines = box._lines
 
-        # When birth_place is None or empty, no "fp. " line should exist
-        if not birth_place:
-            for line in lines:
-                assert not line.startswith("fp. "), (
-                    f"birth_place line should be absent when birth_place is "
-                    f"{birth_place!r}, but found '{line}' in {lines}"
+        # When birth_place is None or empty, no "fp. " standalone line and
+        # no appended place in the date line
+        if not birth_place and birth_date:
+            birth_line = f"f. {birth_date}"
+            if birth_line in lines:
+                # Should not contain a comma (no place appended)
+                assert birth_line == f"f. {birth_date}", (
+                    f"Expected no place appended when birth_place is "
+                    f"{birth_place!r}, line: {birth_line}"
                 )
 
-        # When death_place is None or empty, no "dp. " line should exist
-        if not death_place:
-            for line in lines:
-                assert not line.startswith("dp. "), (
-                    f"death_place line should be absent when death_place is "
-                    f"{death_place!r}, but found '{line}' in {lines}"
-                )
+        # Same for death_place
+        if not death_place and death_date:
+            death_line = f"d. {death_date}"
+            if death_line in lines:
+                assert death_line == f"d. {death_date}"

@@ -639,6 +639,9 @@ class PersonBoxItem(QGraphicsItem):
         have non-None/non-empty data (Req 20.4).
         Also builds a parallel list of event type strings for icon
         rendering (None for lines without an event icon).
+
+        Date and place are combined on the same line when both are
+        available (e.g. "f. 1953-03-29, Stockholm").
         """
         self._lines = []
         self._line_event_types = []
@@ -649,6 +652,16 @@ class PersonBoxItem(QGraphicsItem):
             "death_date": "death",
             "marriage_date": "marriage",
         }
+
+        # Date fields paired with their corresponding place fields
+        _DATE_PLACE_PAIRS: dict[str, str] = {
+            "birth_date": "birth_place",
+            "death_date": "death_place",
+            "marriage_date": "marriage_place",
+        }
+
+        # Fields that are handled as part of a date line (skip standalone)
+        _PLACE_FIELDS = {"birth_place", "death_place", "marriage_place"}
 
         # Ordered fields and their display labels
         field_order: list[tuple[str, str]] = [
@@ -668,10 +681,15 @@ class PersonBoxItem(QGraphicsItem):
         for field_name, prefix in field_order:
             if not getattr(self._config, field_name, False):
                 continue
+
+            # Skip place fields — they're merged into the date line
+            if field_name in _PLACE_FIELDS:
+                continue
+
             value = self._display_data.get(field_name)
             if not value:
-                # Omit field if no data (Req 20.4)
                 continue
+
             if field_name == "name":
                 self._lines.append(value)
                 self._line_event_types.append(None)
@@ -679,10 +697,33 @@ class PersonBoxItem(QGraphicsItem):
                 # Truncate cause_of_death if it exceeds max length (Req 6.4)
                 if field_name == "cause_of_death" and len(value) > _CAUSE_OF_DEATH_MAX_LEN:
                     value = value[:_CAUSE_OF_DEATH_MAX_LEN] + "\u2026"
-                self._lines.append(f"{prefix}{value}")
+
+                # Append place to the date line if both are enabled and available
+                line_text = f"{prefix}{value}"
+                place_field = _DATE_PLACE_PAIRS.get(field_name)
+                if place_field and getattr(self._config, place_field, False):
+                    place_value = self._display_data.get(place_field)
+                    if place_value:
+                        line_text += f", {place_value}"
+
+                self._lines.append(line_text)
                 self._line_event_types.append(
                     _FIELD_EVENT_TYPE_MAP.get(field_name)
                 )
+
+        # If place is enabled but date is not, show place on its own line
+        for place_field, place_prefix in [("birth_place", "fp. "), ("death_place", "dp. "), ("marriage_place", "gp. ")]:
+            if not getattr(self._config, place_field, False):
+                continue
+            # Find the corresponding date field
+            date_field = place_field.replace("_place", "_date")
+            # Only show standalone if date is NOT enabled (otherwise it was merged)
+            if getattr(self._config, date_field, False):
+                continue
+            place_value = self._display_data.get(place_field)
+            if place_value:
+                self._lines.append(f"{place_prefix}{place_value}")
+                self._line_event_types.append(None)
 
         # Ensure at least one line (fallback)
         if not self._lines:

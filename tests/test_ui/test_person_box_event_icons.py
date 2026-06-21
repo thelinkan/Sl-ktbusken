@@ -39,7 +39,7 @@ class TestPersonBoxEventIcons:
         """_build_lines populates _line_event_types with correct event types.
 
         birth_date -> "birth", death_date -> "death", marriage_date -> "marriage".
-        Other fields get None.
+        Other fields get None. Place is merged into date line.
         """
         config = PersonBoxConfig(
             name=True,
@@ -59,18 +59,20 @@ class TestPersonBoxEventIcons:
         }
         item = PersonBoxItem("p1", display_data, config)
 
-        # Lines: name, birth_date, birth_place, death_date, marriage_date, occupation
+        # Lines: name, birth_date+place, death_date, marriage_date, occupation
         assert item._line_event_types[0] is None  # name
-        assert item._line_event_types[1] == "birth"  # birth_date
-        assert item._line_event_types[2] is None  # birth_place
-        assert item._line_event_types[3] == "death"  # death_date
-        assert item._line_event_types[4] == "marriage"  # marriage_date
-        assert item._line_event_types[5] is None  # occupation
+        assert item._line_event_types[1] == "birth"  # birth_date (includes place)
+        assert item._line_event_types[2] == "death"  # death_date
+        assert item._line_event_types[3] == "marriage"  # marriage_date
+        assert item._line_event_types[4] is None  # occupation
+        # Verify birth line includes place
+        assert "Stockholm" in item._lines[1]
 
     def test_build_lines_no_event_types_for_non_date_fields(self) -> None:
         """Fields without event type mapping get None in _line_event_types."""
         config = PersonBoxConfig(
             name=True,
+            birth_date=False,
             birth_place=True,
             occupation=True,
             notes=True,
@@ -83,7 +85,7 @@ class TestPersonBoxEventIcons:
         }
         item = PersonBoxItem("p2", display_data, config)
 
-        # All should be None (name, birth_place, occupation, notes)
+        # All should be None (name, birth_place standalone, occupation, notes)
         assert all(et is None for et in item._line_event_types)
 
     def test_line_event_types_length_matches_lines(self) -> None:

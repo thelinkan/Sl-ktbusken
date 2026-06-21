@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 # Box dimensions (same width as PersonBoxItem for alignment)
-_BOX_WIDTH = 180.0
+_BOX_WIDTH = 240.0
 _BOX_HEIGHT = 50.0
 _CORNER_RADIUS = 4.0
 _DASH_PATTERN = [6.0, 4.0]
