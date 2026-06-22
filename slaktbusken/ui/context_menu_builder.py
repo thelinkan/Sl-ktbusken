@@ -87,6 +87,13 @@ class ContextMenuBuilder:
             )
         )
 
+        # Separator before destructive action
+        menu.addSeparator()
+
+        # Action: Ta bort person
+        action_delete = menu.addAction("Ta bort person")
+        action_delete.setData(("delete_person", person_id))
+
         return menu
 
     def _handle_show_relationship(

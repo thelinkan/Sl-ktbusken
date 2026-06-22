@@ -12,12 +12,14 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox, QVBoxLayout
 
 from slaktbusken.relationship.calculator import RelationshipCalculator
+from slaktbusken.services.delete_service import DeleteService
 from slaktbusken.services.export_service import ExportService
 from slaktbusken.services.import_service import ImportService
 from slaktbusken.services.project_service import ProjectService
 from slaktbusken.services.report_service import ReportService
 from slaktbusken.services.translation_service import TranslationService
 from slaktbusken.services.validation_service import ValidationService
+from slaktbusken.ui.dialogs.delete_person_dialog import DeletePersonDialog
 from slaktbusken.ui.main_window import MainWindow
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,7 @@ class Application:
         )
         self.export_service = ExportService(self.report_service)
         self.translation_service = TranslationService()
+        self.delete_service = DeleteService(self.project_service)
 
         # Application-level settings service
         from slaktbusken.persistence.app_settings_io import AppSettingsService
@@ -268,6 +271,8 @@ class Application:
             self._handle_context_add_relative("child", person_id)
         elif action_type == "show_relationship":
             self._show_relationship_for_person(person_id)
+        elif action_type == "delete_person":
+            self._handle_delete_person(person_id)
         else:
             logger.warning("Unknown context menu action: %s", action_type)
 
@@ -284,6 +289,74 @@ class Application:
         # Use empty family_id — handle_placeholder_click will create a new family
         # Pass target_person_id explicitly so it doesn't depend on active_person_id
         self.handle_placeholder_click(role, "", target_person_id=person_id)
+
+    def _handle_delete_person(self, person_id: str) -> None:
+        """Handle deletion of a person via context menu.
+
+        Checks eligibility, computes consequences, shows confirmation
+        dialog, and executes deletion if confirmed. Refreshes the UI
+        afterwards.
+
+        Args:
+            person_id: The ID of the person to delete.
+        """
+        # Check if the person can be deleted
+        allowed, error_message = self.delete_service.can_delete(person_id)
+        if not allowed:
+            QMessageBox.warning(
+                self.main_window,
+                "Kan inte ta bort",
+                error_message,
+            )
+            return
+
+        # Compute consequences for the confirmation dialog
+        consequences = self.delete_service.compute_consequences(person_id)
+
+        # Show confirmation dialog
+        dialog = DeletePersonDialog(self.main_window, consequences)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # Execute deletion
+        self.main_window.show_progress("Tar bort person...")
+        QApplication.processEvents()
+        try:
+            self.delete_service.execute_deletion(person_id)
+            self._update_status()
+
+            # Refresh person list
+            self.main_window.person_list_panel.refresh()
+
+            # If the deleted person was the active diagram person, reset
+            panel = self.main_window.diagram_panel
+            if panel.active_person_id == person_id:
+                # Switch to main person or first available person
+                data = self.project_service.data
+                main_id = data.project.main_person_id
+                if main_id and main_id != person_id:
+                    panel.set_active_person(main_id)
+                elif data.persons:
+                    panel.set_active_person(data.persons[0].id)
+                else:
+                    panel.set_active_person("")
+
+            # Refresh diagram
+            panel.set_project_folder(
+                self.project_service.project_path.parent
+                if self.project_service.project_path
+                else None
+            )
+            panel.set_project_data(self.project_service.data)
+            settings = self.project_service.settings
+            if settings:
+                panel.set_person_box_config(settings.person_box_config)
+
+            self.main_window.statusBar().showMessage(
+                f'"{consequences.person_name}" borttagen', 5000
+            )
+        finally:
+            self.main_window.hide_progress()
 
     def _show_relationship_for_person(self, person_id: str) -> None:
         """Open relationship calculator with the person pre-selected.
