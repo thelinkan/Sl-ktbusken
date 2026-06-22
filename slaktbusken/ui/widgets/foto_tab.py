@@ -82,16 +82,24 @@ class FotoTab(QWidget):
         self._person_list_widget.persons_changed.connect(
             self._on_persons_changed
         )
+        self._delete_button.clicked.connect(self._on_delete_photo)
 
     def _setup_ui(self) -> None:
         """Create the UI layout with button, table, empty state, editing panel, and person list."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Add photo button at top
+        # Button row at top
+        btn_layout = QHBoxLayout()
         self._add_button = QPushButton("Lägg till foto")
         self._add_button.clicked.connect(self._on_add_photo)
-        layout.addWidget(self._add_button)
+        btn_layout.addWidget(self._add_button)
+
+        self._delete_button = QPushButton("Ta bort foto")
+        self._delete_button.setEnabled(False)
+        btn_layout.addWidget(self._delete_button)
+
+        layout.addLayout(btn_layout)
 
         # Stacked layout to switch between table and empty state
         self._stack_widget = QWidget()
@@ -196,6 +204,7 @@ class FotoTab(QWidget):
             self._close_preview_window()
             self._selected_media_item = None
             self._person_list_widget.clear()
+            self._delete_button.setEnabled(False)
             return
 
         # Get media_item id from the first column's UserRole data
@@ -238,6 +247,7 @@ class FotoTab(QWidget):
         self._person_list_widget.load_for_media_item(media_item)
         self._person_list_group.setVisible(True)
         self._save_persons_btn.setEnabled(False)
+        self._delete_button.setEnabled(True)
 
     def _on_save_metadata(self) -> None:
         """Validate and save edited metadata for the selected photo.
@@ -313,6 +323,64 @@ class FotoTab(QWidget):
         self._save_persons_btn.setEnabled(False)
 
         # Refresh table in case linked entities changed visibility
+        self.refresh()
+
+    def flush_pending_person_list(self) -> None:
+        """Flush pending person-list changes to the selected MediaItem.
+
+        Called by PersonEditor._on_save() to ensure pending changes
+        are persisted before the save completes.
+        """
+        if self._save_persons_btn.isEnabled():
+            self._on_save_persons()
+
+    def _on_delete_photo(self) -> None:
+        """Handle photo deletion/unlinking from the current person.
+
+        Shows a confirmation dialog, removes the LinkedEntity for the
+        current person from the selected MediaItem, removes the person
+        from mentioned_person_ids, and if no linked_entities remain,
+        removes the entire MediaItem from project_data.media.
+        """
+        if self._selected_media_item is None:
+            return
+
+        # Confirmation dialog
+        reply = QMessageBox.question(
+            self,
+            "Ta bort foto",
+            "Vill du ta bort kopplingen mellan detta foto och personen?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        media_item = self._selected_media_item
+
+        # Remove LinkedEntity for this person
+        media_item.linked_entities = [
+            le
+            for le in media_item.linked_entities
+            if not (le.entity_type == "person" and le.entity_id == self._person.id)
+        ]
+
+        # Remove person from mentioned_person_ids
+        if self._person.id in media_item.mentioned_person_ids:
+            media_item.mentioned_person_ids = [
+                pid
+                for pid in media_item.mentioned_person_ids
+                if pid != self._person.id
+            ]
+
+        # If no linked_entities remain, remove the entire MediaItem
+        if not media_item.linked_entities:
+            self._project_data.media = [
+                m for m in self._project_data.media if m.id != media_item.id
+            ]
+
+        # Clear selection and refresh
+        self._selected_media_item = None
         self.refresh()
 
     def _find_media_item(self, media_id: str) -> MediaItem | None:
@@ -423,6 +491,7 @@ class FotoTab(QWidget):
             self._close_preview_window()
             self._selected_media_item = None
             self._person_list_widget.clear()
+            self._delete_button.setEnabled(False)
             return
 
         self._stack_layout.setCurrentWidget(self._table)
@@ -459,6 +528,7 @@ class FotoTab(QWidget):
         self._close_preview_window()
         self._selected_media_item = None
         self._person_list_widget.clear()
+        self._delete_button.setEnabled(False)
 
     def _build_file_filter(self) -> str:
         """Build file dialog filter string from allowed extensions."""
@@ -582,6 +652,7 @@ class FotoTab(QWidget):
             type="photo",
             file=relative_path.as_posix(),
             title=formatted_title,
+            mentioned_person_ids=[self._person.id],
             linked_entities=[
                 LinkedEntity(
                     entity_type="person",

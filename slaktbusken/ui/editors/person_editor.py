@@ -1865,6 +1865,10 @@ class PersonEditor(QWidget):
         # Determine person ID
         person_id = self._person.id if self._person else str(uuid.uuid4())
 
+        # Flush pending FotoTab person-list changes before save
+        if hasattr(self, '_foto_tab') and self._foto_tab is not None:
+            self._foto_tab.flush_pending_person_list()
+
         self._saved_person = Person(
             id=person_id,
             sex=sex,

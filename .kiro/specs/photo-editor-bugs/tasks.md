@@ -13,7 +13,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
 
 ## Tasks
 
-- [ ] 1. Write bug condition exploration test
+- [x] 1. Write bug condition exploration test
   - **Property 1: Bug Condition** - Photo Editor Save/Add/Delete/Display Bugs
   - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bugs exist
   - **DO NOT attempt to fix the test or the code when it fails**
@@ -42,7 +42,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
   - Mark task complete when test is written, run, and failure is documented
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 2. Write preservation property tests (BEFORE implementing fix)
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
   - **Property 2: Preservation** - Existing Photo and Person Display Behaviors Unchanged
   - **IMPORTANT**: Follow observation-first methodology
   - **Step 1 — Observe behavior on UNFIXED code for non-buggy inputs:**
@@ -69,9 +69,9 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
   - Mark task complete when tests are written, run, and passing on unfixed code
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9_
 
-- [ ] 3. Fix for photo editor save/add/delete bugs (Bugs 1–3)
+- [x] 3. Fix for photo editor save/add/delete bugs (Bugs 1–3)
 
-  - [ ] 3.1 Implement flush_pending_person_list in FotoTab
+  - [x] 3.1 Implement flush_pending_person_list in FotoTab
     - Add public method `flush_pending_person_list()` to `slaktbusken/ui/widgets/foto_tab.py`
     - Method checks if `_save_persons_btn.isEnabled()` (indicates pending changes)
     - If pending changes exist, calls `_on_save_persons()` to persist them
@@ -81,7 +81,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - _Preservation: Explicit "Spara personlista" behavior unchanged_
     - _Requirements: 2.1, 3.3_
 
-  - [ ] 3.2 Call flush_pending_person_list from PersonEditor._on_save
+  - [x] 3.2 Call flush_pending_person_list from PersonEditor._on_save
     - In `slaktbusken/ui/editors/person_editor.py`, modify `_on_save()` method
     - Before building the Person object and emitting `save_requested`, call `self._foto_tab.flush_pending_person_list()`
     - Guard with check that `self._foto_tab` exists
@@ -90,7 +90,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - _Preservation: Save behavior for all other tabs unchanged_
     - _Requirements: 2.1_
 
-  - [ ] 3.3 Add "Ta bort foto" button to FotoTab UI
+  - [x] 3.3 Add "Ta bort foto" button to FotoTab UI
     - In `slaktbusken/ui/widgets/foto_tab.py`, in `_setup_ui()`, add a QPushButton "Ta bort foto" next to "Lägg till foto"
     - Button initially disabled
     - Enable button when a photo is selected (in `_on_photo_selected` or equivalent)
@@ -100,7 +100,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - _Preservation: Existing button layout and "Lägg till foto" behavior unchanged_
     - _Requirements: 2.2_
 
-  - [ ] 3.4 Implement _on_delete_photo handler in FotoTab
+  - [x] 3.4 Implement _on_delete_photo handler in FotoTab
     - Add method `_on_delete_photo()` to `slaktbusken/ui/widgets/foto_tab.py`
     - Show confirmation dialog (QMessageBox) before proceeding
     - Remove the LinkedEntity with entity_id == self._person.id from the selected MediaItem
@@ -113,7 +113,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - _Preservation: Other linked entities on the same MediaItem preserved_
     - _Requirements: 2.2_
 
-  - [ ] 3.5 Add person to mentioned_person_ids in _on_add_photo
+  - [x] 3.5 Add person to mentioned_person_ids in _on_add_photo
     - In `slaktbusken/ui/widgets/foto_tab.py`, in `_on_add_photo()`, after creating the MediaItem
     - Set `mentioned_person_ids=[self._person.id]` on the new MediaItem (before appending to project_data.media)
     - _Bug_Condition: isBugCondition(input) where action == "add_photo_to_person" AND person.id NOT IN mentioned_person_ids_
@@ -121,7 +121,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - _Preservation: File copy to Foto_Mapp, LinkedEntity creation, table display all unchanged_
     - _Requirements: 2.3, 3.1_
 
-  - [ ] 3.6 Verify bug condition exploration test passes for Bugs 1–3
+  - [x] 3.6 Verify bug condition exploration test passes for Bugs 1–3
     - **Property 1: Expected Behavior** - Photo Editor Save/Add/Delete Fixed
     - **IMPORTANT**: Re-run the SAME test from task 1 (Bug 1–3 assertions) - do NOT write a new test
     - The test from task 1 encodes the expected behavior
@@ -133,7 +133,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - **EXPECTED OUTCOME**: Bug 1–3 assertions PASS (confirms these bugs are fixed)
     - _Requirements: 2.1, 2.2, 2.3_
 
-  - [ ] 3.7 Verify preservation tests still pass
+  - [x] 3.7 Verify preservation tests still pass
     - **Property 2: Preservation** - Existing Photo Behaviors Unchanged
     - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
     - Run preservation property tests from step 2
@@ -141,9 +141,9 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - Confirm all preservation tests still pass after fix (no regressions introduced)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 4. Fix for person display name bugs (Bugs 4–5)
+- [x] 4. Fix for person display name bugs (Bugs 4–5)
 
-  - [ ] 4.1 Strip tilltalsnamn marker (*) from _person_display_name
+  - [x] 4.1 Strip tilltalsnamn marker (*) from _person_display_name
     - In `slaktbusken/ui/widgets/person_list_widget.py`, modify `_person_display_name()`
     - Replace `name.given` with `name.given.replace("*", "")` before building the display string
     - Ensures the `*` character (metadata marker) is never included in display or search text
@@ -152,7 +152,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - _Preservation: Persons without "*" in name display unchanged_
     - _Requirements: 2.5, 3.7_
 
-  - [ ] 4.2 Add birth/death year disambiguation to _person_display_name
+  - [x] 4.2 Add birth/death year disambiguation to _person_display_name
     - In `slaktbusken/ui/widgets/person_list_widget.py`, update `_person_display_name()` to accept events parameter
     - Use `get_person_birth_death_years(person, events)` or equivalent logic to extract birth/death years from person's events
     - If at least one year is available, append ` (birth_year–death_year)` to display text, using `"?"` for unknown years
@@ -163,7 +163,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - _Preservation: Persons with no birth/death data display without parentheses_
     - _Requirements: 2.4, 3.9_
 
-  - [ ] 4.3 Update PersonListWidget call sites to pass events
+  - [x] 4.3 Update PersonListWidget call sites to pass events
     - Update `_populate_person_combo()` to pass `self._project_data.events` to `_person_display_name()`
     - Update `_refresh_list()` to pass `self._project_data.events` to `_person_display_name()`
     - Update QCompleter initialization to use the updated display strings (with years, without `*`)
@@ -173,7 +173,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - _Preservation: Selecting a person and adding them to the list still works, persons_changed still emitted_
     - _Requirements: 2.4, 2.5, 3.8_
 
-  - [ ] 4.4 Verify bug condition exploration test passes for Bugs 4–5
+  - [x] 4.4 Verify bug condition exploration test passes for Bugs 4–5
     - **Property 1: Expected Behavior** - Person Display Name Fixed
     - **IMPORTANT**: Re-run the SAME test from task 1 (Bug 4–5 assertions) - do NOT write a new test
     - When these assertions pass, it confirms:
@@ -183,7 +183,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - **EXPECTED OUTCOME**: Bug 4–5 assertions PASS (confirms these bugs are fixed)
     - _Requirements: 2.4, 2.5_
 
-  - [ ] 4.5 Verify preservation tests still pass
+  - [x] 4.5 Verify preservation tests still pass
     - **Property 2: Preservation** - Person Display Behaviors Unchanged
     - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
     - Run preservation property tests from step 2
@@ -191,7 +191,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
     - Confirm non-starred name display, no-year-no-parentheses, and combo box add behavior all unchanged
     - _Requirements: 3.7, 3.8, 3.9_
 
-- [ ] 5. Checkpoint - Ensure all tests pass
+- [x] 5. Checkpoint - Ensure all tests pass
   - Run full test suite to ensure no regressions
   - Verify ALL bug condition tests pass (all 5 bugs are fixed)
   - Verify ALL preservation tests pass (existing behavior unchanged)

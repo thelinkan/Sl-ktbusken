@@ -24,17 +24,33 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.model.event import Event
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
+from slaktbusken.ui.person_list_panel import get_person_birth_death_years
 
 
-def _person_display_name(person: Person) -> str:
-    """Return display name for a person: 'given surname' from first name entry."""
+def _person_display_name(person: Person, events: list[Event] | None = None) -> str:
+    """Return display name for a person: 'given surname' from first name entry.
+
+    If events are provided, appends birth/death years for disambiguation:
+    e.g. "Erik Andersson (1845–1901)", "Erik Andersson (?–1901)".
+    """
     if not person.names:
         return f"(Person {person.id})"
     name = person.names[0]
-    return f"{name.given} {name.surname}".strip()
+    given = name.given.replace("*", "")
+    display = f"{given} {name.surname}".strip()
+
+    if events:
+        birth_year, death_year = get_person_birth_death_years(person, events)
+        if birth_year or death_year:
+            b = birth_year if birth_year else "?"
+            d = death_year if death_year else "?"
+            display = f"{display} ({b}\u2013{d})"
+
+    return display
 
 
 class PersonListWidget(QWidget):
@@ -147,7 +163,7 @@ class PersonListWidget(QWidget):
         self._person_combo.clear()
         self._person_combo.addItem("", "")  # Empty placeholder item
         for person in self._project_data.persons:
-            display = _person_display_name(person)
+            display = _person_display_name(person, self._project_data.events)
             self._person_combo.addItem(display, person.id)
 
     def load_for_media_item(self, media_item: MediaItem) -> None:
@@ -184,7 +200,7 @@ class PersonListWidget(QWidget):
         for pid in self._current_person_ids:
             person = self._persons_by_id.get(pid)
             if person:
-                display = _person_display_name(person)
+                display = _person_display_name(person, self._project_data.events)
             else:
                 display = f"(Okänd person: {pid})"
 
