@@ -23,8 +23,18 @@ Det går att på sig själv, de man testat och andra matcher att lägga till att
 
 Förutom själva proven så kan man lägga till personer i kluster. En person kan vara med i mer än ett kluster.
 
+## Hantering av namnändringar
+
+I stället för att behöva registrera enbart ett efternamn, eller alla efternamn på samma rad så kan man registrera varje namnändring och koppla ändringen till ett event, tex ett bröllop.
+
 ## Importdiff
 
 En funktion jag vill ha i Släktbusken är att om jag gjort ändringar i ett annat program så ska jag kunna importera diffar till släktbusken. 
 
+# Licens
 
+Släktbusken är fri och öppen källkod under MIT-licensen. Du får använda programmet, ändra i koden och bygga egna versioner om du vill.
+
+Se LICENSE för den fullständiga licenstexten.
+
+Programmet är ett hobbyprojekt och tillhandahålls utan garanti. Det är byggt i första hand för mina egna behov, men om det även är användbart för andra är det bara roligt.
