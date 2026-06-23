@@ -896,6 +896,7 @@ class PersonListPanel(QWidget):
         self._lineage_main_person_id: str | None = None
         self._compact_mode: bool = False
         self._syncing_from_diagram: bool = False
+        self._refreshing: bool = False
 
         self._setup_ui()
         self._connect_signals()
@@ -1153,24 +1154,28 @@ class PersonListPanel(QWidget):
 
         Call this when the project data changes (e.g., after import, edit).
         """
-        data = self._app.project_service.data
-        families = data.families if hasattr(data, "families") else []
-        dna_clusters = data.dna_clusters if hasattr(data, "dna_clusters") else []
-        dna_profiles = data.dna_profiles if hasattr(data, "dna_profiles") else []
-        dna_companies = data.dna_companies if hasattr(data, "dna_companies") else []
-        self._compute_lineage_sets()
-        self._display_list = build_person_display_list(
-            data.persons,
-            data.events,
-            data.places,
-            families,
-            dna_clusters,
-            dna_profiles=dna_profiles,
-            dna_companies=dna_companies,
-            ancestor_ids=self._ancestor_ids,
-            descendant_ids=self._descendant_ids,
-        )
-        self._apply_current_view()
+        self._refreshing = True
+        try:
+            data = self._app.project_service.data
+            families = data.families if hasattr(data, "families") else []
+            dna_clusters = data.dna_clusters if hasattr(data, "dna_clusters") else []
+            dna_profiles = data.dna_profiles if hasattr(data, "dna_profiles") else []
+            dna_companies = data.dna_companies if hasattr(data, "dna_companies") else []
+            self._compute_lineage_sets()
+            self._display_list = build_person_display_list(
+                data.persons,
+                data.events,
+                data.places,
+                families,
+                dna_clusters,
+                dna_profiles=dna_profiles,
+                dna_companies=dna_companies,
+                ancestor_ids=self._ancestor_ids,
+                descendant_ids=self._descendant_ids,
+            )
+            self._apply_current_view()
+        finally:
+            self._refreshing = False
 
     def apply_filter(self, criteria: FilterCriteria) -> None:
         """Apply filter criteria from the FilterDialog.
@@ -1586,7 +1591,7 @@ class PersonListPanel(QWidget):
             current: The newly selected item.
             previous: The previously selected item.
         """
-        if self._syncing_from_diagram:
+        if self._syncing_from_diagram or self._refreshing:
             return
         if current is not None:
             person_id = current.data(0, Qt.ItemDataRole.UserRole)
