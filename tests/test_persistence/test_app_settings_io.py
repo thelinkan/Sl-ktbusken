@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os.path
 from pathlib import Path
 from unittest.mock import patch
 
@@ -62,7 +63,10 @@ class TestLoad:
         )
 
         result = service.load()
-        assert result.recent_projects == ["/path/a.json.gz", "/path/b.json.gz"]
+        assert result.recent_projects == [
+            os.path.normpath("/path/a.json.gz"),
+            os.path.normpath("/path/b.json.gz"),
+        ]
         assert result.default_project_path == "/path/a.json.gz"
 
     def test_corrupt_json_returns_defaults(self, service: AppSettingsService) -> None:
@@ -107,7 +111,10 @@ class TestLoad:
         )
 
         result = service.load()
-        assert result.recent_projects == ["/valid/path.json.gz", "/also/valid.json.gz"]
+        assert result.recent_projects == [
+            os.path.normpath("/valid/path.json.gz"),
+            os.path.normpath("/also/valid.json.gz"),
+        ]
 
     def test_recent_projects_limited_to_max_10(
         self, service: AppSettingsService
@@ -225,26 +232,35 @@ class TestAddRecentProject:
     """Tests for AppSettingsService.add_recent_project()."""
 
     def test_adds_project_to_front(self, service: AppSettingsService) -> None:
+        import os.path
+
         service.load()
         service.add_recent_project("/path/a.json.gz")
         service.add_recent_project("/path/b.json.gz")
 
         projects = service.get_recent_projects()
-        assert projects[0] == "/path/b.json.gz"
-        assert projects[1] == "/path/a.json.gz"
+        assert projects[0] == os.path.normpath("/path/b.json.gz")
+        assert projects[1] == os.path.normpath("/path/a.json.gz")
 
     def test_moves_existing_project_to_front(
         self, service: AppSettingsService
     ) -> None:
+        import os.path
+
         service.load()
         service.add_recent_project("/path/a.json.gz")
         service.add_recent_project("/path/b.json.gz")
         service.add_recent_project("/path/a.json.gz")
 
         projects = service.get_recent_projects()
-        assert projects == ["/path/a.json.gz", "/path/b.json.gz"]
+        assert projects == [
+            os.path.normpath("/path/a.json.gz"),
+            os.path.normpath("/path/b.json.gz"),
+        ]
 
     def test_limits_to_10_entries(self, service: AppSettingsService) -> None:
+        import os.path
+
         service.load()
         for i in range(12):
             service.add_recent_project(f"/path/{i}.json.gz")
@@ -252,9 +268,11 @@ class TestAddRecentProject:
         projects = service.get_recent_projects()
         assert len(projects) == 10
         # Most recent should be first
-        assert projects[0] == "/path/11.json.gz"
+        assert projects[0] == os.path.normpath("/path/11.json.gz")
 
     def test_persists_to_disk(self, service: AppSettingsService) -> None:
+        import os.path
+
         service.load()
         service.add_recent_project("/path/a.json.gz")
 
@@ -262,7 +280,19 @@ class TestAddRecentProject:
         svc2 = AppSettingsService()
         svc2.SETTINGS_PATH = service.SETTINGS_PATH
         svc2.load()
-        assert svc2.get_recent_projects() == ["/path/a.json.gz"]
+        assert svc2.get_recent_projects() == [os.path.normpath("/path/a.json.gz")]
+
+    def test_deduplicates_mixed_separators(self, service: AppSettingsService) -> None:
+        """Paths with mixed separators should be treated as the same project."""
+        import os.path
+
+        service.load()
+        service.add_recent_project("C:/Users/test/project.json.gz")
+        service.add_recent_project("C:\\Users\\test\\project.json.gz")
+
+        projects = service.get_recent_projects()
+        assert len(projects) == 1
+        assert projects[0] == os.path.normpath("C:/Users/test/project.json.gz")
 
 
 class TestSetDefaultProject:
@@ -295,6 +325,8 @@ class TestGetRecentProjects:
     """Tests for AppSettingsService.get_recent_projects()."""
 
     def test_returns_copy_not_reference(self, service: AppSettingsService) -> None:
+        import os.path
+
         service.load()
         service.add_recent_project("/path/a.json.gz")
 
@@ -302,7 +334,7 @@ class TestGetRecentProjects:
         projects.append("/path/extra.json.gz")
 
         # Original should not be modified
-        assert service.get_recent_projects() == ["/path/a.json.gz"]
+        assert service.get_recent_projects() == [os.path.normpath("/path/a.json.gz")]
 
 
 class TestRoundTrip:
@@ -332,7 +364,10 @@ class TestRoundTrip:
         svc2 = AppSettingsService()
         svc2.SETTINGS_PATH = service.SETTINGS_PATH
         loaded = svc2.load()
-        assert loaded.recent_projects == ["/path/a.json.gz", "/path/b.json.gz"]
+        assert loaded.recent_projects == [
+            os.path.normpath("/path/a.json.gz"),
+            os.path.normpath("/path/b.json.gz"),
+        ]
         assert loaded.default_project_path == "/path/a.json.gz"
         assert loaded.column_visibility.titel is False
         assert loaded.column_visibility.yrke is True

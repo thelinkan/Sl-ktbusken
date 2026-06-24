@@ -8,6 +8,7 @@ Feature: ui-enhancements, Property 8: AppSettings serialization round-trip
 
 from __future__ import annotations
 
+import os.path
 import tempfile
 from pathlib import Path
 
@@ -43,6 +44,8 @@ class TestPropertyRecentProjectsInvariants:
 
         Feature: ui-enhancements, Property 7: Recent projects list invariants
         """
+        import os.path
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             svc = AppSettingsService()
             svc.SETTINGS_PATH = Path(tmp_dir) / ".slaktbusken" / "app_settings.json"
@@ -52,8 +55,8 @@ class TestPropertyRecentProjectsInvariants:
 
             projects = svc.get_recent_projects()
 
-            # Most recently added path is at index 0
-            assert projects[0] == paths[-1]
+            # Most recently added path is at index 0 (normalized)
+            assert projects[0] == os.path.normpath(paths[-1])
 
             # No duplicates
             assert len(projects) == len(set(projects))
@@ -115,6 +118,8 @@ class TestPropertyAppSettingsRoundTrip:
         serialized = svc._serialize(original)
         deserialized = svc._deserialize(serialized)
 
-        assert deserialized.recent_projects == original.recent_projects
+        assert deserialized.recent_projects == [
+            os.path.normpath(p) for p in original.recent_projects
+        ]
         assert deserialized.default_project_path == original.default_project_path
         assert deserialized.column_visibility == original.column_visibility

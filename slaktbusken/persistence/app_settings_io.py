@@ -134,13 +134,26 @@ class AppSettingsService:
         (most recent). The list is trimmed to a maximum of 10 entries,
         removing the oldest entry when the limit is exceeded.
 
+        Paths are compared in a normalized form to avoid duplicates
+        from mixed slash/backslash styles on Windows.
+
         Args:
             path: The file path of the project to add.
         """
-        # Remove existing entry if present (case-sensitive comparison)
-        projects = [p for p in self._settings.recent_projects if p != path]
-        # Insert at the front (most recent first)
-        projects.insert(0, path)
+        import os.path
+
+        # Normalize for comparison to catch slash/backslash duplicates
+        def _norm(p: str) -> str:
+            return os.path.normpath(p)
+
+        normalized = _norm(path)
+        # Remove existing entry if present (compare normalized forms)
+        projects = [
+            p for p in self._settings.recent_projects
+            if _norm(p) != normalized
+        ]
+        # Insert at the front (most recent first), store normalized form
+        projects.insert(0, normalized)
         # Enforce maximum limit
         self._settings.recent_projects = projects[:_MAX_RECENT_PROJECTS]
         self.save(self._settings)
@@ -204,13 +217,22 @@ class AppSettingsService:
         Returns:
             A fully populated AppSettings instance.
         """
+        import os.path
+
         recent_projects = data.get("recent_projects", [])
         if not isinstance(recent_projects, list):
             recent_projects = []
-        # Ensure all entries are strings and limit to max
-        recent_projects = [
-            p for p in recent_projects if isinstance(p, str)
-        ][:_MAX_RECENT_PROJECTS]
+        # Ensure all entries are strings, normalize paths, and deduplicate
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for p in recent_projects:
+            if not isinstance(p, str):
+                continue
+            normalized = os.path.normpath(p)
+            if normalized not in seen:
+                seen.add(normalized)
+                deduped.append(normalized)
+        recent_projects = deduped[:_MAX_RECENT_PROJECTS]
 
         default_project_path = data.get("default_project_path")
         if default_project_path is not None and not isinstance(
