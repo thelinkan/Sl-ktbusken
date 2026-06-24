@@ -1228,17 +1228,28 @@ class Application:
         if self.project_service.project_path is not None:
             project_data = self.project_service.data
             panel.set_project_folder(self.project_service.project_path.parent)
-            panel.set_project_data(project_data)
+
+            # Batch updates to avoid multiple _refresh_diagram() calls.
+            # Set data and config without triggering refresh, then refresh once.
+            panel._project_data = project_data
+            # Clear stale active person if it doesn't exist in new data
+            if panel._active_person_id is not None:
+                person_ids = {p.id for p in project_data.persons}
+                if panel._active_person_id not in person_ids:
+                    panel._active_person_id = None
 
             if settings:
-                panel.set_person_box_config(settings.person_box_config)
+                panel._person_box_config = settings.person_box_config
 
             # Set active person to main_person_id if available
             main_person = project_data.project.main_person_id
             if main_person:
-                panel.set_active_person(main_person)
+                panel._active_person_id = main_person
             elif project_data.persons:
-                panel.set_active_person(project_data.persons[0].id)
+                panel._active_person_id = project_data.persons[0].id
+
+            # Single refresh after all state is configured
+            panel._refresh_diagram()
 
             # Refresh the person list panel with current project data
             self.main_window.person_list_panel.refresh()

@@ -215,9 +215,21 @@ class DiagramPanel(QWidget):
     def set_project_data(self, project_data: Optional[ProjectData]) -> None:
         """Ange projektdata för diagramrendering.
 
+        Rensar aktiv person om den inte finns i den nya datan,
+        för att undvika att ett gammalt person-ID från en tidigare
+        fil orsakar felmeddelanden.
+
         Args:
             project_data: Projektdata eller None för att rensa.
         """
+        # Clear stale active person if it doesn't exist in new data
+        if project_data is None:
+            self._active_person_id = None
+        elif self._active_person_id is not None:
+            person_ids = {p.id for p in project_data.persons}
+            if self._active_person_id not in person_ids:
+                self._active_person_id = None
+
         self._project_data = project_data
         self._refresh_diagram()
 
