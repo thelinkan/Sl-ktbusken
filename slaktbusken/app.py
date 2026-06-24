@@ -286,7 +286,8 @@ class Application:
             role: The relationship role ('partner', 'father', 'mother', 'child').
             person_id: The ID of the person to add the relative to.
         """
-        # Use empty family_id — handle_placeholder_click will create a new family
+        # Use empty family_id — handle_placeholder_click will first search for an
+        # existing family containing the child before creating a new one.
         # Pass target_person_id explicitly so it doesn't depend on active_person_id
         self.handle_placeholder_click(role, "", target_person_id=person_id)
 
@@ -498,18 +499,34 @@ class Application:
                             )
                         )
             else:
-                # Create a new parent family with active person as child
-                fam_id = id_gen.generate("family")
+                # Search for existing family where child is already a member
                 partner_role = "father" if role == "father" else "mother"
-                new_family = Family(
-                    id=fam_id,
-                    partners=[FamilyPartner(person_id=saved.id, role=partner_role)],
-                    children=[active_id] if active_id else [],
-                    parent_child_links=[
+                existing_family = None
+                for f in data.families:
+                    if active_id in f.children:
+                        existing_family = f
+                        break
+
+                if existing_family:
+                    # Add new parent to existing family
+                    existing_family.partners.append(
+                        FamilyPartner(person_id=saved.id, role=partner_role)
+                    )
+                    existing_family.parent_child_links.append(
                         ParentChildLink(child_id=active_id, parent_id=saved.id, parentage_type="biological")
-                    ] if active_id else [],
-                )
-                data.families.append(new_family)
+                    )
+                else:
+                    # No existing family — create new one (first parent addition)
+                    fam_id = id_gen.generate("family")
+                    new_family = Family(
+                        id=fam_id,
+                        partners=[FamilyPartner(person_id=saved.id, role=partner_role)],
+                        children=[active_id] if active_id else [],
+                        parent_child_links=[
+                            ParentChildLink(child_id=active_id, parent_id=saved.id, parentage_type="biological")
+                        ] if active_id else [],
+                    )
+                    data.families.append(new_family)
 
         elif role == "child":
             if family_id:

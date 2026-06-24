@@ -118,7 +118,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
       - Context menu actions still work
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-- [~] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Run full test suite to ensure no regressions
   - Verify bug condition exploration test passes (active person no longer changes on save)
   - Verify preservation tests pass (click-to-select and diagram sync behavior unchanged)
