@@ -285,7 +285,9 @@ class PersonBoxItem(QGraphicsItem):
         """Paint the multiple-names indicator to the left of the name line.
 
         Draws a bold blue "≡" character (matching the personlista style)
-        vertically centered on the name line, at x = _PADDING / 2.
+        vertically centered on the name line. When a profile photo is
+        visible, the indicator is placed just after the photo area;
+        otherwise it appears at x = _PADDING / 2.
         The name line is shifted right by _MULTIPLE_NAMES_ICON_SIZE
         to make room. This indicator is always shown regardless of
         PersonBoxConfig toggles (Req 1.4).
@@ -303,8 +305,11 @@ class PersonBoxItem(QGraphicsItem):
         painter.setFont(font)
         # Position vertically centered on the name line (first line)
         name_line_top = _PADDING
+        # Place after photo if photo is visible, otherwise at left edge
+        photo_offset = self._get_photo_text_offset()
+        icon_x = _PADDING + photo_offset if photo_offset > 0 else _PADDING / 2
         marker_rect = QRectF(
-            _PADDING / 2, name_line_top,
+            icon_x, name_line_top,
             _MULTIPLE_NAMES_ICON_SIZE, _LINE_HEIGHT,
         )
         painter.drawText(marker_rect, Qt.AlignmentFlag.AlignCenter, "≡")
@@ -610,8 +615,11 @@ class PersonBoxItem(QGraphicsItem):
             event: The hover move event.
         """
         if self._display_data.get("has_multiple_names"):
+            # Match the indicator position from _paint_multiple_names_icon
+            photo_offset = self._get_photo_text_offset()
+            icon_x = _PADDING + photo_offset if photo_offset > 0 else _PADDING / 2
             marker_rect = QRectF(
-                _PADDING / 2, _PADDING,
+                icon_x, _PADDING,
                 _MULTIPLE_NAMES_ICON_SIZE, _LINE_HEIGHT,
             )
             if marker_rect.contains(event.pos()):
