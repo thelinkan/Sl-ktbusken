@@ -535,6 +535,15 @@ class Application:
                 )
                 if fam:
                     fam.children.append(saved.id)
+                    # Add parent_child_links for all existing partners
+                    for partner in fam.partners:
+                        fam.parent_child_links.append(
+                            ParentChildLink(
+                                child_id=saved.id,
+                                parent_id=partner.person_id,
+                                parentage_type="biological",
+                            )
+                        )
             else:
                 # Create new family with active person as partner and new person as child
                 if active_id:
