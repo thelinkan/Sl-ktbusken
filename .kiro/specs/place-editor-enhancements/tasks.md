@@ -73,14 +73,14 @@ This plan implements four enhancements to the Place Editor: External IDs (key-va
     - **Property 10: Red dot indicator correctness**
     - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
 
-- [ ] 5. Implement Type Filter in the left panel
-  - [~] 5.1 Add `QComboBox` type filter to `PlaceEditor` left panel
+- [x] 5. Implement Type Filter in the left panel
+  - [x] 5.1 Add `QComboBox` type filter to `PlaceEditor` left panel
     - Insert between `filter_input` and `place_list` in the layout
     - Populate with options: "Alla", "Land", "Län", "Socken", "Kyrka", "Kyrkogård", "By", "Gård", "Skola"
     - Default selection: "Alla"
     - _Requirements: 6.1, 6.2, 6.5_
 
-  - [~] 5.2 Implement combined filter logic in `_refresh_place_list`
+  - [x] 5.2 Implement combined filter logic in `_refresh_place_list`
     - Update `_refresh_place_list` (or add `_matches_filters`) to apply both text filter and type filter
     - When type is "Alla", show all types; otherwise show only matching type
     - Sort results alphabetically by place name
@@ -88,78 +88,78 @@ This plan implements four enhancements to the Place Editor: External IDs (key-va
     - Connect type filter `currentIndexChanged` signal to trigger refresh
     - _Requirements: 6.3, 6.4, 6.6, 6.7_
 
-  - [~] 5.3 Write property test for Type Filter logic
+  - [x] 5.3 Write property test for Type Filter logic
     - **Property 11: Type filter displays correct sorted subset**
     - **Validates: Requirements 6.3, 6.4**
 
-- [~] 6. Checkpoint - Ensure model and filter logic tests pass
+- [x] 6. Checkpoint - Ensure model and filter logic tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Implement External ID UI section in the detail form
-  - [~] 7.1 Add "Externa ID:n" `QGroupBox` section to the right panel
+- [x] 7. Implement External ID UI section in the detail form
+  - [x] 7.1 Add "Externa ID:n" `QGroupBox` section to the right panel
     - Add a `QListWidget` to display existing external IDs (showing key and value)
     - Add "Lägg till", "Redigera", and "Ta bort" buttons
     - _Requirements: 2.1, 2.5_
 
-  - [~] 7.2 Implement Add External ID interaction
+  - [x] 7.2 Implement Add External ID interaction
     - On "Lägg till" click, show key/value input fields (inline or dialog)
     - Enforce max 100 characters for key, max 200 characters for value
     - On confirm, validate and add entry; on validation error, show error message and retain inputs
     - _Requirements: 2.2, 2.3, 2.6_
 
-  - [~] 7.3 Implement Edit and Remove External ID interaction
+  - [x] 7.3 Implement Edit and Remove External ID interaction
     - On "Redigera" click, populate input fields with selected entry's key/value for editing
     - On confirm, validate and update the entry; on duplicate key error, show message
     - On "Ta bort" click, remove selected entry from the place
     - _Requirements: 2.4, 2.7_
 
-  - [~] 7.4 Wire External ID section to `_load_place_to_form` and `_on_save`
+  - [x] 7.4 Wire External ID section to `_load_place_to_form` and `_on_save`
     - When a place is loaded, populate the External ID list from `place.external_ids`
     - When saving, collect External ID entries from the UI and persist on the place model
     - _Requirements: 2.5, 1.6_
 
-- [ ] 8. Implement Alternative Name UI section in the detail form
-  - [~] 8.1 Add "Alternativnamn:" `QGroupBox` section to the right panel
+- [x] 8. Implement Alternative Name UI section in the detail form
+  - [x] 8.1 Add "Alternativnamn:" `QGroupBox` section to the right panel
     - Add a `QListWidget` to display existing alternative names
     - Add "Lägg till" and "Ta bort" buttons
     - _Requirements: 4.1, 4.5_
 
-  - [~] 8.2 Implement Add and Remove Alternative Name interaction
+  - [x] 8.2 Implement Add and Remove Alternative Name interaction
     - On "Lägg till" click, show text input field
     - Enforce max 200 characters; on confirm, validate (non-empty, not whitespace-only, no duplicate), trim, and add
     - On validation error, show error message and retain input for correction
     - On "Ta bort" click, remove selected entry from the place
     - _Requirements: 4.2, 4.3, 4.4, 4.6_
 
-  - [~] 8.3 Wire Alternative Name section to `_load_place_to_form` and `_on_save`
+  - [x] 8.3 Wire Alternative Name section to `_load_place_to_form` and `_on_save`
     - When a place is loaded, populate the Alternative Names list from `place.alternative_names`
     - When saving, collect Alternative Name entries from the UI and persist on the place model
     - _Requirements: 4.5, 3.5_
 
-- [ ] 9. Wire Red Dot Indicator into the Place List
-  - [~] 9.1 Set `PlaceListItemDelegate` on the place `QListWidget`
+- [x] 9. Wire Red Dot Indicator into the Place List
+  - [x] 9.1 Set `PlaceListItemDelegate` on the place `QListWidget`
     - Assign the delegate in `PlaceEditor.__init__`
     - Store place type and parent_place_id as item data (Qt.UserRole) when populating the list
     - Ensure the delegate reads this data to decide red dot rendering
     - _Requirements: 5.1, 5.2, 5.3, 5.6_
 
-  - [~] 9.2 Ensure red dot updates on parent assignment changes
+  - [x] 9.2 Ensure red dot updates on parent assignment changes
     - After save, refresh the place list so red dot reflects the current parent_place_id state
     - _Requirements: 5.4, 5.5_
 
-- [ ] 10. Serialization backward compatibility
-  - [~] 10.1 Verify serialization/deserialization of new fields
+- [x] 10. Serialization backward compatibility
+  - [x] 10.1 Verify serialization/deserialization of new fields
     - Confirm that the existing `_serialize_dataclass` handles `ExternalId` and `list[str]` correctly
     - Confirm that old JSON files without `external_ids`/`alternative_names` deserialize with empty list defaults
     - Add or update deserialization logic if needed (e.g., reconstruct `ExternalId` from dict)
     - _Requirements: 1.1, 3.1_
 
-  - [~] 10.2 Write integration test for serialization round-trip
+  - [x] 10.2 Write integration test for serialization round-trip
     - Test that a Place with external_ids and alternative_names serializes to JSON and deserializes identically
     - Test backward compatibility: old JSON without new fields loads with empty defaults
     - _Requirements: 1.1, 3.1_
 
-- [~] 11. Final checkpoint - Ensure all tests pass
+- [x] 11. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

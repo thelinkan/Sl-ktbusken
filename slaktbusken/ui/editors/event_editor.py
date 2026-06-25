@@ -877,7 +877,7 @@ class EventEditor(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Skapa ny plats")
-        dialog.setMinimumSize(700, 500)
+        dialog.setMinimumSize(900, 750)
         layout = QVBoxLayout(dialog)
 
         editor = PlaceEditor(

@@ -25,7 +25,7 @@ class Ui_PlaceEditor(object):
     def setupUi(self, PlaceEditor):
         if not PlaceEditor.objectName():
             PlaceEditor.setObjectName(u"PlaceEditor")
-        PlaceEditor.resize(900, 550)
+        PlaceEditor.resize(900, 850)
         self.main_layout = QHBoxLayout(PlaceEditor)
         self.main_layout.setObjectName(u"main_layout")
         self.splitter = QSplitter(PlaceEditor)
@@ -154,7 +154,7 @@ class Ui_PlaceEditor(object):
 
         self.notes_input = QPlainTextEdit(self.right_panel)
         self.notes_input.setObjectName(u"notes_input")
-        self.notes_input.setMaximumSize(QSize(16777215, 120))
+        self.notes_input.setMaximumSize(QSize(16777215, 200))
 
         self.form_layout.setWidget(6, QFormLayout.ItemRole.FieldRole, self.notes_input)
 

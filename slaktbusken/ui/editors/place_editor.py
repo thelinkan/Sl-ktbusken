@@ -15,18 +15,35 @@ from typing import Optional
 from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QPushButton,
+    QScrollArea,
     QStyleOptionViewItem,
     QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
 
-from slaktbusken.model.place import Place, needs_red_dot
+from slaktbusken.model.place import (
+    ExternalId,
+    Place,
+    add_alternative_name,
+    add_external_id,
+    edit_external_id,
+    needs_red_dot,
+    remove_alternative_name,
+    remove_external_id,
+)
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.generated.ui_place_editor import Ui_PlaceEditor
 
@@ -174,8 +191,35 @@ class PlaceEditor(QWidget):
         self._ui = Ui_PlaceEditor()
         self._ui.setupUi(self)
 
+        # Wrap the right panel in a QScrollArea so all content is accessible
+        self._right_scroll = QScrollArea()
+        self._right_scroll.setWidgetResizable(True)
+        self._right_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        # Replace right_panel in the splitter with the scroll area containing it
+        self._ui.splitter.replaceWidget(
+            self._ui.splitter.indexOf(self._ui.right_panel),
+            self._right_scroll,
+        )
+        self._right_scroll.setWidget(self._ui.right_panel)
+        # Add type filter combo box to left panel between filter_input and place_list
+        self._type_filter_label = QLabel("Typ:", self._ui.left_panel)
+        self._type_filter_combo = QComboBox(self._ui.left_panel)
+        self._type_filter_combo.addItems([
+            "Alla", "Land", "Län", "Socken", "Kyrka",
+            "Kyrkogård", "By", "Gård", "Skola",
+        ])
+        self._type_filter_combo.setCurrentIndex(0)
+        # Insert at index 2 (after filter_input at index 1, before place_list)
+        self._ui.left_layout.insertWidget(2, self._type_filter_label)
+        self._ui.left_layout.insertWidget(3, self._type_filter_combo)
+
         self._setup_child_places_list()
         self._connect_signals()
+
+        # Set up custom delegate for red dot indicator on places missing a parent
+        self._place_list_delegate = PlaceListItemDelegate(project_data, self._ui.place_list)
+        self._ui.place_list.setItemDelegate(self._place_list_delegate)
+
         self._refresh_place_list()
 
         # If a place was provided, select it in the list
@@ -250,10 +294,57 @@ class PlaceEditor(QWidget):
         else:
             right_layout.addWidget(self._persons_group)
 
+        # Create External IDs group box
+        self._ext_id_group = QGroupBox("Externa ID:n", self._ui.right_panel)
+        ext_id_layout = QVBoxLayout(self._ext_id_group)
+        self._ext_id_list = QListWidget(self._ext_id_group)
+        self._ext_id_list.setMaximumHeight(120)
+        ext_id_layout.addWidget(self._ext_id_list)
+
+        # Buttons: Lägg till, Redigera, Ta bort
+        ext_id_btn_layout = QHBoxLayout()
+        self._ext_id_add_btn = QPushButton("Lägg till", self._ext_id_group)
+        self._ext_id_edit_btn = QPushButton("Redigera", self._ext_id_group)
+        self._ext_id_remove_btn = QPushButton("Ta bort", self._ext_id_group)
+        ext_id_btn_layout.addWidget(self._ext_id_add_btn)
+        ext_id_btn_layout.addWidget(self._ext_id_edit_btn)
+        ext_id_btn_layout.addWidget(self._ext_id_remove_btn)
+        ext_id_layout.addLayout(ext_id_btn_layout)
+
+        # Insert before status label
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._ext_id_group)
+        else:
+            right_layout.addWidget(self._ext_id_group)
+
+        # Create Alternative Names group box
+        self._alt_names_group = QGroupBox("Alternativnamn:", self._ui.right_panel)
+        alt_names_layout = QVBoxLayout(self._alt_names_group)
+        self._alt_names_list = QListWidget(self._alt_names_group)
+        self._alt_names_list.setMaximumHeight(120)
+        alt_names_layout.addWidget(self._alt_names_list)
+
+        # Buttons: Lägg till, Ta bort
+        alt_names_btn_layout = QHBoxLayout()
+        self._alt_name_add_btn = QPushButton("Lägg till", self._alt_names_group)
+        self._alt_name_remove_btn = QPushButton("Ta bort", self._alt_names_group)
+        alt_names_btn_layout.addWidget(self._alt_name_add_btn)
+        alt_names_btn_layout.addWidget(self._alt_name_remove_btn)
+        alt_names_layout.addLayout(alt_names_btn_layout)
+
+        # Insert before status label
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._alt_names_group)
+        else:
+            right_layout.addWidget(self._alt_names_group)
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
         # Filter
         self._ui.filter_input.textChanged.connect(self._on_filter_changed)
+        self._type_filter_combo.currentIndexChanged.connect(self._on_type_filter_changed)
 
         # List selection
         self._ui.place_list.currentItemChanged.connect(self._on_place_selected)
@@ -268,6 +359,15 @@ class PlaceEditor(QWidget):
         # Type change updates parent combo
         self._ui.type_combo.currentIndexChanged.connect(self._on_type_changed)
 
+        # External IDs
+        self._ext_id_add_btn.clicked.connect(self._on_ext_id_add)
+        self._ext_id_edit_btn.clicked.connect(self._on_ext_id_edit)
+        self._ext_id_remove_btn.clicked.connect(self._on_ext_id_remove)
+
+        # Alternative Names
+        self._alt_name_add_btn.clicked.connect(self._on_alt_name_add)
+        self._alt_name_remove_btn.clicked.connect(self._on_alt_name_remove)
+
         # Linked persons double-click
         self._persons_list.itemDoubleClicked.connect(self._on_person_double_clicked)
 
@@ -280,17 +380,24 @@ class PlaceEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _refresh_place_list(self) -> None:
-        """Rebuild the place list from project_data, applying the current filter."""
+        """Rebuild the place list from project_data, applying text and type filters."""
         filter_text = self._ui.filter_input.text().strip().lower()
+        type_filter_label = self._type_filter_combo.currentText()
+        type_filter = (
+            _TYPE_LABEL_TO_INTERNAL[type_filter_label]
+            if type_filter_label in _TYPE_LABEL_TO_INTERNAL
+            else "all"
+        )
+
         self._ui.place_list.blockSignals(True)
         self._ui.place_list.clear()
 
         # Collect and sort alphabetically
         entries: list[tuple[str, str]] = []
         for place in self._project_data.places:
-            display = self._format_place_display(place)
-            if filter_text and filter_text not in display.lower():
+            if not self._matches_filters(place, filter_text, type_filter):
                 continue
+            display = self._format_place_display(place)
             entries.append((display, place.id))
 
         entries.sort(key=lambda x: x[0].lower())
@@ -301,6 +408,28 @@ class PlaceEditor(QWidget):
             self._ui.place_list.addItem(item)
 
         self._ui.place_list.blockSignals(False)
+
+    @staticmethod
+    def _matches_filters(place: Place, text_filter: str, type_filter: str) -> bool:
+        """Return True if the place passes both text and type filters.
+
+        Args:
+            place: The Place to check.
+            text_filter: Lowercase text to match against display name (empty = no filter).
+            type_filter: Internal type string to match, or "all" for no type filtering.
+
+        Returns:
+            True if the place matches all active filters.
+        """
+        if type_filter != "all" and place.type != type_filter:
+            return False
+        if text_filter:
+            # Build a simple display string for text matching
+            type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, place.type)
+            display = f"{place.name} ({type_label})"
+            if text_filter not in display.lower():
+                return False
+        return True
 
     def _format_place_display(self, place: Place) -> str:
         """Format a place for display in the list with hierarchy context.
@@ -353,6 +482,14 @@ class PlaceEditor(QWidget):
 
         Args:
             text: The new filter text.
+        """
+        self._refresh_place_list()
+
+    def _on_type_filter_changed(self, index: int) -> None:
+        """Handle type filter combo changes by refreshing the place list.
+
+        Args:
+            index: The new index in the type filter combo.
         """
         self._refresh_place_list()
 
@@ -427,6 +564,12 @@ class PlaceEditor(QWidget):
         # Linked persons
         self._refresh_linked_persons(place)
 
+        # External IDs
+        self._refresh_external_ids(place)
+
+        # Alternative Names
+        self._refresh_alternative_names(place)
+
         self._clear_status()
 
     def _clear_form(self) -> None:
@@ -442,6 +585,8 @@ class PlaceEditor(QWidget):
         self._ui.notes_input.clear()
         self._child_list.clear()
         self._persons_list.clear()
+        self._ext_id_list.clear()
+        self._alt_names_list.clear()
         self._clear_status()
 
     def _refresh_child_places(self, place: Place) -> None:
@@ -535,6 +680,258 @@ class PlaceEditor(QWidget):
         person_id = item.data(Qt.ItemDataRole.UserRole)
         if person_id:
             self.person_open_requested.emit(person_id)
+
+    def _on_ext_id_add(self) -> None:
+        """Handle click on the Add button in the External IDs section.
+
+        Shows a dialog with key/value input fields. Validates and adds the
+        entry to the current place on confirm.
+        """
+        if self._editing_place is None:
+            self._update_status("Välj en plats först.")
+            return
+
+        while True:
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Lägg till externt ID")
+            layout = QVBoxLayout(dialog)
+
+            form_layout = QFormLayout()
+            key_input = QLineEdit(dialog)
+            key_input.setMaxLength(100)
+            key_input.setPlaceholderText("T.ex. _PARISH_AID")
+            value_input = QLineEdit(dialog)
+            value_input.setMaxLength(200)
+            value_input.setPlaceholderText("Identifierare")
+
+            form_layout.addRow("Nyckel:", key_input)
+            form_layout.addRow("Värde:", value_input)
+            layout.addLayout(form_layout)
+
+            error_label = QLabel("", dialog)
+            error_label.setStyleSheet("color: red;")
+            error_label.setWordWrap(True)
+            layout.addWidget(error_label)
+
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+                dialog,
+            )
+            layout.addWidget(button_box)
+
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+
+            result = dialog.exec()
+            if result != QDialog.DialogCode.Accepted:
+                return
+
+            key = key_input.text()
+            value = value_input.text()
+
+            ext_id = ExternalId(key=key, value=value)
+            errors = add_external_id(self._editing_place, ext_id)
+
+            if errors:
+                self._update_status(" ".join(errors))
+                # Loop to re-show dialog so user can correct input
+                continue
+
+            # Success: refresh display and clear status
+            self._refresh_external_ids(self._editing_place)
+            self._clear_status()
+            return
+
+    def _on_ext_id_edit(self) -> None:
+        """Handle click on the Edit button in the External IDs section.
+
+        Shows a dialog pre-populated with the selected entry's key and value.
+        Validates and updates the entry on confirm.
+        """
+        if self._editing_place is None:
+            self._update_status("Välj en plats först.")
+            return
+
+        current = self._ext_id_list.currentItem()
+        if current is None:
+            self._update_status("Välj ett externt ID att redigera.")
+            return
+
+        old_key = current.data(Qt.ItemDataRole.UserRole)
+
+        # Find the existing entry to pre-populate the dialog
+        existing_entry = None
+        for eid in self._editing_place.external_ids:
+            if eid.key == old_key:
+                existing_entry = eid
+                break
+
+        if existing_entry is None:
+            return
+
+        while True:
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Redigera externt ID")
+            layout = QVBoxLayout(dialog)
+
+            form_layout = QFormLayout()
+            key_input = QLineEdit(dialog)
+            key_input.setMaxLength(100)
+            key_input.setText(existing_entry.key)
+            value_input = QLineEdit(dialog)
+            value_input.setMaxLength(200)
+            value_input.setText(existing_entry.value)
+
+            form_layout.addRow("Nyckel:", key_input)
+            form_layout.addRow("Värde:", value_input)
+            layout.addLayout(form_layout)
+
+            error_label = QLabel("", dialog)
+            error_label.setStyleSheet("color: red;")
+            error_label.setWordWrap(True)
+            layout.addWidget(error_label)
+
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+                dialog,
+            )
+            layout.addWidget(button_box)
+
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+
+            result = dialog.exec()
+            if result != QDialog.DialogCode.Accepted:
+                return
+
+            new_key = key_input.text()
+            new_value = value_input.text()
+
+            new_ext_id = ExternalId(key=new_key, value=new_value)
+            errors = edit_external_id(self._editing_place, old_key, new_ext_id)
+
+            if errors:
+                self._update_status(" ".join(errors))
+                # Loop to re-show dialog so user can correct input
+                continue
+
+            # Success: refresh display and clear status
+            self._refresh_external_ids(self._editing_place)
+            self._clear_status()
+            return
+
+    def _on_ext_id_remove(self) -> None:
+        """Handle click on the Remove button in the External IDs section.
+
+        Removes the currently selected External ID entry from the place.
+        """
+        if self._editing_place is None:
+            self._update_status("Välj en plats först.")
+            return
+
+        current = self._ext_id_list.currentItem()
+        if current is None:
+            self._update_status("Välj ett externt ID att ta bort.")
+            return
+
+        key = current.data(Qt.ItemDataRole.UserRole)
+        remove_external_id(self._editing_place, key)
+
+        # Refresh display and clear status
+        self._refresh_external_ids(self._editing_place)
+        self._clear_status()
+
+    def _refresh_external_ids(self, place: Place) -> None:
+        """Populate the external IDs list with the place's external ID entries.
+
+        Args:
+            place: The place whose external IDs should be displayed.
+        """
+        self._ext_id_list.clear()
+
+        ext_ids = getattr(place, "external_ids", [])
+        if not ext_ids:
+            return
+
+        for ext_id in ext_ids:
+            display = f"{ext_id.key}: {ext_id.value}"
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, ext_id.key)
+            self._ext_id_list.addItem(item)
+
+    # ------------------------------------------------------------------
+    # Private: alternative names
+    # ------------------------------------------------------------------
+
+    def _on_alt_name_add(self) -> None:
+        """Handle click on the Add button in the Alternative Names section."""
+        if self._editing_place is None:
+            self._update_status("Välj en plats först.")
+            return
+
+        while True:
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Lägg till alternativnamn")
+            layout = QVBoxLayout(dialog)
+
+            form_layout = QFormLayout()
+            name_input = QLineEdit(dialog)
+            name_input.setMaxLength(200)
+            name_input.setPlaceholderText("Alternativt namn")
+            form_layout.addRow("Namn:", name_input)
+            layout.addLayout(form_layout)
+
+            error_label = QLabel("", dialog)
+            error_label.setStyleSheet("color: red;")
+            error_label.setWordWrap(True)
+            layout.addWidget(error_label)
+
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+                dialog,
+            )
+            layout.addWidget(button_box)
+
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+
+            result = dialog.exec()
+            if result != QDialog.DialogCode.Accepted:
+                return
+
+            name = name_input.text()
+            errors = add_alternative_name(self._editing_place, name)
+
+            if errors:
+                self._update_status(" ".join(errors))
+                continue
+
+            # Success: refresh display and clear status
+            self._refresh_alternative_names(self._editing_place)
+            self._clear_status()
+            return
+
+    def _on_alt_name_remove(self) -> None:
+        """Handle click on the Remove button in the Alternative Names section."""
+        if self._editing_place is None:
+            self._update_status("Välj en plats först.")
+            return
+
+        current = self._alt_names_list.currentItem()
+        if current is None:
+            self._update_status("Välj ett alternativnamn att ta bort.")
+            return
+
+        row = self._alt_names_list.currentRow()
+        remove_alternative_name(self._editing_place, row)
+        self._refresh_alternative_names(self._editing_place)
+        self._clear_status()
+
+    def _refresh_alternative_names(self, place: Place) -> None:
+        """Refresh the alternative names list display from the place model."""
+        self._alt_names_list.clear()
+        for name in place.alternative_names:
+            self._alt_names_list.addItem(name)
 
     # ------------------------------------------------------------------
     # Private: parent combo population with hierarchy enforcement
@@ -733,6 +1130,12 @@ class PlaceEditor(QWidget):
         # Determine place ID
         place_id = self._editing_place.id if self._editing_place else str(uuid.uuid4())
 
+        # External IDs (collected from in-memory edits on the editing place)
+        external_ids = self._editing_place.external_ids if self._editing_place else []
+
+        # Alternative Names (collected from in-memory edits on the editing place)
+        alternative_names = self._editing_place.alternative_names if self._editing_place else []
+
         self._saved_place = Place(
             id=place_id,
             type=internal_type,
@@ -741,10 +1144,16 @@ class PlaceEditor(QWidget):
             latitude=latitude,
             longitude=longitude,
             notes=notes,
+            external_ids=external_ids,
+            alternative_names=alternative_names,
         )
 
         self._clear_status()
         logger.info("Plats sparad: %s (%s)", name, place_id)
+
+        # Refresh place list so red dot indicator reflects updated parent assignment
+        self._refresh_place_list()
+
         self.save_requested.emit()
         self.close()
 

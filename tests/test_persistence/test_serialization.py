@@ -16,7 +16,7 @@ from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, Sou
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import LinkedEntity, MediaItem
 from slaktbusken.model.person import Name, Person
-from slaktbusken.model.place import Place
+from slaktbusken.model.place import ExternalId, Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, RepositoryRef, Source, StructuredReference
@@ -599,3 +599,151 @@ class TestPropertyAnnotationRoundTrip:
         assert len(parsed["media"]) == 1
         media_dict = parsed["media"][0]
         assert "annotations" not in media_dict
+
+
+class TestPlaceExternalIdsAndAlternativeNames:
+    """Tests for serialization/deserialization of external_ids and alternative_names.
+
+    Validates: Requirements 1.1, 3.1
+    """
+
+    def test_place_with_external_ids_round_trip(self) -> None:
+        """A Place with external_ids serializes and deserializes correctly."""
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.1",
+            project=ProjectMetadata(title="Test"),
+            places=[
+                Place(
+                    id="place_1",
+                    type="parish",
+                    name="Ljusdal",
+                    external_ids=[
+                        ExternalId(key="_PARISH_AID", value="12345"),
+                        ExternalId(key="_COUNTY_CODE", value="X"),
+                    ],
+                ),
+            ],
+        )
+        result = deserialize(serialize(data))
+        assert len(result.places) == 1
+        pl = result.places[0]
+        assert len(pl.external_ids) == 2
+        assert isinstance(pl.external_ids[0], ExternalId)
+        assert pl.external_ids[0].key == "_PARISH_AID"
+        assert pl.external_ids[0].value == "12345"
+        assert pl.external_ids[1].key == "_COUNTY_CODE"
+        assert pl.external_ids[1].value == "X"
+
+    def test_place_with_alternative_names_round_trip(self) -> None:
+        """A Place with alternative_names serializes and deserializes correctly."""
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.1",
+            project=ProjectMetadata(title="Test"),
+            places=[
+                Place(
+                    id="place_1",
+                    type="county",
+                    name="Gävleborgs län",
+                    alternative_names=["X", "Gävleborg"],
+                ),
+            ],
+        )
+        result = deserialize(serialize(data))
+        assert len(result.places) == 1
+        pl = result.places[0]
+        assert pl.alternative_names == ["X", "Gävleborg"]
+
+    def test_old_json_without_new_fields_deserializes_with_empty_defaults(self) -> None:
+        """Old JSON without external_ids/alternative_names gets empty list defaults."""
+        old_json = json.dumps({
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Old Project"},
+            "places": [
+                {
+                    "id": "place_1",
+                    "type": "parish",
+                    "name": "Ljusdal",
+                    "parent_place_id": "place_2",
+                    "latitude": 61.83,
+                    "longitude": 15.89,
+                    "notes": "Hälsingland",
+                }
+            ],
+        })
+        result = deserialize(old_json)
+        assert len(result.places) == 1
+        pl = result.places[0]
+        assert pl.external_ids == []
+        assert pl.alternative_names == []
+
+    def test_empty_external_ids_omitted_from_json(self) -> None:
+        """When external_ids is empty, it's omitted from serialized output."""
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.1",
+            project=ProjectMetadata(title="Test"),
+            places=[
+                Place(id="place_1", type="parish", name="Ljusdal"),
+            ],
+        )
+        json_str = serialize(data)
+        parsed = json.loads(json_str)
+        place_dict = parsed["places"][0]
+        assert "external_ids" not in place_dict
+        assert "alternative_names" not in place_dict
+
+    def test_non_empty_external_ids_included_in_json(self) -> None:
+        """When external_ids has entries, they are included in serialized output."""
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.1",
+            project=ProjectMetadata(title="Test"),
+            places=[
+                Place(
+                    id="place_1",
+                    type="parish",
+                    name="Ljusdal",
+                    external_ids=[ExternalId(key="_PARISH_AID", value="12345")],
+                    alternative_names=["Ljusdals församling"],
+                ),
+            ],
+        )
+        json_str = serialize(data)
+        parsed = json.loads(json_str)
+        place_dict = parsed["places"][0]
+        assert "external_ids" in place_dict
+        assert place_dict["external_ids"] == [{"key": "_PARISH_AID", "value": "12345"}]
+        assert "alternative_names" in place_dict
+        assert place_dict["alternative_names"] == ["Ljusdals församling"]
+
+    def test_place_with_both_fields_round_trip_equality(self) -> None:
+        """A Place with both external_ids and alternative_names round-trips via == equality.
+
+        Validates: Requirements 1.1, 3.1
+        """
+        original_place = Place(
+            id="place_1",
+            type="parish",
+            name="Ljusdal",
+            parent_place_id="place_2",
+            latitude=61.83,
+            longitude=15.89,
+            notes="Hälsingland",
+            external_ids=[
+                ExternalId(key="_PARISH_AID", value="12345"),
+                ExternalId(key="_COUNTY_CODE", value="X"),
+            ],
+            alternative_names=["Ljusdals församling", "Ljusdals socken"],
+        )
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.1",
+            project=ProjectMetadata(title="Test"),
+            places=[original_place],
+        )
+        result = deserialize(serialize(data))
+        assert len(result.places) == 1
+        assert result.places[0] == original_place

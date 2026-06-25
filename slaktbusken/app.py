@@ -902,7 +902,7 @@ class Application:
 
         dialog = QDialog(self.main_window)
         dialog.setWindowTitle("Platsredigerare")
-        dialog.setMinimumSize(800, 600)
+        dialog.setMinimumSize(900, 900)
         layout = QVBoxLayout(dialog)
 
         editor = PlaceEditor(
