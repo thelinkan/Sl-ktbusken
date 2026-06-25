@@ -12,18 +12,21 @@ import logging
 import uuid
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRect, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QStyleOptionViewItem,
+    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
 
-from slaktbusken.model.place import Place
+from slaktbusken.model.place import Place, needs_red_dot
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.generated.ui_place_editor import Ui_PlaceEditor
 
@@ -54,6 +57,76 @@ _VALID_PARENT_TYPES: dict[str, Optional[str]] = {
     "farm": "parish",
     "school": "parish",
 }
+
+
+class PlaceListItemDelegate(QStyledItemDelegate):
+    """Custom delegate that renders a red dot next to non-country places without a parent.
+
+    The red dot (≤8px solid circle) appears 4px after the item text, vertically
+    centred within the row. It indicates that the place needs a parent assignment.
+
+    Args:
+        project_data: The project data used to look up Place objects by ID.
+        parent: Optional parent object.
+    """
+
+    _DOT_DIAMETER = 8
+    _DOT_SPACING = 4
+
+    def __init__(self, project_data: ProjectData, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._project_data = project_data
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index,
+    ) -> None:
+        """Paint the item, adding a red dot indicator when appropriate."""
+        # Let the base class render the text and selection state
+        super().paint(painter, option, index)
+
+        # Look up the place by ID stored in UserRole
+        place_id = index.data(Qt.ItemDataRole.UserRole)
+        if place_id is None:
+            return
+
+        place = self._find_place(place_id)
+        if place is None:
+            return
+
+        if not needs_red_dot(place):
+            return
+
+        # Calculate text width to position the dot after it
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        font_metrics = option.fontMetrics
+        text_width = font_metrics.horizontalAdvance(text)
+
+        # Position: left edge of item + text offset + text width + spacing
+        style = option.widget.style() if option.widget else None
+        text_margin = style.pixelMetric(
+            style.PixelMetric.PM_FocusFrameHMargin, option, option.widget
+        ) + 1 if style else 4
+
+        dot_x = option.rect.left() + text_margin + text_width + self._DOT_SPACING
+        dot_y = option.rect.top() + (option.rect.height() - self._DOT_DIAMETER) // 2
+
+        # Draw the solid red circle
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QBrush(QColor(255, 0, 0)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(QRect(dot_x, dot_y, self._DOT_DIAMETER, self._DOT_DIAMETER))
+        painter.restore()
+
+    def _find_place(self, place_id: str) -> Optional[Place]:
+        """Find a place by its ID in the project data."""
+        for p in self._project_data.places:
+            if p.id == place_id:
+                return p
+        return None
 
 
 class PlaceEditor(QWidget):
