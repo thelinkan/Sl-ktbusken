@@ -89,6 +89,9 @@ class UiState:
     last_view: Optional[str] = None
 
 
+VALID_PAPER_SIZES = ("A4", "A3", "A5")
+
+
 @dataclass
 class ProjectSettings:
     """Container for all project-level settings.
@@ -97,11 +100,13 @@ class ProjectSettings:
         person_box_config: Configuration for person box content fields.
         diagram_settings: Diagram view depth settings.
         ui_state: Optional saved UI layout state.
+        report_paper_size: Paper size for report generation (A4, A3, or A5).
     """
 
     person_box_config: PersonBoxConfig = field(default_factory=PersonBoxConfig)
     diagram_settings: DiagramSettings = field(default_factory=DiagramSettings)
     ui_state: UiState = field(default_factory=UiState)
+    report_paper_size: str = "A4"
 
 
 def create_default_settings() -> ProjectSettings:
@@ -222,8 +227,12 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         last_view=ui_state_data.get("last_view"),
     )
 
+    raw_paper_size = data.get("report_paper_size", "A4")
+    report_paper_size = raw_paper_size if raw_paper_size in VALID_PAPER_SIZES else "A4"
+
     return ProjectSettings(
         person_box_config=person_box_config,
         diagram_settings=diagram_settings,
         ui_state=ui_state,
+        report_paper_size=report_paper_size,
     )
