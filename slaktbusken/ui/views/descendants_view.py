@@ -615,6 +615,8 @@ def _load_media_pixmap(
     size: Optional[int] = None,
 ) -> "QPixmap | None":
     """Load a media item as a QPixmap, optionally scaled."""
+    import unicodedata
+
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QPixmap
 
@@ -626,17 +628,20 @@ def _load_media_pixmap(
     if media_item is None:
         return None
 
+    # Normalize the file path to NFC for consistent Swedish character handling
+    normalized_file = unicodedata.normalize("NFC", media_item.file)
+
     # Resolve file path — try multiple strategies
     file_path: Path | None = None
-    candidate = project_folder / Path(media_item.file)
+    candidate = project_folder / Path(normalized_file)
     if candidate.is_file():
         file_path = candidate
     else:
-        candidate = project_folder / "media" / Path(media_item.file)
+        candidate = project_folder / "media" / Path(normalized_file)
         if candidate.is_file():
             file_path = candidate
         else:
-            candidate = Path(media_item.file)
+            candidate = Path(normalized_file)
             if candidate.is_file():
                 file_path = candidate
 

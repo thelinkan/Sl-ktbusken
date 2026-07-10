@@ -91,8 +91,8 @@ This plan implements the "Rapporter" top-level menu for Släktbusken with five r
     - **Property 1: Ansedel content completeness**
     - **Validates: Requirements 2.2, 2.3, 2.4**
 
-- [ ] 5. Implement Report Generator Service
-  - [~] 5.1 Create report generator service
+- [x] 5. Implement Report Generator Service
+  - [x] 5.1 Create report generator service
     - Create `slaktbusken/reports/generator.py`
     - Implement `ReportGeneratorService` class with methods: `generate_ansedel`, `generate_geographic_consistency`, `generate_media_consistency`
     - Each method delegates to the corresponding report module
@@ -101,8 +101,8 @@ This plan implements the "Rapporter" top-level menu for Släktbusken with five r
 - [~] 6. Checkpoint - Verify report logic
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Implement Report Paginator
-  - [~] 7.1 Create paginator with paper size support and line breaking
+- [x] 7. Implement Report Paginator
+  - [x] 7.1 Create paginator with paper size support and line breaking
     - Create `slaktbusken/reports/paginator.py`
     - Implement `PageLayout`, `RenderedElement`, `RenderedPage` dataclasses
     - Define `PAPER_SIZES` dictionary with A4, A3, A5 dimensions
@@ -117,39 +117,39 @@ This plan implements the "Rapporter" top-level menu for Släktbusken with five r
     - Handle corrupt/unreadable images with placeholder text "Bilden kunde inte laddas"
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 7.1, 7.2, 7.3, 7.4_
 
-  - [~] 7.2 Write property test for line breaking at word boundaries
+  - [x] 7.2 Write property test for line breaking at word boundaries
     - **Property 10: Line breaking at word boundaries**
     - **Validates: Requirements 6.1**
 
-  - [~] 7.3 Write property test for block ordering preserved across pages
+  - [x] 7.3 Write property test for block ordering preserved across pages
     - **Property 11: Block ordering preserved across pages**
     - **Validates: Requirements 6.3**
 
-  - [~] 7.4 Write property test for section heading never orphaned
+  - [x] 7.4 Write property test for section heading never orphaned
     - **Property 12: Section heading never orphaned**
     - **Validates: Requirements 6.4**
 
-  - [~] 7.5 Write property test for page numbering correctness
+  - [x] 7.5 Write property test for page numbering correctness
     - **Property 13: Page numbering correctness**
     - **Validates: Requirements 6.5**
 
-  - [~] 7.6 Write property test for image fits single page
+  - [x] 7.6 Write property test for image fits single page
     - **Property 14: Image fits single page**
     - **Validates: Requirements 7.1, 7.2**
 
-  - [~] 7.7 Write property test for image scaling preserves aspect ratio
+  - [x] 7.7 Write property test for image scaling preserves aspect ratio
     - **Property 15: Image scaling preserves aspect ratio**
     - **Validates: Requirements 7.3**
 
-  - [~] 7.8 Write property test for caption on same page as image
+  - [x] 7.8 Write property test for caption on same page as image
     - **Property 16: Caption on same page as image**
     - **Validates: Requirements 7.4**
 
 - [~] 8. Checkpoint - Verify paginator
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 9. Implement Report Preview window
-  - [~] 9.1 Create Report Preview dialog
+- [x] 9. Implement Report Preview window
+  - [x] 9.1 Create Report Preview dialog
     - Create `slaktbusken/ui/dialogs/report_preview.py`
     - Implement `ReportPreviewDialog(QDialog)` with paper size combo box (A4, A3, A5)
     - Render paginated pages using QPainter on a scrollable widget
@@ -162,14 +162,14 @@ This plan implements the "Rapporter" top-level menu for Släktbusken with five r
     - Fall back to A4 if stored paper size is unrecognized
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 2.6_
 
-  - [~] 9.2 Write unit tests for Report Preview dialog
+  - [x] 9.2 Write unit tests for Report Preview dialog
     - Test paper size selection updates pagination
     - Test default paper size is A4 for new project
     - Test unrecognized paper size falls back to A4
     - _Requirements: 5.1, 5.2, 5.3, 5.6_
 
-- [ ] 10. Implement Report Menu and wire to application
-  - [~] 10.1 Create Report Menu builder
+- [x] 10. Implement Report Menu and wire to application
+  - [x] 10.1 Create Report Menu builder
     - Create `slaktbusken/ui/report_menu.py`
     - Implement `ReportMenuBuilder.build(menu_bar, app) -> QMenu`
     - Add "Rapporter" top-level menu with five submenus: Standardrapporter, DNA-rapporter, Konsistensrapporter, Forskningsrapporter, Exportkontroller
@@ -179,14 +179,14 @@ This plan implements the "Rapporter" top-level menu for Släktbusken with five r
     - When no project is open: disable all items (including implemented ones) without placeholder tooltip
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10, 1.11, 8.1, 8.2, 8.3_
 
-  - [~] 10.2 Integrate Report Menu into MainWindow
+  - [x] 10.2 Integrate Report Menu into MainWindow
     - Modify `slaktbusken/ui/main_window.py` to use `ReportMenuBuilder` to add the Rapporter menu
     - Wire report generation callbacks: trigger ReportGeneratorService, then open ReportPreviewDialog
     - For Ansedel: check active person exists, show Swedish error if not ("En person måste vara vald i diagrammet")
     - Update menu enabled state when project opens/closes
     - _Requirements: 1.7, 1.10, 2.1, 2.6, 2.7_
 
-  - [~] 10.3 Write unit tests for Report Menu structure
+  - [x] 10.3 Write unit tests for Report Menu structure
     - Verify all 5 categories exist with correct labels
     - Verify all items are in correct submenus with correct labels
     - Verify placeholder items are disabled with tooltip

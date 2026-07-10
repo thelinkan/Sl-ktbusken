@@ -87,6 +87,11 @@ def deserialize(json_str: str) -> ProjectData:
     # Deserialize entity arrays with proper nested type reconstruction.
     _deserialize_entities(project_data, raw)
 
+    # Normalize Unicode in file paths to NFC for consistent handling of
+    # Swedish characters (å, ä, ö). File systems on Windows use NFC but
+    # data may arrive in NFD form from macOS or GEDCOM imports.
+    _normalize_media_file_paths(project_data)
+
     return project_data
 
 
@@ -236,6 +241,24 @@ def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any]) -> Non
         if raw_items:
             deserialized = [_deserialize_typed(cls, item) for item in raw_items]
             setattr(project_data, field_name, deserialized)
+
+
+def _normalize_media_file_paths(project_data: ProjectData) -> None:
+    """Normalize Unicode in media file paths to NFC form.
+
+    File systems on Windows store filenames in NFC, but JSON data may
+    contain NFD-encoded paths (e.g. from macOS or GEDCOM imports).
+    Characters like å (U+00E5) vs a + combining ring (U+0061 U+030A)
+    look identical but fail string equality checks.
+
+    This normalizes MediaItem.file to NFC at load time so all downstream
+    comparisons work consistently.
+    """
+    import unicodedata
+
+    for item in project_data.media:
+        if item.file:
+            item.file = unicodedata.normalize("NFC", item.file)
 
 
 def _deserialize_typed(cls: type, data: Any) -> Any:

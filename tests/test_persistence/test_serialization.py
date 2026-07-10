@@ -497,9 +497,22 @@ class TestPropertySerializationRoundTrip:
     @given(data=project_data_strategy())
     @settings(max_examples=50)
     def test_serialize_then_deserialize_produces_equal_data(self, data: ProjectData) -> None:
-        """For any valid ProjectData, serialize then deserialize produces equal data."""
+        """For any valid ProjectData, serialize then deserialize produces equal data.
+
+        Note: MediaItem.file paths are NFC-normalized during deserialization
+        for consistent handling of Swedish characters across platforms.
+        """
+        import unicodedata
+
         json_str = serialize(data)
         result = deserialize(json_str)
+
+        # NFC-normalize media file paths in the original data for comparison,
+        # since deserialize() normalizes them.
+        for item in data.media:
+            if item.file:
+                item.file = unicodedata.normalize("NFC", item.file)
+
         assert result == data
 
 

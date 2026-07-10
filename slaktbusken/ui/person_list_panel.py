@@ -1446,7 +1446,9 @@ class PersonListPanel(QWidget):
 
         project_path = self._app.project_service.project_path
         if project_path is not None:
-            icon_path = project_path.parent / media_item.file
+            import unicodedata
+            normalized_file = unicodedata.normalize("NFC", media_item.file)
+            icon_path = project_path.parent / normalized_file
             if icon_path.exists():
                 loaded = QPixmap(str(icon_path))
                 if not loaded.isNull():

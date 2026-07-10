@@ -210,7 +210,9 @@ def _resolve_logo_file_path_for_company_id(
         return None
 
     # Step 3: MediaItem.file → absolute path
-    abs_path = project_folder / Path(media_item.file)
+    import unicodedata
+    normalized_file = unicodedata.normalize("NFC", media_item.file)
+    abs_path = project_folder / Path(normalized_file)
 
     # Step 4: Check if file exists on disk
     if not abs_path.is_file():
@@ -774,6 +776,11 @@ class DnaEditor(QWidget):
             return
 
         abs_path = self._project_folder / media_item.file
+
+        # Normalize to NFC for consistent Swedish character handling
+        import unicodedata
+        normalized_file = unicodedata.normalize("NFC", media_item.file)
+        abs_path = self._project_folder / normalized_file
 
         # Check if file exists on disk (Req 5.4)
         if not abs_path.exists():

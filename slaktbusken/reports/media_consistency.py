@@ -8,6 +8,7 @@ references as structured ReportContent for the report preview system.
 from __future__ import annotations
 
 import logging
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,16 @@ from slaktbusken.reports.content import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_path(path_str: str) -> str:
+    """Normalize a file path string to NFC Unicode form for consistent comparison.
+
+    File systems may store filenames in different Unicode normalization forms
+    (NFC vs NFD), causing characters like å, ä, ö to compare unequal even
+    though they look identical. This normalizes to NFC for reliable matching.
+    """
+    return unicodedata.normalize("NFC", path_str)
 
 
 @dataclass
@@ -75,9 +86,10 @@ def _scan_media_folder(project_folder: Path) -> tuple[set[str], list[str]]:
         files_on_disk: set[str] = set()
         for file_path in media_folder.rglob("*"):
             if file_path.is_file():
-                # Store relative path from project_folder
+                # Store relative path from project_folder, normalized to NFC
                 relative = file_path.relative_to(project_folder)
-                files_on_disk.add(str(relative).replace("\\", "/"))
+                normalized = _normalize_path(str(relative).replace("\\", "/"))
+                files_on_disk.add(normalized)
         return files_on_disk, warnings
     except PermissionError:
         logger.warning("Media subfolder is inaccessible: %s", media_folder)
@@ -120,11 +132,11 @@ def check_media_consistency(
     # Scan disk for media files
     files_on_disk, scan_warnings = _scan_media_folder(project_folder)
 
-    # Build set of known media file paths (from MediaItems)
+    # Build set of known media file paths (from MediaItems), normalized to NFC
     known_media_files: set[str] = set()
     for item in data.media:
         if item.file:
-            known_media_files.add(item.file)
+            known_media_files.add(_normalize_path(item.file))
 
     # Check 2: Unlinked files — files on disk not in any MediaItem
     for file_path in sorted(files_on_disk):
@@ -139,7 +151,7 @@ def check_media_consistency(
 
     # Check 3: Missing files — MediaItem.file not found on disk
     for item in data.media:
-        if item.file and item.file not in files_on_disk:
+        if item.file and _normalize_path(item.file) not in files_on_disk:
             issues.append(
                 MediaIssue(
                     issue_type="missing_file",
@@ -153,11 +165,11 @@ def check_media_consistency(
     file_counter: Counter[str] = Counter()
     for item in data.media:
         if item.file:
-            file_counter[item.file] += 1
+            file_counter[_normalize_path(item.file)] += 1
 
     duplicate_files = {f for f, count in file_counter.items() if count >= 2}
     for item in data.media:
-        if item.file in duplicate_files:
+        if item.file and _normalize_path(item.file) in duplicate_files:
             issues.append(
                 MediaIssue(
                     issue_type="duplicate",

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMenuBar,
+    QMessageBox,
     QSplitter,
     QStatusBar,
     QToolBar,
@@ -227,6 +228,21 @@ class MainWindow(QMainWindow):
         self.menu_tools.addAction(self.action_relationship)
         self.menu_tools.addAction(self.action_settings)
 
+        # Rapporter (Reports)
+        from slaktbusken.ui.report_menu import ReportMenuBuilder
+
+        self._report_menu_builder = ReportMenuBuilder()
+        self._report_menu_builder.build(menu_bar, self._app)
+        self._report_menu_builder.action_ansedel.triggered.connect(
+            self._generate_ansedel
+        )
+        self._report_menu_builder.action_geographic.triggered.connect(
+            self._generate_geographic
+        )
+        self._report_menu_builder.action_media.triggered.connect(
+            self._generate_media
+        )
+
         # Hjälp (Help)
         self.menu_help = menu_bar.addMenu("&Hjälp")
         action_about = QAction("&Om Släktbusken", self)
@@ -352,6 +368,9 @@ class MainWindow(QMainWindow):
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)
 
+        if hasattr(self, '_report_menu_builder'):
+            self._report_menu_builder.update_project_state(project_open)
+
     def _switch_view(self, view_type: ViewType) -> None:
         """Switch the diagram panel view type.
 
@@ -367,10 +386,70 @@ class MainWindow(QMainWindow):
         }
         self.statusBar().showMessage(f"Växlade till {view_names[view_type]}", 3000)
 
+    def _generate_ansedel(self) -> None:
+        """Generate and display the Ansedel report for the active person."""
+        if self._app.project_service.project_path is None:
+            return
+
+        if self.diagram_panel.active_person_id is None:
+            QMessageBox.warning(
+                self,
+                "Ansedel",
+                "En person måste vara vald i diagrammet",
+            )
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        data = self._app.project_service.data
+        project_folder = self._app.project_service.project_path.parent
+        person_id = self.diagram_panel.active_person_id
+
+        service = ReportGeneratorService()
+        content = service.generate_ansedel(data, person_id, project_folder)
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
+    def _generate_geographic(self) -> None:
+        """Generate and display the Geographic Consistency report."""
+        if self._app.project_service.project_path is None:
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        data = self._app.project_service.data
+
+        service = ReportGeneratorService()
+        content = service.generate_geographic_consistency(data)
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
+    def _generate_media(self) -> None:
+        """Generate and display the Media Consistency report."""
+        if self._app.project_service.project_path is None:
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        data = self._app.project_service.data
+        project_folder = self._app.project_service.project_path.parent
+
+        service = ReportGeneratorService()
+        content = service.generate_media_consistency(data, project_folder)
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
     def _show_about(self) -> None:
         """Show the About dialog."""
-        from PySide6.QtWidgets import QMessageBox
-
         QMessageBox.about(
             self,
             "Om Släktbusken",

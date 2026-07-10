@@ -1170,6 +1170,8 @@ class PersonEditor(QWidget):
         Args:
             media_id: The MediaItem ID to display.
         """
+        import unicodedata
+
         from PySide6.QtGui import QPixmap
 
         # Find the MediaItem
@@ -1183,20 +1185,23 @@ class PersonEditor(QWidget):
             self._ui.profile_photo_display.setText("Ingen bild")
             return
 
+        # Normalize the file path to NFC for consistent Swedish character handling
+        normalized_file = unicodedata.normalize("NFC", media_item.file)
+
         # Resolve file path — try multiple strategies for backward compatibility
         file_path: Path | None = None
         if self._project_folder:
             # Strategy 1: file path relative to project folder (e.g. "media/photos/photo.jpg")
-            candidate = self._project_folder / Path(media_item.file)
+            candidate = self._project_folder / Path(normalized_file)
             if candidate.is_file():
                 file_path = candidate
             else:
                 # Strategy 2: file path relative to foto_mapp (legacy, e.g. just "photo.jpg")
-                candidate = self._photo_service._foto_mapp / Path(media_item.file)
+                candidate = self._photo_service._foto_mapp / Path(normalized_file)
                 if candidate.is_file():
                     file_path = candidate
         else:
-            candidate = Path(media_item.file)
+            candidate = Path(normalized_file)
             if candidate.is_file():
                 file_path = candidate
 

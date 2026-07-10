@@ -399,17 +399,22 @@ class FotoTab(QWidget):
         Returns:
             The resolved Path if the file exists, or None.
         """
+        import unicodedata
+
         foto_mapp = self._photo_service._foto_mapp
         # Project folder is foto_mapp's grandparent (media/photos -> media -> project)
         project_folder = foto_mapp.parent.parent
 
+        # Normalize to NFC for consistent Swedish character handling
+        normalized_file = unicodedata.normalize("NFC", media_item.file)
+
         # Strategy 1: relative to project folder (e.g. "media/photos/photo.jpg")
-        candidate = project_folder / Path(media_item.file)
+        candidate = project_folder / Path(normalized_file)
         if candidate.is_file():
             return candidate
 
         # Strategy 2: relative to foto_mapp directly (legacy, e.g. "photo.jpg")
-        candidate = foto_mapp / Path(media_item.file)
+        candidate = foto_mapp / Path(normalized_file)
         if candidate.is_file():
             return candidate
 

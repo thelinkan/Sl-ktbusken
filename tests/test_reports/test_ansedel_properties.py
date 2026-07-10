@@ -14,7 +14,7 @@ from slaktbusken.model.family import Family, FamilyPartner
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
-from slaktbusken.reports.ansedel import generate_ansedel
+from slaktbusken.reports.ansedel import generate_ansedel, _translate_event_type, _translate_name_type
 from slaktbusken.reports.content import EmptyStateBlock, ListBlock, ParagraphBlock
 
 from tests.conftest import (
@@ -284,9 +284,10 @@ def test_ansedel_content_completeness(scenario: tuple[ProjectData, str]) -> None
     for event in data.events:
         is_linked = any(p.person_id == person_id for p in event.participants)
         if is_linked:
-            # Event type should be present
-            assert event.type in report_text, (
-                f"Event type '{event.type}' not found in report"
+            # Event type should be present (translated to Swedish)
+            translated_type = _translate_event_type(event.type)
+            assert translated_type in report_text, (
+                f"Event type '{event.type}' (translated: '{translated_type}') not found in report"
             )
             # Event date should be present if set
             if event.date:

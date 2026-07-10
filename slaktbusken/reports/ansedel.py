@@ -7,6 +7,7 @@ personal details, life events, parents, partners, and children.
 from __future__ import annotations
 
 import logging
+import unicodedata
 from pathlib import Path
 from typing import Optional
 
@@ -48,6 +49,54 @@ def _sex_display(sex: str) -> str:
         "unknown": "Okänt",
     }
     return mapping.get(sex, sex)
+
+
+def _translate_name_type(name_type: str) -> str:
+    """Translate an English name type to Swedish."""
+    mapping = {
+        "birth": "Födelsenamn",
+        "married": "Gift namn",
+        "adopted": "Adoptivnamn",
+        "also_known_as": "Även känd som",
+        "aka": "Även känd som",
+        "nickname": "Smeknamn",
+        "immigrant": "Invandrarnamn",
+        "maiden": "Flicknamn",
+        "religious": "Religiöst namn",
+    }
+    return mapping.get(name_type.lower(), name_type)
+
+
+def _translate_event_type(event_type: str) -> str:
+    """Translate an English event type to Swedish."""
+    mapping = {
+        "birth": "Födelse",
+        "death": "Död",
+        "baptism": "Dop",
+        "burial": "Begravning",
+        "christening": "Dop",
+        "marriage": "Vigsel",
+        "divorce": "Skilsmässa",
+        "engagement": "Förlovning",
+        "immigration": "Invandring",
+        "emigration": "Utvandring",
+        "census": "Folkräkning",
+        "residence": "Boende",
+        "occupation": "Yrke",
+        "education": "Utbildning",
+        "graduation": "Examen",
+        "retirement": "Pension",
+        "confirmation": "Konfirmation",
+        "will": "Testamente",
+        "probate": "Bouppteckning",
+        "naturalization": "Medborgarskap",
+        "adoption": "Adoption",
+        "ordination": "Ordination",
+        "military_service": "Militärtjänst",
+        "name_change": "Namnbyte",
+        "custom": "Övrigt",
+    }
+    return mapping.get(event_type.lower(), event_type)
 
 
 def generate_ansedel(
@@ -96,7 +145,7 @@ def generate_ansedel(
                 parts.append(n.given)
             if n.surname:
                 parts.append(n.surname)
-            label = n.type if n.type else "namn"
+            label = _translate_name_type(n.type) if n.type else "Namn"
             name_lines.append(f"{label}: {' '.join(parts)}" if parts else f"{label}: -")
         report.blocks.append(ListBlock(items=name_lines))
 
@@ -163,15 +212,21 @@ def _add_profile_photo(
         return
 
     photo_path = project_folder / media_item.file
-    if not photo_path.exists():
-        logger.warning(
-            "Profilbilden '%s' saknas på disk för person '%s'.",
-            photo_path,
-            person.id,
-        )
-        return
+    # Normalize path to NFC for correct handling of Swedish characters (å, ä, ö)
+    normalized_name = unicodedata.normalize("NFC", media_item.file)
+    photo_path_normalized = project_folder / normalized_name
+    if not photo_path_normalized.exists():
+        # Try the original non-normalized path as fallback
+        if not photo_path.exists():
+            logger.warning(
+                "Profilbilden '%s' saknas på disk för person '%s'.",
+                photo_path,
+                person.id,
+            )
+            return
+        photo_path_normalized = photo_path
 
-    report.blocks.append(ImageBlock(path=photo_path, caption=None))
+    report.blocks.append(ImageBlock(path=photo_path_normalized, caption=None))
 
 
 def _add_events_section(
@@ -197,7 +252,7 @@ def _add_events_section(
 
     event_items = []
     for event in linked_events:
-        parts = [event.type]
+        parts = [_translate_event_type(event.type)]
         if event.date:
             parts.append(event.date.value)
         if event.place:
@@ -224,8 +279,7 @@ def _add_parents_section(
                 parent = persons_by_id.get(partner.person_id)
                 if parent:
                     name = _format_person_name(parent.names)
-                    role = partner.role if partner.role else "förälder"
-                    parent_entries.append(f"{name} ({role})")
+                    parent_entries.append(name)
 
     if not parent_entries:
         report.blocks.append(
@@ -254,8 +308,7 @@ def _add_partners_section(
                     partner = persons_by_id.get(fp.person_id)
                     if partner:
                         name = _format_person_name(partner.names)
-                        role = fp.role if fp.role else "partner"
-                        partner_entries.append(f"{name} ({role})")
+                        partner_entries.append(name)
 
     if not partner_entries:
         report.blocks.append(
@@ -283,7 +336,7 @@ def _add_children_section(
                 child = persons_by_id.get(child_id)
                 if child:
                     name = _format_person_name(child.names)
-                    children_entries.append(f"{name} (barn)")
+                    children_entries.append(name)
 
     if not children_entries:
         report.blocks.append(

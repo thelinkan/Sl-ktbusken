@@ -706,6 +706,7 @@ def _load_media_pixmap(
     """Load a media item as a QPixmap, optionally scaled.
 
     Tries multiple path resolution strategies for backward compatibility.
+    Normalizes Unicode (NFC) to handle Swedish characters consistently.
 
     Args:
         media_id: The MediaItem ID to load.
@@ -716,6 +717,8 @@ def _load_media_pixmap(
     Returns:
         QPixmap or None if loading fails.
     """
+    import unicodedata
+
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QPixmap
 
@@ -728,20 +731,23 @@ def _load_media_pixmap(
     if media_item is None:
         return None
 
+    # Normalize the file path to NFC for consistent Swedish character handling
+    normalized_file = unicodedata.normalize("NFC", media_item.file)
+
     # Resolve file path — try multiple strategies
     file_path: Path | None = None
     # Strategy 1: relative to project folder (e.g. "media/photos/photo.jpg")
-    candidate = project_folder / Path(media_item.file)
+    candidate = project_folder / Path(normalized_file)
     if candidate.is_file():
         file_path = candidate
     else:
         # Strategy 2: relative to media subfolder (legacy, e.g. just "photo.jpg")
-        candidate = project_folder / "media" / Path(media_item.file)
+        candidate = project_folder / "media" / Path(normalized_file)
         if candidate.is_file():
             file_path = candidate
         else:
             # Strategy 3: absolute path
-            candidate = Path(media_item.file)
+            candidate = Path(normalized_file)
             if candidate.is_file():
                 file_path = candidate
 
