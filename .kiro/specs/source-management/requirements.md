@@ -70,11 +70,11 @@ This feature extends the source management capabilities in Släktbusken, a Swedi
 
 #### Acceptance Criteria
 
-1. WHEN the user clicks "Lägg till media" in the Source_Editor, THE Source_Editor SHALL open a file chooser dialog filtered to image file types (.jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .webp)
+1. WHEN the user clicks "Lägg till media" in the Source_Editor, THE Source_Editor SHALL open a file chooser dialog filtered to image file types (.jpg, .jpeg, .png, .tif, .tiff, .bmp, .gif, .webp) and document file types (.pdf, .docx, .rtf, .odt)
 2. IF the user cancels the file chooser dialog, THEN THE Source_Editor SHALL take no action and return to the previous state
 3. WHEN the user selects a file, THE Source_Editor SHALL copy the file to the project folder media directory, resolving filename conflicts by appending a numeric suffix (_1, _2, etc.) before the extension
 4. IF the file copy operation fails, THEN THE Source_Editor SHALL display an error message indicating the failure reason and SHALL NOT create a media record
-5. WHEN the file is copied successfully, THE Source_Editor SHALL create a media record with type "photo", the copied file path relative to the media directory, and a title derived from the source title, and SHALL append the media ID to the source's media_ids list
+5. WHEN the file is copied successfully, THE Source_Editor SHALL create a media record with type "photo" for image files or type "document" for document files (.pdf, .docx, .rtf, .odt), the copied file path relative to the media directory, and a title derived from the source title, and SHALL append the media ID to the source's media_ids list
 
 ### Requirement 5: Source Title Format from Search
 

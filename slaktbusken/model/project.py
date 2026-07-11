@@ -19,7 +19,7 @@ from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.research_note import ResearchNote
-from slaktbusken.model.source import Repository, Source
+from slaktbusken.model.source import Kalltyp, Leverantor, Repository, Source
 
 
 @dataclass
@@ -53,3 +53,5 @@ class ProjectData:
     dna_clusters: list[DnaCluster] = field(default_factory=list)
     dna_triangulations: list[DnaTriangulation] = field(default_factory=list)
     research_notes: list[ResearchNote] = field(default_factory=list)
+    leverantorer: list[Leverantor] = field(default_factory=list)
+    kalltyper: list[Kalltyp] = field(default_factory=list)

@@ -574,3 +574,154 @@ class TestDirtyTracking:
         service.close_project()
         service.open_project(data_file)
         assert not service.is_dirty
+
+
+# ---------------------------------------------------------------------------
+# Standard Leverantörer Initialization Tests (Requirement 3)
+# ---------------------------------------------------------------------------
+
+
+class TestStandardProviders:
+    """Tests for standard Leverantörer/Källtyper initialization on project creation.
+
+    Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8
+    """
+
+    @pytest.fixture(autouse=True)
+    def _create_project(self, service: ProjectService, project_dir: Path) -> None:
+        """Create a project before each test."""
+        service.create_project("TestProjekt", project_dir)
+
+    def test_creates_five_leverantorer(self, service: ProjectService) -> None:
+        """New project has exactly 5 standard Leverantörer."""
+        assert len(service.data.leverantorer) == 5
+
+    def test_leverantorer_names_in_order(self, service: ProjectService) -> None:
+        """Standard Leverantörer appear in the correct order (Req 3.1)."""
+        expected = [
+            "Arkiv Digital",
+            "Nationell arkivdatabas",
+            "Rötter.se",
+            "Skatteverket",
+            "Övrigt",
+        ]
+        actual = [lev.name for lev in service.data.leverantorer]
+        assert actual == expected
+
+    def test_leverantorer_have_unique_uuids(self, service: ProjectService) -> None:
+        """Each Leverantör has a unique UUID."""
+        ids = [lev.id for lev in service.data.leverantorer]
+        assert len(ids) == len(set(ids))
+
+    def test_arkiv_digital_kalltyper(self, service: ProjectService) -> None:
+        """Arkiv Digital has the correct 14 Källtyper in order (Req 3.2)."""
+        arkiv_digital = service.data.leverantorer[0]
+        kalltyper = [
+            kt for kt in service.data.kalltyper
+            if kt.leverantor_id == arkiv_digital.id
+        ]
+        expected = [
+            "Husförhörslängd", "Församlingsbok", "Mantalslängd", "Folkräkning",
+            "Inflyttningslängd", "Utflyttningslängd", "In- och Utflyttningslängd",
+            "Födelse- och dopbok", "Lysnings- och vigselbok",
+            "Död- och begravningsbok", "Generalmönstringsrullor",
+            "Bouppteckningar", "Konfirmationsbok", "Övrigt",
+        ]
+        actual = [kt.name for kt in kalltyper]
+        assert actual == expected
+
+    def test_nationell_arkivdatabas_same_as_arkiv_digital(
+        self, service: ProjectService
+    ) -> None:
+        """Nationell arkivdatabas has same Källtyper as Arkiv Digital (Req 3.3)."""
+        arkiv_digital = service.data.leverantorer[0]
+        nad = service.data.leverantorer[1]
+
+        ad_names = [
+            kt.name for kt in service.data.kalltyper
+            if kt.leverantor_id == arkiv_digital.id
+        ]
+        nad_names = [
+            kt.name for kt in service.data.kalltyper
+            if kt.leverantor_id == nad.id
+        ]
+        assert ad_names == nad_names
+
+    def test_rotter_kalltyper(self, service: ProjectService) -> None:
+        """Rötter.se has 3 Källtyper in correct order with root_url (Req 3.4)."""
+        rotter = service.data.leverantorer[2]
+        kalltyper = [
+            kt for kt in service.data.kalltyper
+            if kt.leverantor_id == rotter.id
+        ]
+        assert len(kalltyper) == 3
+        assert kalltyper[0].name == "Sveriges Dödbok Webb"
+        assert kalltyper[0].root_url == "https://www.rotter.se/abonnemang/sveriges-dodbok-webb/post/"
+        assert kalltyper[1].name == "Sveriges Dödbok (sticka/dvd)"
+        assert kalltyper[2].name == "Övrigt"
+
+    def test_skatteverket_kalltyper(self, service: ProjectService) -> None:
+        """Skatteverket has 2 Källtyper in correct order (Req 3.5)."""
+        skatteverket = service.data.leverantorer[3]
+        kalltyper = [
+            kt for kt in service.data.kalltyper
+            if kt.leverantor_id == skatteverket.id
+        ]
+        assert len(kalltyper) == 2
+        assert kalltyper[0].name == "Personbild (6401)"
+        assert kalltyper[1].name == "Övrigt"
+
+    def test_ovrigt_kalltyper(self, service: ProjectService) -> None:
+        """Övrigt has 4 Källtyper in correct order (Req 3.6)."""
+        ovrigt = service.data.leverantorer[4]
+        kalltyper = [
+            kt for kt in service.data.kalltyper
+            if kt.leverantor_id == ovrigt.id
+        ]
+        expected = ["Dödsannons", "Tidningsartikel", "Övrig databas", "Övrigt"]
+        actual = [kt.name for kt in kalltyper]
+        assert actual == expected
+
+    def test_all_kalltyper_have_unique_uuids(self, service: ProjectService) -> None:
+        """Every Källtyp has a unique UUID."""
+        ids = [kt.id for kt in service.data.kalltyper]
+        assert len(ids) == len(set(ids))
+
+    def test_all_kalltyper_reference_valid_leverantor(
+        self, service: ProjectService
+    ) -> None:
+        """Every Källtyp references a valid Leverantör."""
+        leverantor_ids = {lev.id for lev in service.data.leverantorer}
+        for kt in service.data.kalltyper:
+            assert kt.leverantor_id in leverantor_ids
+
+    def test_total_kalltyper_count(self, service: ProjectService) -> None:
+        """Total Källtyper count is 14+14+3+2+4 = 37."""
+        assert len(service.data.kalltyper) == 37
+
+    def test_open_project_does_not_reinitialize(
+        self, service: ProjectService, project_dir: Path
+    ) -> None:
+        """Opening an existing project does NOT re-add standard providers (Req 3.8)."""
+        data_file = project_dir / "TestProjekt" / "TestProjekt.json.gz"
+
+        # Close and reopen.
+        service.close_project()
+        service.open_project(data_file)
+
+        # Should still have exactly 5 leverantörer, not 10.
+        assert len(service.data.leverantorer) == 5
+        assert len(service.data.kalltyper) == 37
+
+    def test_standard_providers_persisted_to_disk(
+        self, service: ProjectService, project_dir: Path
+    ) -> None:
+        """Standard providers are saved in the .json.gz file on creation."""
+        data_file = project_dir / "TestProjekt" / "TestProjekt.json.gz"
+
+        raw = gzip.decompress(data_file.read_bytes())
+        data = json.loads(raw)
+
+        assert len(data["leverantorer"]) == 5
+        assert len(data["kalltyper"]) == 37
+        assert data["leverantorer"][0]["name"] == "Arkiv Digital"

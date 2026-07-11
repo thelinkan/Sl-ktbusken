@@ -273,6 +273,12 @@ class Ui_EventEditor(object):
 
         self.sources_buttons_layout.addWidget(self.remove_source_button)
 
+        self.open_source_button = QPushButton(self.sources_group)
+        self.open_source_button.setObjectName(u"open_source_button")
+        self.open_source_button.setEnabled(False)
+
+        self.sources_buttons_layout.addWidget(self.open_source_button)
+
         self.sources_buttons_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.sources_buttons_layout.addItem(self.sources_buttons_spacer)
@@ -405,6 +411,7 @@ class Ui_EventEditor(object):
         self.source_note_input.setPlaceholderText(QCoreApplication.translate("EventEditor", u"Valfri anteckning om k\u00e4llan", None))
         self.add_source_button.setText(QCoreApplication.translate("EventEditor", u"L\u00e4gg till k\u00e4lla", None))
         self.remove_source_button.setText(QCoreApplication.translate("EventEditor", u"Ta bort k\u00e4lla", None))
+        self.open_source_button.setText(QCoreApplication.translate("EventEditor", u"\u00d6ppna k\u00e4lla", None))
         self.media_group.setTitle(QCoreApplication.translate("EventEditor", u"Media", None))
         self.media_select_label.setText(QCoreApplication.translate("EventEditor", u"Media:", None))
         self.add_media_button.setText(QCoreApplication.translate("EventEditor", u"L\u00e4gg till media", None))

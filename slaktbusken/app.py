@@ -864,6 +864,7 @@ class Application:
 
         editor = SourceEditor(
             project_data=project_data,
+            project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             parent=dialog,
         )
         layout.addWidget(editor)
@@ -1046,6 +1047,36 @@ class Application:
         dialog.exec()
 
         # Mark project dirty if any DNA data was modified
+        self.project_service._dirty = True
+        self._update_status()
+
+    def show_provider_editor(self) -> None:
+        """Open the provider editor dialog.
+
+        Creates a ProviderEditor wrapped in a QDialog, allowing the
+        user to manage source providers (Leverantörer) and source types
+        (Källtyper).
+        """
+        from slaktbusken.ui.editors.provider_editor import ProviderEditor
+
+        project_data = self.project_service.data
+        if project_data is None:
+            return
+
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Käll-leverantörer")
+        dialog.setMinimumSize(700, 500)
+        layout = QVBoxLayout(dialog)
+
+        editor = ProviderEditor(
+            project_data=project_data,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        dialog.exec()
+
+        # ProviderEditor modifies project_data in-place, mark dirty
         self.project_service._dirty = True
         self._update_status()
 

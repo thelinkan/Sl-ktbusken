@@ -146,6 +146,14 @@ class MainWindow(QMainWindow):
             self._app.show_source_translation_editor
         )
 
+        self.action_provider_editor = QAction("Käll-leverantörer...", self)
+        self.action_provider_editor.setToolTip(
+            "Hantera käll-leverantörer och källtyper"
+        )
+        self.action_provider_editor.triggered.connect(
+            self._app.show_provider_editor
+        )
+
         self.action_place_editor = QAction("&Platsredigerare...", self)
         self.action_place_editor.setToolTip(
             "Visa, redigera och hantera platser"
@@ -208,6 +216,7 @@ class MainWindow(QMainWindow):
         self.menu_edit = menu_bar.addMenu("&Redigera")
         self.menu_edit.addAction(self.action_source_editor)
         self.menu_edit.addAction(self.action_source_translation_editor)
+        self.menu_edit.addAction(self.action_provider_editor)
         self.menu_edit.addAction(self.action_place_editor)
         self.menu_edit.addAction(self.action_place_translation_editor)
         self.menu_edit.addSeparator()
@@ -361,6 +370,7 @@ class MainWindow(QMainWindow):
         self.action_relationship.setEnabled(project_open)
         self.action_source_editor.setEnabled(project_open)
         self.action_source_translation_editor.setEnabled(project_open)
+        self.action_provider_editor.setEnabled(project_open)
         self.action_place_editor.setEnabled(project_open)
         self.action_place_translation_editor.setEnabled(project_open)
         self.action_dna_editor.setEnabled(project_open)

@@ -13,6 +13,7 @@ class SourceRef:
     source_id: str
     quality: str
     note: str = ""
+    aspects: list[str] = field(default_factory=list)
 
 
 @dataclass

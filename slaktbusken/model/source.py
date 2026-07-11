@@ -28,6 +28,26 @@ class RepositoryRef:
 
 
 @dataclass
+class Leverantor:
+    """A source provider (e.g., Arkiv Digital, Rötter.se)."""
+
+    id: str
+    name: str
+    comment: str = ""
+
+
+@dataclass
+class Kalltyp:
+    """A source type belonging to a specific Leverantör."""
+
+    id: str
+    leverantor_id: str
+    name: str
+    comment: str = ""
+    root_url: str = ""
+
+
+@dataclass
 class Source:
     """A genealogical source record."""
 
@@ -42,6 +62,9 @@ class Source:
     structured_reference: StructuredReference = field(default_factory=StructuredReference)
     media_ids: list[str] = field(default_factory=list)
     repository_refs: list[RepositoryRef] = field(default_factory=list)
+    leverantor_id: str = ""
+    kalltyp_id: str = ""
+    arkivreferens: str = ""
 
 
 @dataclass

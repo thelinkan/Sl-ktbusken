@@ -52,6 +52,7 @@ from slaktbusken.persistence.translation_io import (
     TranslationData,
     write_all as write_translations,
 )
+from slaktbusken.services.standard_providers import initialize_standard_providers
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,9 @@ class ProjectService:
             version="0.1",
             project=metadata,
         )
+
+        # Initialize standard Leverantörer and Källtyper for new projects.
+        initialize_standard_providers(project_data)
 
         # Save the .json.gz data file.
         data_file = project_folder / f"{name}.json.gz"

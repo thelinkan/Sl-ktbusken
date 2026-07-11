@@ -14,6 +14,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QCompleter,
     QDialog,
@@ -44,6 +45,10 @@ from slaktbusken.model.media import LinkedEntity, MediaItem
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.source import Source
 from slaktbusken.services.event_media_service import EventMediaService
+from slaktbusken.services.source_aspects import (
+    ASPECT_LABELS,
+    get_aspects_for_event_type,
+)
 from slaktbusken.ui.generated.ui_event_editor import Ui_EventEditor
 from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS, DATE_PRECISION_LABELS
 
@@ -187,6 +192,7 @@ class EventEditor(QWidget):
         self._populate_combos()
         self._setup_reference_paste()
         self._setup_new_place_button()
+        self._setup_aspect_checkboxes()
         self._setup_event_media_section()
         self._connect_signals()
         self._update_type_specific_fields()
@@ -261,6 +267,32 @@ class EventEditor(QWidget):
         # The sources_group_layout order is: table, source_edit_layout, source_note_layout, buttons
         # We insert the reference paste layout at index 2 (after source_edit_layout)
         self._ui.sources_group_layout.insertLayout(2, ref_layout)
+
+    def _setup_aspect_checkboxes(self) -> None:
+        """Create the aspect checkboxes section in the sources group.
+
+        Adds a horizontal layout with checkboxes for the aspects relevant
+        to the current event type. The checkboxes are shown when a source
+        row is selected in the sources table, and update the stored aspects
+        for that row when toggled.
+        """
+        self._aspect_checkboxes: list[QCheckBox] = []
+        self._aspect_checkbox_layout = QHBoxLayout()
+        self._aspect_checkbox_layout.setContentsMargins(0, 4, 0, 4)
+
+        aspect_label = QLabel("Aspekter:", self._ui.sources_group)
+        self._aspect_checkbox_layout.addWidget(aspect_label)
+
+        # Spacer at the end
+        self._aspect_checkbox_layout.addItem(
+            QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        )
+
+        # Insert after the sources_table (index 1, after the table at index 0)
+        self._ui.sources_group_layout.insertLayout(1, self._aspect_checkbox_layout)
+
+        # Initially hidden until a source row is selected
+        self._set_aspect_checkboxes_visible(False)
 
     def _setup_new_place_button(self) -> None:
         """Add a 'Ny plats' button next to the place combo.
@@ -467,6 +499,10 @@ class EventEditor(QWidget):
         # Sources
         self._ui.add_source_button.clicked.connect(self._on_add_source)
         self._ui.remove_source_button.clicked.connect(self._on_remove_source)
+        self._ui.open_source_button.clicked.connect(self._on_open_source)
+        self._ui.sources_table.itemSelectionChanged.connect(
+            self._on_sources_selection_changed
+        )
         self._ref_lookup_button.clicked.connect(self._on_lookup_reference)
         self._ref_paste_input.returnPressed.connect(self._on_lookup_reference)
 
@@ -513,6 +549,9 @@ class EventEditor(QWidget):
 
         # Update participants visibility
         self._update_participants_visibility()
+
+        # Update aspect checkboxes for the new event type
+        self._update_aspect_checkboxes_for_event_type()
 
     def _update_participants_visibility(self) -> None:
         """Show/hide the participants section based on event type and context.
@@ -679,6 +718,8 @@ class EventEditor(QWidget):
         source_item = QTableWidgetItem(source_display)
         source_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
         source_item.setData(Qt.ItemDataRole.UserRole, source_ref.source_id)
+        # Store aspects in UserRole+1
+        source_item.setData(Qt.ItemDataRole.UserRole + 1, list(source_ref.aspects))
 
         quality_label = SOURCE_QUALITY_LABELS.get(source_ref.quality, source_ref.quality)
         quality_item = QTableWidgetItem(quality_label)
@@ -718,7 +759,156 @@ class EventEditor(QWidget):
 
         row = selected[0].row()
         self._ui.sources_table.removeRow(row)
+        self._set_aspect_checkboxes_visible(False)
         self._clear_status()
+
+    def _on_sources_selection_changed(self) -> None:
+        """Enable/disable the 'Öppna källa' button based on table selection and update aspect checkboxes."""
+        has_selection = bool(self._ui.sources_table.selectedItems())
+        self._ui.open_source_button.setEnabled(has_selection)
+        if has_selection:
+            row = self._ui.sources_table.selectedItems()[0].row()
+            self._load_aspects_for_row(row)
+            self._set_aspect_checkboxes_visible(True)
+        else:
+            self._set_aspect_checkboxes_visible(False)
+
+    def _on_open_source(self) -> None:
+        """Open the SourceEditor with the currently selected source."""
+        selected = self._ui.sources_table.selectedItems()
+        if not selected:
+            return
+
+        row = selected[0].row()
+        source_id = self._ui.sources_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+
+        # Find the Source object
+        source: Optional[Source] = None
+        for s in self._project_data.sources:
+            if s.id == source_id:
+                source = s
+                break
+
+        if source is None:
+            self._update_status("Kunde inte hitta källan.")
+            return
+
+        from slaktbusken.ui.editors.source_editor import SourceEditor
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Källredigerare")
+        dialog.setMinimumSize(800, 600)
+        layout = QVBoxLayout(dialog)
+
+        editor = SourceEditor(
+            project_data=self._project_data,
+            source=source,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        dialog.exec()
+
+        # If source was saved, update in project data
+        if editor.saved_source is not None:
+            saved = editor.saved_source
+            for i, existing in enumerate(self._project_data.sources):
+                if existing.id == saved.id:
+                    self._project_data.sources[i] = saved
+                    break
+            # Update the display in the sources table
+            source_display = self._get_source_display(saved.id)
+            self._ui.sources_table.item(row, 0).setText(source_display)
+
+    # ------------------------------------------------------------------
+    # Private: source aspect checkboxes
+    # ------------------------------------------------------------------
+
+    def _set_aspect_checkboxes_visible(self, visible: bool) -> None:
+        """Show or hide all aspect checkbox widgets.
+
+        Args:
+            visible: Whether the checkboxes should be visible.
+        """
+        for i in range(self._aspect_checkbox_layout.count()):
+            item = self._aspect_checkbox_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().setVisible(visible)
+
+    def _update_aspect_checkboxes_for_event_type(self) -> None:
+        """Rebuild aspect checkboxes based on the current event type.
+
+        Clears existing checkboxes and creates new ones for the aspects
+        relevant to the currently selected event type.
+        """
+        # Remove existing checkboxes (keep the label at index 0 and spacer at end)
+        while len(self._aspect_checkboxes) > 0:
+            cb = self._aspect_checkboxes.pop()
+            self._aspect_checkbox_layout.removeWidget(cb)
+            cb.deleteLater()
+
+        # Get aspects for current event type
+        event_type = self._ui.type_combo.currentData() or ""
+        aspects = get_aspects_for_event_type(event_type)
+
+        # Insert checkboxes before the spacer (which is the last item)
+        spacer_index = self._aspect_checkbox_layout.count() - 1
+        for aspect in aspects:
+            label = ASPECT_LABELS.get(aspect, aspect)
+            cb = QCheckBox(label, self._ui.sources_group)
+            cb.setProperty("aspect_key", aspect)
+            cb.toggled.connect(self._on_aspect_checkbox_toggled)
+            self._aspect_checkbox_layout.insertWidget(spacer_index, cb)
+            self._aspect_checkboxes.append(cb)
+            spacer_index += 1
+
+        # Hide if no source row is selected
+        has_selection = bool(self._ui.sources_table.selectedItems())
+        self._set_aspect_checkboxes_visible(has_selection)
+
+    def _load_aspects_for_row(self, row: int) -> None:
+        """Load stored aspects for the given row into the checkboxes.
+
+        Args:
+            row: The row index in the sources table.
+        """
+        # Get stored aspects from the source item's UserRole+1 data
+        item = self._ui.sources_table.item(row, 0)
+        if item is None:
+            return
+        stored_aspects = item.data(Qt.ItemDataRole.UserRole + 1) or []
+
+        # Block signals while updating checkboxes to avoid feedback loops
+        for cb in self._aspect_checkboxes:
+            cb.blockSignals(True)
+            aspect_key = cb.property("aspect_key")
+            cb.setChecked(aspect_key in stored_aspects)
+            cb.blockSignals(False)
+
+    def _on_aspect_checkbox_toggled(self, _checked: bool) -> None:
+        """Handle aspect checkbox state change.
+
+        Updates the stored aspects for the currently selected source row.
+        """
+        selected = self._ui.sources_table.selectedItems()
+        if not selected:
+            return
+
+        row = selected[0].row()
+        # Collect currently checked aspects
+        checked_aspects: list[str] = []
+        for cb in self._aspect_checkboxes:
+            if cb.isChecked():
+                aspect_key = cb.property("aspect_key")
+                checked_aspects.append(aspect_key)
+
+        # Store in the source item (column 0) using UserRole+1
+        item = self._ui.sources_table.item(row, 0)
+        if item:
+            item.setData(Qt.ItemDataRole.UserRole + 1, checked_aspects)
 
     def _on_lookup_reference(self) -> None:
         """Look up a source by pasted reference text.
@@ -1243,7 +1433,7 @@ class EventEditor(QWidget):
         """Collect source references from the sources table.
 
         Returns:
-            List of SourceRef objects from the table rows.
+            List of SourceRef objects from the table rows, including aspects.
         """
         source_refs: list[SourceRef] = []
         table = self._ui.sources_table
@@ -1251,8 +1441,9 @@ class EventEditor(QWidget):
             source_id = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
             quality = table.item(row, 1).data(Qt.ItemDataRole.UserRole)
             note = table.item(row, 2).text()
+            aspects = table.item(row, 0).data(Qt.ItemDataRole.UserRole + 1) or []
             source_refs.append(
-                SourceRef(source_id=source_id, quality=quality, note=note)
+                SourceRef(source_id=source_id, quality=quality, note=note, aspects=aspects)
             )
         return source_refs
 

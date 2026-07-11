@@ -25,7 +25,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import ExternalId, Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
-from slaktbusken.model.source import Repository, RepositoryRef, Source, StructuredReference
+from slaktbusken.model.source import Kalltyp, Leverantor, Repository, RepositoryRef, Source, StructuredReference
 
 
 def serialize(data: ProjectData) -> str:
@@ -55,7 +55,7 @@ def serialize(data: ProjectData) -> str:
         "persons", "families", "events", "places", "sources",
         "media", "repositories", "dna_companies", "dna_profiles",
         "dna_matches", "dna_segments", "dna_clusters",
-        "dna_triangulations", "research_notes",
+        "dna_triangulations", "research_notes", "leverantorer", "kalltyper",
     ]
     for field_name in entity_fields:
         items = getattr(data, field_name, [])
@@ -199,6 +199,8 @@ _ENTITY_MAP: dict[str, type] = {
     "dna_clusters": DnaCluster,
     "dna_triangulations": DnaTriangulation,
     "research_notes": ResearchNote,
+    "leverantorer": Leverantor,
+    "kalltyper": Kalltyp,
 }
 
 # Mapping of (parent_class, field_name) -> element type for list fields
