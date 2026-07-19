@@ -501,9 +501,12 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "Om Släktbusken",
-            "Släktbusken v0.1.0\n\n"
-            "Ett skrivbordsverktyg för svensk släktforskning.\n\n"
-            "Byggt med Python och PySide6.",
+            "<p>Släktbusken v0.1.0 (beta)</p>"
+            "<p>Ett skrivbordsverktyg för svensk släktforskning.</p>"
+            "<p>Byggt med Python och PySide6.</p>"
+            "<p>Gjort av Linkan, med hjälp av Specdriven AI (KIRO)</p>"
+            '<p><a href="https://github.com/thelinkan/Sl-ktbusken">'
+            "https://github.com/thelinkan/Sl-ktbusken</a></p>",
         )
 
     def refresh_recent_projects_menu(self, recent_projects: list[str]) -> None:

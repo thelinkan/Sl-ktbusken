@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -11,7 +12,16 @@ from PySide6.QtSvg import QSvgRenderer
 
 logger = logging.getLogger(__name__)
 
-_ICONS_DIR = Path(__file__).parent
+
+def _get_icons_dir() -> Path:
+    """Return the icons directory, handling both normal and frozen (PyInstaller) mode."""
+    if getattr(sys, "frozen", False):
+        # Running as a PyInstaller bundle — files are in sys._MEIPASS
+        return Path(sys._MEIPASS) / "slaktbusken" / "ui" / "icons"
+    return Path(__file__).parent
+
+
+_ICONS_DIR = _get_icons_dir()
 
 _EVENTS_DIR = _ICONS_DIR / "events"
 _GENDER_DIR = _ICONS_DIR / "gender"
