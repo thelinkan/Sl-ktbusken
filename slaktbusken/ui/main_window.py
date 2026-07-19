@@ -193,11 +193,21 @@ class MainWindow(QMainWindow):
 
         # Visa huvudperson
         self.action_show_main_person = QAction("Visa &huvudperson", self)
+        self.action_show_main_person.setShortcut(QKeySequence("H"))
         self.action_show_main_person.setToolTip(
             "Navigera till huvudpersonen i aktuell vy"
         )
         self.action_show_main_person.triggered.connect(
             self._app.show_main_person
+        )
+
+        self.action_goto_selected_person = QAction("M&arkerad person", self)
+        self.action_goto_selected_person.setShortcut(QKeySequence("A"))
+        self.action_goto_selected_person.setToolTip(
+            "Gör markerad person till aktiv person i aktuell vy"
+        )
+        self.action_goto_selected_person.triggered.connect(
+            self._activate_selected_person
         )
 
     # ------------------------------------------------------------------
@@ -234,6 +244,10 @@ class MainWindow(QMainWindow):
         # Person
         self.menu_person = menu_bar.addMenu("&Person")
         self.menu_person.addAction(self.action_add_person)
+        self.menu_person.addSeparator()
+        self.menu_goto = self.menu_person.addMenu("Gå till")
+        self.menu_goto.addAction(self.action_show_main_person)
+        self.menu_goto.addAction(self.action_goto_selected_person)
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
@@ -389,9 +403,21 @@ class MainWindow(QMainWindow):
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)
         self.action_show_main_person.setEnabled(project_open)
+        self.action_goto_selected_person.setEnabled(project_open)
 
         if hasattr(self, '_report_menu_builder'):
             self._report_menu_builder.update_project_state(project_open)
+
+    def _activate_selected_person(self) -> None:
+        """Make the currently selected (marked) person the active person."""
+        selected_id = (
+            self.diagram_panel._family_view.selected_person_id
+            or self.diagram_panel._ancestry_view.selected_person_id
+            or self.diagram_panel._descendants_view.selected_person_id
+        )
+        if selected_id:
+            self.diagram_panel.person_activated.emit(selected_id)
+            self.diagram_panel.set_active_person(selected_id)
 
     def _switch_view(self, view_type: ViewType) -> None:
         """Switch the diagram panel view type.
