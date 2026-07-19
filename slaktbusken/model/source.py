@@ -48,6 +48,14 @@ class Kalltyp:
 
 
 @dataclass
+class ArkivReferens:
+    """A single archive reference entry linking a provider name to a reference value."""
+
+    leverantor_name: str
+    reference_value: str
+
+
+@dataclass
 class Source:
     """A genealogical source record."""
 
@@ -65,6 +73,7 @@ class Source:
     leverantor_id: str = ""
     kalltyp_id: str = ""
     arkivreferens: str = ""
+    arkivreferenser: list[ArkivReferens] = field(default_factory=list)
 
 
 @dataclass

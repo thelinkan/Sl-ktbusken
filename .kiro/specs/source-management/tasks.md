@@ -288,6 +288,132 @@ This plan implements the source management feature in incremental steps, startin
 - [~] 14. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
+- [x] 15. Bugfix: SDB reference recognition in GEDCOM import
+  - [x] 15.1 Fix GEDCOM import to detect SDB patterns and assign Leverantör/Källtyp
+    - In `gedcom/translation/source_translation.py`, detect sources with SDB patterns (SDB{digit}_{digits}) or "Sveriges dödbok webb" text
+    - Assign leverantor_id matching "Rötter.se" and kalltyp_id matching "Sveriges Dödbok Webb" to the created Source
+    - Store the SDB identifier as arkivreferens on the Source
+    - _Requirements: 14.1, 14.2_
+
+  - [x] 15.2 Write tests for SDB detection in GEDCOM import
+    - Test that a GEDCOM source with "SDB7_12345" in text gets Leverantör "Rötter.se" and Källtyp "Sveriges Dödbok Webb"
+    - Test that a GEDCOM source with "Sveriges dödbok webb" in text is correctly recognized
+    - _Requirements: 14.1, 14.2_
+
+- [x] 16. Bugfix: Arkiv Digital variant pattern parsing
+  - [x] 16.1 Add "Bild:" colon pattern support to reference parser
+    - Add regex pattern for `{parish} ({county_code}) {series}:{volume} ({years}) Bild: {image} Sida: {page}`
+    - This pattern uses "Bild:" (with colon) and "Sida:" instead of "Bild {N} / sid {N}"
+    - Parse identically to the existing full pattern
+    - _Requirements: 15.1_
+
+  - [x] 16.2 Add Församlingsbok series code mapping
+    - Add "AIIa", "AIIb", and other AII-variant series codes to CHURCH_BOOK_SERIES_LABELS mapping as "Församlingsbok"
+    - _Requirements: 15.3_
+
+  - [x] 16.3 Fix GEDCOM import title and reference_text handling
+    - When importing ArkivDigital sources: title = formatted title (e.g., "Karlstads stadsförsamling (S) AIIa:7 Sida: 21"), reference_text = full original text (after prefix stripping), provider_ref = empty string
+    - Ensure this matches the behavior when pasting (no search match found)
+    - _Requirements: 15.2_
+
+  - [x] 16.4 Write tests for variant pattern parsing
+    - Test "Ed (S) C:6 (1861-1889) Bild 140 (AID: v5976.b140, NAD: SE/VA/13090)" is parsed as Arkiv Digital, Födelse- och dopbok
+    - Test "Karlstads stadsförsamling (S) AIIa:7 (1906-1910) Bild: 350 Sida: 21" is parsed with Källtyp "Församlingsbok"
+    - Test title formatting produces correct output for variant patterns
+    - _Requirements: 15.1, 15.2, 15.3_
+
+- [x] 17. Bugfix: Leverantör/Källtyp dropdown menus in Source Editor
+  - [x] 17.1 Replace provider_input text field with Leverantör QComboBox
+    - Replace `provider_input` QLineEdit with a QComboBox populated from `project_data.leverantorer`
+    - Add empty first entry (no selection)
+    - Store selected leverantor_id when selection changes
+    - Pre-select when loading existing source
+    - _Requirements: 12.1, 12.4, 12.5_
+
+  - [x] 17.2 Add Källtyp QComboBox filtered by selected Leverantör
+    - Add `kalltyp_combo` QComboBox below leverantör combo
+    - Populate with Källtyper for the currently selected Leverantör
+    - Update contents when Leverantör selection changes
+    - Store selected kalltyp_id when selection changes
+    - Pre-select when loading existing source
+    - _Requirements: 12.2, 12.3, 12.4, 12.5_
+
+  - [x] 17.3 Wire parse/import to select dropdowns instead of setting text
+    - When `_apply_parsed_reference` is called, select the matching Leverantör in the dropdown (by name lookup)
+    - Trigger Källtyp dropdown update, then select matching Källtyp
+    - Remove the old `provider_input.setText()` call
+    - _Requirements: 12.6_
+
+  - [x] 17.4 Update _on_save to read from dropdowns
+    - Read leverantor_id and kalltyp_id from combo box selections instead of pending fields
+    - Ensure the source is saved with correct FK references
+    - _Requirements: 12.4_
+
+  - [x] 17.5 Write tests for dropdown behavior
+    - Test combo is populated with all Leverantörer
+    - Test Källtyp combo updates when Leverantör changes
+    - Test save stores correct IDs
+    - Test load pre-selects correct items
+    - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
+
+- [x] 18. Bugfix: Arkivreferenser two-column table with multi-provider support
+  - [x] 18.1 Redesign Arkivreferenser section as two-column table
+    - Replace current single-field arkivreferens with a QTableWidget (columns: "Leverantör", "Referens")
+    - Add buttons "Lägg till", "Ta bort", "Redigera" for managing rows
+    - Display existing arkivreferenser when loading a source
+    - _Requirements: 13.1, 13.4_
+
+  - [x] 18.2 Extend Source data model for multiple arkivreferenser
+    - Add `arkivreferenser: list[ArkivReferens]` field to Source (where ArkivReferens has leverantor_name and reference_value)
+    - Maintain backward compatibility with existing single `arkivreferens` field
+    - Update serialization to handle both old and new format
+    - _Requirements: 13.5_
+
+  - [x] 18.3 Update reference parser to produce multiple arkivreferenser
+    - When AID and NAD are both present: produce two entries (Arkiv Digital → AID value, Nationell Arkivdatabas → NAD value)
+    - When only AID is present: produce one entry (Arkiv Digital → AID value)
+    - Update ParsedReference dataclass to carry a list of arkivreferenser
+    - _Requirements: 13.2, 13.3_
+
+  - [x] 18.4 Wire arkivreferenser table to save/load
+    - On save: persist all rows from the table into the source's arkivreferenser list
+    - On load: populate table rows from source's arkivreferenser
+    - On parse: populate table from parsed reference arkivreferenser
+    - _Requirements: 13.5_
+
+  - [x] 18.5 Write tests for multi-provider arkivreferenser
+    - Test "Ed (S) AI:16 (1866-1870) Bild 53 / sid 46 (AID: v10726.b53.s46, NAD: SE/VA/13090)" produces 2 arkivreferens entries
+    - Test AID-only reference produces 1 entry
+    - Test round-trip persistence of multiple arkivreferenser
+    - _Requirements: 13.2, 13.3, 13.5_
+
+- [x] 19. Bugfix: Media viewing in Source Editor
+  - [x] 19.1 Add "Visa" button to Länkade media section
+    - Add a "Visa" (or "Öppna") button next to the existing remove button
+    - When clicked, open the selected media file with the system default application
+    - Use QDesktopServices.openUrl with file:// protocol and the full path (project_folder / media.file)
+    - Disable button when no media item is selected
+    - _Requirements: 16.1, 16.2_
+
+  - [x] 19.2 Write test for media open action
+    - Test that clicking "Visa" calls QDesktopServices.openUrl with correct file:// URL (mocked)
+    - Test button is disabled when no item is selected
+    - _Requirements: 16.1, 16.2_
+
+- [x] 20. Bugfix: Media attachment project folder detection
+  - [x] 20.1 Ensure project_folder is always passed to SourceEditor
+    - Audit all call sites that instantiate SourceEditor and ensure `project_folder` is passed from the project service
+    - In `app.py show_source_editor()`: pass `self.project_service.project_path.parent` as project_folder
+    - In EventEditor source creation dialog: pass project_folder
+    - _Requirements: 17.1, 17.2_
+
+  - [x] 20.2 Write test for project_folder propagation
+    - Test that SourceEditor receives a non-None project_folder when opened from the app with a project loaded
+    - _Requirements: 17.1_
+
+- [~] 21. Checkpoint - Ensure all bugfix tests pass
+  - Ensure all tests pass after bugfix tasks, ask the user if questions arise.
+
 ## Notes
 
 - Tasks marked with `*` are optional and can be skipped for faster MVP
@@ -312,7 +438,12 @@ This plan implements the source management feature in incremental steps, startin
     { "id": 6, "tasks": ["8.2", "9.1", "9.2", "9.3", "9.4"] },
     { "id": 7, "tasks": ["10.1", "10.2", "11.1"] },
     { "id": 8, "tasks": ["13.1", "13.2"] },
-    { "id": 9, "tasks": ["13.3"] }
+    { "id": 9, "tasks": ["13.3"] },
+    { "id": 10, "tasks": ["15.1", "16.1", "16.2", "16.3", "18.2", "20.1"] },
+    { "id": 11, "tasks": ["15.2", "16.4", "17.1", "18.3", "19.1", "20.2"] },
+    { "id": 12, "tasks": ["17.2", "18.1"] },
+    { "id": 13, "tasks": ["17.3", "17.4", "18.4"] },
+    { "id": 14, "tasks": ["17.5", "18.5", "19.2"] }
   ]
 }
 ```

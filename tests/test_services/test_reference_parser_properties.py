@@ -158,7 +158,13 @@ class TestArkivDigitalChurchBookRoundTrip:
         assert result.leverantor_name == "Arkiv Digital"
         assert result.kalltyp_name == CHURCH_BOOK_SERIES_LABELS[series]
         assert result.title == f"{parish} {series}:{volume} Sida: {page}"
-        assert result.reference_text == reference
+        # reference_text should NOT contain AID/NAD parenthetical (requirement 2.4)
+        expected_ref_text = (
+            f"{parish} ({county_code}) {series}:{volume} ({years}) "
+            f"Bild {image} / sid {page}"
+        )
+        assert result.reference_text == expected_ref_text
+        assert "(AID:" not in result.reference_text
         assert result.structured_fields["parish"] == parish
         assert result.structured_fields["county_code"] == county_code
         assert result.structured_fields["series"] == series
@@ -199,7 +205,12 @@ class TestArkivDigitalChurchBookRoundTrip:
         assert result.leverantor_name == "Arkiv Digital"
         assert result.kalltyp_name == "Övrigt"
         assert result.title == f"{description} Sida: {page}"
-        assert result.reference_text == reference
+        # reference_text should NOT contain AID parenthetical (requirement 2.4)
+        expected_ref_text = (
+            f"{description} ({year}) Bild {image} / sid {page}"
+        )
+        assert result.reference_text == expected_ref_text
+        assert "(AID:" not in result.reference_text
         assert result.structured_fields["description"] == description
         assert result.structured_fields["year"] == year
         assert result.structured_fields["image"] == image

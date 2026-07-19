@@ -18,16 +18,24 @@ from typing import Optional
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
+    QHeaderView,
     QLabel,
+    QLineEdit,
     QListWidgetItem,
     QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QWidget,
 )
 
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.project import ProjectData
-from slaktbusken.model.source import RepositoryRef, Source, StructuredReference
+from slaktbusken.model.source import ArkivReferens, RepositoryRef, Source, StructuredReference
 from slaktbusken.parsing.reference_parser import ParsedReference, parse_reference
 from slaktbusken.services.media_utils import resolve_filename_conflict
 from slaktbusken.services.source_formatting import format_source_title
@@ -126,7 +134,42 @@ class SourceEditor(QWidget):
         # Insert after basic_group (index 0) in scroll_content_layout
         self._ui.scroll_content_layout.insertWidget(1, self._direct_link_label)
 
-        self._populate_type_combo()
+        # Add "Visa" button to media buttons layout (Requirement 16.1)
+        self._view_media_button = QPushButton("Visa")
+        self._view_media_button.setObjectName("view_media_button")
+        self._view_media_button.setEnabled(False)
+        self._ui.media_buttons_layout.addWidget(self._view_media_button)
+
+        # Replace repository_list with arkivreferenser table (Requirement 13.1)
+        self._ui.repository_list.setVisible(False)
+        self._ui.repository_group_layout.removeWidget(self._ui.repository_list)
+
+        self._arkivref_table = QTableWidget(0, 2)
+        self._arkivref_table.setObjectName("arkivref_table")
+        self._arkivref_table.setHorizontalHeaderLabels(["Leverantör", "Referens"])
+        self._arkivref_table.horizontalHeader().setStretchLastSection(True)
+        self._arkivref_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Interactive
+        )
+        self._arkivref_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self._arkivref_table.setSelectionMode(
+            QTableWidget.SelectionMode.SingleSelection
+        )
+        self._arkivref_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self._ui.repository_group_layout.insertWidget(0, self._arkivref_table)
+
+        # Rename existing buttons and add "Redigera" (Requirement 13.4)
+        self._ui.add_repository_button.setText("Lägg till")
+        self._ui.remove_repository_button.setText("Ta bort")
+        self._edit_arkivref_button = QPushButton("Redigera")
+        self._edit_arkivref_button.setObjectName("edit_arkivref_button")
+        self._ui.repository_buttons_layout.addWidget(self._edit_arkivref_button)
+
+        self._populate_provider_combo()
         self._connect_signals()
         self._update_structured_fields()
         self._refresh_source_list()
@@ -155,17 +198,24 @@ class SourceEditor(QWidget):
     # Private: setup
     # ------------------------------------------------------------------
 
-    def _populate_type_combo(self) -> None:
-        """Fill the source type combo box with Swedish display names."""
-        self._ui.source_type_combo.clear()
-        for internal_key, display_name in SOURCE_TYPE_MAP.items():
-            self._ui.source_type_combo.addItem(display_name, internal_key)
+    def _populate_provider_combo(self) -> None:
+        """Fill the provider combo box with Leverantörer from project data."""
+        self._ui.provider_combo.clear()
+        # Empty first entry (no selection)
+        self._ui.provider_combo.addItem("", None)
+        for lev in self._project_data.leverantorer:
+            self._ui.provider_combo.addItem(lev.name, lev.id)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
-        # Source type change -> update structured fields visibility
-        self._ui.source_type_combo.currentIndexChanged.connect(
-            self._update_structured_fields
+        # Provider combo change -> update pending leverantor_id
+        self._ui.provider_combo.currentIndexChanged.connect(
+            self._on_provider_combo_changed
+        )
+
+        # Källtyp combo change -> update pending kalltyp_id and structured fields
+        self._ui.kalltyp_combo.currentIndexChanged.connect(
+            self._on_kalltyp_combo_changed
         )
 
         # Search filter
@@ -181,10 +231,15 @@ class SourceEditor(QWidget):
         # Media buttons
         self._ui.add_media_button.clicked.connect(self._on_add_media)
         self._ui.remove_media_button.clicked.connect(self._on_remove_media)
+        self._view_media_button.clicked.connect(self._on_view_media)
 
-        # Repository buttons
-        self._ui.add_repository_button.clicked.connect(self._on_add_repository)
-        self._ui.remove_repository_button.clicked.connect(self._on_remove_repository)
+        # Media list selection change -> enable/disable view button
+        self._ui.media_list.currentItemChanged.connect(self._on_media_selection_changed)
+
+        # Repository buttons -> Arkivreferenser table management
+        self._ui.add_repository_button.clicked.connect(self._on_add_arkivref)
+        self._ui.remove_repository_button.clicked.connect(self._on_remove_arkivref)
+        self._edit_arkivref_button.clicked.connect(self._on_edit_arkivref)
 
         # Save/Cancel
         self._ui.save_button.clicked.connect(self._on_save)
@@ -199,12 +254,66 @@ class SourceEditor(QWidget):
         self._ui.source_list.itemDoubleClicked.connect(self._on_source_usage_detail)
 
     # ------------------------------------------------------------------
+    # Private: provider combo handling
+    # ------------------------------------------------------------------
+
+    def _on_provider_combo_changed(self, index: int) -> None:
+        """Handle provider combo selection change.
+
+        Stores the selected leverantor_id from the combo's userData and
+        repopulates the Källtyp combo with types for the new Leverantör.
+
+        Args:
+            index: The new current index in the combo box.
+        """
+        user_data = self._ui.provider_combo.currentData()
+        self._pending_leverantor_id = user_data if user_data else ""
+        self._populate_kalltyp_combo(self._pending_leverantor_id)
+
+    def _populate_kalltyp_combo(self, leverantor_id: str) -> None:
+        """Populate the Källtyp combo with types for the given Leverantör.
+
+        Clears existing items, adds an empty first entry, then adds all
+        Källtyper whose leverantor_id matches the given ID.
+
+        Args:
+            leverantor_id: The Leverantör ID to filter Källtyper by.
+        """
+        self._ui.kalltyp_combo.blockSignals(True)
+        try:
+            self._ui.kalltyp_combo.clear()
+            self._ui.kalltyp_combo.addItem("", None)
+            if leverantor_id:
+                for kt in self._project_data.kalltyper:
+                    if kt.leverantor_id == leverantor_id:
+                        self._ui.kalltyp_combo.addItem(kt.name, kt.id)
+        finally:
+            self._ui.kalltyp_combo.blockSignals(False)
+        # Reset selection to index 0 (triggers signal for state update)
+        self._ui.kalltyp_combo.setCurrentIndex(0)
+
+    def _on_kalltyp_combo_changed(self, index: int) -> None:
+        """Handle Källtyp combo selection change.
+
+        Stores the selected kalltyp_id from the combo's userData and
+        updates structured reference fields visibility.
+
+        Args:
+            index: The new current index in the combo box.
+        """
+        user_data = self._ui.kalltyp_combo.currentData()
+        self._pending_kalltyp_id = user_data if user_data else ""
+        self._update_structured_fields()
+
+    # ------------------------------------------------------------------
     # Private: structured fields visibility
     # ------------------------------------------------------------------
 
     def _update_structured_fields(self) -> None:
-        """Show/hide structured reference fields based on selected source type."""
-        current_type = self._ui.source_type_combo.currentData() or ""
+        """Show/hide structured reference fields based on selected Källtyp."""
+        # Derive internal source type from selected Källtyp name
+        kalltyp_name = self._ui.kalltyp_combo.currentText() or ""
+        current_type = self._map_kalltyp_to_source_type(kalltyp_name) if kalltyp_name else ""
 
         # Church book fields
         church_visible = current_type == "church_book"
@@ -431,13 +540,24 @@ class SourceEditor(QWidget):
         # Inhibit reference parsing while loading existing source data
         self._inhibit_reference_parse = True
         try:
-            # Provider
-            self._ui.provider_input.setText(self._source.provider)
+            # Provider - select matching leverantör in combo
+            lev_index = 0  # Default to empty (index 0)
+            if self._source.leverantor_id:
+                for i in range(self._ui.provider_combo.count()):
+                    if self._ui.provider_combo.itemData(i) == self._source.leverantor_id:
+                        lev_index = i
+                        break
+            self._ui.provider_combo.setCurrentIndex(lev_index)
 
-            # Source type
-            type_index = self._ui.source_type_combo.findData(self._source.source_type)
-            if type_index >= 0:
-                self._ui.source_type_combo.setCurrentIndex(type_index)
+            # Populate Källtyp combo for the selected leverantör
+            self._populate_kalltyp_combo(self._source.leverantor_id)
+
+            # Pre-select matching Källtyp
+            if self._source.kalltyp_id:
+                for i in range(self._ui.kalltyp_combo.count()):
+                    if self._ui.kalltyp_combo.itemData(i) == self._source.kalltyp_id:
+                        self._ui.kalltyp_combo.setCurrentIndex(i)
+                        break
 
             # Title
             self._ui.title_input.setText(self._source.title)
@@ -466,7 +586,7 @@ class SourceEditor(QWidget):
             self._refresh_media_list()
 
             # Repository refs
-            self._refresh_repository_list()
+            self._refresh_arkivref_table()
 
             # Direct link
             self._update_direct_link()
@@ -625,62 +745,128 @@ class SourceEditor(QWidget):
         self._ui.media_list.takeItem(row)
         self._clear_status()
 
+    def _on_media_selection_changed(self, current: QListWidgetItem | None, previous: QListWidgetItem | None) -> None:
+        """Enable or disable the Visa button based on media list selection."""
+        self._view_media_button.setEnabled(current is not None)
+
+    def _on_view_media(self) -> None:
+        """Open the selected media file with the system default application.
+
+        Uses QDesktopServices.openUrl with a file:// URL constructed from the
+        project folder and the media item's relative file path.
+        """
+        if self._project_folder is None:
+            self._update_status("Inget projekt öppet — kan inte visa media.")
+            return
+
+        current = self._ui.media_list.currentItem()
+        if not current:
+            return
+
+        media_id = current.data(Qt.ItemDataRole.UserRole)
+        media_item: MediaItem | None = None
+        for media in self._project_data.media:
+            if media.id == media_id:
+                media_item = media
+                break
+
+        if media_item is None or not media_item.file:
+            self._update_status("Kunde inte hitta mediafilen.")
+            return
+
+        full_path = self._project_folder / media_item.file
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(full_path)))
+
     # ------------------------------------------------------------------
-    # Private: repository refs management
+    # Private: arkivreferenser table management
     # ------------------------------------------------------------------
 
-    def _refresh_repository_list(self) -> None:
-        """Populate the repository list with refs linked to this source."""
-        self._ui.repository_list.clear()
+    def _refresh_arkivref_table(self) -> None:
+        """Populate the arkivreferenser table from the current source."""
+        self._arkivref_table.setRowCount(0)
 
         if self._source is None:
             return
 
-        for repo_ref in self._source.repository_refs:
-            display = repo_ref.repository_id
-            for repo in self._project_data.repositories:
-                if repo.id == repo_ref.repository_id:
-                    display = repo.name or repo.id
-                    break
-            if repo_ref.call_number:
-                display = f"{display} [{repo_ref.call_number}]"
-            item = QListWidgetItem(display)
-            item.setData(Qt.ItemDataRole.UserRole, repo_ref.repository_id)
-            self._ui.repository_list.addItem(item)
+        for ref in self._source.arkivreferenser:
+            row = self._arkivref_table.rowCount()
+            self._arkivref_table.insertRow(row)
+            self._arkivref_table.setItem(row, 0, QTableWidgetItem(ref.leverantor_name))
+            self._arkivref_table.setItem(row, 1, QTableWidgetItem(ref.reference_value))
 
-    def _on_add_repository(self) -> None:
-        """Add a repository reference from the project's available repositories.
+    def _on_add_arkivref(self) -> None:
+        """Add a new arkivreferens row via a dialog with two fields."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Lägg till arkivreferens")
+        layout = QFormLayout(dialog)
 
-        Adds the first repository not already linked.
-        """
-        # Collect currently linked repository IDs
-        linked_ids: set[str] = set()
-        for i in range(self._ui.repository_list.count()):
-            item = self._ui.repository_list.item(i)
-            if item:
-                linked_ids.add(item.data(Qt.ItemDataRole.UserRole))
+        leverantor_input = QLineEdit(dialog)
+        referens_input = QLineEdit(dialog)
+        layout.addRow("Leverantör:", leverantor_input)
+        layout.addRow("Referens:", referens_input)
 
-        # Find first unlinked repository
-        for repo in self._project_data.repositories:
-            if repo.id not in linked_ids:
-                display = repo.name or repo.id
-                item = QListWidgetItem(display)
-                item.setData(Qt.ItemDataRole.UserRole, repo.id)
-                self._ui.repository_list.addItem(item)
-                self._clear_status()
-                return
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
 
-        self._update_status("Inga fler arkiv tillgängliga.")
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            leverantor = leverantor_input.text().strip()
+            referens = referens_input.text().strip()
+            if leverantor or referens:
+                row = self._arkivref_table.rowCount()
+                self._arkivref_table.insertRow(row)
+                self._arkivref_table.setItem(row, 0, QTableWidgetItem(leverantor))
+                self._arkivref_table.setItem(row, 1, QTableWidgetItem(referens))
+        self._clear_status()
 
-    def _on_remove_repository(self) -> None:
-        """Remove the currently selected repository reference."""
-        current = self._ui.repository_list.currentItem()
-        if not current:
-            self._update_status("Välj ett arkiv att ta bort.")
+    def _on_remove_arkivref(self) -> None:
+        """Remove the currently selected arkivreferens row."""
+        current_row = self._arkivref_table.currentRow()
+        if current_row < 0:
+            self._update_status("Välj en rad att ta bort.")
             return
 
-        row = self._ui.repository_list.row(current)
-        self._ui.repository_list.takeItem(row)
+        self._arkivref_table.removeRow(current_row)
+        self._clear_status()
+
+    def _on_edit_arkivref(self) -> None:
+        """Edit the currently selected arkivreferens row via a dialog."""
+        current_row = self._arkivref_table.currentRow()
+        if current_row < 0:
+            self._update_status("Välj en rad att redigera.")
+            return
+
+        current_leverantor = self._arkivref_table.item(current_row, 0)
+        current_referens = self._arkivref_table.item(current_row, 1)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Redigera arkivreferens")
+        layout = QFormLayout(dialog)
+
+        leverantor_input = QLineEdit(dialog)
+        leverantor_input.setText(current_leverantor.text() if current_leverantor else "")
+        referens_input = QLineEdit(dialog)
+        referens_input.setText(current_referens.text() if current_referens else "")
+        layout.addRow("Leverantör:", leverantor_input)
+        layout.addRow("Referens:", referens_input)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            leverantor = leverantor_input.text().strip()
+            referens = referens_input.text().strip()
+            self._arkivref_table.setItem(current_row, 0, QTableWidgetItem(leverantor))
+            self._arkivref_table.setItem(current_row, 1, QTableWidgetItem(referens))
         self._clear_status()
 
     # ------------------------------------------------------------------
@@ -725,15 +911,21 @@ class SourceEditor(QWidget):
         Args:
             parsed: The successfully parsed reference data.
         """
-        # Set provider
-        self._ui.provider_input.setText(parsed.leverantor_name)
-
-        # Look up Leverantör ID from project data
+        # Set provider combo to matching leverantör
         leverantor_id = ""
         for lev in self._project_data.leverantorer:
             if lev.name == parsed.leverantor_name:
                 leverantor_id = lev.id
                 break
+
+        # Select matching item in provider combo
+        lev_index = 0
+        if leverantor_id:
+            for i in range(self._ui.provider_combo.count()):
+                if self._ui.provider_combo.itemData(i) == leverantor_id:
+                    lev_index = i
+                    break
+        self._ui.provider_combo.setCurrentIndex(lev_index)
 
         # Look up Källtyp and set source type combo
         kalltyp_id = ""
@@ -744,12 +936,13 @@ class SourceEditor(QWidget):
                 kalltyp_id = kt.id
                 break
 
-        # Map kalltyp_name to internal source type for the combo box
-        source_type_key = self._map_kalltyp_to_source_type(parsed.kalltyp_name)
-        if source_type_key:
-            type_index = self._ui.source_type_combo.findData(source_type_key)
-            if type_index >= 0:
-                self._ui.source_type_combo.setCurrentIndex(type_index)
+        # Select matching Källtyp in the kalltyp combo
+        # (provider combo change already triggered _populate_kalltyp_combo)
+        if kalltyp_id:
+            for i in range(self._ui.kalltyp_combo.count()):
+                if self._ui.kalltyp_combo.itemData(i) == kalltyp_id:
+                    self._ui.kalltyp_combo.setCurrentIndex(i)
+                    break
 
         # Format title: use format_source_title for church book fields
         title = parsed.title
@@ -770,6 +963,14 @@ class SourceEditor(QWidget):
 
         # Fill structured reference fields
         self._fill_structured_fields(fields)
+
+        # Populate arkivreferenser table from parsed reference
+        self._arkivref_table.setRowCount(0)
+        for ref in parsed.arkivreferenser:
+            row = self._arkivref_table.rowCount()
+            self._arkivref_table.insertRow(row)
+            self._arkivref_table.setItem(row, 0, QTableWidgetItem(ref.leverantor_name))
+            self._arkivref_table.setItem(row, 1, QTableWidgetItem(ref.reference_value))
 
     def _map_kalltyp_to_source_type(self, kalltyp_name: str) -> str:
         """Map a Källtyp name to an internal source type key.
@@ -845,8 +1046,8 @@ class SourceEditor(QWidget):
     def _on_save(self) -> None:
         """Validate and save the source data.
 
-        Validates that title and source_type are set.
-        On success, stores the result in saved_source.
+        Validates that title is set. Derives source_type from the selected
+        Källtyp. On success, stores the result in saved_source.
         """
         # Validate: title required
         title = self._ui.title_input.text().strip()
@@ -854,14 +1055,18 @@ class SourceEditor(QWidget):
             self._update_status("Titel krävs.")
             return
 
-        # Validate: source type required
-        source_type = self._ui.source_type_combo.currentData()
+        # Derive source_type from selected Källtyp
+        kalltyp_name = self._ui.kalltyp_combo.currentText() or ""
+        source_type = self._map_kalltyp_to_source_type(kalltyp_name) if kalltyp_name else ""
+        # Default to "other" if no mapping found but a källtyp is selected
+        if kalltyp_name and not source_type:
+            source_type = "other"
+        # If no källtyp selected at all, default to "other"
         if not source_type:
-            self._update_status("Källtyp krävs.")
-            return
+            source_type = "other"
 
         # Collect basic fields
-        provider = self._ui.provider_input.text().strip()
+        provider = self._ui.provider_combo.currentText().strip()
         reference_text = self._ui.reference_text_input.text().strip()
         provider_ref = self._ui.provider_ref_input.text().strip()
         short_note = self._ui.short_note_input.text().strip()
@@ -881,19 +1086,25 @@ class SourceEditor(QWidget):
 
         # Collect repository refs
         repository_refs: list[RepositoryRef] = []
-        for i in range(self._ui.repository_list.count()):
-            item = self._ui.repository_list.item(i)
-            if item:
-                repo_id = item.data(Qt.ItemDataRole.UserRole)
-                if repo_id:
-                    repository_refs.append(RepositoryRef(repository_id=repo_id))
+
+        # Collect arkivreferenser from table
+        arkivreferenser: list[ArkivReferens] = []
+        for i in range(self._arkivref_table.rowCount()):
+            lev_item = self._arkivref_table.item(i, 0)
+            ref_item = self._arkivref_table.item(i, 1)
+            leverantor = lev_item.text().strip() if lev_item else ""
+            referens = ref_item.text().strip() if ref_item else ""
+            if leverantor or referens:
+                arkivreferenser.append(
+                    ArkivReferens(leverantor_name=leverantor, reference_value=referens)
+                )
 
         # Determine source ID
         source_id = self._source.id if self._source else str(uuid.uuid4())
 
         # Determine leverantor_id, kalltyp_id, arkivreferens
-        leverantor_id = self._pending_leverantor_id
-        kalltyp_id = self._pending_kalltyp_id
+        leverantor_id = self._ui.provider_combo.currentData() or ""
+        kalltyp_id = self._ui.kalltyp_combo.currentData() or self._pending_kalltyp_id
         arkivreferens = self._pending_arkivreferens
 
         # Preserve existing values if not overridden by parsing
@@ -920,6 +1131,7 @@ class SourceEditor(QWidget):
             leverantor_id=leverantor_id,
             kalltyp_id=kalltyp_id,
             arkivreferens=arkivreferens,
+            arkivreferenser=arkivreferenser,
         )
 
         self._clear_status()
@@ -1007,8 +1219,8 @@ class SourceEditor(QWidget):
         """Reset all form fields to empty/default state."""
         self._inhibit_reference_parse = True
         try:
-            self._ui.provider_input.clear()
-            self._ui.source_type_combo.setCurrentIndex(0)
+            self._ui.provider_combo.setCurrentIndex(0)
+            self._ui.kalltyp_combo.setCurrentIndex(0)
             self._ui.title_input.clear()
             self._ui.reference_text_input.clear()
             self._ui.provider_ref_input.clear()
@@ -1035,7 +1247,7 @@ class SourceEditor(QWidget):
 
             # Clear lists
             self._ui.media_list.clear()
-            self._ui.repository_list.clear()
+            self._arkivref_table.setRowCount(0)
 
             # Reset pending parsed data
             self._pending_arkivreferens = ""

@@ -25,7 +25,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import ExternalId, Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
-from slaktbusken.model.source import Kalltyp, Leverantor, Repository, RepositoryRef, Source, StructuredReference
+from slaktbusken.model.source import ArkivReferens, Kalltyp, Leverantor, Repository, RepositoryRef, Source, StructuredReference
 
 
 def serialize(data: ProjectData) -> str:
@@ -211,6 +211,7 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (Family, "parent_child_links"): ParentChildLink,
     (Event, "participants"): Participant,
     (Source, "repository_refs"): RepositoryRef,
+    (Source, "arkivreferenser"): ArkivReferens,
     (MediaItem, "linked_entities"): LinkedEntity,
     (MediaItem, "annotations"): Annotation,
     (ResearchNote, "linked_entities"): LinkedEntity,

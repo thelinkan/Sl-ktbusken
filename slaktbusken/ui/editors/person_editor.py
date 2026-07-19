@@ -913,6 +913,7 @@ class PersonEditor(QWidget):
             event=None,
             subject_person_id=self._person.id,
             parent=dialog,
+            project_folder=self._project_folder,
         )
         layout.addWidget(editor)
 
@@ -994,6 +995,7 @@ class PersonEditor(QWidget):
             project_data=self._project_data,
             event=event,
             parent=dialog,
+            project_folder=self._project_folder,
         )
         layout.addWidget(editor)
 

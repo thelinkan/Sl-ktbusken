@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from slaktbusken.model.source import ArkivReferens
+
 
 @dataclass
 class ParsedReference:
@@ -21,12 +23,15 @@ class ParsedReference:
     reference_text: str
     structured_fields: dict[str, Optional[str | int]]
     arkivreferens: str = ""
+    arkivreferenser: list[ArkivReferens] = field(default_factory=list)
 
 
 # Mapping from church book series codes to Källtyp names.
 CHURCH_BOOK_SERIES_LABELS: dict[str, str] = {
     "AI": "Husförhörslängd",
     "AII": "Husförhörslängd",
+    "AIIa": "Församlingsbok",
+    "AIIb": "Församlingsbok",
     "A": "Husförhörslängd",
     "CI": "Födelse- och dopbok",
     "CII": "Födelse- och dopbok",
@@ -57,6 +62,17 @@ _AD_FULL_PATTERN = re.compile(
     r"\(AID:\s*(?P<aid_ref>[^,]+),\s*NAD:\s*(?P<nad_ref>[^)]+)\)$"
 )
 
+# Bild colon pattern regex:
+# {parish} ({county_code}) {series}:{volume} ({years}) Bild: {image} Sida: {page}
+_AD_BILD_COLON_PATTERN = re.compile(
+    r"^(?P<parish>.+?)\s+"
+    r"\((?P<county_code>[^)]+)\)\s+"
+    r"(?P<series>[A-Za-z]+)\:(?P<volume>[^\s]+)\s+"
+    r"\((?P<years>[^)]+)\)\s+"
+    r"Bild:\s*(?P<image>\d+)\s+"
+    r"Sida:\s*(?P<page>\d+)$"
+)
+
 # Short pattern regex:
 # {description} ({year}) Bild {image} / sid {page} (AID: {aid_ref})
 _AD_SHORT_PATTERN = re.compile(
@@ -72,8 +88,9 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
 
     Handles:
     1. Full pattern: {parish} ({county}) {series}:{volume} ({years}) Bild {image} / sid {page} (AID: {aid}, NAD: {nad})
-    2. Short pattern: {description} ({year}) Bild {image} / sid {page} (AID: {aid})
-    3. Census pattern: rX.pXXXXX
+    2. Bild colon pattern: {parish} ({county}) {series}:{volume} ({years}) Bild: {image} Sida: {page}
+    3. Short pattern: {description} ({year}) Bild {image} / sid {page} (AID: {aid})
+    4. Census pattern: rX.pXXXXX
 
     Returns None if no pattern matches.
     """
@@ -93,11 +110,14 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
         kalltyp_name = CHURCH_BOOK_SERIES_LABELS.get(series, "Övrigt")
         title = f"{parish} {series}:{volume} Sida: {page}"
 
+        # Strip AID/NAD parenthetical from reference_text (requirement 2.4)
+        ref_text = text[: text.index("(AID:")].strip()
+
         return ParsedReference(
             leverantor_name="Arkiv Digital",
             kalltyp_name=kalltyp_name,
             title=title,
-            reference_text=text,
+            reference_text=ref_text,
             structured_fields={
                 "parish": parish,
                 "county_code": county_code,
@@ -108,6 +128,44 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
                 "page": page,
                 "aid_ref": aid_ref,
                 "nad_ref": nad_ref,
+            },
+            arkivreferens=aid_ref,
+            arkivreferenser=[
+                ArkivReferens(leverantor_name="Arkiv Digital", reference_value=aid_ref),
+                ArkivReferens(leverantor_name="Nationell Arkivdatabas", reference_value=nad_ref),
+            ],
+        )
+
+    # Try Bild colon pattern
+    m = _AD_BILD_COLON_PATTERN.match(text)
+    if m:
+        parish = m.group("parish").strip()
+        county_code = m.group("county_code").strip()
+        series = m.group("series").strip()
+        volume = m.group("volume").strip()
+        years = m.group("years").strip()
+        image = m.group("image").strip()
+        page = m.group("page").strip()
+
+        kalltyp_name = CHURCH_BOOK_SERIES_LABELS.get(series, "Övrigt")
+        title = f"{parish} {series}:{volume} Sida: {page}"
+
+        # Defensively strip any trailing (AID: ...) parenthetical (requirement 2.4)
+        ref_text = re.sub(r"\s*\(AID:\s*[^)]*\)\s*$", "", text).strip()
+
+        return ParsedReference(
+            leverantor_name="Arkiv Digital",
+            kalltyp_name=kalltyp_name,
+            title=title,
+            reference_text=ref_text,
+            structured_fields={
+                "parish": parish,
+                "county_code": county_code,
+                "series": series,
+                "volume": volume,
+                "years": years,
+                "image": image,
+                "page": page,
             },
         )
 
@@ -122,11 +180,14 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
 
         title = f"{description} Sida: {page}"
 
+        # Strip AID parenthetical from reference_text (requirement 2.4)
+        ref_text = text[: text.index("(AID:")].strip()
+
         return ParsedReference(
             leverantor_name="Arkiv Digital",
             kalltyp_name="Övrigt",
             title=title,
-            reference_text=text,
+            reference_text=ref_text,
             structured_fields={
                 "description": description,
                 "year": year,
@@ -134,6 +195,10 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
                 "page": page,
                 "aid_ref": aid_ref,
             },
+            arkivreferens=aid_ref,
+            arkivreferenser=[
+                ArkivReferens(leverantor_name="Arkiv Digital", reference_value=aid_ref),
+            ],
         )
 
     # Try census pattern
@@ -169,6 +234,9 @@ def parse_arkiv_digital_census(text: str) -> Optional[ParsedReference]:
         reference_text=text,
         structured_fields={"aid_ref": matched_string},
         arkivreferens=matched_string,
+        arkivreferenser=[
+            ArkivReferens(leverantor_name="Arkiv Digital", reference_value=matched_string),
+        ],
     )
 
 
@@ -193,6 +261,9 @@ def parse_rotter(text: str) -> Optional[ParsedReference]:
             reference_text=text,
             structured_fields={},
             arkivreferens=sdb_id,
+            arkivreferenser=[
+                ArkivReferens(leverantor_name="Rötter.se", reference_value=sdb_id),
+            ],
         )
 
     # Pattern 2: "Sveriges dödbok webb - {record_id}" (case-insensitive prefix)
@@ -206,6 +277,9 @@ def parse_rotter(text: str) -> Optional[ParsedReference]:
             reference_text=text,
             structured_fields={"record_id": record_id},
             arkivreferens=record_id,
+            arkivreferenser=[
+                ArkivReferens(leverantor_name="Rötter.se", reference_value=record_id),
+            ],
         )
 
     # Pattern 3: Contains "Sveriges dödbok webb" (case-insensitive)
@@ -234,6 +308,10 @@ def parse_reference(text: str) -> Optional[ParsedReference]:
     text = text.strip()
     if not text:
         return None
+
+    # Strip "ArkivDigital:" prefix (case-insensitive) for normalized parsing
+    if text.lower().startswith("arkivdigital:"):
+        text = text[len("arkivdigital:"):].strip()
 
     # Try each sub-parser in order, return first match
     result = parse_arkiv_digital(text)

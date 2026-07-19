@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -154,6 +155,7 @@ class EventEditor(QWidget):
         event: Optional[Event] = None,
         subject_person_id: Optional[str] = None,
         parent: QWidget | None = None,
+        project_folder: Path | None = None,
     ) -> None:
         """Initialise the event editor.
 
@@ -162,12 +164,14 @@ class EventEditor(QWidget):
             event: Optional existing Event to edit. If None, creates a new event.
             subject_person_id: Optional person ID to auto-add as participant.
             parent: Optional parent widget.
+            project_folder: Optional path to the project folder for media operations.
         """
         super().__init__(parent)
 
         self._project_data = project_data
         self._event = event
         self._subject_person_id = subject_person_id
+        self._project_folder = project_folder
         self._saved_event: Optional[Event] = None
 
         # Set up UI inside a scroll area so content is accessible even in
@@ -803,6 +807,7 @@ class EventEditor(QWidget):
         editor = SourceEditor(
             project_data=self._project_data,
             source=source,
+            project_folder=self._project_folder,
             parent=dialog,
         )
         layout.addWidget(editor)
@@ -981,6 +986,7 @@ class EventEditor(QWidget):
         editor = SourceEditor(
             project_data=self._project_data,
             source=None,
+            project_folder=self._project_folder,
             parent=dialog,
         )
         layout.addWidget(editor)
@@ -1001,13 +1007,11 @@ class EventEditor(QWidget):
         # Try to parse as ArkivDigital church book reference
         parsed = parse_church_book_citation(clean_ref)
         if parsed is not None:
-            # Auto-fill provider and source type
-            editor._ui.provider_input.setText("ArkivDigital")
-
-            # Set source type to church_book
-            type_idx = editor._ui.source_type_combo.findData("church_book")
-            if type_idx >= 0:
-                editor._ui.source_type_combo.setCurrentIndex(type_idx)
+            # Auto-fill provider combo — find "ArkivDigital" in the combo
+            for i in range(editor._ui.provider_combo.count()):
+                if editor._ui.provider_combo.itemText(i) == "ArkivDigital":
+                    editor._ui.provider_combo.setCurrentIndex(i)
+                    break
 
             # Auto-fill structured reference fields
             fields = parsed.fields

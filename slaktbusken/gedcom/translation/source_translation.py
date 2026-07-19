@@ -34,8 +34,10 @@ from typing import Optional
 
 from slaktbusken.gedcom.translation.models import GedcomSource
 from slaktbusken.model.id_generator import IDGenerator
-from slaktbusken.model.source import RepositoryRef, Source, StructuredReference
+from slaktbusken.model.source import ArkivReferens, Kalltyp, Leverantor, RepositoryRef, Source, StructuredReference
+from slaktbusken.parsing.reference_parser import parse_reference
 from slaktbusken.persistence.translation_io import SourceMapping
+from slaktbusken.services.source_formatting import format_source_title
 
 
 # ---------------------------------------------------------------------------
@@ -80,16 +82,63 @@ _NEWSPAPER_KEYWORDS = ("tidning", "newspaper", "journal", "tidskrift")
 _PHOTOGRAPH_KEYWORDS = ("foto", "photo", "photograph", "fotografi", "bild")
 _CENSUS_KEYWORDS = ("folkräkning", "mantalslängd", "census", "husförhör")
 
+# SDB pattern: SDB followed by a single digit, underscore, then one or more digits
+_SDB_PATTERN = re.compile(r"SDB\d_\d+")
+
+# Text indicating Sveriges Dödbok Webb (case-insensitive)
+_SVERIGES_DODBOK_PATTERN = re.compile(r"(?i)sveriges dödbok webb")
+
 
 # ---------------------------------------------------------------------------
 # Public functions
 # ---------------------------------------------------------------------------
 
 
+def _detect_sdb_source(gedcom_source: GedcomSource) -> bool:
+    """Check if a GEDCOM source is a Sveriges Dödbok Webb source.
+
+    A source is considered SDB if:
+    1. Its text or title contains a pattern matching SDB{digit}_{digits}
+    2. Its text or title contains "Sveriges dödbok webb" (case-insensitive)
+
+    Args:
+        gedcom_source: The GEDCOM source record to check.
+
+    Returns:
+        True if the source matches SDB patterns, False otherwise.
+    """
+    searchable = _get_searchable_text(gedcom_source)
+    if _SDB_PATTERN.search(searchable):
+        return True
+    if _SVERIGES_DODBOK_PATTERN.search(searchable):
+        return True
+    return False
+
+
+def _extract_sdb_identifier(text: str) -> str:
+    """Extract the SDB identifier from a text string.
+
+    Looks for the pattern SDB{digit}_{digits} in the given text and
+    returns the full match. Returns empty string if no match is found.
+
+    Args:
+        text: The text to search for an SDB identifier.
+
+    Returns:
+        The SDB identifier string (e.g., "SDB7_12345") or empty string.
+    """
+    match = _SDB_PATTERN.search(text)
+    if match:
+        return match.group(0)
+    return ""
+
+
 def map_gedcom_source(
     gedcom_source: GedcomSource,
     existing_sources: list[Source],
     source_mappings: list[SourceMapping],
+    leverantorer: list[Leverantor] | None = None,
+    kalltyper: list[Kalltyp] | None = None,
 ) -> Source:
     """Map a GEDCOM source record to an App_JSON Source entity.
 
@@ -99,11 +148,19 @@ def map_gedcom_source(
     creates a new Source with an auto-generated ID, detected source type,
     and parsed structured reference.
 
+    For sources matching SDB patterns (Sveriges Dödbok Webb), the function
+    assigns the appropriate Leverantör and Källtyp IDs and extracts the
+    SDB identifier as arkivreferens.
+
     Args:
         gedcom_source: The GEDCOM source record to translate.
         existing_sources: All Source records currently in the project.
         source_mappings: The current source translation mappings from
             the translation file.
+        leverantorer: List of Leverantör entities in the project.
+            Used for SDB detection. Defaults to None (empty list).
+        kalltyper: List of Källtyp entities in the project.
+            Used for SDB detection. Defaults to None (empty list).
 
     Returns:
         The matched existing Source, or a newly created Source entity with
@@ -136,7 +193,7 @@ def map_gedcom_source(
     reference_text = _derive_reference_text(gedcom_source)
     provider = _derive_provider(gedcom_source)
 
-    return Source(
+    source = Source(
         id=new_id,
         provider=provider,
         source_type=source_type,
@@ -149,6 +206,77 @@ def map_gedcom_source(
         media_ids=[],
         repository_refs=[],
     )
+
+    # ArkivDigital church_book: override title with formatted version, clear provider_ref
+    if source_type == "church_book" and detect_arkiv_digital(gedcom_source):
+        if structured_ref.fields:
+            # Convert field values to strings for format_source_title
+            format_fields = {
+                k: str(v) if v is not None else ""
+                for k, v in structured_ref.fields.items()
+            }
+            formatted_title = format_source_title(format_fields)
+            if formatted_title:
+                source.title = formatted_title
+        source.provider_ref = ""
+
+    # ArkivDigital: assign Leverantör ID, Källtyp ID, and arkivreferenser
+    if detect_arkiv_digital(gedcom_source):
+        _leverantorer = leverantorer or []
+        _kalltyper = kalltyper or []
+
+        # Get the raw source text for parsing (strip prefix but keep AID/NAD for extraction)
+        raw_text = (gedcom_source.text or gedcom_source.title or "").strip()
+        if raw_text.lower().startswith(_ARKIV_DIGITAL_PREFIX):
+            raw_text = raw_text[len(_ARKIV_DIGITAL_PREFIX):].strip()
+
+        parsed = parse_reference(raw_text)
+
+        if parsed is not None:
+            # Find Leverantör by name
+            for lev in _leverantorer:
+                if lev.name == parsed.leverantor_name:
+                    source.leverantor_id = lev.id
+                    # Find Källtyp for this Leverantör
+                    for kt in _kalltyper:
+                        if kt.leverantor_id == lev.id and kt.name == parsed.kalltyp_name:
+                            source.kalltyp_id = kt.id
+                            break
+                    break
+
+            # Populate arkivreferenser from parsed result
+            if parsed.arkivreferenser:
+                source.arkivreferenser = parsed.arkivreferenser
+
+    # SDB detection: assign Leverantör/Källtyp for Sveriges Dödbok Webb sources
+    if _detect_sdb_source(gedcom_source):
+        _leverantorer = leverantorer or []
+        _kalltyper = kalltyper or []
+
+        # Find "Rötter.se" Leverantör
+        rotter_leverantor: Leverantor | None = None
+        for lev in _leverantorer:
+            if lev.name == "Rötter.se":
+                rotter_leverantor = lev
+                break
+
+        if rotter_leverantor is not None:
+            source.leverantor_id = rotter_leverantor.id
+
+            # Find "Sveriges Dödbok Webb" Källtyp for this Leverantör
+            for kt in _kalltyper:
+                if (
+                    kt.leverantor_id == rotter_leverantor.id
+                    and kt.name == "Sveriges Dödbok Webb"
+                ):
+                    source.kalltyp_id = kt.id
+                    break
+
+        # Extract and store SDB identifier as arkivreferens
+        searchable = _get_searchable_text(gedcom_source)
+        source.arkivreferens = _extract_sdb_identifier(searchable)
+
+    return source
 
 
 def detect_source_type(gedcom_source: GedcomSource) -> str:
@@ -499,6 +627,8 @@ def _derive_reference_text(gedcom_source: GedcomSource) -> str:
         # Strip ArkivDigital prefix for cleaner reference_text
         if text.lower().startswith(_ARKIV_DIGITAL_PREFIX):
             text = text[len(_ARKIV_DIGITAL_PREFIX) :].strip()
+        # Strip trailing AID/NAD parenthetical for clean reference_text
+        text = re.sub(r'\s*\(AID:\s*[^)]*\)\s*$', '', text).strip()
         return text
 
     return gedcom_source.title or ""

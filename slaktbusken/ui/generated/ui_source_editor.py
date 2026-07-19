@@ -88,32 +88,31 @@ class Ui_SourceEditor(object):
 
         self.provider_layout.addWidget(self.provider_label)
 
-        self.provider_input = QLineEdit(self.basic_group)
-        self.provider_input.setObjectName(u"provider_input")
-        self.provider_input.setMaxLength(200)
-        self.provider_input.setMinimumSize(QSize(0, 28))
+        self.provider_combo = QComboBox(self.basic_group)
+        self.provider_combo.setObjectName(u"provider_combo")
+        self.provider_combo.setMinimumSize(QSize(0, 28))
 
-        self.provider_layout.addWidget(self.provider_input)
+        self.provider_layout.addWidget(self.provider_combo)
 
 
         self.basic_layout.addLayout(self.provider_layout)
 
-        self.type_layout = QHBoxLayout()
-        self.type_layout.setObjectName(u"type_layout")
-        self.type_label = QLabel(self.basic_group)
-        self.type_label.setObjectName(u"type_label")
-        self.type_label.setMinimumSize(QSize(110, 0))
+        self.kalltyp_layout = QHBoxLayout()
+        self.kalltyp_layout.setObjectName(u"kalltyp_layout")
+        self.kalltyp_label = QLabel(self.basic_group)
+        self.kalltyp_label.setObjectName(u"kalltyp_label")
+        self.kalltyp_label.setMinimumSize(QSize(110, 0))
 
-        self.type_layout.addWidget(self.type_label)
+        self.kalltyp_layout.addWidget(self.kalltyp_label)
 
-        self.source_type_combo = QComboBox(self.basic_group)
-        self.source_type_combo.setObjectName(u"source_type_combo")
-        self.source_type_combo.setMinimumSize(QSize(0, 28))
+        self.kalltyp_combo = QComboBox(self.basic_group)
+        self.kalltyp_combo.setObjectName(u"kalltyp_combo")
+        self.kalltyp_combo.setMinimumSize(QSize(0, 28))
 
-        self.type_layout.addWidget(self.source_type_combo)
+        self.kalltyp_layout.addWidget(self.kalltyp_combo)
 
 
-        self.basic_layout.addLayout(self.type_layout)
+        self.basic_layout.addLayout(self.kalltyp_layout)
 
         self.title_layout = QHBoxLayout()
         self.title_layout.setObjectName(u"title_layout")
@@ -589,7 +588,7 @@ class Ui_SourceEditor(object):
         self.delete_source_button.setText(QCoreApplication.translate("SourceEditor", u"Ta bort", None))
         self.basic_group.setTitle(QCoreApplication.translate("SourceEditor", u"K\u00e4lluppgifter", None))
         self.provider_label.setText(QCoreApplication.translate("SourceEditor", u"Leverant\u00f6r:", None))
-        self.type_label.setText(QCoreApplication.translate("SourceEditor", u"K\u00e4lltyp:", None))
+        self.kalltyp_label.setText(QCoreApplication.translate("SourceEditor", u"K\u00e4lltyp:", None))
         self.title_label.setText(QCoreApplication.translate("SourceEditor", u"Titel:", None))
         self.ref_text_label.setText(QCoreApplication.translate("SourceEditor", u"Referenstext:", None))
         self.provider_ref_label.setText(QCoreApplication.translate("SourceEditor", u"Leverant\u00f6rsref:", None))

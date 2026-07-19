@@ -915,7 +915,9 @@ class GEDCOMImporter:
 
             # Use translation manager to map (handles existing matching)
             source = self._translation_mgr.map_source(
-                gedcom_source, self._project_data.sources
+                gedcom_source, self._project_data.sources,
+                leverantorer=self._project_data.leverantorer,
+                kalltyper=self._project_data.kalltyper,
             )
 
             # Check if this is a new source (not already in project)

@@ -38,7 +38,7 @@ from slaktbusken.gedcom.translation.source_translation import (
 )
 from slaktbusken.model.id_generator import IDGenerator
 from slaktbusken.model.place import Place
-from slaktbusken.model.source import Source
+from slaktbusken.model.source import Kalltyp, Leverantor, Source
 from slaktbusken.persistence.translation_io import (
     TranslationData,
     read_all as _read_all,
@@ -207,6 +207,8 @@ class TranslationManager:
         self,
         gedcom_source: GedcomSource,
         existing_sources: list[Source],
+        leverantorer: list[Leverantor] | None = None,
+        kalltyper: list[Kalltyp] | None = None,
     ) -> Source:
         """Map a GEDCOM source to an App_JSON Source entity.
 
@@ -217,6 +219,10 @@ class TranslationManager:
         Args:
             gedcom_source: The GEDCOM source record to translate.
             existing_sources: All Source records currently in the project.
+            leverantorer: List of Leverantör entities in the project.
+                Used for SDB detection. Defaults to None.
+            kalltyper: List of Källtyp entities in the project.
+                Used for SDB detection. Defaults to None.
 
         Returns:
             The matched existing Source, or a newly created Source entity.
@@ -226,6 +232,8 @@ class TranslationManager:
             gedcom_source=gedcom_source,
             existing_sources=existing_sources,
             source_mappings=translation_data.sources,
+            leverantorer=leverantorer,
+            kalltyper=kalltyper,
         )
 
     # ------------------------------------------------------------------

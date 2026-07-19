@@ -152,3 +152,65 @@ This feature extends the source management capabilities in Släktbusken, a Swedi
 1. THE Main_Window SHALL display a menu item "Käll-leverantörer" in the Redigera menu, positioned immediately after "Källöversättningar", and the menu item SHALL be enabled by default unless explicitly disabled by other criteria
 2. WHEN the user selects "Käll-leverantörer", THE Main_Window SHALL open the Provider_Editor as a modal dialog
 3. IF no project is currently open, THEN THE Main_Window SHALL disable the "Käll-leverantörer" menu item; WHEN a project is opened, THE Main_Window SHALL enable the "Käll-leverantörer" menu item
+
+### Requirement 12: Source Editor Leverantör/Källtyp Dropdowns
+
+**User Story:** As a genealogist, I want dropdown menus for Leverantör and Källtyp in the source editor, so that I can assign providers and types from the predefined list when creating or editing sources.
+
+#### Acceptance Criteria
+
+1. THE Source_Editor SHALL display a dropdown (QComboBox) labeled "Leverantör" populated with all Leverantörer from the project data, replacing the current free-text provider input field
+2. THE Source_Editor SHALL display a dropdown (QComboBox) labeled "Källtyp" populated with Källtyper belonging to the currently selected Leverantör
+3. WHEN the user changes the selected Leverantör, THE Source_Editor SHALL update the Källtyp dropdown to show only Källtyper associated with the newly selected Leverantör, and reset the Källtyp selection
+4. WHEN a source is saved, THE Source_Editor SHALL store the selected Leverantör's ID in `source.leverantor_id` and the selected Källtyp's ID in `source.kalltyp_id`
+5. WHEN a source is loaded for editing, THE Source_Editor SHALL pre-select the matching Leverantör and Källtyp in the dropdowns based on the source's `leverantor_id` and `kalltyp_id` fields
+6. WHEN a reference is parsed (paste or import), THE Source_Editor SHALL select the matching Leverantör and Källtyp in the dropdowns based on the parsed `leverantor_name` and `kalltyp_name`
+
+### Requirement 13: Arkivreferenser Multi-Provider Display
+
+**User Story:** As a genealogist, I want the Arkivreferenser section to show multiple archive references in a two-column layout, so that I can see which provider each reference belongs to.
+
+#### Acceptance Criteria
+
+1. THE Source_Editor SHALL display the "Arkivreferenser" section as a two-column table with columns "Leverantör" and "Referens"
+2. WHEN a reference string contains both AID and NAD values (e.g., `AID: v10726.b53.s46, NAD: SE/VA/13090`), THE Reference_Parser SHALL create two Arkivreferens entries: one for "Arkiv Digital" with the AID value, and one for "Nationell Arkivdatabas" with the NAD value
+3. WHEN a reference string contains only an AID value (no NAD), THE Reference_Parser SHALL create one Arkivreferens entry for "Arkiv Digital" with the AID value
+4. THE Source_Editor SHALL allow the user to manually add, edit, and remove rows in the Arkivreferenser table
+5. WHEN the source is saved, THE Source_Editor SHALL persist all Arkivreferens entries with the source record
+
+### Requirement 14: SDB Reference Recognition in GEDCOM Import
+
+**User Story:** As a genealogist, I want SDB references in imported GEDCOM sources to be recognized as Sveriges Dödbok Webb, so that they are correctly categorized during import.
+
+#### Acceptance Criteria
+
+1. WHEN a GEDCOM import encounters a source whose text or title contains a string matching "SDB" followed by a digit and underscore and digits (e.g., "SDB7_12345"), THE import process SHALL assign Leverantör "Rötter.se" and Källtyp "Sveriges Dödbok Webb" to the created source
+2. WHEN a GEDCOM import encounters a source whose text or title contains "Sveriges dödbok webb" (case-insensitive), THE import process SHALL assign Leverantör "Rötter.se" and Källtyp "Sveriges Dödbok Webb" to the created source
+
+### Requirement 15: Arkiv Digital Reference Pattern Improvements
+
+**User Story:** As a genealogist, I want the Arkiv Digital reference parser to handle variant patterns with "Bild:" (colon) format, so that all common citation formats from ArkivDigital are recognized.
+
+#### Acceptance Criteria
+
+1. WHEN a reference string matches the pattern "{parish} ({county_code}) {series}:{volume} ({years}) Bild: {image} Sida: {page}" (with colon after "Bild" and "Sida:" instead of "/ sid"), THE Reference_Parser SHALL parse it identically to the standard full pattern, assigning Leverantör "Arkiv Digital" and deriving Källtyp from the series code
+2. WHEN a reference string matching an Arkiv Digital pattern is imported via GEDCOM, THE import process SHALL set the title to the formatted title (e.g., "Karlstads stadsförsamling (S) AIIa:7 Sida: 21"), set reference_text to the full original text, and leave provider_ref (Leverantörsref) empty
+3. WHEN the "Församlingsbok" series codes (AIIa, AIIb, etc.) are encountered, THE Reference_Parser SHALL map them to "Församlingsbok" Källtyp
+
+### Requirement 16: Media Viewing in Source Editor
+
+**User Story:** As a genealogist, I want to view or open media files linked to a source, so that I can verify the attached document or image.
+
+#### Acceptance Criteria
+
+1. THE Source_Editor "Länkade media" section SHALL display a button or action to open/view the selected media file
+2. WHEN the user clicks the view/open action for a media item, THE Source_Editor SHALL open the media file using the system default application (via QDesktopServices.openUrl with a file:// URL)
+
+### Requirement 17: Media Attachment Robustness
+
+**User Story:** As a genealogist, I want media attachment to work reliably while a project is open, so that I don't encounter spurious errors.
+
+#### Acceptance Criteria
+
+1. THE Source_Editor SHALL correctly detect the project folder for media operations whenever a project is open, ensuring `_project_folder` is never None when the project is loaded
+2. IF the source editor is opened from a context where the project folder cannot be determined, THEN THE Source_Editor SHALL display a specific diagnostic message rather than the generic "Inget projekt öppet" error

@@ -98,7 +98,7 @@ This plan implements the "Rapporter" top-level menu for Släktbusken with five r
     - Each method delegates to the corresponding report module
     - _Requirements: 2.1, 3.1, 4.1_
 
-- [~] 6. Checkpoint - Verify report logic
+- [ ] 6. Checkpoint - Verify report logic
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 7. Implement Report Paginator
@@ -145,7 +145,7 @@ This plan implements the "Rapporter" top-level menu for Släktbusken with five r
     - **Property 16: Caption on same page as image**
     - **Validates: Requirements 7.4**
 
-- [~] 8. Checkpoint - Verify paginator
+- [ ] 8. Checkpoint - Verify paginator
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 9. Implement Report Preview window
@@ -195,7 +195,7 @@ This plan implements the "Rapporter" top-level menu for Släktbusken with five r
     - Verify implemented items have no placeholder tooltip when disabled due to no project
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 1.9, 1.10, 1.11_
 
-- [~] 11. Final checkpoint - Full integration
+- [ ] 11. Final checkpoint - Full integration
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

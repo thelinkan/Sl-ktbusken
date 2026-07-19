@@ -1,6 +1,6 @@
 """Unit tests for GEDCOM source ID to structured Source mapping.
 
-Validates: Requirements 4.4, 11.7
+Validates: Requirements 4.4, 11.7, 14.1, 14.2
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from slaktbusken.gedcom.translation.source_translation import (
     map_gedcom_source,
     parse_church_book_citation,
 )
-from slaktbusken.model.source import Source, StructuredReference
+from slaktbusken.model.source import Kalltyp, Leverantor, Source, StructuredReference
 from slaktbusken.persistence.translation_io import SourceMapping
 
 
@@ -377,3 +377,100 @@ class TestMapGedcomSource:
         )
         result = map_gedcom_source(gs, [], [])
         assert result.provider == "Riksarkivet"
+
+    def test_arkivdigital_church_book_title_formatted(self) -> None:
+        """ArkivDigital church_book sources get title from format_source_title."""
+        gs = GedcomSource(
+            xref_id="@S60@",
+            title="ArkivDigital: Karlstads stadsförsamling",
+            text="ArkivDigital: Karlstads stadsförsamling (S) AIIa:7 (1870-1880) Bild: 50 Sida: 21",
+        )
+        result = map_gedcom_source(gs, [], [])
+        # Title should be formatted from structured reference fields
+        assert result.title == "Karlstads stadsförsamling AIIa:7 Sida: 21"
+        # reference_text should be the full original text with prefix stripped
+        assert result.reference_text == "Karlstads stadsförsamling (S) AIIa:7 (1870-1880) Bild: 50 Sida: 21"
+        # provider_ref should be empty (not the abbreviation)
+        assert result.provider_ref == ""
+
+    def test_arkivdigital_church_book_provider_ref_empty(self) -> None:
+        """ArkivDigital church_book sources have provider_ref set to empty string."""
+        gs = GedcomSource(
+            xref_id="@S61@",
+            title="Some title",
+            text="ArkivDigital: Ljusdal (X) AI:23d (1883-1887) Bild: 23 Sida: 915",
+            abbreviation="v136004.b88",
+        )
+        result = map_gedcom_source(gs, [], [])
+        # Even though abbreviation is set, provider_ref should be empty for ArkivDigital
+        assert result.provider_ref == ""
+
+
+# ---------------------------------------------------------------------------
+# SDB detection in GEDCOM import tests
+# ---------------------------------------------------------------------------
+
+
+def _make_sdb_providers() -> tuple[list[Leverantor], list[Kalltyp]]:
+    """Helper to create standard leverantorer/kalltyper for SDB testing."""
+    lev = Leverantor(id="lev_rotter", name="Rötter.se")
+    kt = Kalltyp(
+        id="kt_sdb_webb",
+        leverantor_id="lev_rotter",
+        name="Sveriges Dödbok Webb",
+        root_url="https://www.rotter.se/abonnemang/sveriges-dodbok-webb/post/",
+    )
+    return [lev], [kt]
+
+
+class TestSdbDetection:
+    """Tests for SDB pattern detection in GEDCOM import.
+
+    Validates: Requirements 14.1, 14.2
+    """
+
+    def test_sdb_pattern_in_text_assigns_leverantor_and_kalltyp(self) -> None:
+        """A GEDCOM source with 'SDB7_12345' in text gets leverantor_id and kalltyp_id."""
+        leverantorer, kalltyper = _make_sdb_providers()
+        gs = GedcomSource(xref_id="@S100@", title="Dödbok", text="SDB7_12345")
+        result = map_gedcom_source(gs, [], [], leverantorer=leverantorer, kalltyper=kalltyper)
+        assert result.leverantor_id == "lev_rotter"
+        assert result.kalltyp_id == "kt_sdb_webb"
+
+    def test_sdb_pattern_extracts_arkivreferens(self) -> None:
+        """The SDB identifier 'SDB7_12345' is stored as arkivreferens."""
+        leverantorer, kalltyper = _make_sdb_providers()
+        gs = GedcomSource(xref_id="@S101@", title="Dödbok", text="SDB7_12345")
+        result = map_gedcom_source(gs, [], [], leverantorer=leverantorer, kalltyper=kalltyper)
+        assert result.arkivreferens == "SDB7_12345"
+
+    def test_sveriges_dodbok_webb_text_assigns_leverantor_and_kalltyp(self) -> None:
+        """A GEDCOM source with 'Sveriges dödbok webb' in text is correctly recognized."""
+        leverantorer, kalltyper = _make_sdb_providers()
+        gs = GedcomSource(
+            xref_id="@S102@",
+            title="Dödspost",
+            text="Sveriges dödbok webb - record123",
+        )
+        result = map_gedcom_source(gs, [], [], leverantorer=leverantorer, kalltyper=kalltyper)
+        assert result.leverantor_id == "lev_rotter"
+        assert result.kalltyp_id == "kt_sdb_webb"
+
+    def test_sdb_detection_without_leverantorer_graceful(self) -> None:
+        """When no leverantorer/kalltyper are provided, source is still created without IDs."""
+        gs = GedcomSource(xref_id="@S103@", title="Dödbok", text="SDB7_12345")
+        result = map_gedcom_source(gs, [], [])
+        # Source is created but without leverantor_id/kalltyp_id set
+        assert result.leverantor_id == ""
+        assert result.kalltyp_id == ""
+        # arkivreferens is still extracted
+        assert result.arkivreferens == "SDB7_12345"
+
+    def test_non_sdb_source_not_affected(self) -> None:
+        """A normal source without SDB patterns doesn't get leverantor_id/kalltyp_id set."""
+        leverantorer, kalltyper = _make_sdb_providers()
+        gs = GedcomSource(xref_id="@S104@", title="Min forskning", text="Some notes")
+        result = map_gedcom_source(gs, [], [], leverantorer=leverantorer, kalltyper=kalltyper)
+        assert result.leverantor_id == ""
+        assert result.kalltyp_id == ""
+        assert result.arkivreferens == ""

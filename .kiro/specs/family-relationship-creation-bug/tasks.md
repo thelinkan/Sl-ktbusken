@@ -115,7 +115,7 @@ The approach follows the exploratory bugfix workflow: write bug condition tests 
       - Person editor `ParentService.add_parent` flow unaffected
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [~] 4. Checkpoint - Ensure all tests pass
+- [ ] 4. Checkpoint - Ensure all tests pass
   - Run full test suite to ensure no regressions
   - Verify bug condition exploration test passes (sequential parent addition no longer creates duplicate families)
   - Verify preservation tests pass (first-parent creation, valid family_id additions, child additions, and partner additions all unchanged)

@@ -29,6 +29,7 @@ from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import (
+    ArkivReferens,
     Repository,
     RepositoryRef,
     Source,
@@ -68,6 +69,7 @@ __all__ = [
     # Place
     "Place",
     # Source
+    "ArkivReferens",
     "Repository",
     "RepositoryRef",
     "Source",

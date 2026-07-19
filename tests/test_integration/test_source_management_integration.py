@@ -62,7 +62,10 @@ class TestGedcomArkivDigitalImport:
         assert result.leverantor_name == "Arkiv Digital"
         assert result.kalltyp_name == "Födelse- och dopbok"
         assert result.title == "Sundsvall CI:5 Sida: 15"
-        assert result.reference_text == stripped
+        # reference_text should NOT contain AID/NAD parenthetical (requirement 2.4)
+        assert result.reference_text == "Sundsvall (Y) CI:5 (1800-1810) Bild 3 / sid 15"
+        assert "(AID:" not in result.reference_text
+        assert "(NAD:" not in result.reference_text
         assert "aid_ref" in result.structured_fields
         assert "nad_ref" in result.structured_fields
         assert result.structured_fields["parish"] == "Sundsvall"
