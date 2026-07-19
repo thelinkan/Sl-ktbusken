@@ -191,6 +191,15 @@ class MainWindow(QMainWindow):
         self.action_settings.setToolTip("Öppna inställningar")
         self.action_settings.triggered.connect(self._app.show_settings)
 
+        # Visa huvudperson
+        self.action_show_main_person = QAction("Visa &huvudperson", self)
+        self.action_show_main_person.setToolTip(
+            "Navigera till huvudpersonen i aktuell vy"
+        )
+        self.action_show_main_person.triggered.connect(
+            self._app.show_main_person
+        )
+
     # ------------------------------------------------------------------
     # Menu Bar
     # ------------------------------------------------------------------
@@ -274,6 +283,8 @@ class MainWindow(QMainWindow):
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.action_import)
         self.toolbar.addAction(self.action_export)
+        self.toolbar.addSeparator()
+        self.toolbar.addAction(self.action_show_main_person)
 
     # ------------------------------------------------------------------
     # Central Widget
@@ -377,6 +388,7 @@ class MainWindow(QMainWindow):
         self.action_view_family.setEnabled(project_open)
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)
+        self.action_show_main_person.setEnabled(project_open)
 
         if hasattr(self, '_report_menu_builder'):
             self._report_menu_builder.update_project_state(project_open)

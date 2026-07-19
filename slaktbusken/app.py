@@ -777,6 +777,22 @@ class Application:
         self._update_diagram_panel()
         self.main_window.statusBar().showMessage("Projekt stängt", 5000)
 
+    def show_main_person(self) -> None:
+        """Navigate to the main person in the current diagram view."""
+        if self.project_service.data is None:
+            return
+
+        main_id = self.project_service.data.project.main_person_id
+        if not main_id:
+            QMessageBox.information(
+                self.main_window,
+                "Ingen huvudperson",
+                "Ingen huvudperson är vald för detta projekt.",
+            )
+            return
+
+        self.main_window.diagram_panel.set_active_person(main_id)
+
     def show_relationship_calculator(self) -> None:
         """Open the relationship calculator dialog.
 
