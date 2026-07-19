@@ -963,9 +963,9 @@ class EventEditor(QWidget):
     def _create_source_from_reference(self, reference_text: str) -> None:
         """Open the source editor to create a new source pre-filled with reference text.
 
-        If the reference text matches the ArkivDigital church book pattern
-        (e.g. "Ljusdal (X) AI:23d (1883-1887) Bild: 23 Sida: 915"),
-        auto-fills provider, source type, and structured reference fields.
+        Sets the reference text in the editor, which triggers auto-parsing
+        via _on_reference_text_changed to populate title, provider, source type,
+        and structured reference fields.
 
         After the source is created, adds it to project data, updates the
         combo box, and selects it.
@@ -973,9 +973,6 @@ class EventEditor(QWidget):
         Args:
             reference_text: The reference text to pre-fill in the new source.
         """
-        from slaktbusken.gedcom.translation.source_translation import (
-            parse_church_book_citation,
-        )
         from slaktbusken.ui.editors.source_editor import SourceEditor
 
         dialog = QDialog(self)
@@ -1000,43 +997,10 @@ class EventEditor(QWidget):
         if clean_ref.lower().startswith("arkivdigital:"):
             clean_ref = clean_ref[len("arkivdigital:"):].strip()
 
-        # Pre-fill reference text
+        # Pre-fill reference text — this triggers _on_reference_text_changed
+        # which auto-populates title, provider, structured fields via parse_reference()
         if hasattr(editor, '_ui') and hasattr(editor._ui, 'reference_text_input'):
             editor._ui.reference_text_input.setText(clean_ref)
-
-        # Try to parse as ArkivDigital church book reference
-        parsed = parse_church_book_citation(clean_ref)
-        if parsed is not None:
-            # Auto-fill provider combo — find "ArkivDigital" in the combo
-            for i in range(editor._ui.provider_combo.count()):
-                if editor._ui.provider_combo.itemText(i) == "ArkivDigital":
-                    editor._ui.provider_combo.setCurrentIndex(i)
-                    break
-
-            # Auto-fill structured reference fields
-            fields = parsed.fields
-            if fields.get("parish"):
-                editor._ui.parish_input.setText(str(fields["parish"]))
-            if fields.get("county_code"):
-                editor._ui.county_code_input.setText(str(fields["county_code"]))
-            if fields.get("series"):
-                editor._ui.series_input.setText(str(fields["series"]))
-            if fields.get("volume"):
-                editor._ui.volume_input.setText(str(fields["volume"]))
-            if fields.get("years"):
-                editor._ui.years_input.setText(str(fields["years"]))
-            if fields.get("image") is not None:
-                editor._ui.image_input.setText(str(fields["image"]))
-            if fields.get("page") is not None:
-                editor._ui.page_input.setText(str(fields["page"]))
-
-            # Generate a title from parish + series
-            parish = fields.get("parish", "")
-            series = fields.get("series", "")
-            volume = fields.get("volume", "")
-            if parish and series:
-                title = f"{parish} {series}:{volume}" if volume else f"{parish} {series}"
-                editor._ui.title_input.setText(title)
 
         # Show modal
         dialog.exec()

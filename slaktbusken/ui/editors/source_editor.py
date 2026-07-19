@@ -956,6 +956,10 @@ class SourceEditor(QWidget):
 
         self._ui.title_input.setText(title)
 
+        # Update reference_text_input with normalized text (colon format, no AID/NAD)
+        if parsed.reference_text:
+            self._ui.reference_text_input.setText(parsed.reference_text)
+
         # Store arkivreferens and IDs for save
         self._pending_arkivreferens = parsed.arkivreferens
         self._pending_leverantor_id = leverantor_id

@@ -34,6 +34,7 @@ def format_source_title(structured_ref: dict) -> str:
     series = structured_ref.get("series", "").strip()
     volume = structured_ref.get("volume", "").strip()
     page = structured_ref.get("page", "").strip()
+    image = structured_ref.get("image", "").strip()
 
     if parish:
         parts.append(parish)
@@ -46,6 +47,8 @@ def format_source_title(structured_ref: dict) -> str:
 
     if page:
         parts.append(f"Sida: {page}")
+    elif image:
+        parts.append(f"Bild: {image}")
 
     result = " ".join(parts)
 

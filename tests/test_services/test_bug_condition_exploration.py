@@ -127,12 +127,12 @@ class TestAidNadNotInReferenceText:
         )
 
     def test_reference_text_is_human_readable_portion_only(self) -> None:
-        """reference_text should be only the human-readable part before (AID: ...)."""
+        """reference_text should be only the human-readable part, normalized to colon format."""
         text = "Ed (S) AI:16 (1866-1870) Bild 58 / sid 51 (AID: v10726.b58.s51, NAD: SE/VA/13090)"
         result = parse_reference(text)
 
         assert result is not None
-        expected_ref_text = "Ed (S) AI:16 (1866-1870) Bild 58 / sid 51"
+        expected_ref_text = "Ed (S) AI:16 (1866-1870) Bild: 58 Sida: 51"
         assert result.reference_text == expected_ref_text, (
             f"Bug confirmed: reference_text is '{result.reference_text}' "
             f"(expected '{expected_ref_text}')"

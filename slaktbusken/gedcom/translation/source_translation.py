@@ -63,6 +63,31 @@ _CHURCH_BOOK_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Slash variant: "Parish (CountyCode) Series:Volume (Years) Bild N / sid N (AID: ...)"
+# Examples:
+#   "Ed (S) AI:16 (1866-1870) Bild 68 / sid 61 (AID: v10726.b68.s61, NAD: SE/VA/13090)"
+_CHURCH_BOOK_SLASH_PATTERN = re.compile(
+    r"^(?P<parish>[^(]+?)\s*"
+    r"\((?P<county_code>[A-Za-zÅÄÖåäö]+)\)\s*"
+    r"(?P<series>[A-Za-zÅÄÖåäö]+)\s*:\s*(?P<volume>[^\s(]+)\s*"
+    r"\((?P<years>\d{4}\s*-\s*\d{4})\)\s*"
+    r"Bild\s+(?P<image>\d+)\s*/\s*sid\s+(?P<page>\d+)",
+    re.IGNORECASE,
+)
+
+# Bild-only variant (no colon, no /sid): "Parish (CountyCode) Series:Volume (Years) Bild N"
+# Examples:
+#   "Ed (S) C:6 (1861-1889) Bild 140 (AID: v5976.b140, NAD: SE/VA/13090)"
+#   "Ed (S) C:6 (1861-1889) Bild 136"
+_CHURCH_BOOK_BILD_ONLY_PATTERN = re.compile(
+    r"^(?P<parish>[^(]+?)\s*"
+    r"\((?P<county_code>[A-Za-zÅÄÖåäö]+)\)\s*"
+    r"(?P<series>[A-Za-zÅÄÖåäö]+)\s*:\s*(?P<volume>[^\s(]+)\s*"
+    r"\((?P<years>\d{4}\s*-\s*\d{4})\)\s*"
+    r"Bild\s+(?P<image>\d+)",
+    re.IGNORECASE,
+)
+
 # Looser pattern for ArkivDigital detection: matches the church book structure
 # without requiring Bild/Sida (but still has parish, county_code, series, volume, years)
 _ARKIV_DIGITAL_STRUCTURE_PATTERN = re.compile(
@@ -317,8 +342,13 @@ def detect_source_type(gedcom_source: GedcomSource) -> str:
     """
     searchable_text = _get_searchable_text(gedcom_source)
 
-    # Church book: check the structured citation pattern
+    # Church book: check the structured citation pattern (colon or slash variant)
     if _CHURCH_BOOK_PATTERN.search(searchable_text):
+        return "church_book"
+    if _CHURCH_BOOK_SLASH_PATTERN.search(searchable_text):
+        return "church_book"
+    # Church book structure with AID identifier (e.g., "Ed (S) C:6 (1861-1889) Bild 140 (AID: ...)")
+    if "(AID:" in searchable_text and _ARKIV_DIGITAL_STRUCTURE_PATTERN.search(searchable_text):
         return "church_book"
 
     searchable_lower = searchable_text.lower()
@@ -389,6 +419,24 @@ def parse_church_book_citation(text: str) -> Optional[StructuredReference]:
     """
     match = _CHURCH_BOOK_PATTERN.search(text)
     if match is None:
+        # Try slash variant: "Parish (County) Series:Volume (Years) Bild N / sid N"
+        match = _CHURCH_BOOK_SLASH_PATTERN.search(text)
+    if match is None:
+        # Try Bild-only variant: "Parish (County) Series:Volume (Years) Bild N"
+        match = _CHURCH_BOOK_BILD_ONLY_PATTERN.search(text)
+        if match is not None:
+            # This pattern has no page group
+            fields: dict[str, Optional[str | int]] = {
+                "parish": match.group("parish").strip(),
+                "county_code": match.group("county_code").strip(),
+                "series": match.group("series").strip(),
+                "volume": match.group("volume").strip(),
+                "years": match.group("years").replace(" ", ""),
+                "image": int(match.group("image")),
+                "page": None,
+            }
+            return StructuredReference(fields=fields)
+    if match is None:
         return None
 
     fields: dict[str, Optional[str | int]] = {
@@ -447,9 +495,13 @@ def detect_arkiv_digital(gedcom_source: GedcomSource) -> bool:
         if title_stripped.startswith(_ARKIV_DIGITAL_PREFIX):
             return True
 
+    # Check if text or title contains "(AID:" which is an Arkiv Digital identifier
+    searchable = _get_searchable_text(gedcom_source)
+    if "(AID:" in searchable:
+        return True
+
     # Check if the structured pattern is present AND author/publication
     # mentions ArkivDigital
-    searchable = _get_searchable_text(gedcom_source)
     if _ARKIV_DIGITAL_STRUCTURE_PATTERN.search(searchable):
         ad_lower = "arkivdigital"
         if gedcom_source.author and ad_lower in gedcom_source.author.lower():
@@ -572,7 +624,11 @@ def _build_structured_reference(
 
         # Try title field
         if gedcom_source.title:
-            ref = parse_church_book_citation(gedcom_source.title)
+            title_text = gedcom_source.title.strip()
+            # Strip ArkivDigital prefix before parsing
+            if title_text.lower().startswith(_ARKIV_DIGITAL_PREFIX):
+                title_text = title_text[len(_ARKIV_DIGITAL_PREFIX):].strip()
+            ref = parse_church_book_citation(title_text)
             if ref is not None:
                 return ref
 
@@ -610,6 +666,15 @@ def _derive_title(gedcom_source: GedcomSource) -> str:
     return f"Source {gedcom_source.xref_id}"
 
 
+def _normalize_bild_format(text: str) -> str:
+    """Normalize 'Bild N / sid N' slash format to 'Bild: N Sida: N' colon format."""
+    return re.sub(
+        r'Bild\s+(\d+)\s*/\s*sid\s+(\d+)',
+        r'Bild: \1 Sida: \2',
+        text,
+    )
+
+
 def _derive_reference_text(gedcom_source: GedcomSource) -> str:
     """Derive the reference_text field from GEDCOM source data.
 
@@ -629,9 +694,22 @@ def _derive_reference_text(gedcom_source: GedcomSource) -> str:
             text = text[len(_ARKIV_DIGITAL_PREFIX) :].strip()
         # Strip trailing AID/NAD parenthetical for clean reference_text
         text = re.sub(r'\s*\(AID:\s*[^)]*\)\s*$', '', text).strip()
+        # Normalize slash format to colon format
+        text = _normalize_bild_format(text)
         return text
 
-    return gedcom_source.title or ""
+    if gedcom_source.title:
+        title = gedcom_source.title.strip()
+        # Strip ArkivDigital prefix for cleaner reference_text
+        if title.lower().startswith(_ARKIV_DIGITAL_PREFIX):
+            title = title[len(_ARKIV_DIGITAL_PREFIX):].strip()
+        # Strip trailing AID/NAD parenthetical for clean reference_text
+        title = re.sub(r'\s*\(AID:\s*[^)]*\)\s*$', '', title).strip()
+        # Normalize slash format to colon format
+        title = _normalize_bild_format(title)
+        return title
+
+    return ""
 
 
 def _derive_provider(gedcom_source: GedcomSource) -> str:

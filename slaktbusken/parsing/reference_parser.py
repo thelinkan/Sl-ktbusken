@@ -52,25 +52,25 @@ CHURCH_BOOK_SERIES_LABELS: dict[str, str] = {
 
 
 # Full pattern regex:
-# {parish} ({county_code}) {series}:{volume} ({years}) Bild {image} / sid {page} (AID: {aid_ref}, NAD: {nad_ref})
+# {parish} ({county_code}) {series}:{volume} ({years}) Bild {image} [/ sid {page}] (AID: {aid_ref}, NAD: {nad_ref})
 _AD_FULL_PATTERN = re.compile(
     r"^(?P<parish>.+?)\s+"
     r"\((?P<county_code>[^)]+)\)\s+"
     r"(?P<series>[A-Za-z]+)\:(?P<volume>[^\s]+)\s+"
     r"\((?P<years>[^)]+)\)\s+"
-    r"Bild\s+(?P<image>\d+)\s*/\s*sid\s+(?P<page>\d+)\s+"
+    r"Bild\s+(?P<image>\d+)(?:\s*/\s*sid\s+(?P<page>\d+))?\s+"
     r"\(AID:\s*(?P<aid_ref>[^,]+),\s*NAD:\s*(?P<nad_ref>[^)]+)\)$"
 )
 
 # Bild colon pattern regex:
-# {parish} ({county_code}) {series}:{volume} ({years}) Bild: {image} Sida: {page}
+# {parish} ({county_code}) {series}:{volume} ({years}) Bild: {image} [Sida: {page}]
 _AD_BILD_COLON_PATTERN = re.compile(
     r"^(?P<parish>.+?)\s+"
     r"\((?P<county_code>[^)]+)\)\s+"
     r"(?P<series>[A-Za-z]+)\:(?P<volume>[^\s]+)\s+"
     r"\((?P<years>[^)]+)\)\s+"
-    r"Bild:\s*(?P<image>\d+)\s+"
-    r"Sida:\s*(?P<page>\d+)$"
+    r"Bild:\s*(?P<image>\d+)"
+    r"(?:\s+Sida:\s*(?P<page>\d+))?$"
 )
 
 # Short pattern regex:
@@ -103,15 +103,18 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
         volume = m.group("volume").strip()
         years = m.group("years").strip()
         image = m.group("image").strip()
-        page = m.group("page").strip()
+        page_match = m.group("page")
+        page = page_match.strip() if page_match else ""
         aid_ref = m.group("aid_ref").strip()
         nad_ref = m.group("nad_ref").strip()
 
         kalltyp_name = CHURCH_BOOK_SERIES_LABELS.get(series, "Övrigt")
-        title = f"{parish} {series}:{volume} Sida: {page}"
-
-        # Strip AID/NAD parenthetical from reference_text (requirement 2.4)
-        ref_text = text[: text.index("(AID:")].strip()
+        if page:
+            title = f"{parish} {series}:{volume} Sida: {page}"
+            ref_text = f"{parish} ({county_code}) {series}:{volume} ({years}) Bild: {image} Sida: {page}"
+        else:
+            title = f"{parish} {series}:{volume} Bild: {image}"
+            ref_text = f"{parish} ({county_code}) {series}:{volume} ({years}) Bild: {image}"
 
         return ParsedReference(
             leverantor_name="Arkiv Digital",
@@ -145,10 +148,14 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
         volume = m.group("volume").strip()
         years = m.group("years").strip()
         image = m.group("image").strip()
-        page = m.group("page").strip()
+        page_match = m.group("page")
+        page = page_match.strip() if page_match else ""
 
         kalltyp_name = CHURCH_BOOK_SERIES_LABELS.get(series, "Övrigt")
-        title = f"{parish} {series}:{volume} Sida: {page}"
+        if page:
+            title = f"{parish} {series}:{volume} Sida: {page}"
+        else:
+            title = f"{parish} {series}:{volume} Bild: {image}"
 
         # Defensively strip any trailing (AID: ...) parenthetical (requirement 2.4)
         ref_text = re.sub(r"\s*\(AID:\s*[^)]*\)\s*$", "", text).strip()
@@ -180,8 +187,8 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
 
         title = f"{description} Sida: {page}"
 
-        # Strip AID parenthetical from reference_text (requirement 2.4)
-        ref_text = text[: text.index("(AID:")].strip()
+        # Normalize reference_text: strip AID, convert to colon format
+        ref_text = f"{description} ({year}) Bild: {image} Sida: {page}"
 
         return ParsedReference(
             leverantor_name="Arkiv Digital",

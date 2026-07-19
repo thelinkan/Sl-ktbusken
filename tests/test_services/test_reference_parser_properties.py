@@ -158,10 +158,10 @@ class TestArkivDigitalChurchBookRoundTrip:
         assert result.leverantor_name == "Arkiv Digital"
         assert result.kalltyp_name == CHURCH_BOOK_SERIES_LABELS[series]
         assert result.title == f"{parish} {series}:{volume} Sida: {page}"
-        # reference_text should NOT contain AID/NAD parenthetical (requirement 2.4)
+        # reference_text should be normalized to colon format without AID/NAD (requirement 2.4)
         expected_ref_text = (
             f"{parish} ({county_code}) {series}:{volume} ({years}) "
-            f"Bild {image} / sid {page}"
+            f"Bild: {image} Sida: {page}"
         )
         assert result.reference_text == expected_ref_text
         assert "(AID:" not in result.reference_text
@@ -205,9 +205,9 @@ class TestArkivDigitalChurchBookRoundTrip:
         assert result.leverantor_name == "Arkiv Digital"
         assert result.kalltyp_name == "Övrigt"
         assert result.title == f"{description} Sida: {page}"
-        # reference_text should NOT contain AID parenthetical (requirement 2.4)
+        # reference_text should be normalized to colon format without AID (requirement 2.4)
         expected_ref_text = (
-            f"{description} ({year}) Bild {image} / sid {page}"
+            f"{description} ({year}) Bild: {image} Sida: {page}"
         )
         assert result.reference_text == expected_ref_text
         assert "(AID:" not in result.reference_text
