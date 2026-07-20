@@ -88,18 +88,13 @@ class TestBug1SwedishOnlyValidationWarnings:
     def test_validation_warnings_use_swedish_place_types(
         self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
     ) -> None:
-        """Validation warnings for place hierarchy must use Swedish type names.
+        """Two-level place like 'Falun, Kopparbergs län' auto-adds country.
 
-        Imports a GEDCOM with a two-level place (e.g., "Falun, Kopparbergs län")
-        which creates a county without a country parent. The validation warning
-        must say "län" and "land" — not "county" and "country".
-
-        This WILL FAIL because _validate_place_hierarchy in validators.py
-        uses place.type and expected_parent_type (English identifiers) directly
-        in Swedish error messages.
+        When a GEDCOM place string has a recognized Swedish county as the
+        least-specific level, the importer automatically adds 'Sverige' as
+        the country parent. This means no validation warning is produced
+        for a missing country parent.
         """
-        # Import Test-1.ged which has two-level places like
-        # "Falun, Kopparbergs län" — county without country parent
         gedcom_content = """\
 0 HEAD
 1 SOUR Test
@@ -130,27 +125,23 @@ class TestBug1SwedishOnlyValidationWarnings:
             empty_project, gedcom_file, project_path
         )
 
-        # We expect validation warnings because county has no country parent
-        validation_warnings = [
-            w for w in result.warnings
-            if "Valideringsvarning" in w
-        ]
-        assert len(validation_warnings) > 0, (
-            "Expected validation warnings for county without country parent"
+        # County should now have a country parent (auto-added "Sverige")
+        kopparberg = next(
+            (p for p in empty_project.places if p.name == "Kopparbergs län"),
+            None,
         )
+        assert kopparberg is not None
+        assert kopparberg.type == "county"
+        assert kopparberg.parent_place_id is not None
 
-        # The warnings must NOT contain English place type identifiers
-        for warning in validation_warnings:
-            for eng_type in self.ENGLISH_PLACE_TYPES:
-                # Check for English type used as a word (not part of another word)
-                # Use word boundary check: space/quote before/after
-                if f" {eng_type}" in warning.lower() or f"'{eng_type}'" in warning.lower():
-                    assert False, (
-                        f"English place type '{eng_type}' found in validation "
-                        f"warning: {warning!r}\n"
-                        f"Expected Swedish equivalent (e.g., 'län' for 'county', "
-                        f"'land' for 'country')"
-                    )
+        # Parent should be Sverige
+        parent = next(
+            (p for p in empty_project.places if p.id == kopparberg.parent_place_id),
+            None,
+        )
+        assert parent is not None
+        assert parent.name == "Sverige"
+        assert parent.type == "country"
 
 
 # ---------------------------------------------------------------------------

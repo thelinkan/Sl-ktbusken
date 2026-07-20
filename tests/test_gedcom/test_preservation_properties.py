@@ -135,13 +135,16 @@ class TestPreservationFullInitialImport:
         importer = GEDCOMImporter(empty_project, translation_dir)
         importer.import_file(fixtures_dir / "Test-1.ged")
 
-        # 6 places: 3 parishes + 3 counties
-        assert len(empty_project.places) == 6
+        # 7 places: 3 parishes + 3 counties + 1 auto-added country (Sverige)
+        assert len(empty_project.places) == 7
 
         parishes = [p for p in empty_project.places if p.type == "parish"]
         counties = [p for p in empty_project.places if p.type == "county"]
+        countries = [p for p in empty_project.places if p.type == "country"]
         assert len(parishes) == 3
         assert len(counties) == 3
+        assert len(countries) == 1
+        assert countries[0].name == "Sverige"
 
         # Each parish has a county as parent
         for parish in parishes:
@@ -152,6 +155,16 @@ class TestPreservationFullInitialImport:
             )
             assert parent is not None
             assert parent.type == "county"
+
+        # Each county has the country as parent
+        for county in counties:
+            assert county.parent_place_id is not None
+            parent = next(
+                (p for p in empty_project.places if p.id == county.parent_place_id),
+                None,
+            )
+            assert parent is not None
+            assert parent.type == "country"
 
     @given(
         title=st.text(
@@ -177,7 +190,7 @@ class TestPreservationFullInitialImport:
         assert result.persons_added == 3
         assert result.events_added == 3
         assert result.families_added == 1
-        assert result.places_added == 6
+        assert result.places_added == 7
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +393,7 @@ class TestPreservationUnchangedEvents:
                 "parent_place_id": p.parent_place_id,
             })
 
-        assert len(initial_place_data) == 6
+        assert len(initial_place_data) == 7
 
         # Update import
         importer2 = GEDCOMImporter(empty_project, translation_dir)

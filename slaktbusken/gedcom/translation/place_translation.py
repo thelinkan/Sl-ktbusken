@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from slaktbusken.data.county_registry import get_country_for_county, is_county, normalize_county
 from slaktbusken.gedcom.translation.models import GedcomPlace
 from slaktbusken.model.id_generator import IDGenerator
 from slaktbusken.model.place import Place
@@ -137,12 +138,19 @@ def infer_place_type(level_index: int, total_levels: int, name: str) -> str:
     if total_levels == 2:
         if level_index == 0:
             return "parish"
+        # Last position in a 2-level hierarchy: check county registry
+        # before defaulting to "country" (e.g., "Stockholm" is a county)
+        if is_county(name):
+            return "county"
         return "country"
 
     if total_levels == 3:
         if level_index == 0:
             return "parish"
         if level_index == 1:
+            # Check county registry for alternate spellings
+            if is_county(name):
+                return "county"
             return "county"
         return "country"
 
@@ -252,17 +260,81 @@ def map_place_to_hierarchy(
         existing_ids = {p.id for p in existing_places}
         id_generator = IDGenerator(existing_ids)
 
-    total_levels = len(gedcom_place.levels)
+    # --- Pre-scan: detect county position and determine if country is missing ---
+    levels = [lv.strip() for lv in gedcom_place.levels if lv.strip()]
+    if not levels:
+        return []
+
+    # Find which level index (in the original most→least order) is a county
+    county_index: Optional[int] = None
+    has_country = False
+    for i, name in enumerate(levels):
+        name_lower = name.lower()
+        if name_lower in _COUNTRY_NAMES:
+            has_country = True
+        elif _LAN_PATTERN.match(name) or is_county(name):
+            county_index = i
+
+    # If the least-specific level (last in list) is a county with no country,
+    # auto-add the associated country above it.
+    country_to_prepend: Optional[str] = None
+    if not has_country and county_index is not None and county_index == len(levels) - 1:
+        country_name = get_country_for_county(levels[county_index])
+        if country_name:
+            country_to_prepend = country_name
+
+    # --- Build the hierarchy from least specific to most specific ---
     new_places: list[Place] = []
     parent_id: Optional[str] = None
 
-    # Process from least specific (last in list) to most specific (first)
-    for i in range(total_levels - 1, -1, -1):
-        name = gedcom_place.levels[i].strip()
-        if not name:
-            continue
+    # Step 1: Handle auto-prepended country (if needed)
+    if country_to_prepend:
+        existing_country = _find_existing_by_name_and_type(
+            country_to_prepend, "country", None, existing_places
+        )
+        if existing_country is not None:
+            parent_id = existing_country.id
+        else:
+            new_id = id_generator.generate("place")
+            new_place = Place(
+                id=new_id,
+                type="country",
+                name=country_to_prepend,
+                parent_place_id=None,
+            )
+            new_places.append(new_place)
+            parent_id = new_id
 
-        place_type = infer_place_type(i, total_levels, name)
+    # Step 2: Process levels from least specific (last) to most specific (first)
+    total_levels = len(levels)
+    for i in range(total_levels - 1, -1, -1):
+        name = levels[i]
+
+        # Determine type using name-based detection first
+        place_type = _detect_type_by_name(name)
+
+        if place_type is None:
+            # Use context-aware positional inference:
+            # If we know where the county is, assign types relative to it.
+            if county_index is not None:
+                if i > county_index:
+                    place_type = "country"
+                elif i == county_index:
+                    place_type = "county"
+                elif i == county_index - 1:
+                    place_type = "parish"
+                else:
+                    # More than one level below county = village
+                    place_type = "village"
+            else:
+                # No county detected — fall back to original positional logic
+                place_type = infer_place_type(i, total_levels, name)
+
+        # Normalize short-form county names to their canonical form
+        # (e.g., "Stockholm" → "Stockholms län"). Skip names that already
+        # end in "län" — those are valid historical names.
+        if place_type == "county" and not _LAN_PATTERN.match(name):
+            name = normalize_county(name)
 
         # Try to find an existing place with matching name and type
         existing = _find_existing_by_name_and_type(
@@ -284,6 +356,33 @@ def map_place_to_hierarchy(
             parent_id = new_id
 
     return new_places
+
+
+def _detect_type_by_name(name: str) -> Optional[str]:
+    """Detect place type purely from the name, ignoring position.
+
+    Only uses unambiguous name patterns (names ending in "län", known
+    country names, church/cemetery suffixes). Short-form county alternates
+    like "Stockholm" are NOT detected here because they are ambiguous —
+    "Stockholm" can be both a parish and a county shorthand.
+
+    Returns None if no name-based detection matches.
+    """
+    name_lower = name.strip().lower()
+
+    if name_lower in _COUNTRY_NAMES:
+        return "country"
+
+    if _LAN_PATTERN.match(name):
+        return "county"
+
+    if any(name_lower.endswith(suffix) for suffix in _CHURCH_SUFFIXES):
+        return "church"
+
+    if any(name_lower.endswith(suffix) for suffix in _CEMETERY_SUFFIXES):
+        return "cemetery"
+
+    return None
 
 
 # ---------------------------------------------------------------------------

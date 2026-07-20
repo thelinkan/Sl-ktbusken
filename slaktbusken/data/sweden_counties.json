@@ -1,0 +1,113 @@
+{
+  "country": "Sverige",
+  "counties": [
+    {
+      "name": "Blekinge län",
+      "alternates": ["Blekinge"]
+    },
+    {
+      "name": "Dalarnas län",
+      "alternates": ["Dalarna", "Kopparbergs län", "Kopparberg"]
+    },
+    {
+      "name": "Gotlands län",
+      "alternates": ["Gotland"]
+    },
+    {
+      "name": "Gävleborgs län",
+      "alternates": ["Gävleborg"]
+    },
+    {
+      "name": "Hallands län",
+      "alternates": ["Halland"]
+    },
+    {
+      "name": "Jämtlands län",
+      "alternates": ["Jämtland"]
+    },
+    {
+      "name": "Jönköpings län",
+      "alternates": ["Jönköping"]
+    },
+    {
+      "name": "Kalmar län",
+      "alternates": ["Kalmar"]
+    },
+    {
+      "name": "Kronobergs län",
+      "alternates": ["Kronoberg"]
+    },
+    {
+      "name": "Norrbottens län",
+      "alternates": ["Norrbotten"]
+    },
+    {
+      "name": "Skåne län",
+      "alternates": ["Skåne"]
+    },
+    {
+      "name": "Stockholms län",
+      "alternates": ["Stockholm"]
+    },
+    {
+      "name": "Stockholms stad",
+      "alternates": ["Stockholm stad"]
+    },
+    {
+      "name": "Södermanlands län",
+      "alternates": ["Södermanland", "Sörmland"]
+    },
+    {
+      "name": "Uppsala län",
+      "alternates": ["Uppsala"]
+    },
+    {
+      "name": "Värmlands län",
+      "alternates": ["Värmland"]
+    },
+    {
+      "name": "Västerbottens län",
+      "alternates": ["Västerbotten"]
+    },
+    {
+      "name": "Västernorrlands län",
+      "alternates": ["Västernorrland", "Ångermanland"]
+    },
+    {
+      "name": "Västmanlands län",
+      "alternates": ["Västmanland"]
+    },
+    {
+      "name": "Västra Götalands län",
+      "alternates": ["Västra Götaland", "Göteborg"]
+    },
+    {
+      "name": "Älvsborgs län",
+      "alternates": ["Älvsborg"]
+    },
+    {
+      "name": "Skaraborgs län",
+      "alternates": ["Skaraborg"]
+    },
+    {
+      "name": "Göteborgs och Bohus län",
+      "alternates": ["Göteborg och Bohus"]
+    },
+    {
+      "name": "Kristianstads län",
+      "alternates": ["Kristianstad"]
+    },
+    {
+      "name": "Malmöhus län",
+      "alternates": ["Malmöhus", "Malmö"]
+    },
+    {
+      "name": "Örebro län",
+      "alternates": ["Örebro"]
+    },
+    {
+      "name": "Östergötlands län",
+      "alternates": ["Östergötland"]
+    }
+  ]
+}
