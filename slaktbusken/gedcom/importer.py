@@ -564,6 +564,49 @@ def _parse_gedcom_name(name_value: str) -> tuple[str, str]:
     return name_value.strip().replace("/", ""), ""
 
 
+def _parse_gedcom_coordinate(
+    value: str, positive_prefix: str, negative_prefix: str
+) -> Optional[float]:
+    """Parse a GEDCOM coordinate string (LATI or LONG) into a float.
+
+    GEDCOM uses prefix notation: "N59.8392" means +59.8392 latitude,
+    "W12.3153" means -12.3153 longitude.
+
+    Args:
+        value: The raw coordinate string (e.g., "N59.8392", "E12.3153").
+        positive_prefix: The prefix character for positive values ("N" or "E").
+        negative_prefix: The prefix character for negative values ("S" or "W").
+
+    Returns:
+        The coordinate as a float, or None if parsing fails.
+    """
+    if not value:
+        return None
+
+    value = value.strip()
+    if not value:
+        return None
+
+    prefix = value[0].upper()
+    num_str = value[1:]
+
+    try:
+        num = float(num_str)
+    except ValueError:
+        return None
+
+    if prefix == positive_prefix:
+        return num
+    elif prefix == negative_prefix:
+        return -num
+    else:
+        # No recognized prefix — try parsing the whole string as a number
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
+
 # ---------------------------------------------------------------------------
 # GEDCOMImporter class
 # ---------------------------------------------------------------------------
@@ -1723,11 +1766,18 @@ class GEDCOMImporter:
 
         # Parse place
         place_ref: Optional[PlaceRef] = None
-        place_str = _get_child_value(event_record, "PLAC")
-        if place_str:
-            place_id = self._resolve_place(place_str)
+        plac_rec = _get_child(event_record, "PLAC")
+        if plac_rec:
+            # Try structured _ADPL first, fall back to PLAC string parsing
+            place_id = self._resolve_place_from_adpl(plac_rec)
+            if place_id is None:
+                place_str = plac_rec.value
+                if place_str:
+                    place_id = self._resolve_place(place_str)
             if place_id:
                 place_ref = PlaceRef(place_id=place_id)
+                # Extract MAP/LATI/LONG coordinates if present
+                self._apply_coordinates(place_id, plac_rec)
 
         # Event deduplication: skip if an identical event already exists
         if self._existing_event_keys is not None:
@@ -1804,11 +1854,18 @@ class GEDCOMImporter:
 
         # Parse place
         place_ref: Optional[PlaceRef] = None
-        place_str = _get_child_value(event_record, "PLAC")
-        if place_str:
-            place_id = self._resolve_place(place_str)
+        plac_rec = _get_child(event_record, "PLAC")
+        if plac_rec:
+            # Try structured _ADPL first, fall back to PLAC string parsing
+            place_id = self._resolve_place_from_adpl(plac_rec)
+            if place_id is None:
+                place_str = plac_rec.value
+                if place_str:
+                    place_id = self._resolve_place(place_str)
             if place_id:
                 place_ref = PlaceRef(place_id=place_id)
+                # Extract MAP/LATI/LONG coordinates if present
+                self._apply_coordinates(place_id, plac_rec)
 
         # Source citations
         source_refs: list[SourceRef] = []
@@ -1842,6 +1899,40 @@ class GEDCOMImporter:
     # ------------------------------------------------------------------
     # Place resolution
     # ------------------------------------------------------------------
+
+    def _resolve_place_from_adpl(self, plac_rec: GedcomLine) -> Optional[str]:
+        """Resolve a place from a structured _ADPL sub-record under PLAC.
+
+        ArkivDigital exports include a custom _ADPL tag with structured place
+        data. In the best case it contains _PARISH, _COUNTY, and _COUNTRY
+        which can be used directly. Otherwise, if only _LOCALITY is present,
+        that string is parsed as a regular place string.
+
+        Args:
+            plac_rec: The GedcomLine for the PLAC tag (with children).
+
+        Returns:
+            The App_JSON place ID, or None if no _ADPL data is usable.
+        """
+        adpl_rec = _get_child(plac_rec, "_ADPL")
+        if not adpl_rec:
+            return None
+
+        parish = _get_child_value(adpl_rec, "_PARISH")
+        county = _get_child_value(adpl_rec, "_COUNTY")
+        country = _get_child_value(adpl_rec, "_COUNTRY")
+
+        if parish and county and country:
+            # Build a structured place string: "parish, county, country"
+            place_string = f"{parish}, {county}, {country}"
+            return self._resolve_place(place_string)
+
+        # Fallback: use _LOCALITY as a place string
+        locality = _get_child_value(adpl_rec, "_LOCALITY")
+        if locality:
+            return self._resolve_place(locality)
+
+        return None
 
     def _resolve_place(self, place_string: str) -> Optional[str]:
         """Resolve a GEDCOM place string to an App_JSON place ID.
@@ -1902,6 +1993,42 @@ class GEDCOMImporter:
                     )
 
         return place_id
+
+    def _apply_coordinates(self, place_id: str, plac_rec: GedcomLine) -> None:
+        """Extract MAP/LATI/LONG from a PLAC record and apply to the place.
+
+        Parses the GEDCOM MAP sub-structure under PLAC to extract latitude
+        and longitude. The GEDCOM format uses N/S prefix for latitude and
+        E/W prefix for longitude (e.g., "N59.8392", "E12.3153").
+
+        Only updates the place if it does not already have coordinates set.
+
+        Args:
+            place_id: The App_JSON place ID to update.
+            plac_rec: The GedcomLine for the PLAC tag (with children).
+        """
+        map_rec = _get_child(plac_rec, "MAP")
+        if not map_rec:
+            return
+
+        lati_str = _get_child_value(map_rec, "LATI")
+        long_str = _get_child_value(map_rec, "LONG")
+        if not lati_str or not long_str:
+            return
+
+        latitude = _parse_gedcom_coordinate(lati_str, positive_prefix="N", negative_prefix="S")
+        longitude = _parse_gedcom_coordinate(long_str, positive_prefix="E", negative_prefix="W")
+
+        if latitude is None or longitude is None:
+            return
+
+        # Find the place and update coordinates (only if not already set)
+        for place in self._project_data.places:
+            if place.id == place_id:
+                if place.latitude is None and place.longitude is None:
+                    place.latitude = latitude
+                    place.longitude = longitude
+                break
 
     def _resolve_single_word_place(self, place_name: str) -> Optional[str]:
         """Resolve a single-word PLAC value by name matching or creation.
