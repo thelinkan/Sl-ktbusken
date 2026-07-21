@@ -82,6 +82,7 @@ class FilterCriteria:
     marriage_year_to: str = ""
     parish: str = ""
     cluster: str = ""
+    occupation: str = ""
 
 
 @dataclass
@@ -603,6 +604,7 @@ def filter_persons(
     surname_lower = criteria.surname.strip().lower()
     parish_lower = criteria.parish.strip().lower()
     cluster_lower = criteria.cluster.strip().lower()
+    occupation_lower = criteria.occupation.strip().lower()
 
     for person in persons:
         # Title filter: substring on person's title
@@ -667,6 +669,11 @@ def filter_persons(
         # Cluster filter: case-insensitive substring on person's cluster names
         if cluster_lower:
             if not any(cluster_lower in cn for cn in person.cluster_names):
+                continue
+
+        # Occupation filter: case-insensitive substring on person's occupation
+        if occupation_lower:
+            if occupation_lower not in person.occupation.lower():
                 continue
 
         result.append(person)

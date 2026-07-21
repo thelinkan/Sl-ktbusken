@@ -106,6 +106,10 @@ class FilterDialog(QDialog):
         self._surname_field.setPlaceholderText("Efternamn...")
         name_layout.addRow("Efternamn:", self._surname_field)
 
+        self._occupation_field = QLineEdit()
+        self._occupation_field.setPlaceholderText("T.ex. Snickare")
+        name_layout.addRow("Yrke:", self._occupation_field)
+
         name_group.setLayout(name_layout)
         main_layout.addWidget(name_group)
 
@@ -249,6 +253,7 @@ class FilterDialog(QDialog):
             marriage_year_to=self._marriage_year_to.text(),
             parish=self._parish_field.text(),
             cluster=self._cluster_field.text(),
+            occupation=self._occupation_field.text(),
         )
         self.filter_applied.emit(criteria)
 
@@ -257,6 +262,7 @@ class FilterDialog(QDialog):
         self._title_field.clear()
         self._given_field.clear()
         self._surname_field.clear()
+        self._occupation_field.clear()
         self._birth_year_from.clear()
         self._birth_year_to.clear()
         self._death_year_from.clear()

@@ -176,7 +176,7 @@ class MainWindow(QMainWindow):
         self.action_add_person.triggered.connect(self._app.add_standalone_person)
 
         # DNA
-        self.action_dna_editor = QAction("&DNA-redigerare...", self)
+        self.action_dna_editor = QAction("&DNA och Kluster", self)
         self.action_dna_editor.setToolTip(
             "Hantera DNA-företag, profiler, matchningar, segment, kluster och trianguleringar"
         )
