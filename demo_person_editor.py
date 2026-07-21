@@ -109,7 +109,6 @@ def create_sample_project() -> tuple[ProjectData, Person]:
             test_type="autosomal",
             kit_name="Eriks kit",
             kit_id="MH-12345",
-            admin_status="self",
         ),
     ]
     dna_matches = [

@@ -542,7 +542,7 @@ def media_item_strategy(draw: DrawFn) -> MediaItem:
 # 3.6 – DNA strategies
 # ---------------------------------------------------------------------------
 
-_DNA_TEST_TYPES = ["autosomal", "y-dna", "mtdna"]
+_DNA_TEST_TYPES = ["autosomal", "y-dna", "mtdna", "combined"]
 _DNA_MATCH_SOURCES = ["internal", "external"]
 _CHROMOSOMES = [str(i) for i in range(1, 23)] + ["X", "Y"]
 
@@ -558,11 +558,17 @@ def dna_company_strategy(draw: DrawFn) -> DnaCompany:
     ))
     logo_media_id = draw(st.none() | _id_strategy("media"))
     description = draw(_safe_text_or_empty)
+    url = draw(st.text(
+        alphabet=st.characters(categories=("L", "N", "P", "Z")),
+        min_size=0,
+        max_size=200,
+    ))
     return DnaCompany(
         id=company_id,
         name=name,
         logo_media_id=logo_media_id,
         description=description,
+        url=url,
     )
 
 
@@ -584,8 +590,22 @@ def dna_profile_strategy(draw: DrawFn) -> DnaProfile:
         max_size=100,
     ))
     admin_person_id = draw(st.none() | _id_strategy("person"))
-    admin_status = draw(_safe_text_or_empty)
     notes = draw(_safe_text_or_empty)
+    y_haplogroup = draw(st.text(
+        alphabet=st.characters(categories=("L", "N")),
+        min_size=0,
+        max_size=50,
+    ))
+    mt_haplogroup = draw(st.text(
+        alphabet=st.characters(categories=("L", "N")),
+        min_size=0,
+        max_size=50,
+    ))
+    raw_data_file = draw(st.none() | st.text(
+        alphabet=st.characters(categories=("L", "N", "P", "Z")),
+        min_size=1,
+        max_size=255,
+    ))
     return DnaProfile(
         id=profile_id,
         person_id=person_id,
@@ -594,8 +614,10 @@ def dna_profile_strategy(draw: DrawFn) -> DnaProfile:
         kit_name=kit_name,
         kit_id=kit_id,
         admin_person_id=admin_person_id,
-        admin_status=admin_status,
         notes=notes,
+        y_haplogroup=y_haplogroup,
+        mt_haplogroup=mt_haplogroup,
+        raw_data_file=raw_data_file,
     )
 
 
@@ -611,6 +633,11 @@ def dna_match_strategy(draw: DrawFn) -> DnaMatch:
     largest_segment_cm = draw(st.floats(min_value=0.0, max_value=300.0, allow_nan=False))
     match_source = draw(st.sampled_from(_DNA_MATCH_SOURCES))
     notes = draw(_safe_text_or_empty)
+    segment_file = draw(st.none() | st.text(
+        alphabet=st.characters(categories=("L", "N", "P", "Z")),
+        min_size=1,
+        max_size=255,
+    ))
     return DnaMatch(
         id=match_id,
         profile1_id=profile1_id,
@@ -621,6 +648,7 @@ def dna_match_strategy(draw: DrawFn) -> DnaMatch:
         largest_segment_cm=largest_segment_cm,
         match_source=match_source,
         notes=notes,
+        segment_file=segment_file,
     )
 
 

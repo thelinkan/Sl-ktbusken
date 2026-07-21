@@ -159,7 +159,6 @@ class TestProfileIconResolution:
             kit_name="",
             kit_id="",
             admin_person_id=None,
-            admin_status="",
             notes="",
         )
 
@@ -195,7 +194,6 @@ class TestProfileIconResolution:
             kit_name="",
             kit_id="",
             admin_person_id=None,
-            admin_status="",
             notes="",
         )
 
@@ -232,7 +230,6 @@ class TestProfileIconResolution:
             kit_name="",
             kit_id="",
             admin_person_id=None,
-            admin_status="",
             notes="",
         )
 
@@ -276,7 +273,6 @@ class TestProfileIconResolution:
             kit_name="",
             kit_id="",
             admin_person_id=None,
-            admin_status="",
             notes="",
         )
 
@@ -373,7 +369,6 @@ class TestMatchIconResolution:
             kit_name="",
             kit_id="",
             admin_person_id=None,
-            admin_status="",
             notes="",
         )
 
@@ -409,7 +404,6 @@ class TestMatchIconResolution:
             kit_name="",
             kit_id="",
             admin_person_id=None,
-            admin_status="",
             notes="",
         )
         match = DnaMatch(
@@ -464,7 +458,6 @@ class TestMatchIconResolution:
             kit_name="",
             kit_id="",
             admin_person_id=None,
-            admin_status="",
             notes="",
         )
         match = DnaMatch(
@@ -516,7 +509,6 @@ class TestMatchIconResolution:
             kit_name="",
             kit_id="",
             admin_person_id=None,
-            admin_status="",
             notes="",
         )
         match = DnaMatch(

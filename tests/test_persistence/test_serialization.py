@@ -181,8 +181,10 @@ def _make_full_project_data() -> ProjectData:
                 kit_name="Erik's Kit",
                 kit_id="KIT001",
                 admin_person_id="person_2",
-                admin_status="active",
                 notes="Primary kit",
+                y_haplogroup="R1b",
+                mt_haplogroup="H1",
+                raw_data_file="raw/erik_kit.csv",
             ),
         ],
         dna_matches=[

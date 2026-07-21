@@ -104,7 +104,7 @@ _VALID_MEDIA_TYPES = {
     "minnesord",
 }
 
-_VALID_DNA_TEST_TYPES = {"autosomal", "y-dna", "mtdna"}
+_VALID_DNA_TEST_TYPES = {"autosomal", "y-dna", "mtdna", "combined"}
 
 _VALID_CHROMOSOMES = {str(i) for i in range(1, 23)} | {"X", "Y"}
 

@@ -14,6 +14,7 @@ class DnaCompany:
     name: str
     logo_media_id: Optional[str] = None
     description: str = ""
+    url: str = ""
 
 
 @dataclass
@@ -27,8 +28,10 @@ class DnaProfile:
     kit_name: str = ""
     kit_id: str = ""
     admin_person_id: Optional[str] = None
-    admin_status: str = ""
     notes: str = ""
+    y_haplogroup: str = ""
+    mt_haplogroup: str = ""
+    raw_data_file: Optional[str] = None
 
 
 @dataclass
@@ -44,6 +47,7 @@ class DnaMatch:
     largest_segment_cm: float = 0.0
     match_source: str = "internal"
     notes: str = ""
+    segment_file: Optional[str] = None
 
 
 @dataclass

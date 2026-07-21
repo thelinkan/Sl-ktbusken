@@ -86,7 +86,6 @@ def create_sample_data() -> ProjectData:
                 kit_name="Erik A. kit",
                 kit_id="ANC-123456",
                 admin_person_id="person_1",
-                admin_status="self",
                 notes="Testat 2022-03.",
             ),
             DnaProfile(
@@ -97,7 +96,6 @@ def create_sample_data() -> ProjectData:
                 kit_name="Anna S. kit",
                 kit_id="ANC-789012",
                 admin_person_id="person_2",
-                admin_status="self",
                 notes="Testat 2023-01.",
             ),
             DnaProfile(
@@ -108,7 +106,6 @@ def create_sample_data() -> ProjectData:
                 kit_name="Lars J. Y-DNA",
                 kit_id="MH-555111",
                 admin_person_id="person_1",
-                admin_status="managed_by_user",
                 notes="Y-DNA test via MyHeritage.",
             ),
         ],
