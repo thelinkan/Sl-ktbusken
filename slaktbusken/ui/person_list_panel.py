@@ -1203,6 +1203,24 @@ class PersonListPanel(QWidget):
         else:
             self._update_list_widget()
 
+    def apply_dna_match_filter(self, person_ids: set[str]) -> None:
+        """Filter the person list to show only persons with given IDs.
+
+        Used for "Filtrera på DNA-träffar" — shows the right-clicked person
+        and all persons who share DNA matches with them.
+
+        Args:
+            person_ids: Set of person IDs to include in the filtered view.
+        """
+        self._filtered_list = [
+            p for p in self._display_list if p.person_id in person_ids
+        ]
+        # Automatically switch to filtered view
+        if not self._showing_filtered:
+            self._toggle_button.setChecked(True)
+        else:
+            self._update_list_widget()
+
     def select_person_from_diagram(self, person_id: str) -> None:
         """Select and scroll to a person without emitting person_selected signal.
 

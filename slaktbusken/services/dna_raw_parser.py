@@ -36,11 +36,21 @@ class RawSnpRecord:
 
 
 @dataclass
+class SkippedRow:
+    """A row that could not be parsed, with reason."""
+
+    line_number: int
+    content: str
+    reason: str
+
+
+@dataclass
 class ParseResult:
     """Result of parsing a raw DNA file."""
 
     records: list[RawSnpRecord] = field(default_factory=list)
     skipped_rows: int = 0
+    skipped_row_details: list[SkippedRow] = field(default_factory=list)
     format_detected: str = ""  # "ancestrydna" or "myheritage"
 
 
@@ -159,10 +169,13 @@ def parse_ancestrydna(file_path: Path) -> ParseResult:
 
     records: list[RawSnpRecord] = []
     skipped_rows = 0
+    skipped_row_details: list[SkippedRow] = []
     header_seen = False
+    line_number = 0
 
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
+            line_number += 1
             stripped = line.strip()
 
             # Skip empty lines and comment lines
@@ -183,6 +196,11 @@ def parse_ancestrydna(file_path: Path) -> ParseResult:
             parts = stripped.split("\t")
             if len(parts) < 5:
                 skipped_rows += 1
+                skipped_row_details.append(SkippedRow(
+                    line_number=line_number,
+                    content=stripped,
+                    reason="För få kolumner (behöver minst 5, har {})".format(len(parts)),
+                ))
                 continue
 
             rsid = parts[0].strip()
@@ -191,14 +209,26 @@ def parse_ancestrydna(file_path: Path) -> ParseResult:
             allele1 = parts[3].strip()
             allele2 = parts[4].strip()
 
-            # Normalize chromosome
-            if chromosome == "MT" or chromosome == "M":
+            # Normalize chromosome — AncestryDNA uses numeric values:
+            # 23 = X, 24 = Y, 25 = PAR (X/Y pseudoautosomal region → X), 26 = mtDNA
+            if chromosome == "23" or chromosome == "25":
+                chromosome = "X"
+            elif chromosome == "24":
+                chromosome = "Y"
+            elif chromosome == "26":
+                chromosome = "MT"
+            elif chromosome == "MT" or chromosome == "M":
                 chromosome = "MT"
 
             try:
                 position = int(position_str)
             except (ValueError, TypeError):
                 skipped_rows += 1
+                skipped_row_details.append(SkippedRow(
+                    line_number=line_number,
+                    content=stripped,
+                    reason=f"Ogiltig position (inte ett heltal): '{position_str}'",
+                ))
                 continue
 
             alleles = allele1 + allele2
@@ -214,10 +244,25 @@ def parse_ancestrydna(file_path: Path) -> ParseResult:
                 )
             else:
                 skipped_rows += 1
+                reason_parts = []
+                if not rsid:
+                    reason_parts.append("rsid saknas")
+                if chromosome not in VALID_CHROMOSOMES:
+                    reason_parts.append(f"ogiltig kromosom: '{chromosome}'")
+                if position < 0:
+                    reason_parts.append(f"negativ position: {position}")
+                if not alleles:
+                    reason_parts.append("alleler saknas")
+                skipped_row_details.append(SkippedRow(
+                    line_number=line_number,
+                    content=stripped,
+                    reason=", ".join(reason_parts) if reason_parts else "Ogiltig data",
+                ))
 
     return ParseResult(
         records=records,
         skipped_rows=skipped_rows,
+        skipped_row_details=skipped_row_details,
         format_detected="ancestrydna",
     )
 
@@ -238,6 +283,7 @@ def parse_myheritage(file_path: Path) -> ParseResult:
 
     records: list[RawSnpRecord] = []
     skipped_rows = 0
+    skipped_row_details: list[SkippedRow] = []
     header_seen = False
 
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
@@ -256,13 +302,16 @@ def parse_myheritage(file_path: Path) -> ParseResult:
         return ParseResult(
             records=records,
             skipped_rows=skipped_rows,
+            skipped_row_details=skipped_row_details,
             format_detected="myheritage",
         )
 
     # Parse the CSV data (first line should be the header)
     reader = csv.reader(io.StringIO("".join(data_lines)))
+    line_number = 0
 
     for row in reader:
+        line_number += 1
         if not row:
             continue
 
@@ -276,8 +325,14 @@ def parse_myheritage(file_path: Path) -> ParseResult:
             header_seen = True
 
         # Parse data row — expect at least 4 columns: RSID, CHROMOSOME, POSITION, RESULT
+        row_content = ",".join(row)
         if len(row) < 4:
             skipped_rows += 1
+            skipped_row_details.append(SkippedRow(
+                line_number=line_number,
+                content=row_content,
+                reason="För få kolumner (behöver minst 4, har {})".format(len(row)),
+            ))
             continue
 
         rsid = row[0].strip()
@@ -293,6 +348,11 @@ def parse_myheritage(file_path: Path) -> ParseResult:
             position = int(position_str)
         except (ValueError, TypeError):
             skipped_rows += 1
+            skipped_row_details.append(SkippedRow(
+                line_number=line_number,
+                content=row_content,
+                reason=f"Ogiltig position (inte ett heltal): '{position_str}'",
+            ))
             continue
 
         if _is_valid_record(rsid, chromosome, position, alleles):
@@ -306,10 +366,25 @@ def parse_myheritage(file_path: Path) -> ParseResult:
             )
         else:
             skipped_rows += 1
+            reason_parts = []
+            if not rsid:
+                reason_parts.append("rsid saknas")
+            if chromosome not in VALID_CHROMOSOMES:
+                reason_parts.append(f"ogiltig kromosom: '{chromosome}'")
+            if position < 0:
+                reason_parts.append(f"negativ position: {position}")
+            if not alleles:
+                reason_parts.append("alleler saknas")
+            skipped_row_details.append(SkippedRow(
+                line_number=line_number,
+                content=row_content,
+                reason=", ".join(reason_parts) if reason_parts else "Ogiltig data",
+            ))
 
     return ParseResult(
         records=records,
         skipped_rows=skipped_rows,
+        skipped_row_details=skipped_row_details,
         format_detected="myheritage",
     )
 

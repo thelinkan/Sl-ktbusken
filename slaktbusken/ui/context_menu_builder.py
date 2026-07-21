@@ -87,6 +87,10 @@ class ContextMenuBuilder:
             )
         )
 
+        # Action: Filtrera på DNA-träffar
+        action_dna_filter = menu.addAction("Filtrera på DNA-träffar")
+        action_dna_filter.setData(("filter_dna_matches", person_id))
+
         # Separator before destructive action
         menu.addSeparator()
 

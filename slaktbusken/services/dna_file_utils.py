@@ -18,11 +18,13 @@ def get_dna_folder(project_path: Path) -> Path:
     """Resolve the dna/ subfolder path relative to the project file's parent directory.
 
     Args:
-        project_path: Path to the .json.gz project file.
+        project_path: Path to the .json.gz project file, or the project folder itself.
 
     Returns:
         Path to the dna/ subfolder (may not exist yet).
     """
+    if project_path.is_dir():
+        return project_path / "dna"
     return project_path.parent / "dna"
 
 

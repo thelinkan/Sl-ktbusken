@@ -168,3 +168,104 @@ def _find_header(reader: csv.reader) -> list[str] | None:
         if EXPECTED_HEADER_SET.issubset(row_lower):
             return row
     return None
+
+
+@dataclass
+class GroupedMatchCsvParseResult:
+    """Result of parsing pasted CSV match data grouped by Match Name."""
+
+    segments_by_person: dict[str, list[MatchSegmentRecord]]
+    skipped_rows: int
+
+
+def parse_match_csv_grouped(text: str) -> GroupedMatchCsvParseResult:
+    """Parse MyHeritage match CSV text and group segments by Match Name.
+
+    This is used for triangulation data where segments belong to different
+    match persons. Rows with "All selected DNA Matches" as Match Name are
+    stored under that key as shared segments.
+
+    Args:
+        text: The pasted CSV text content.
+
+    Returns:
+        GroupedMatchCsvParseResult with segments grouped by match name.
+
+    Raises:
+        ValueError: If the text cannot be parsed.
+    """
+    text = text.strip()
+    if not text:
+        raise ValueError(
+            "Formatet känns inte igen. Förväntade kolumner: "
+            "Name, Match Name, Chromosome, Start Location, End Location, "
+            "Start RSID, End RSID, Centimorgans, SNPs"
+        )
+
+    reader = csv.reader(io.StringIO(text))
+
+    header_row = _find_header(reader)
+    if header_row is None:
+        raise ValueError(
+            "Formatet känns inte igen. Förväntade kolumner: "
+            "Name, Match Name, Chromosome, Start Location, End Location, "
+            "Start RSID, End RSID, Centimorgans, SNPs"
+        )
+
+    col_indices = {col.strip().lower(): i for i, col in enumerate(header_row)}
+
+    segments_by_person: dict[str, list[MatchSegmentRecord]] = {}
+    skipped_rows = 0
+
+    for row in reader:
+        if not row or all(cell.strip() == "" for cell in row):
+            continue
+
+        if len(row) < len(EXPECTED_COLUMNS):
+            skipped_rows += 1
+            continue
+
+        try:
+            chromosome = row[col_indices["chromosome"]].strip()
+            start_loc = row[col_indices["start location"]].strip()
+            end_loc = row[col_indices["end location"]].strip()
+            start_rsid = row[col_indices["start rsid"]].strip()
+            end_rsid = row[col_indices["end rsid"]].strip()
+            cm_str = row[col_indices["centimorgans"]].strip()
+            snps_str = row[col_indices["snps"]].strip()
+            row_match_name = row[col_indices["match name"]].strip()
+
+            centimorgans = float(cm_str)
+            snp_count = int(snps_str)
+            start_position = int(start_loc)
+            end_position = int(end_loc)
+
+        except (ValueError, IndexError):
+            skipped_rows += 1
+            continue
+
+        person_key = row_match_name if row_match_name else "(okänd)"
+
+        segments_by_person.setdefault(person_key, []).append(
+            MatchSegmentRecord(
+                chromosome=chromosome,
+                start_position=start_position,
+                end_position=end_position,
+                start_rsid=start_rsid,
+                end_rsid=end_rsid,
+                centimorgans=centimorgans,
+                snp_count=snp_count,
+            )
+        )
+
+    if not segments_by_person:
+        raise ValueError(
+            "Formatet känns inte igen. Förväntade kolumner: "
+            "Name, Match Name, Chromosome, Start Location, End Location, "
+            "Start RSID, End RSID, Centimorgans, SNPs"
+        )
+
+    return GroupedMatchCsvParseResult(
+        segments_by_person=segments_by_person,
+        skipped_rows=skipped_rows,
+    )

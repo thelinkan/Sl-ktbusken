@@ -450,11 +450,16 @@ class DnaProfileDialog(QDialog):
 
         # Show warning if rows were skipped
         if result.skipped_rows > 0:
+            # Write log file with details of skipped rows
+            log_path = self._write_import_log(source_path, result)
+            log_note = ""
+            if log_path:
+                log_note = f"\n\nDetaljer finns i loggfilen:\n{log_path}"
             QMessageBox.warning(
                 self,
                 "Ofullständig import",
                 f"Importen slutfördes men {result.skipped_rows} "
-                f"rader kunde inte tolkas och hoppades över.",
+                f"rader kunde inte tolkas och hoppades över.{log_note}",
             )
 
         # Success feedback
@@ -465,6 +470,56 @@ class DnaProfileDialog(QDialog):
                 f"Importerade {len(result.records)} SNP-poster "
                 f"({result.format_detected}).",
             )
+
+    def _write_import_log(self, source_path: Path, result) -> Optional[Path]:
+        """Write a log file detailing skipped rows during import.
+
+        Creates a `log/` subfolder in the project directory and writes
+        a timestamped log file with information about each skipped row.
+
+        Args:
+            source_path: The original DNA file that was imported.
+            result: The ParseResult containing skipped_row_details.
+
+        Returns:
+            Path to the created log file, or None on failure.
+        """
+        if self._project_folder is None:
+            return None
+
+        try:
+            from datetime import datetime
+
+            log_folder = self._project_folder / "log"
+            log_folder.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_filename = f"dna_import_{timestamp}.log"
+            log_path = log_folder / log_filename
+
+            lines: list[str] = []
+            lines.append(f"DNA-importlogg")
+            lines.append(f"==============")
+            lines.append(f"Tid: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            lines.append(f"Källfil: {source_path.name}")
+            lines.append(f"Format: {result.format_detected}")
+            lines.append(f"Importerade rader: {len(result.records)}")
+            lines.append(f"Överhoppade rader: {result.skipped_rows}")
+            lines.append("")
+            lines.append("Överhoppade rader (detaljer):")
+            lines.append("-" * 60)
+
+            for detail in result.skipped_row_details:
+                lines.append(f"Rad {detail.line_number}: {detail.reason}")
+                lines.append(f"  Innehåll: {detail.content}")
+                lines.append("")
+
+            log_path.write_text("\n".join(lines), encoding="utf-8")
+            return log_path
+
+        except Exception as e:
+            logger.warning("Kunde inte skriva importlogg: %s", e)
+            return None
 
     def _on_remove_raw_data(self) -> None:
         """Handle the 'Ta bort' button click — remove raw data file association."""

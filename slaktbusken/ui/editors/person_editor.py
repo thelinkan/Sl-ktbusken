@@ -222,7 +222,7 @@ class PersonEditor(QWidget):
         self._dna_viewer_button.setEnabled(False)
 
     def _setup_dna_match_button(self) -> None:
-        """Add 'Lägg till matchning', 'Redigera', and 'Relationsdiagram' buttons below the DNA matches list."""
+        """Add 'Lägg till matchning', 'Redigera', 'Relationsdiagram', and 'Kromosomvy' buttons below the DNA matches list."""
         buttons_layout = QHBoxLayout()
         self._add_dna_match_button = QPushButton(
             "Lägg till matchning", self._ui.dna_tab
@@ -233,9 +233,13 @@ class PersonEditor(QWidget):
         self._relationship_graph_button = QPushButton(
             "Relationsdiagram", self._ui.dna_tab
         )
+        self._chromosome_view_button = QPushButton(
+            "Kromosomvy", self._ui.dna_tab
+        )
         buttons_layout.addWidget(self._add_dna_match_button)
         buttons_layout.addWidget(self._edit_dna_match_button)
         buttons_layout.addWidget(self._relationship_graph_button)
+        buttons_layout.addWidget(self._chromosome_view_button)
         buttons_layout.addStretch()
 
         # Insert the buttons layout after the dna_matches_list in the dna_tab_layout
@@ -248,6 +252,8 @@ class PersonEditor(QWidget):
         self._edit_dna_match_button.setEnabled(False)
         self._relationship_graph_button.setVisible(False)
         self._relationship_graph_button.setEnabled(False)
+        self._chromosome_view_button.setVisible(False)
+        self._chromosome_view_button.setEnabled(False)
         # Initially disabled — requires at least one DNA profile
         self._add_dna_match_button.setEnabled(False)
         self._add_dna_match_button.setToolTip(
@@ -275,8 +281,12 @@ class PersonEditor(QWidget):
         self._edit_triangulation_button = QPushButton(
             "Redigera", self._ui.dna_tab
         )
+        self._tri_chromosome_view_button = QPushButton(
+            "Kromosomvy", self._ui.dna_tab
+        )
         buttons_layout.addWidget(self._add_triangulation_button)
         buttons_layout.addWidget(self._edit_triangulation_button)
+        buttons_layout.addWidget(self._tri_chromosome_view_button)
         buttons_layout.addStretch()
         layout.addLayout(buttons_layout)
 
@@ -284,6 +294,8 @@ class PersonEditor(QWidget):
         self._add_triangulation_button.setVisible(False)
         self._edit_triangulation_button.setVisible(False)
         self._edit_triangulation_button.setEnabled(False)
+        self._tri_chromosome_view_button.setVisible(False)
+        self._tri_chromosome_view_button.setEnabled(False)
 
     def _setup_parents_section(self) -> None:
         """Add 'Föräldrar' section to the first (names) tab below notes."""
@@ -454,12 +466,16 @@ class PersonEditor(QWidget):
         # Relationship graph button
         self._relationship_graph_button.clicked.connect(self._on_show_relationship_graph)
 
+        # Chromosome view button
+        self._chromosome_view_button.clicked.connect(self._on_show_chromosome_view)
+
         # DNA triangulation
         self._triangulations_list.itemSelectionChanged.connect(
             self._update_dna_button_states
         )
         self._add_triangulation_button.clicked.connect(self._on_add_triangulation)
         self._edit_triangulation_button.clicked.connect(self._on_edit_triangulation)
+        self._tri_chromosome_view_button.clicked.connect(self._on_show_tri_chromosome_view)
         self._triangulations_list.itemDoubleClicked.connect(self._on_edit_triangulation)
 
         # DNA cluster membership
@@ -1302,6 +1318,8 @@ class PersonEditor(QWidget):
                 other_name = person_name_map.get(other_person_id, other_person_id or "Okänd")
 
                 display = f"{other_name}: {match.shared_cm} cM ({match.segment_count} segment)"
+                if match.segment_file:
+                    display += " 📊"
                 item = QListWidgetItem(display)
                 item.setData(Qt.ItemDataRole.UserRole, match.id)
                 icon = resolve_company_logo_icon(
@@ -1330,12 +1348,29 @@ class PersonEditor(QWidget):
             if not tri_profile_set.intersection(person_profile_ids):
                 continue
 
-            n = len(triangulation.profile_ids)
+            # Resolve other person names (excluding active person)
+            other_names: list[str] = []
+            for profile_id in triangulation.profile_ids:
+                if profile_id in person_profile_ids:
+                    continue
+                # Resolve profile → person → name
+                for profile in self._project_data.dna_profiles:
+                    if profile.id == profile_id:
+                        for person in self._project_data.persons:
+                            if person.id == profile.person_id and person.names:
+                                name = person.names[0]
+                                other_names.append(f"{name.given} {name.surname}".strip())
+                            elif person.id == profile.person_id:
+                                other_names.append(person.id)
+                        break
+
+            names_str = ", ".join(other_names) if other_names else "—"
             display = (
-                f"{triangulation.shared_cm:.2f} cM, "
-                f"{triangulation.segment_count} segment "
-                f"({n} profiler)"
+                f"{names_str}: {triangulation.shared_cm:.2f} cM "
+                f"({triangulation.segment_count} segment)"
             )
+            if triangulation.segment_file:
+                display += " 📊"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, triangulation.id)
 
@@ -1432,6 +1467,17 @@ class PersonEditor(QWidget):
         profile_id = current_item.data(Qt.ItemDataRole.UserRole)
         return next(
             (p for p in self._project_data.dna_profiles if p.id == profile_id),
+            None,
+        )
+
+    def _get_selected_dna_match(self) -> "DnaMatch | None":
+        """Return the DnaMatch for the currently selected item in the matches list."""
+        current_item = self._ui.dna_matches_list.currentItem()
+        if current_item is None:
+            return None
+        match_id = current_item.data(Qt.ItemDataRole.UserRole)
+        return next(
+            (m for m in self._project_data.dna_matches if m.id == match_id),
             None,
         )
 
@@ -1555,6 +1601,127 @@ class PersonEditor(QWidget):
         )
         dialog.exec()
 
+    def _on_show_chromosome_view(self) -> None:
+        """Open the ChromosomeBrowserDialog for the selected DNA match's segment data."""
+        if self._person is None:
+            return
+
+        selected_match = self._get_selected_dna_match()
+        if selected_match is None or not selected_match.segment_file:
+            return
+
+        if self._project_folder is None:
+            return
+
+        from slaktbusken.services.match_segment_storage import load_match_segments
+        from slaktbusken.ui.dialogs.chromosome_browser_dialog import ChromosomeBrowserDialog
+
+        try:
+            segments = load_match_segments(self._project_folder, selected_match.segment_file)
+        except (FileNotFoundError, Exception):
+            return
+
+        # Resolve person names for both profiles
+        def _resolve_profile_person_name(profile_id: str) -> str:
+            for profile in self._project_data.dna_profiles:
+                if profile.id == profile_id:
+                    for person in self._project_data.persons:
+                        if person.id == profile.person_id and person.names:
+                            n = person.names[0]
+                            return f"{n.given} {n.surname}".strip()
+                    break
+            return "(okänd)"
+
+        person1_name = _resolve_profile_person_name(selected_match.profile1_id)
+        person2_name = _resolve_profile_person_name(selected_match.profile2_id)
+        match_title = f"{person1_name} och {person2_name}"
+
+        dialog = ChromosomeBrowserDialog(
+            segments=segments,
+            person_name=person2_name,
+            title=match_title,
+            parent=self,
+        )
+        dialog.exec()
+
+    def _get_selected_triangulation(self) -> "DnaTriangulation | None":
+        """Return the DnaTriangulation for the currently selected item."""
+        current_item = self._triangulations_list.currentItem()
+        if current_item is None:
+            return None
+        tri_id = current_item.data(Qt.ItemDataRole.UserRole)
+        return next(
+            (t for t in self._project_data.dna_triangulations if t.id == tri_id),
+            None,
+        )
+
+    def _on_show_tri_chromosome_view(self) -> None:
+        """Open the ChromosomeBrowserDialog for the selected triangulation's segment data."""
+        if self._person is None:
+            return
+
+        selected_tri = self._get_selected_triangulation()
+        if selected_tri is None or not selected_tri.segment_file:
+            return
+
+        if self._project_folder is None:
+            return
+
+        import json
+
+        from slaktbusken.services.dna_file_utils import read_dna_file
+        from slaktbusken.services.dna_match_csv_parser import MatchSegmentRecord
+        from slaktbusken.services.match_segment_storage import deserialize_segments
+        from slaktbusken.ui.dialogs.chromosome_browser_dialog import ChromosomeBrowserDialog
+
+        try:
+            data = read_dna_file(self._project_folder, selected_tri.segment_file)
+        except (FileNotFoundError, Exception):
+            return
+
+        # Data format: either grouped dict {person_name: [segments...]}
+        # or flat list [segments...] (legacy)
+        segments_by_person: dict[str, list[MatchSegmentRecord]] = {}
+        if isinstance(data, dict):
+            for person_name, seg_list in data.items():
+                segments_by_person[person_name] = deserialize_segments(seg_list)
+        elif isinstance(data, list):
+            # Legacy flat format — use a generic name
+            segments_by_person["(alla)"] = deserialize_segments(data)
+
+        # Resolve active person name for the title
+        active_name = "(okänd)"
+        if self._person and self._person.names:
+            n = self._person.names[0]
+            active_name = f"{n.given} {n.surname}".strip()
+
+        # Resolve other person names from profiles
+        person_profile_ids = {
+            p.id for p in self._project_data.dna_profiles
+            if p.person_id == self._person.id
+        }
+        other_names: list[str] = []
+        for profile_id in selected_tri.profile_ids:
+            if profile_id in person_profile_ids:
+                continue
+            for profile in self._project_data.dna_profiles:
+                if profile.id == profile_id:
+                    for person in self._project_data.persons:
+                        if person.id == profile.person_id and person.names:
+                            name = person.names[0]
+                            other_names.append(f"{name.given} {name.surname}".strip())
+                    break
+
+        others_str = " och ".join(other_names) if other_names else "(okänd)"
+        tri_title = f"{active_name} triangulering med {others_str}"
+
+        dialog = ChromosomeBrowserDialog(
+            segments_by_person=segments_by_person,
+            title=tri_title,
+            parent=self,
+        )
+        dialog.exec()
+
     def _on_add_triangulation(self) -> None:
         """Open the DnaTriangulationDialog in create mode and handle the result."""
         if self._person is None:
@@ -1565,6 +1732,7 @@ class PersonEditor(QWidget):
         dialog = DnaTriangulationDialog(
             project_data=self._project_data,
             person_id=self._person.id,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1597,6 +1765,7 @@ class PersonEditor(QWidget):
             project_data=self._project_data,
             person_id=self._person.id,
             existing_triangulation=selected_tri,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1629,8 +1798,10 @@ class PersonEditor(QWidget):
             self._add_dna_match_button.setVisible(False)
             self._edit_dna_match_button.setVisible(False)
             self._relationship_graph_button.setVisible(False)
+            self._chromosome_view_button.setVisible(False)
             self._add_triangulation_button.setVisible(False)
             self._edit_triangulation_button.setVisible(False)
+            self._tri_chromosome_view_button.setVisible(False)
             return
 
         self._add_dna_profile_button.setVisible(True)
@@ -1638,8 +1809,10 @@ class PersonEditor(QWidget):
         self._add_dna_match_button.setVisible(True)
         self._edit_dna_match_button.setVisible(True)
         self._relationship_graph_button.setVisible(True)
+        self._chromosome_view_button.setVisible(True)
         self._add_triangulation_button.setVisible(True)
         self._edit_triangulation_button.setVisible(True)
+        self._tri_chromosome_view_button.setVisible(True)
 
         # Enable edit button only when a profile is selected
         has_selection = self._ui.dna_profiles_list.currentItem() is not None
@@ -1661,11 +1834,23 @@ class PersonEditor(QWidget):
         self._edit_dna_match_button.setEnabled(has_match_selection)
         self._relationship_graph_button.setEnabled(has_match_selection)
 
+        # Enable chromosome view button only when selected match has segment data
+        selected_match = self._get_selected_dna_match()
+        self._chromosome_view_button.setEnabled(
+            selected_match is not None and selected_match.segment_file is not None
+        )
+
         # Enable triangulation edit button only when a triangulation is selected
         has_triangulation_selection = (
             self._triangulations_list.currentItem() is not None
         )
         self._edit_triangulation_button.setEnabled(has_triangulation_selection)
+
+        # Enable triangulation chromosome view only when selected has segment data
+        selected_tri = self._get_selected_triangulation()
+        self._tri_chromosome_view_button.setEnabled(
+            selected_tri is not None and selected_tri.segment_file is not None
+        )
 
         # Check if person has at least one DNA profile
         has_profiles = any(

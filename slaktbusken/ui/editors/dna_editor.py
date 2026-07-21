@@ -425,13 +425,16 @@ class DnaEditor(QWidget):
         # Remove Segment tab and reorder remaining tabs.
         # After setupUi the order is: Företag(0), Profiler(1), Matchningar(2),
         # Segment(3), Kluster(4), Triangulering(5).
-        # Target order: Företag(0), Profiler(1), Matchningar(2), Kluster(3),
-        # Triangulering(4).
+        # Target order: Företag(0), Profiler(1), Matchningar(2), Triangulering(3),
+        # Kluster(4).
         self._ui.tab_widget.removeTab(
             self._ui.tab_widget.indexOf(self._ui.segments_tab)
         )
-        # After removal: Företag(0), Profiler(1), Matchningar(2), Kluster(3),
-        # Triangulering(4) — already in the desired order.
+        # After segment removal: Företag(0), Profiler(1), Matchningar(2),
+        # Kluster(3), Triangulering(4).
+        # Move Triangulering (index 4) before Kluster (index 3):
+        tri_idx = self._ui.tab_widget.indexOf(self._ui.triangulations_tab)
+        self._ui.tab_widget.tabBar().moveTab(tri_idx, 3)
 
         # Hide the logo media-ID text field and its label (Req 3.1)
         self._ui.company_logo_input.setVisible(False)
@@ -720,6 +723,13 @@ class DnaEditor(QWidget):
         # Minimum height for 3 visible text lines (~60px)
         self._cluster_notes_edit.setMinimumHeight(60)
         right_layout.addWidget(self._cluster_notes_edit, stretch=0)
+
+        # Save notes button
+        self._cluster_save_notes_button = QPushButton("Spara anteckningar")
+        self._cluster_save_notes_button.setObjectName("cluster_save_notes_button")
+        self._cluster_save_notes_button.setEnabled(False)
+        self._cluster_save_notes_button.clicked.connect(self._on_save_cluster_notes)
+        right_layout.addWidget(self._cluster_save_notes_button)
 
         # Add panels to splitter
         self._cluster_splitter.addWidget(left_widget)
@@ -1569,15 +1579,19 @@ class DnaEditor(QWidget):
             self._update_status(f"Kunde inte läsa segmentfil: {exc}")
             return
 
-        # Resolve person name for Profile 2
-        person_name = "(okänd)"
+        # Resolve person names for both profiles
+        person1_name = "(okänd)"
+        person2_name = "(okänd)"
         for profile in self._project_data.dna_profiles:
+            if profile.id == match.profile1_id:
+                person1_name = self._resolve_person_display_name(profile.person_id)
             if profile.id == match.profile2_id:
-                person_name = self._resolve_person_display_name(profile.person_id)
-                break
+                person2_name = self._resolve_person_display_name(profile.person_id)
+
+        match_title = f"{person1_name} och {person2_name}"
 
         dialog = ChromosomeBrowserDialog(
-            segments=segments, person_name=person_name, parent=self
+            segments=segments, person_name=person2_name, title=match_title, parent=self
         )
         dialog.exec()
 
@@ -1724,6 +1738,7 @@ class DnaEditor(QWidget):
             self._cluster_persons_list.clear()
             self._cluster_notes_edit.clear()
             self._cluster_notes_edit.setEnabled(False)
+            self._cluster_save_notes_button.setEnabled(False)
             return
 
         cluster_id = current.data(Qt.ItemDataRole.UserRole)
@@ -1747,6 +1762,14 @@ class DnaEditor(QWidget):
                 cluster.notes = notes_text
                 break
 
+    def _on_save_cluster_notes(self) -> None:
+        """Explicitly save the current cluster's notes via the save button."""
+        if self._editing_cluster is None:
+            return
+        notes_text = self._cluster_notes_edit.toPlainText()
+        self._editing_cluster.notes = notes_text
+        self._update_status("Anteckningar sparade.")
+
     def _load_cluster_panel(self, cluster: DnaCluster) -> None:
         """Populate the split panel right side from a DnaCluster.
 
@@ -1755,8 +1778,9 @@ class DnaEditor(QWidget):
         Args:
             cluster: The cluster to display.
         """
-        # Enable notes area
+        # Enable notes area and save button
         self._cluster_notes_edit.setEnabled(True)
+        self._cluster_save_notes_button.setEnabled(True)
 
         # Populate persons list with resolved names
         self._cluster_persons_list.clear()

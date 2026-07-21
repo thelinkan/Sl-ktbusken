@@ -243,7 +243,7 @@ class TestTriangulationDisplayFormatCorrectness:
         segment_count: int,
         num_profiles: int,
     ) -> None:
-        """Display text SHALL exactly match the format specification.
+        """Display text SHALL show other person names and segment info.
 
         Feature: dna-tab-enhancements, Property 10: Triangulation display format correctness
         **Validates: Requirements 6.3**
@@ -260,10 +260,24 @@ class TestTriangulationDisplayFormatCorrectness:
             test_type="autosomal",
         )
 
-        # Build profile_ids: person's profile + extra ones
-        profile_ids = [person_profile.id] + [
-            f"other_profile_{i}" for i in range(num_profiles - 1)
-        ]
+        # Build other profiles with resolvable persons
+        other_profiles: list[DnaProfile] = []
+        other_persons: list[Person] = []
+        other_names: list[str] = []
+        for i in range(num_profiles - 1):
+            pid = f"other_person_{i}"
+            given = f"Other{i}"
+            surname = f"Person{i}"
+            other_persons.append(
+                Person(id=pid, sex="U", names=[Name(type="birth", given=given, surname=surname)])
+            )
+            other_profiles.append(
+                DnaProfile(id=f"other_profile_{i}", person_id=pid, company_id=company_id, test_type="autosomal")
+            )
+            other_names.append(f"{given} {surname}")
+
+        # Build profile_ids: person's profile + other profiles
+        profile_ids = [person_profile.id] + [p.id for p in other_profiles]
 
         triangulation = DnaTriangulation(
             id="tri_display_1",
@@ -282,9 +296,9 @@ class TestTriangulationDisplayFormatCorrectness:
 
         project_data = ProjectData(
             project=ProjectMetadata(title="Test"),
-            persons=[person],
+            persons=[person] + other_persons,
             dna_companies=[company],
-            dna_profiles=[person_profile],
+            dna_profiles=[person_profile] + other_profiles,
             dna_triangulations=[triangulation],
         )
 
@@ -298,10 +312,10 @@ class TestTriangulationDisplayFormatCorrectness:
         item = list_widget.item(0)
         actual_text = item.text()
 
+        names_str = ", ".join(other_names) if other_names else "—"
         expected_text = (
-            f"{shared_cm:.2f} cM, "
-            f"{segment_count} segment "
-            f"({num_profiles} profiler)"
+            f"{names_str}: {shared_cm:.2f} cM "
+            f"({segment_count} segment)"
         )
 
         assert actual_text == expected_text, (

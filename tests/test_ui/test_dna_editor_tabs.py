@@ -55,18 +55,18 @@ class TestTabOrder:
     """Tests verifying the tab order is correct."""
 
     def test_tab_order(self, editor: DnaEditor):
-        """Tabs SHALL be: Företag, Profiler, Matchningar, Kluster, Triangulering."""
+        """Tabs SHALL be: Företag, Profiler, Matchningar, Triangulering, Kluster."""
         tw = editor._ui.tab_widget
-        expected = ["Företag", "Profiler", "Matchningar", "Kluster", "Triangulering"]
+        expected = ["Företag", "Profiler", "Matchningar", "Triangulering", "Kluster"]
         actual = [tw.tabText(i) for i in range(tw.count())]
         assert actual == expected
 
     def test_kluster_at_index_3(self, editor: DnaEditor):
-        """Kluster tab SHALL be at index 3."""
+        """Kluster tab SHALL be at index 4."""
         tw = editor._ui.tab_widget
-        assert tw.indexOf(editor._ui.clusters_tab) == 3
+        assert tw.indexOf(editor._ui.clusters_tab) == 4
 
     def test_triangulering_at_index_4(self, editor: DnaEditor):
-        """Triangulering tab SHALL be at index 4."""
+        """Triangulering tab SHALL be at index 3."""
         tw = editor._ui.tab_widget
-        assert tw.indexOf(editor._ui.triangulations_tab) == 4
+        assert tw.indexOf(editor._ui.triangulations_tab) == 3

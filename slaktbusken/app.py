@@ -273,6 +273,8 @@ class Application:
             self._show_relationship_for_person(person_id)
         elif action_type == "delete_person":
             self._handle_delete_person(person_id)
+        elif action_type == "filter_dna_matches":
+            self._handle_filter_dna_matches(person_id)
         else:
             logger.warning("Unknown context menu action: %s", action_type)
 
@@ -358,6 +360,54 @@ class Application:
             )
         finally:
             self.main_window.hide_progress()
+
+    def _handle_filter_dna_matches(self, person_id: str) -> None:
+        """Filter the Personlista to show the person and their DNA matches.
+
+        Makes the right-clicked person active and shows them plus all persons
+        who have at least one DnaMatch linking their profiles to this person's profiles.
+
+        Args:
+            person_id: The ID of the person to filter DNA matches for.
+        """
+        data = self.project_service.data
+        if data is None:
+            return
+
+        # Select the right-clicked person in the person list panel (not make active in diagram)
+        panel = self.main_window.person_list_panel
+        panel.select_person_from_diagram(person_id)
+
+        # Find all profile IDs belonging to this person
+        person_profile_ids = {
+            p.id for p in data.dna_profiles if p.person_id == person_id
+        }
+
+        if not person_profile_ids:
+            QMessageBox.information(
+                self.main_window,
+                "Inga DNA-profiler",
+                "Personen har inga DNA-profiler registrerade.",
+            )
+            return
+
+        # Find all matches involving this person's profiles
+        other_profile_ids: set[str] = set()
+        for match in data.dna_matches:
+            if match.profile1_id in person_profile_ids:
+                other_profile_ids.add(match.profile2_id)
+            elif match.profile2_id in person_profile_ids:
+                other_profile_ids.add(match.profile1_id)
+
+        # Resolve profile IDs to person IDs
+        matched_person_ids: set[str] = {person_id}  # Include the person themselves
+        for profile in data.dna_profiles:
+            if profile.id in other_profile_ids:
+                matched_person_ids.add(profile.person_id)
+
+        # Apply filter to person list panel
+        panel = self.main_window.person_list_panel
+        panel.apply_dna_match_filter(matched_person_ids)
 
     def _show_relationship_for_person(self, person_id: str) -> None:
         """Open relationship calculator with the person pre-selected.

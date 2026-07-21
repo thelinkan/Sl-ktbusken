@@ -304,13 +304,42 @@ class DnaMatchDialog(QDialog):
 
         self.setWindowTitle("Redigera DNA-matchning")
 
-        # Select profile1
+        # In edit mode, profile1 might not belong to self._person_id
+        # (the match could have been created from the other person's side).
+        # Ensure both profiles are present in their dropdowns.
+
+        # If profile1_id is not already in the combo, add it
         idx1 = self._combo_profile1.findData(self._existing_match.profile1_id)
+        if idx1 == -1:
+            # Profile1 belongs to another person — add it to the dropdown
+            profile1 = next(
+                (p for p in self._project_data.dna_profiles
+                 if p.id == self._existing_match.profile1_id),
+                None,
+            )
+            if profile1:
+                label = _profile_display_label(profile1, self._project_data)
+                self._combo_profile1.addItem(label, profile1.id)
+            idx1 = self._combo_profile1.findData(self._existing_match.profile1_id)
+
         if idx1 != -1:
             self._combo_profile1.setCurrentIndex(idx1)
 
-        # Select profile2 (profile1 change triggers filtering of profile2 dropdown)
+        # After setting profile1, _on_profile1_changed fires and repopulates
+        # profile2. Now select profile2.
         idx2 = self._combo_profile2.findData(self._existing_match.profile2_id)
+        if idx2 == -1:
+            # Profile2 not found (different company or not included) — add it
+            profile2 = next(
+                (p for p in self._project_data.dna_profiles
+                 if p.id == self._existing_match.profile2_id),
+                None,
+            )
+            if profile2:
+                label = _profile_display_label(profile2, self._project_data)
+                self._combo_profile2.addItem(label, profile2.id)
+            idx2 = self._combo_profile2.findData(self._existing_match.profile2_id)
+
         if idx2 != -1:
             self._combo_profile2.setCurrentIndex(idx2)
 

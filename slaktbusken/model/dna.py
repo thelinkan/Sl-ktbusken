@@ -88,3 +88,4 @@ class DnaTriangulation:
     largest_segment_cm: float = 0.0
     cluster_id: Optional[str] = None
     notes: str = ""
+    segment_file: Optional[str] = None
