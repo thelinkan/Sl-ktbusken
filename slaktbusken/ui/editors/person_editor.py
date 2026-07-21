@@ -194,7 +194,7 @@ class PersonEditor(QWidget):
         layout.insertLayout(cluster_list_index + 1, buttons_layout)
 
     def _setup_dna_profile_button(self) -> None:
-        """Add 'Lägg till profil' and 'Redigera' buttons below the DNA profiles list."""
+        """Add 'Lägg till profil', 'Redigera', and 'DNA-visare' buttons below the DNA profiles list."""
         buttons_layout = QHBoxLayout()
         self._add_dna_profile_button = QPushButton(
             "Lägg till profil", self._ui.dna_tab
@@ -202,8 +202,12 @@ class PersonEditor(QWidget):
         self._edit_dna_profile_button = QPushButton(
             "Redigera", self._ui.dna_tab
         )
+        self._dna_viewer_button = QPushButton(
+            "DNA-visare", self._ui.dna_tab
+        )
         buttons_layout.addWidget(self._add_dna_profile_button)
         buttons_layout.addWidget(self._edit_dna_profile_button)
+        buttons_layout.addWidget(self._dna_viewer_button)
         buttons_layout.addStretch()
 
         # Insert the buttons layout after the dna_profiles_list in the dna_tab_layout
@@ -214,9 +218,11 @@ class PersonEditor(QWidget):
         self._add_dna_profile_button.setVisible(False)
         self._edit_dna_profile_button.setVisible(False)
         self._edit_dna_profile_button.setEnabled(False)
+        self._dna_viewer_button.setVisible(False)
+        self._dna_viewer_button.setEnabled(False)
 
     def _setup_dna_match_button(self) -> None:
-        """Add 'Lägg till matchning' and 'Redigera' buttons below the DNA matches list."""
+        """Add 'Lägg till matchning', 'Redigera', and 'Relationsdiagram' buttons below the DNA matches list."""
         buttons_layout = QHBoxLayout()
         self._add_dna_match_button = QPushButton(
             "Lägg till matchning", self._ui.dna_tab
@@ -224,8 +230,12 @@ class PersonEditor(QWidget):
         self._edit_dna_match_button = QPushButton(
             "Redigera", self._ui.dna_tab
         )
+        self._relationship_graph_button = QPushButton(
+            "Relationsdiagram", self._ui.dna_tab
+        )
         buttons_layout.addWidget(self._add_dna_match_button)
         buttons_layout.addWidget(self._edit_dna_match_button)
+        buttons_layout.addWidget(self._relationship_graph_button)
         buttons_layout.addStretch()
 
         # Insert the buttons layout after the dna_matches_list in the dna_tab_layout
@@ -236,6 +246,8 @@ class PersonEditor(QWidget):
         self._add_dna_match_button.setVisible(False)
         self._edit_dna_match_button.setVisible(False)
         self._edit_dna_match_button.setEnabled(False)
+        self._relationship_graph_button.setVisible(False)
+        self._relationship_graph_button.setEnabled(False)
         # Initially disabled — requires at least one DNA profile
         self._add_dna_match_button.setEnabled(False)
         self._add_dna_match_button.setToolTip(
@@ -421,6 +433,7 @@ class PersonEditor(QWidget):
         # DNA profile button
         self._add_dna_profile_button.clicked.connect(self._on_add_dna_profile)
         self._edit_dna_profile_button.clicked.connect(self._on_edit_dna_profile)
+        self._dna_viewer_button.clicked.connect(self._on_open_dna_viewer)
         self._ui.dna_profiles_list.itemDoubleClicked.connect(self._on_edit_dna_profile)
         self._ui.dna_profiles_list.itemSelectionChanged.connect(
             self._update_dna_button_states
@@ -437,6 +450,9 @@ class PersonEditor(QWidget):
         self._ui.dna_matches_list.itemSelectionChanged.connect(
             self._update_dna_button_states
         )
+
+        # Relationship graph button
+        self._relationship_graph_button.clicked.connect(self._on_show_relationship_graph)
 
         # DNA triangulation
         self._triangulations_list.itemSelectionChanged.connect(
@@ -1356,6 +1372,7 @@ class PersonEditor(QWidget):
         dialog = DnaProfileDialog(
             project_data=self._project_data,
             person_id=self._person.id,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1391,6 +1408,7 @@ class PersonEditor(QWidget):
             project_data=self._project_data,
             person_id=self._person.id,
             existing_profile=selected_profile,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1406,6 +1424,55 @@ class PersonEditor(QWidget):
                 self._refresh_dna_matches()
                 self._update_dna_button_states()
 
+    def _get_selected_dna_profile(self) -> "DnaProfile | None":
+        """Return the DnaProfile for the currently selected item in the profiles list."""
+        current_item = self._ui.dna_profiles_list.currentItem()
+        if current_item is None:
+            return None
+        profile_id = current_item.data(Qt.ItemDataRole.UserRole)
+        return next(
+            (p for p in self._project_data.dna_profiles if p.id == profile_id),
+            None,
+        )
+
+    def _on_open_dna_viewer(self) -> None:
+        """Open the DNA Viewer dialog for the selected profile's raw data file."""
+        import json
+
+        from slaktbusken.services.dna_raw_parser import RawSnpRecord
+        from slaktbusken.ui.dialogs.dna_viewer_dialog import DnaViewerDialog
+
+        selected_profile = self._get_selected_dna_profile()
+        if selected_profile is None or not selected_profile.raw_data_file:
+            return
+
+        records: list[RawSnpRecord] | None = None
+
+        try:
+            # Resolve the full path: project_folder / "dna" / raw_data_file
+            if self._project_folder is not None:
+                raw_path = self._project_folder / "dna" / selected_profile.raw_data_file
+            else:
+                raw_path = Path("dna") / selected_profile.raw_data_file
+
+            data = json.loads(raw_path.read_text(encoding="utf-8"))
+            raw_records = data.get("records", [])
+            records = [
+                RawSnpRecord(
+                    rsid=r["rsid"],
+                    chromosome=r["chromosome"],
+                    position=r["position"],
+                    alleles=r["alleles"],
+                )
+                for r in raw_records
+            ]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
+            # File not found or unreadable — pass None to show error state
+            records = None
+
+        dialog = DnaViewerDialog(records=records, parent=self)
+        dialog.exec()
+
     def _on_add_dna_match(self) -> None:
         """Open the DnaMatchDialog and handle the result."""
         if self._person is None:
@@ -1416,6 +1483,7 @@ class PersonEditor(QWidget):
         dialog = DnaMatchDialog(
             project_data=self._project_data,
             person_id=self._person.id,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1448,6 +1516,7 @@ class PersonEditor(QWidget):
             project_data=self._project_data,
             person_id=self._person.id,
             existing_match=selected_match,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1460,6 +1529,31 @@ class PersonEditor(QWidget):
                         break
                 self._refresh_dna_matches()
                 self._update_dna_button_states()
+
+    def _on_show_relationship_graph(self) -> None:
+        """Open the RelationshipGraphDialog for the selected DNA match's shared cM value."""
+        if self._person is None:
+            return
+
+        current_item = self._ui.dna_matches_list.currentItem()
+        if current_item is None:
+            return
+
+        match_id = current_item.data(Qt.ItemDataRole.UserRole)
+        selected_match = next(
+            (m for m in self._project_data.dna_matches if m.id == match_id),
+            None,
+        )
+        if selected_match is None:
+            return
+
+        from slaktbusken.ui.dialogs.relationship_graph_dialog import RelationshipGraphDialog
+
+        dialog = RelationshipGraphDialog(
+            shared_cm=selected_match.shared_cm,
+            parent=self,
+        )
+        dialog.exec()
 
     def _on_add_triangulation(self) -> None:
         """Open the DnaTriangulationDialog in create mode and handle the result."""
@@ -1521,6 +1615,7 @@ class PersonEditor(QWidget):
 
         - Shows/hides DNA buttons based on whether a person is loaded.
         - Enables edit button only when a profile is selected.
+        - Shows DNA-visare button only when the selected profile has raw_data_file set.
         - Enables match edit button only when a match is selected.
         - Enables match button if person has at least one DNA profile.
         - Disables match button with tooltip if person has no profiles.
@@ -1530,8 +1625,10 @@ class PersonEditor(QWidget):
         if self._person is None:
             self._add_dna_profile_button.setVisible(False)
             self._edit_dna_profile_button.setVisible(False)
+            self._dna_viewer_button.setVisible(False)
             self._add_dna_match_button.setVisible(False)
             self._edit_dna_match_button.setVisible(False)
+            self._relationship_graph_button.setVisible(False)
             self._add_triangulation_button.setVisible(False)
             self._edit_triangulation_button.setVisible(False)
             return
@@ -1540,6 +1637,7 @@ class PersonEditor(QWidget):
         self._edit_dna_profile_button.setVisible(True)
         self._add_dna_match_button.setVisible(True)
         self._edit_dna_match_button.setVisible(True)
+        self._relationship_graph_button.setVisible(True)
         self._add_triangulation_button.setVisible(True)
         self._edit_triangulation_button.setVisible(True)
 
@@ -1547,11 +1645,21 @@ class PersonEditor(QWidget):
         has_selection = self._ui.dna_profiles_list.currentItem() is not None
         self._edit_dna_profile_button.setEnabled(has_selection)
 
+        # Show/hide DNA-visare button based on whether selected profile has raw_data_file
+        selected_profile = self._get_selected_dna_profile()
+        if selected_profile is not None and selected_profile.raw_data_file:
+            self._dna_viewer_button.setVisible(True)
+            self._dna_viewer_button.setEnabled(True)
+        else:
+            self._dna_viewer_button.setVisible(False)
+            self._dna_viewer_button.setEnabled(False)
+
         # Enable match edit button only when a match is selected
         has_match_selection = (
             self._ui.dna_matches_list.currentItem() is not None
         )
         self._edit_dna_match_button.setEnabled(has_match_selection)
+        self._relationship_graph_button.setEnabled(has_match_selection)
 
         # Enable triangulation edit button only when a triangulation is selected
         has_triangulation_selection = (

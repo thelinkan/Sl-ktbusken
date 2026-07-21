@@ -107,14 +107,14 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
 - [x] 3. Checkpoint — Data model and pure logic
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. UI changes — DNA Editor tabs and forms
-  - [~] 4.1 Remove Segment tab and reorder tabs in DnaEditor
+- [x] 4. UI changes — DNA Editor tabs and forms
+  - [x] 4.1 Remove Segment tab and reorder tabs in DnaEditor
     - Remove the Segment tab widget from the DnaEditor
     - Reorder remaining tabs: Företag, Profiler, Matchningar, Kluster, Triangulering
     - Verify tab indices (Kluster at index 3, Triangulering at index 4)
     - _Requirements: 5.1, 5.2, 6.1, 6.2, 6.3_
 
-  - [~] 4.2 Update DNA Profile form — test type, haplogroups, person display
+  - [x] 4.2 Update DNA Profile form — test type, haplogroups, person display
     - Add "combined" to TEST_TYPES combo box
     - Add conditional haplogroup fields (y_haplogroup visible for y-dna/combined, mt_haplogroup visible for mtdna/combined, hidden for autosomal)
     - Set maxLength(50) on haplogroup fields
@@ -123,7 +123,7 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Remove admin_status combo box
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 1.8, 4.1, 4.2, 4.3, 4.4, 4.5_
 
-  - [~] 4.3 Update DNA Company form — URL field and logo chooser
+  - [x] 4.3 Update DNA Company form — URL field and logo chooser
     - Add URL QLineEdit with maxLength(2048)
     - Hide logo_media_id text field and label
     - Add "Välj logo..." button that opens QFileDialog filtered to image files
@@ -131,7 +131,7 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Handle missing logo placeholder display
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.7_
 
-  - [~] 4.4 Redesign triangulation tab — list display and detail view
+  - [x] 4.4 Redesign triangulation tab — list display and detail view
     - Update triangulation list entries to use `format_triangulation_entry()`
     - Add ellipsis truncation with full-text tooltip for long entries
     - Replace detail form with read-only labels (Företag, Delad cM, Antal segment, Största segment, Anteckningar, profiles list)
@@ -139,7 +139,7 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Refresh detail view on dialog accept, no-op on cancel
     - _Requirements: 2.1, 2.2, 2.3, 7.1, 7.2, 7.3, 7.4, 7.5_
 
-  - [~] 4.5 Redesign cluster tab — split panel layout
+  - [x] 4.5 Redesign cluster tab — split panel layout
     - Replace existing cluster tab content with horizontal splitter (30%/70%)
     - Left panel: scrollable QListWidget of clusters
     - Right panel upper: scrollable QListWidget of persons in selected cluster
@@ -149,7 +149,7 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Show empty state when no cluster selected (disabled notes area)
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7_
 
-  - [~] 4.6 Implement cluster context menu with DNA match filter
+  - [x] 4.6 Implement cluster context menu with DNA match filter
     - Add context menu on person right-click with "Filtrera på DNA-träffar" action
     - Disable action if person has no DnaProfile
     - Implement filter logic: show only persons with DnaMatch linking their profile to the right-clicked person's profiles
@@ -157,22 +157,22 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Reset filter on cluster change
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-  - [~] 4.7 Write property test for cluster DNA match filter correctness
+  - [x] 4.7 Write property test for cluster DNA match filter correctness
     - **Property 5: Cluster DNA match filter correctness**
     - **Validates: Requirements 9.3, 9.4**
 
-- [~] 5. Checkpoint — UI tab and form changes
+- [x] 5. Checkpoint — UI tab and form changes
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 6. New dialogs — Relationship graph, DNA viewer, Chromosome browser
-  - [~] 6.1 Create Person_Search_Widget
+- [x] 6. New dialogs — Relationship graph, DNA viewer, Chromosome browser
+  - [x] 6.1 Create Person_Search_Widget
     - Create `slaktbusken/ui/widgets/person_search_widget.py`
     - Implement QWidget with QLineEdit + QCompleter for person search by name
     - Emit signal on person selection/deselection
     - Support clearing selection (null value)
     - _Requirements: 4.3, 4.4_
 
-  - [~] 6.2 Implement RelationshipGraphDialog
+  - [x] 6.2 Implement RelationshipGraphDialog
     - Create `slaktbusken/ui/dialogs/relationship_graph_dialog.py`
     - Render horizontal bar chart with relationship types (Y-axis) and probabilities (X-axis)
     - Use QPainter or matplotlib FigureCanvasQTAgg for bar chart rendering
@@ -180,7 +180,7 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Show "no data" message for 0 cM or out-of-range values
     - _Requirements: 10.1, 10.2, 10.3, 10.5, 10.6, 10.7_
 
-  - [~] 6.3 Implement DnaViewerDialog with virtual scrolling
+  - [x] 6.3 Implement DnaViewerDialog with virtual scrolling
     - Create `slaktbusken/ui/dialogs/dna_viewer_dialog.py`
     - Create custom QAbstractTableModel for lazy data loading (up to 1M rows)
     - Implement table with columns: rsID, Kromosom, Position, Alleler
@@ -190,11 +190,11 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Handle missing data file with error message
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7_
 
-  - [~] 6.4 Write property test for DNA viewer filter correctness
+  - [x] 6.4 Write property test for DNA viewer filter correctness
     - **Property 9: DNA viewer combined filter correctness**
     - **Validates: Requirements 12.3, 12.5**
 
-  - [~] 6.5 Implement ChromosomeBrowserDialog
+  - [x] 6.5 Implement ChromosomeBrowserDialog
     - Create `slaktbusken/ui/dialogs/chromosome_browser_dialog.py`
     - Render 22 autosomal chromosome bars + optional X bar using QPainter
     - Scale bar widths proportionally to GRCh37/hg19 lengths
@@ -204,15 +204,15 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Handle "(okänd)" fallback for unresolvable person names
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9, 15.10, 15.11, 15.12_
 
-  - [~] 6.6 Write property test for chromosome browser total cM
+  - [x] 6.6 Write property test for chromosome browser total cM
     - **Property 14: Chromosome browser total cM equals segment sum**
     - **Validates: Requirements 15.11**
 
-- [~] 7. Checkpoint — Dialogs and widgets
+- [x] 7. Checkpoint — Dialogs and widgets
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. Data import workflows and integration
-  - [~] 8.1 Integrate raw DNA import into DnaProfileDialog
+- [x] 8. Data import workflows and integration
+  - [x] 8.1 Integrate raw DNA import into DnaProfileDialog
     - Add import control (button + file dialog) to the profile edit dialog
     - Filter file dialog to TXT/CSV
     - Show progress indicator during parsing
@@ -224,13 +224,13 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Display appropriate error messages for unrecognized format or partial failures
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.7, 11.8, 11.9, 11.12_
 
-  - [~] 8.2 Add "DNA-visare" button to person editor DNA section
+  - [x] 8.2 Add "DNA-visare" button to person editor DNA section
     - Show "DNA-visare" button next to "Redigera" for profiles with raw_data_file set
     - Hide button when raw_data_file is None
     - Connect button click to open DnaViewerDialog with loaded data
     - _Requirements: 11.10, 11.11, 12.1_
 
-  - [~] 8.3 Integrate match CSV paste into DnaMatchDialog
+  - [x] 8.3 Integrate match CSV paste into DnaMatchDialog
     - Add "Klistra in matchdata" text area to the match dialog (between Anteckningar and Välj profiler)
     - Parse pasted MyHeritage match CSV data on text change/button click
     - Show segment preview table (chromosome, start, end, cM) and total shared cM
@@ -241,33 +241,33 @@ This plan implements enhancements to the DNA and cluster section of Släktbusken
     - Show error for unrecognized format with expected column format
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8, 13.9_
 
-  - [~] 8.4 Write property test for person name matching for CSV match import
+  - [x] 8.4 Write property test for person name matching for CSV match import
     - **Property 15: Person name matching for CSV match import**
     - **Validates: Requirements 13.4**
 
-  - [~] 8.5 Wire Relationship_Graph button in person editor DNA matches section
+  - [x] 8.5 Wire Relationship_Graph button in person editor DNA matches section
     - Add "Relationsdiagram" button to person editor DNA matches section
     - Disable when no match selected
     - Open RelationshipGraphDialog with selected match's shared_cm value on click
     - _Requirements: 10.1, 10.2_
 
-  - [~] 8.6 Wire Chromosome_Browser button for match segment viewing
+  - [x] 8.6 Wire Chromosome_Browser button for match segment viewing
     - Add "Kromosomvy" button to match detail view
     - Disable when match has no segment data loaded
     - Open ChromosomeBrowserDialog with loaded segments on click
     - _Requirements: 15.1, 15.2_
 
-  - [~] 8.7 Implement match deletion with segment file cleanup
+  - [x] 8.7 Implement match deletion with segment file cleanup
     - When a DnaMatch with a non-null segment_file is deleted, delete the segment file from dna/
     - Handle missing segment file gracefully (log warning, continue deletion)
     - _Requirements: 14.8_
 
-  - [~] 8.8 Handle missing segment file on project load
+  - [x] 8.8 Handle missing segment file on project load
     - When loading a DnaMatch with segment_file reference, attempt to read the file
     - If file missing/unreadable: log warning, load match without segments, show visual warning indicator
     - _Requirements: 14.5_
 
-- [~] 9. Final checkpoint — Full integration
+- [x] 9. Final checkpoint — Full integration
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
