@@ -1180,6 +1180,9 @@ class PersonListPanel(QWidget):
     def apply_filter(self, criteria: FilterCriteria) -> None:
         """Apply filter criteria from the FilterDialog.
 
+        Automatically switches to filtered view so the user immediately
+        sees the filter results.
+
         Args:
             criteria: The filter criteria to apply.
         """
@@ -1187,7 +1190,10 @@ class PersonListPanel(QWidget):
         self._filtered_list = filter_persons(
             self._display_list, criteria, self._get_all_persons_names()
         )
-        if self._showing_filtered:
+        # Automatically switch to filtered view
+        if not self._showing_filtered:
+            self._toggle_button.setChecked(True)
+        else:
             self._update_list_widget()
 
     def select_person_from_diagram(self, person_id: str) -> None:
