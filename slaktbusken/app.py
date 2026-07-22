@@ -374,9 +374,8 @@ class Application:
         if data is None:
             return
 
-        # Select the right-clicked person in the person list panel (not make active in diagram)
+        # Select the right-clicked person in the person list after filtering
         panel = self.main_window.person_list_panel
-        panel.select_person_from_diagram(person_id)
 
         # Find all profile IDs belonging to this person
         person_profile_ids = {
@@ -407,7 +406,7 @@ class Application:
 
         # Apply filter to person list panel
         panel = self.main_window.person_list_panel
-        panel.apply_dna_match_filter(matched_person_ids)
+        panel.apply_dna_match_filter(matched_person_ids, select_person_id=person_id)
 
     def _show_relationship_for_person(self, person_id: str) -> None:
         """Open relationship calculator with the person pre-selected.

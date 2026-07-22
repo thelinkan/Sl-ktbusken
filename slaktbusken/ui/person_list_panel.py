@@ -1203,7 +1203,7 @@ class PersonListPanel(QWidget):
         else:
             self._update_list_widget()
 
-    def apply_dna_match_filter(self, person_ids: set[str]) -> None:
+    def apply_dna_match_filter(self, person_ids: set[str], select_person_id: str | None = None) -> None:
         """Filter the person list to show only persons with given IDs.
 
         Used for "Filtrera på DNA-träffar" — shows the right-clicked person
@@ -1211,15 +1211,30 @@ class PersonListPanel(QWidget):
 
         Args:
             person_ids: Set of person IDs to include in the filtered view.
+            select_person_id: Optional person ID to select after filtering.
         """
         self._filtered_list = [
             p for p in self._display_list if p.person_id in person_ids
         ]
-        # Automatically switch to filtered view
-        if not self._showing_filtered:
-            self._toggle_button.setChecked(True)
-        else:
-            self._update_list_widget()
+        # Guard against emitting person_selected during rebuild
+        self._refreshing = True
+        try:
+            # Automatically switch to filtered view
+            if not self._showing_filtered:
+                self._toggle_button.setChecked(True)
+            else:
+                self._update_list_widget()
+        finally:
+            self._refreshing = False
+
+        # Select the specified person in the filtered list
+        if select_person_id:
+            for i in range(self._tree_widget.topLevelItemCount()):
+                item = self._tree_widget.topLevelItem(i)
+                if item and item.data(0, Qt.ItemDataRole.UserRole) == select_person_id:
+                    self._tree_widget.setCurrentItem(item)
+                    self._tree_widget.scrollToItem(item)
+                    break
 
     def select_person_from_diagram(self, person_id: str) -> None:
         """Select and scroll to a person without emitting person_selected signal.
@@ -1277,7 +1292,11 @@ class PersonListPanel(QWidget):
             self._toggle_button.setText("Visa alla")
         else:
             self._toggle_button.setText("Visa filtrerade")
-        self._apply_current_view()
+        self._refreshing = True
+        try:
+            self._apply_current_view()
+        finally:
+            self._refreshing = False
 
     def _on_filter_button_clicked(self) -> None:
         """Open the FilterDialog (non-modal)."""

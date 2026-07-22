@@ -19,8 +19,66 @@ from dataclasses import dataclass
 class RelationshipProbability:
     """A single relationship type with its probability for a given cM value."""
 
-    relationship: str  # e.g., "Parent/Child", "Half Sibling", "1C"
+    relationship: str  # Swedish relationship name
     probability: float  # 0.0–100.0 percentage
+
+
+# Swedish translations of relationship type names
+_RELATIONSHIP_SWEDISH: dict[str, str] = {
+    "Parent/Child": "Förälder/Barn",
+    "Full Sibling": "Helsyskon",
+    "Half Sibling": "Halvsyskon",
+    "Grandparent/Grandchild": "Mor-/farförälder/Barnbarn",
+    "Aunt/Uncle": "Moster/Morbror/Faster/Farbror",
+    "Great-Grandparent/Great-Grandchild": "Gammelmor/-far/Barnbarnsbarn",
+    "Great-Aunt/Uncle": "Gammelmoster/-faster/-morbror/-farbror",
+    "Great-Great-Aunt/Uncle": "Gammel-gammelmoster/-farbror",
+    "Half Aunt/Uncle": "Halv moster/farbror",
+    "Half Great-Aunt/Uncle": "Halv gammelmoster/-farbror",
+    "Half GG-Aunt/Uncle": "Halv gammel-gammelmoster/-farbror",
+    "1C": "Kusin (syssling)",
+    "1C1R": "Syssling, ett släktled bort",
+    "1C2R": "Syssling, två släktled bort",
+    "1C3R": "Syssling, tre släktled bort",
+    "Half 1C": "Halvkusin",
+    "Half 1C1R": "Halvkusin, ett släktled bort",
+    "Half 1C2R": "Halvkusin, två släktled bort",
+    "Half 1C3R": "Halvkusin, tre släktled bort",
+    "2C": "Tremänning",
+    "2C1R": "Tremänning, ett släktled bort",
+    "2C2R": "Tremänning, två släktled bort",
+    "2C3R": "Tremänning, tre släktled bort",
+    "Half 2C": "Halv tremänning",
+    "Half 2C1R": "Halv tremänning, ett släktled bort",
+    "Half 2C2R": "Halv tremänning, två släktled bort",
+    "3C": "Fyrmänning",
+    "3C1R": "Fyrmänning, ett släktled bort",
+    "3C2R": "Fyrmänning, två släktled bort",
+    "3C3R": "Fyrmänning, tre släktled bort",
+    "Half 3C": "Halv fyrmänning",
+    "Half 3C1R": "Halv fyrmänning, ett släktled bort",
+    "Half 3C2R": "Halv fyrmänning, två släktled bort",
+    "4C": "Femmänning",
+    "4C1R": "Femmänning, ett släktled bort",
+    "4C2R": "Femmänning, två släktled bort",
+    "4C3R": "Femmänning, tre släktled bort",
+    "Half 4C": "Halv femmänning",
+    "Half 4C1R": "Halv femmänning, ett släktled bort",
+    "5C": "Sexmänning",
+    "5C1R": "Sexmänning, ett släktled bort",
+    "5C2R": "Sexmänning, två släktled bort",
+    "5C3R": "Sexmänning, tre släktled bort",
+    "6C": "Sjumänning",
+    "6C1R": "Sjumänning, ett släktled bort",
+    "6C2R": "Sjumänning, två släktled bort",
+    "7C": "Åttamänning",
+    "7C1R": "Åttamänning, ett släktled bort",
+}
+
+
+def _translate_relationship(english_name: str) -> str:
+    """Translate an English relationship name to Swedish."""
+    return _RELATIONSHIP_SWEDISH.get(english_name, english_name)
 
 
 # Static lookup table: maps (low_cM, high_cM) range tuples to dictionaries of
@@ -371,7 +429,8 @@ def get_relationship_probabilities(
             return sorted(
                 [
                     RelationshipProbability(
-                        relationship=rel, probability=prob
+                        relationship=_translate_relationship(rel),
+                        probability=prob,
                     )
                     for rel, prob in relationships.items()
                     if prob > 0.0
