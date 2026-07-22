@@ -509,12 +509,12 @@ class DiagramPanel(QWidget):
                 and self._active_person_id is not None
                 and self._person_box_config is not None
             ):
-                from slaktbusken.persistence.settings_io import DiagramSettings
-
-                # Get ancestry depth from the config; default to 4
+                # Get ancestry depth and compact mode from the config
                 ancestry_depth = 4
+                ancestry_compact = False
                 if hasattr(self, "_diagram_settings") and self._diagram_settings:
                     ancestry_depth = self._diagram_settings.ancestry_depth
+                    ancestry_compact = self._diagram_settings.ancestry_compact
 
                 self._ancestry_view.render(
                     self._scene,
@@ -525,6 +525,7 @@ class DiagramPanel(QWidget):
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,
+                    compact=ancestry_compact,
                 )
 
                 # Enable selection on person boxes

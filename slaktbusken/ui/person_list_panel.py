@@ -689,10 +689,12 @@ def filter_persons(
 _ROLE_IS_ANCESTOR = Qt.ItemDataRole.UserRole + 1
 _ROLE_IS_DESCENDANT = Qt.ItemDataRole.UserRole + 2
 _ROLE_HAS_MULTI_NAMES = Qt.ItemDataRole.UserRole + 3
+_ROLE_IS_MAIN_PERSON = Qt.ItemDataRole.UserRole + 4
 _ROLE_DNA_COMPANY_IDS = Qt.ItemDataRole.UserRole + 10
 
 _ANCESTOR_DOT_COLOR = QColor("#C0392B")
 _DESCENDANT_DOT_COLOR = QColor("#27AE60")
+_MAIN_PERSON_DOT_COLOR = QColor("#E67E22")  # Orange, matching main person frame
 _MULTI_NAMES_COLOR = QColor("#2980B9")  # Blue marker for multiple names
 _DOT_DIAMETER = 8
 
@@ -708,10 +710,13 @@ class _DotDelegate(QStyledItemDelegate):
         """Calculate total pixel width needed for indicators."""
         width = 0
         has_multi = index.data(_ROLE_HAS_MULTI_NAMES) or False
+        is_main = index.data(_ROLE_IS_MAIN_PERSON) or False
         is_ancestor = index.data(_ROLE_IS_ANCESTOR) or False
         is_descendant = index.data(_ROLE_IS_DESCENDANT) or False
         if has_multi:
             width += 14  # multi-names marker width + gap
+        if is_main:
+            width += _DOT_DIAMETER + 3
         if is_ancestor:
             width += _DOT_DIAMETER + 3
         if is_descendant:
@@ -722,6 +727,7 @@ class _DotDelegate(QStyledItemDelegate):
         self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
     ) -> None:
         """Paint the item with indicators between icon and text, text shifted right."""
+        is_main = index.data(_ROLE_IS_MAIN_PERSON) or False
         is_ancestor = index.data(_ROLE_IS_ANCESTOR) or False
         is_descendant = index.data(_ROLE_IS_DESCENDANT) or False
         has_multi = index.data(_ROLE_HAS_MULTI_NAMES) or False
@@ -763,8 +769,15 @@ class _DotDelegate(QStyledItemDelegate):
                 painter.drawText(marker_rect, Qt.AlignmentFlag.AlignCenter, "≡")
                 x_offset += 14
 
-            # Ancestor dot
+            # Main person dot (orange)
             dot_y = rect.top() + (rect.height() - _DOT_DIAMETER) // 2
+            if is_main:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(_MAIN_PERSON_DOT_COLOR))
+                painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
+                x_offset += _DOT_DIAMETER + 3
+
+            # Ancestor dot
             if is_ancestor:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QBrush(_ANCESTOR_DOT_COLOR))
@@ -1360,6 +1373,11 @@ class PersonListPanel(QWidget):
 
         # Pre-build company name lookup for DNA column
         data = self._app.project_service.data
+        main_person_id = (
+            data.project.main_person_id
+            if hasattr(data, "project") and data.project is not None
+            else None
+        )
         company_name_by_id: dict[str, str] = {
             c.id: c.name for c in data.dna_companies
         }
@@ -1409,6 +1427,8 @@ class PersonListPanel(QWidget):
                     tree_item.setData(0, _ROLE_IS_DESCENDANT, True)
                 if person_info.name_count > 1:
                     tree_item.setData(0, _ROLE_HAS_MULTI_NAMES, True)
+                if person_info.person_id == main_person_id:
+                    tree_item.setData(0, _ROLE_IS_MAIN_PERSON, True)
 
                 # Set gender icon
                 pixmap = icon_registry.get_gender_icon(person_info.sex)

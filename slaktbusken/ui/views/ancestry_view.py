@@ -66,6 +66,7 @@ class AncestryView:
         ancestor_set: Optional[set[str]] = None,
         descendant_set: Optional[set[str]] = None,
         project_folder: Optional[Path] = None,
+        compact: bool = False,
     ) -> None:
         """Rendera anordiagrammet i scenen.
 
@@ -78,9 +79,11 @@ class AncestryView:
             ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
             descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
             project_folder: Path to the project folder for resolving media files.
+            compact: If True, reduce vertical space for branches with fewer generations.
         """
         self._person_boxes = []
         self._placeholder_boxes = []
+        self._placeholder_y_map: dict[tuple[int, int], float] = {}
         self._project_folder = project_folder
 
         if ancestor_set is None:
@@ -198,30 +201,149 @@ class AncestryView:
 
         # Compute total_height using actual max box height
         effective_box_height = max_box_height
-        total_height = max_slots * (effective_box_height + _V_GAP) - _V_GAP
 
-        # Pass 2: Position and add boxes to scene
-        for gen in range(depth + 1):
-            num_slots = 2**gen
-            col_x = gen * (_BOX_WIDTH + _H_GAP)
+        if compact:
+            # Compact mode: calculate actual leaf count per subtree to reduce
+            # vertical space for branches with fewer generations.
+            # leaf_weight[gen][pos] = number of visible leaves in this subtree
+            leaf_weight: dict[tuple[int, int], int] = {}
 
-            for pos in range(num_slots):
+            def _calc_weight(g: int, p: int) -> int:
+                """Recursively calculate the number of leaf slots needed."""
+                if g == max_gen:
+                    # Deepest level: always counts as 1 leaf
+                    return 1
+                # Check if children exist (as person or placeholder)
+                child_gen = g + 1
+                child_pos_f = p * 2
+                child_pos_m = p * 2 + 1
+                has_father = (
+                    ancestor_map.get((child_gen, child_pos_f)) is not None
+                    or (child_gen, child_pos_f) in {(g2, p2) for g2, p2, _ in placeholder_positions}
+                )
+                has_mother = (
+                    ancestor_map.get((child_gen, child_pos_m)) is not None
+                    or (child_gen, child_pos_m) in {(g2, p2) for g2, p2, _ in placeholder_positions}
+                )
+
+                if not has_father and not has_mother:
+                    # Dead-end: this person is a leaf, counts as 1
+                    return 1
+
+                weight = 0
+                if has_father:
+                    weight += _calc_weight(child_gen, child_pos_f)
+                else:
+                    weight += 1
+                if has_mother:
+                    weight += _calc_weight(child_gen, child_pos_m)
+                else:
+                    weight += 1
+                return weight
+
+            # Pre-compute placeholder set for fast lookup
+            _ph_set = {(g, p) for g, p, _ in placeholder_positions}
+
+            def _calc_weight_fast(g: int, p: int) -> int:
+                if g == max_gen:
+                    return 1
+                child_gen = g + 1
+                child_pos_f = p * 2
+                child_pos_m = p * 2 + 1
+                has_f = ancestor_map.get((child_gen, child_pos_f)) is not None or (child_gen, child_pos_f) in _ph_set
+                has_m = ancestor_map.get((child_gen, child_pos_m)) is not None or (child_gen, child_pos_m) in _ph_set
+
+                if not has_f and not has_m:
+                    return 1
+                w = 0
+                w += _calc_weight_fast(child_gen, child_pos_f) if has_f else 1
+                w += _calc_weight_fast(child_gen, child_pos_m) if has_m else 1
+                return w
+
+            total_leaves = _calc_weight_fast(0, 0)
+            total_height = total_leaves * (effective_box_height + _V_GAP) - _V_GAP
+
+            # Build a cumulative offset map for each (gen, pos)
+            # y_offset[gen][pos] = (y_start, height) within total_height
+            pos_layout: dict[tuple[int, int], tuple[float, float]] = {}
+            pos_layout[(0, 0)] = (0.0, total_height)
+
+            for g in range(depth):
+                child_gen = g + 1
+                for p in range(2**g):
+                    if (g, p) not in pos_layout:
+                        continue
+                    y_start, h = pos_layout[(g, p)]
+                    child_pos_f = p * 2
+                    child_pos_m = p * 2 + 1
+
+                    has_f = ancestor_map.get((child_gen, child_pos_f)) is not None or (child_gen, child_pos_f) in _ph_set
+                    has_m = ancestor_map.get((child_gen, child_pos_m)) is not None or (child_gen, child_pos_m) in _ph_set
+
+                    if not has_f and not has_m:
+                        continue
+
+                    w_f = _calc_weight_fast(child_gen, child_pos_f) if has_f else 1
+                    w_m = _calc_weight_fast(child_gen, child_pos_m) if has_m else 1
+                    total_w = w_f + w_m
+
+                    h_f = (w_f / total_w) * h
+                    h_m = (w_m / total_w) * h
+
+                    pos_layout[(child_gen, child_pos_f)] = (y_start, h_f)
+                    pos_layout[(child_gen, child_pos_m)] = (y_start + h_f, h_m)
+
+            # Pass 2: Position boxes using compact layout
+            for gen in range(depth + 1):
+                col_x = gen * (_BOX_WIDTH + _H_GAP)
+                for pos in range(2**gen):
+                    box = box_map.get((gen, pos))
+                    if box is not None:
+                        if (gen, pos) in pos_layout:
+                            y_start, h = pos_layout[(gen, pos)]
+                            y = y_start + (h - effective_box_height) / 2.0
+                        else:
+                            y = 0.0
+                        box.setPos(col_x, y)
+                        scene.addItem(box)
+                        self._person_boxes.append(box)
+                        box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
+
+            # Add placeholders at compact positions
+            for gen, pos, col_x in placeholder_positions:
+                if (gen, pos) in pos_layout:
+                    y_start, h = pos_layout[(gen, pos)]
+                    y = y_start + (h - effective_box_height) / 2.0
+                else:
+                    y = 0.0
+                self._add_placeholder(scene, gen, pos, col_x, y)
+
+        else:
+            # Non-compact mode: uniform slot height based on deepest generation
+            total_height = max_slots * (effective_box_height + _V_GAP) - _V_GAP
+
+            # Pass 2: Position and add boxes to scene
+            for gen in range(depth + 1):
+                num_slots = 2**gen
+                col_x = gen * (_BOX_WIDTH + _H_GAP)
+
+                for pos in range(num_slots):
+                    slot_height = total_height / num_slots
+                    y = pos * slot_height + (slot_height - effective_box_height) / 2.0
+
+                    box = box_map.get((gen, pos))
+                    if box is not None:
+                        box.setPos(col_x, y)
+                        scene.addItem(box)
+                        self._person_boxes.append(box)
+                        box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
+
+            # Add placeholders at correct positions
+            for gen, pos, col_x in placeholder_positions:
+                num_slots = 2**gen
                 slot_height = total_height / num_slots
                 y = pos * slot_height + (slot_height - effective_box_height) / 2.0
-
-                box = box_map.get((gen, pos))
-                if box is not None:
-                    box.setPos(col_x, y)
-                    scene.addItem(box)
-                    self._person_boxes.append(box)
-                    box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
-
-        # Add placeholders at correct positions
-        for gen, pos, col_x in placeholder_positions:
-            num_slots = 2**gen
-            slot_height = total_height / num_slots
-            y = pos * slot_height + (slot_height - effective_box_height) / 2.0
-            self._add_placeholder(scene, gen, pos, col_x, y)
+                self._add_placeholder(scene, gen, pos, col_x, y)
 
         # Draw connection lines between parent and child positions
         # Uses orthogonal routing: horizontal from child → vertical midpoint → horizontal to ancestor
@@ -233,12 +355,7 @@ class AncestryView:
             # Vertical segment X is halfway between the two generation columns
             mid_x = child_col_x + _BOX_WIDTH + _H_GAP / 2.0
 
-            num_slots = 2**gen
-            child_num_slots = 2**child_gen
-            slot_height = total_height / num_slots
-            child_slot_height = total_height / child_num_slots
-
-            for pos in range(num_slots):
+            for pos in range(2**gen):
                 person_id = ancestor_map.get((gen, pos))
                 child_pos = pos // 2
                 child_id = ancestor_map.get((child_gen, child_pos))
@@ -253,15 +370,24 @@ class AncestryView:
                 if not has_ancestor and not has_placeholder_at_pos:
                     continue  # Nothing at this position to connect to
 
-                # Calculate Y positions (mid-height of each box)
-                child_y = child_pos * child_slot_height + (child_slot_height - effective_box_height) / 2.0
-                ancestor_y = pos * slot_height + (slot_height - effective_box_height) / 2.0
-
-                # Use actual box height for mid-y if box exists, else estimate
+                # Get actual Y positions from placed boxes
                 child_box = box_map.get((child_gen, child_pos))
-                child_h = child_box.box_height if child_box else effective_box_height
                 ancestor_box = box_map.get((gen, pos))
-                ancestor_h = ancestor_box.box_height if ancestor_box else effective_box_height
+
+                if child_box is not None:
+                    child_y = child_box.pos().y()
+                    child_h = child_box.box_height
+                else:
+                    # Use placeholder position (50px height)
+                    child_y = self._get_placeholder_y(child_gen, child_pos)
+                    child_h = 50.0
+
+                if ancestor_box is not None:
+                    ancestor_y = ancestor_box.pos().y()
+                    ancestor_h = ancestor_box.box_height
+                else:
+                    ancestor_y = self._get_placeholder_y(gen, pos)
+                    ancestor_h = 50.0
 
                 child_mid_y = child_y + child_h / 2.0
                 ancestor_mid_y = ancestor_y + ancestor_h / 2.0
@@ -297,19 +423,47 @@ class AncestryView:
     ) -> None:
         """Lägg till en platshållarruta för en saknad förfader.
 
+        The y parameter is the top position where a full-size box would be placed.
+        We center the placeholder vertically at the same midpoint as a regular box.
+
         Args:
             scene: Scenen att lägga till i.
             gen: Generationsnummer.
             pos: Position inom generationen.
             x: X-koordinat.
-            y: Y-koordinat.
+            y: Y-koordinat (top of where a regular box would be).
         """
         # Even positions are fathers, odd are mothers
         role = PlaceholderRole.FATHER if pos % 2 == 0 else PlaceholderRole.MOTHER
         placeholder = PlaceholderBoxItem(role)
-        placeholder.setPos(x, y)
+
+        # Center the placeholder (50px tall) at the same midpoint as a regular box
+        # Regular box center = y + effective_box_height / 2
+        # We need to find effective_box_height — approximate from the passed y context
+        # The placeholder is 50px (_BOX_HEIGHT in placeholder_box.py)
+        placeholder_height = 50.0
+        # Determine the effective box height from existing boxes
+        max_box_h = _BOX_HEIGHT_ESTIMATE
+        for box in self._person_boxes:
+            if box.box_height > max_box_h:
+                max_box_h = box.box_height
+
+        # Adjust y so placeholder center aligns with where a regular box center would be
+        adjusted_y = y + (max_box_h - placeholder_height) / 2.0
+
+        placeholder.setPos(x, adjusted_y)
         scene.addItem(placeholder)
         self._placeholder_boxes.append(placeholder)
+        # Track position for connection line drawing (use the adjusted center point)
+        self._placeholder_y_map[(gen, pos)] = adjusted_y
+
+    def _get_placeholder_y(self, gen: int, pos: int) -> float:
+        """Get the Y position of a placed placeholder at (gen, pos).
+
+        Returns the top-left Y coordinate of the placeholder box.
+        Connection line code adds placeholder_height/2 to get mid-y.
+        """
+        return self._placeholder_y_map.get((gen, pos), 0.0)
 
     def _has_item_at_gen_pos(self, gen: int, pos: int) -> bool:
         """Kontrollera om det finns en ruta vid given generations-position.

@@ -67,6 +67,7 @@ class DiagramSettings:
 
     ancestry_depth: int = 4
     descendants_depth: int = 4
+    ancestry_compact: bool = False
 
 
 @dataclass
@@ -218,6 +219,7 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
     diagram_settings = DiagramSettings(
         ancestry_depth=diagram_data.get("ancestry_depth", 4),
         descendants_depth=diagram_data.get("descendants_depth", 4),
+        ancestry_compact=diagram_data.get("ancestry_compact", False),
     )
 
     ui_state = UiState(

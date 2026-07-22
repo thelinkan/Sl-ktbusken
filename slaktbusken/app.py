@@ -1336,6 +1336,7 @@ class Application:
 
             if settings:
                 panel._person_box_config = settings.person_box_config
+                panel._diagram_settings = settings.diagram_settings
 
             # Set active person to main_person_id if available
             main_person = project_data.project.main_person_id

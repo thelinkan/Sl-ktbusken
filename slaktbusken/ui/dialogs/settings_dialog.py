@@ -108,6 +108,7 @@ class SettingsDialog(QDialog):
         return DiagramSettings(
             ancestry_depth=self._ui.spinAncestryDepth.value(),
             descendants_depth=self._ui.spinDescendantsDepth.value(),
+            ancestry_compact=self._check_ancestry_compact.isChecked(),
         )
 
     def _load_person_box_config(self, config: PersonBoxConfig) -> None:
@@ -138,6 +139,16 @@ class SettingsDialog(QDialog):
         """
         self._ui.spinAncestryDepth.setValue(settings.ancestry_depth)
         self._ui.spinDescendantsDepth.setValue(settings.descendants_depth)
+
+        # Add "Kompakt vy" checkbox between Anor (row 0) and Ättlingar (row 1)
+        from PySide6.QtWidgets import QCheckBox
+
+        self._check_ancestry_compact = QCheckBox("Kompakt vy")
+        self._check_ancestry_compact.setToolTip(
+            "Minskar vertikalt utrymme för grenar med färre generationer"
+        )
+        self._check_ancestry_compact.setChecked(settings.ancestry_compact)
+        self._ui.depthFormLayout.insertRow(1, "", self._check_ancestry_compact)
 
     def _setup_default_project_section(self) -> None:
         """Add the 'Standardprojekt' group box to the dialog layout.
