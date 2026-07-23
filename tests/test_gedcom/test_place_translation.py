@@ -223,7 +223,7 @@ class TestMapPlaceToHierarchy:
     """Tests for map_place_to_hierarchy function."""
 
     def test_three_level_creates_hierarchy(self) -> None:
-        """Three-level place creates continent > country > county > parish chain."""
+        """Three-level place creates continent > country > län > socken chain."""
         gp = parse_place_string("Ljusdal, Gävleborgs län, Sverige")
         id_gen = IDGenerator(set())
 
@@ -238,17 +238,19 @@ class TestMapPlaceToHierarchy:
         assert new_places[1].name == "Sverige"
         assert new_places[1].type == "country"
         assert new_places[1].parent_place_id == new_places[0].id
+        # Country should have region_levels preset applied
+        assert len(new_places[1].region_levels) == 2
 
         assert new_places[2].name == "Gävleborgs län"
-        assert new_places[2].type == "county"
+        assert new_places[2].type == "lan"
         assert new_places[2].parent_place_id == new_places[1].id
 
         assert new_places[3].name == "Ljusdal"
-        assert new_places[3].type == "parish"
+        assert new_places[3].type == "socken"
         assert new_places[3].parent_place_id == new_places[2].id
 
     def test_four_level_creates_full_hierarchy(self) -> None:
-        """Four-level place creates continent > country > county > parish > church chain."""
+        """Four-level place creates continent > country > län > socken > church chain."""
         gp = parse_place_string(
             "Ljusdals kyrka, Ljusdal, Gävleborgs län, Sverige"
         )
@@ -265,11 +267,11 @@ class TestMapPlaceToHierarchy:
         assert new_places[1].parent_place_id == new_places[0].id
 
         assert new_places[2].name == "Gävleborgs län"
-        assert new_places[2].type == "county"
+        assert new_places[2].type == "lan"
         assert new_places[2].parent_place_id == new_places[1].id
 
         assert new_places[3].name == "Ljusdal"
-        assert new_places[3].type == "parish"
+        assert new_places[3].type == "socken"
         assert new_places[3].parent_place_id == new_places[2].id
 
         assert new_places[4].name == "Ljusdals kyrka"
@@ -292,13 +294,13 @@ class TestMapPlaceToHierarchy:
         assert new_places[0].parent_place_id == "place_1"
 
     def test_reuses_existing_hierarchy(self) -> None:
-        """Existing country + county are reused when they match."""
+        """Existing country + län are reused when they match."""
         existing_country = Place(
             id="place_1", type="country", name="Sverige"
         )
         existing_county = Place(
             id="place_2",
-            type="county",
+            type="lan",
             name="Gävleborgs län",
             parent_place_id="place_1",
         )
@@ -309,10 +311,10 @@ class TestMapPlaceToHierarchy:
             gp, [existing_country, existing_county], [], id_gen
         )
 
-        # Only parish should be new
+        # Only socken should be new
         assert len(new_places) == 1
         assert new_places[0].name == "Ljusdal"
-        assert new_places[0].type == "parish"
+        assert new_places[0].type == "socken"
         assert new_places[0].parent_place_id == "place_2"
 
     def test_empty_place_string_returns_empty(self) -> None:

@@ -901,9 +901,9 @@ class TestGEDCOMImporterMultipleEvents:
         # Stockholm should appear only once in places
         stockholm_places = [
             p for p in empty_project.places
-            if "Stockholm" in p.name and p.type == "parish"
+            if "Stockholm" in p.name and p.type == "socken"
         ]
-        # Should be exactly one Stockholm parish
+        # Should be exactly one Stockholm socken
         assert len(stockholm_places) == 1
 
 

@@ -131,7 +131,7 @@ class TestBug1SwedishOnlyValidationWarnings:
             None,
         )
         assert kopparberg is not None
-        assert kopparberg.type == "county"
+        assert kopparberg.type == "lan"
         assert kopparberg.parent_place_id is not None
 
         # Parent should be Sverige

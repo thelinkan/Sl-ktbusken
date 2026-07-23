@@ -88,7 +88,8 @@ def build_type_options(project_data: ProjectData) -> list[str]:
     - Universal types: "Kyrka", "Kyrkogård", "Gård", "Skola", "Ort"
 
     Additionally includes all unique region level labels from countries
-    in the project.
+    in the project (from their region_levels field, or from presets if
+    no region_levels are set on the country).
 
     Args:
         project_data: The current project data containing all entities.
@@ -96,6 +97,8 @@ def build_type_options(project_data: ProjectData) -> list[str]:
     Returns:
         Ordered list of type labels for the dropdown.
     """
+    from slaktbusken.data.country_presets import available_presets, get_preset
+
     # Fixed types always present
     fixed_labels = ["Kontinent", "Land"]
     universal_labels = ["Kyrka", "Kyrkogård", "Gård", "Skola", "Ort"]
@@ -104,8 +107,15 @@ def build_type_options(project_data: ProjectData) -> list[str]:
     region_labels: set[str] = set()
     for place in project_data.places:
         if place.type == "country":
-            for rl in place.region_levels:
-                region_labels.add(rl.label)
+            if place.region_levels:
+                for rl in place.region_levels:
+                    region_labels.add(rl.label)
+            else:
+                # Country has no region_levels set — check presets
+                preset_name = _get_preset_name_for_country(place.name)
+                if preset_name:
+                    for rl in get_preset(preset_name):
+                        region_labels.add(rl.label)
 
     # Build final list: Kontinent first, then Land, then region labels sorted,
     # then universal types
@@ -113,10 +123,41 @@ def build_type_options(project_data: ProjectData) -> list[str]:
     return fixed_labels + sorted_region_labels + universal_labels
 
 
+def _get_preset_name_for_country(country_name: str) -> Optional[str]:
+    """Get the preset name for a country by its display name.
+
+    Checks both the country_presets available list and common name variations.
+    """
+    from slaktbusken.data.country_presets import available_presets
+
+    # Direct match
+    if country_name in available_presets():
+        return country_name
+
+    # Try common name mappings
+    _NAME_TO_PRESET = {
+        "sverige": "Sverige",
+        "norway": "Norge",
+        "norge": "Norge",
+        "finland": "Finland",
+        "danmark": "Danmark",
+        "denmark": "Danmark",
+        "tyskland": "Tyskland",
+        "germany": "Tyskland",
+        "england": "England",
+        "usa": "USA",
+        "united states": "USA",
+        "kanada": "USA",
+        "canada": "USA",
+    }
+    return _NAME_TO_PRESET.get(country_name.lower())
+
+
 def _resolve_type_label_to_internal(label: str, project_data: ProjectData) -> str:
     """Resolve a type dropdown label to its internal type string.
 
-    Checks static types first, then looks up region level labels in project countries.
+    Checks static types first, then looks up region level labels in project
+    countries (both from their region_levels and from presets).
 
     Args:
         label: The Swedish UI label to resolve.
@@ -125,15 +166,85 @@ def _resolve_type_label_to_internal(label: str, project_data: ProjectData) -> st
     Returns:
         The internal type string corresponding to the label.
     """
+    from slaktbusken.data.country_presets import get_preset
+
     if label in _TYPE_LABEL_TO_INTERNAL:
         return _TYPE_LABEL_TO_INTERNAL[label]
-    # Try to find among region level labels
+    # Try to find among region level labels on countries
     for place in project_data.places:
         if place.type == "country":
-            for rl in place.region_levels:
-                if rl.label == label:
-                    return rl.key
+            if place.region_levels:
+                for rl in place.region_levels:
+                    if rl.label == label:
+                        return rl.key
+            else:
+                # Check preset for this country
+                preset_name = _get_preset_name_for_country(place.name)
+                if preset_name:
+                    for rl in get_preset(preset_name):
+                        if rl.label == label:
+                            return rl.key
     return label.lower()  # Fallback
+
+
+def _migrate_legacy_place_types(project_data: ProjectData) -> None:
+    """Migrate legacy place types (county/parish/village) to region-level keys.
+
+    Old GEDCOM imports used fixed types like "county" and "parish". The new
+    system uses country-specific region-level keys (e.g., "lan", "socken" for
+    Sverige). This function:
+    1. Ensures all countries have their region_levels preset applied
+    2. Converts legacy types to the correct region-level keys based on the
+       country ancestor of each place
+    """
+    from slaktbusken.data.country_presets import get_preset
+
+    # Step 1: Ensure countries have presets applied
+    for place in project_data.places:
+        if place.type == "country" and not place.region_levels:
+            preset_name = _get_preset_name_for_country(place.name)
+            if preset_name:
+                place.region_levels = get_preset(preset_name)
+
+    # Step 2: Build a map of place_id -> place for parent lookups
+    place_map = {p.id: p for p in project_data.places}
+
+    # Legacy type mappings per preset
+    _LEGACY_TYPE_MAP: dict[str, dict[str, str]] = {
+        "Sverige": {"county": "lan", "parish": "socken", "village": "socken"},
+        "Norge": {"county": "fylke", "parish": "kommune"},
+        "Finland": {"county": "landskap", "parish": "kommun"},
+        "Danmark": {"county": "region", "parish": "kommune"},
+        "Tyskland": {"county": "forbundsland", "parish": "kreis"},
+        "England": {"county": "county", "parish": "parish"},
+        "USA": {"county": "delstat", "parish": "county"},
+    }
+
+    # Step 3: Convert legacy types by walking up to find the country
+    for place in project_data.places:
+        if place.type not in ("county", "parish", "village"):
+            continue
+
+        # Walk up the parent chain to find the country
+        country_name: Optional[str] = None
+        current = place
+        visited: set[str] = {place.id}
+        while current.parent_place_id and current.parent_place_id not in visited:
+            visited.add(current.parent_place_id)
+            parent = place_map.get(current.parent_place_id)
+            if parent is None:
+                break
+            if parent.type == "country":
+                country_name = parent.name
+                break
+            current = parent
+
+        if country_name:
+            preset_name = _get_preset_name_for_country(country_name)
+            if preset_name and preset_name in _LEGACY_TYPE_MAP:
+                type_map = _LEGACY_TYPE_MAP[preset_name]
+                if place.type in type_map:
+                    place.type = type_map[place.type]
 
 
 class PlaceListItemDelegate(QStyledItemDelegate):
@@ -246,6 +357,9 @@ class PlaceEditor(QWidget):
         self._place = place
         self._saved_place: Optional[Place] = None
         self._editing_place: Optional[Place] = None
+
+        # Migrate legacy place types and ensure country presets are applied
+        _migrate_legacy_place_types(project_data)
 
         # Set up UI from generated form
         self._ui = Ui_PlaceEditor()
@@ -617,13 +731,13 @@ class PlaceEditor(QWidget):
             Display string with name and parent context.
         """
         type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, place.type)
-        # For dynamic region level types, look up the label from country definitions
+        # For dynamic region level types, look up the label from country definitions or presets
         if place.type not in _TYPE_INTERNAL_TO_LABEL:
             for p in self._project_data.places:
                 if p.type == "country":
-                    for rl in p.region_levels:
+                    for rl in self._get_region_levels_for_country(p):
                         if rl.key == place.type:
-                            type_label = rl.label
+                            type_label = rl.label.lower()
                             break
                     else:
                         continue
@@ -712,23 +826,39 @@ class PlaceEditor(QWidget):
         Args:
             place: The Place to load into the form.
         """
+        from slaktbusken.data.country_presets import get_preset
+
         # Type
         type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, None)
         # If not in static mapping, check dynamic region level labels
         if type_label is None:
             for p in self._project_data.places:
                 if p.type == "country":
-                    for rl in p.region_levels:
-                        if rl.key == place.type:
-                            type_label = rl.label
-                            break
+                    # Check region_levels on the country
+                    if p.region_levels:
+                        for rl in p.region_levels:
+                            if rl.key == place.type:
+                                type_label = rl.label
+                                break
+                    else:
+                        # Check preset for this country
+                        preset_name = _get_preset_name_for_country(p.name)
+                        if preset_name:
+                            for rl in get_preset(preset_name):
+                                if rl.key == place.type:
+                                    type_label = rl.label
+                                    break
                     if type_label:
                         break
         if type_label is None:
-            type_label = "Land"  # Fallback
+            type_label = place.type.capitalize()  # Better fallback than "Land"
         type_index = self._ui.type_combo.findText(type_label)
         if type_index >= 0:
             self._ui.type_combo.setCurrentIndex(type_index)
+        else:
+            # Type not in combo — add it dynamically
+            self._ui.type_combo.addItem(type_label)
+            self._ui.type_combo.setCurrentIndex(self._ui.type_combo.count() - 1)
 
         # Name
         self._ui.name_input.setText(place.name)
@@ -1166,21 +1296,72 @@ class PlaceEditor(QWidget):
     def _populate_parent_combo(self, place_type: str) -> None:
         """Populate parent combo with valid parent places based on type hierarchy.
 
+        For static types:
+        - continent: no parent allowed
+        - country: parent must be continent
+        - church/cemetery/farm/school: parent can be any region-level type or ort
+        - ort: parent can be any region-level type
+
+        For dynamic region-level types:
+        - order=1: parent must be country
+        - order>1: parent must be preceding region level
+
         Args:
             place_type: The internal type string of the current place.
         """
         self._ui.parent_combo.clear()
         self._ui.parent_combo.addItem("(Ingen)", "")
 
-        required_parent_type = _VALID_PARENT_TYPES.get(place_type)
-        if required_parent_type is None:
-            # country has no parent
+        # Continent has no parent
+        if place_type == "continent":
             return
+
+        # Determine which types are valid parents
+        valid_parent_types: set[str] = set()
+
+        if place_type == "country":
+            valid_parent_types = {"continent"}
+        elif place_type in ("church", "cemetery", "farm", "school"):
+            # Universal types can be children of any region level or ort
+            valid_parent_types = {"ort"}
+            # Add all region-level keys from countries in project
+            for p in self._project_data.places:
+                if p.type == "country":
+                    valid_parent_types.update(self._get_region_keys_for_country(p))
+        elif place_type == "ort":
+            # Locality can be child of any region level
+            for p in self._project_data.places:
+                if p.type == "country":
+                    valid_parent_types.update(self._get_region_keys_for_country(p))
+        else:
+            # Dynamic region-level type — find which country defines it
+            for p in self._project_data.places:
+                if p.type == "country":
+                    region_levels = self._get_region_levels_for_country(p)
+                    for rl in region_levels:
+                        if rl.key == place_type:
+                            if rl.order == 1:
+                                valid_parent_types = {"country"}
+                            else:
+                                # Find preceding region level
+                                for rl2 in region_levels:
+                                    if rl2.order == rl.order - 1:
+                                        valid_parent_types = {rl2.key}
+                                        break
+                            break
+                    if valid_parent_types:
+                        break
+            # If we couldn't determine valid parent types, allow any place as parent
+            if not valid_parent_types:
+                valid_parent_types = {"country", "continent"}
+                for p in self._project_data.places:
+                    if p.type == "country":
+                        valid_parent_types.update(self._get_region_keys_for_country(p))
 
         # Collect valid parent places with display text
         parent_entries: list[tuple[str, str]] = []
         for p in self._project_data.places:
-            if p.type == required_parent_type:
+            if p.type in valid_parent_types:
                 # Don't allow a place to be its own parent
                 if self._editing_place and p.id == self._editing_place.id:
                     continue
@@ -1201,6 +1382,21 @@ class PlaceEditor(QWidget):
                 self._ui.parent_combo.addItem(QIcon(icon_registry.get_map_icon()), display, place_id)
             else:
                 self._ui.parent_combo.addItem(display, place_id)
+
+    def _get_region_levels_for_country(self, country_place: Place) -> list:
+        """Get region levels for a country, checking presets if not set."""
+        from slaktbusken.data.country_presets import get_preset
+
+        if country_place.region_levels:
+            return country_place.region_levels
+        preset_name = _get_preset_name_for_country(country_place.name)
+        if preset_name:
+            return get_preset(preset_name)
+        return []
+
+    def _get_region_keys_for_country(self, country_place: Place) -> set[str]:
+        """Get all region level keys for a country, checking presets if not set."""
+        return {rl.key for rl in self._get_region_levels_for_country(country_place)}
 
     def _on_type_changed(self, index: int) -> None:
         """Handle type combo change to update parent combo options.

@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from slaktbusken.data.country_presets import get_preset
 from slaktbusken.data.county_registry import (
     get_country_for_county,
     get_county_code,
@@ -86,6 +87,35 @@ _COUNTRY_TO_CONTINENT: dict[str, str] = {
     "united states": "Nordamerika",
     "kanada": "Nordamerika",
     "canada": "Nordamerika",
+}
+
+# Mapping from country names (lowercased) to their preset name in country_presets
+_COUNTRY_NAME_TO_PRESET: dict[str, str] = {
+    "sverige": "Sverige",
+    "norway": "Norge",
+    "norge": "Norge",
+    "finland": "Finland",
+    "danmark": "Danmark",
+    "denmark": "Danmark",
+    "tyskland": "Tyskland",
+    "germany": "Tyskland",
+    "england": "England",
+    "usa": "USA",
+    "united states": "USA",
+    "kanada": "USA",  # Kanada uses same structure as USA (State/County)
+    "canada": "USA",
+}
+
+# Mapping from old rigid type names to the region-level key for Sverige
+# Used during GEDCOM import to convert "county" → "lan", "parish" → "socken"
+_OLD_TYPE_TO_REGION_KEY: dict[str, dict[str, str]] = {
+    "Sverige": {"county": "lan", "parish": "socken"},
+    "Norge": {"county": "fylke", "parish": "kommune"},
+    "Finland": {"county": "landskap", "parish": "kommun"},
+    "Danmark": {"county": "region", "parish": "kommune"},
+    "Tyskland": {"county": "forbundsland", "parish": "kreis"},
+    "England": {"county": "county", "parish": "parish"},
+    "USA": {"county": "delstat", "parish": "county"},
 }
 
 
@@ -411,6 +441,10 @@ def map_place_to_hierarchy(
 
     # Step 2: Process levels from least specific (last) to most specific (first)
     total_levels = len(levels)
+    # Track the current country name for type conversion context
+    current_country_name: Optional[str] = None
+    if country_to_prepend:
+        current_country_name = country_to_prepend
     for i in range(total_levels - 1, -1, -1):
         name = levels[i]
 
@@ -434,10 +468,23 @@ def map_place_to_hierarchy(
                 # No county detected — fall back to original positional logic
                 place_type = infer_place_type(i, total_levels, name)
 
+        # Track the country name for region-level type resolution
+        if place_type == "country":
+            current_country_name = name
+
+        # Convert old rigid types (county/parish) to region-level keys
+        # based on the country context
+        if place_type in ("county", "parish") and current_country_name:
+            preset_name = _COUNTRY_NAME_TO_PRESET.get(current_country_name.lower())
+            if preset_name and preset_name in _OLD_TYPE_TO_REGION_KEY:
+                type_map = _OLD_TYPE_TO_REGION_KEY[preset_name]
+                if place_type in type_map:
+                    place_type = type_map[place_type]
+
         # Normalize short-form county names to their canonical form
         # (e.g., "Stockholm" → "Stockholms län"). Skip names that already
         # end in "län" — those are valid historical names.
-        if place_type == "county" and not _LAN_PATTERN.match(name):
+        if place_type in ("county", "lan") and not _LAN_PATTERN.match(name):
             name = normalize_county(name)
 
         # Try to find an existing place with matching name and type
@@ -451,7 +498,7 @@ def map_place_to_hierarchy(
             # Create a new place record
             new_id = id_generator.generate("place")
 
-            # For countries, assign a continent as parent
+            # For countries, assign a continent as parent and apply preset
             effective_parent_id = parent_id
             if place_type == "country":
                 continent_id = _find_or_create_continent(
@@ -466,8 +513,15 @@ def map_place_to_hierarchy(
                 name=name,
                 parent_place_id=effective_parent_id,
             )
-            # For counties, store the länsbokstav if available
-            if place_type == "county":
+
+            # For countries, auto-apply region level presets
+            if place_type == "country":
+                preset_name = _COUNTRY_NAME_TO_PRESET.get(name.lower())
+                if preset_name:
+                    new_place.region_levels = get_preset(preset_name)
+
+            # For counties/län, store the länsbokstav if available
+            if place_type in ("county", "lan"):
                 code = get_county_code(name)
                 if code:
                     new_place.external_ids.append(
