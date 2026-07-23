@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QStyleOptionViewItem,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -65,6 +67,72 @@ _PARENTAGE_TYPE_LABELS: dict[str, str] = {
 
 # Reverse mapping for combo selection
 _PARENTAGE_LABEL_TO_TYPE: dict[str, str] = {v: k for k, v in _PARENTAGE_TYPE_LABELS.items()}
+
+# Custom role for storing the has-coordinates flag on event list items
+_HAS_COORDS_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class EventListMapIconDelegate(QStyledItemDelegate):
+    """Delegate that draws a trailing map icon on event list items with coordinates.
+
+    When an item has data set at _HAS_COORDS_ROLE == True, the map icon is drawn
+    after the item text, providing a visual indicator that the event's place is
+    mappable.
+    """
+
+    _ICON_SIZE = 14
+    _ICON_SPACING = 8
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._map_pixmap: QPixmap | None = None
+
+    def _get_map_pixmap(self) -> QPixmap:
+        """Lazily load and cache the map icon pixmap."""
+        if self._map_pixmap is None:
+            self._map_pixmap = icon_registry.get_map_icon()
+        return self._map_pixmap
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index,
+    ) -> None:
+        """Paint the item, appending a map icon after the text when flagged."""
+        super().paint(painter, option, index)
+
+        has_coords = index.data(_HAS_COORDS_ROLE)
+        if not has_coords:
+            return
+
+        # Calculate text width to position the icon after it
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        font_metrics = option.fontMetrics
+        text_width = font_metrics.horizontalAdvance(text)
+
+        # Account for the item's decoration (event icon) width + spacing
+        icon_offset = 0
+        item_icon = index.data(Qt.ItemDataRole.DecorationRole)
+        if item_icon is not None:
+            # Standard icon size used in list items (16px) + spacing
+            icon_offset = 16 + 4
+
+        style = option.widget.style() if option.widget else None
+        text_margin = (
+            style.pixelMetric(
+                style.PixelMetric.PM_FocusFrameHMargin, option, option.widget
+            )
+            + 1
+            if style
+            else 4
+        )
+
+        map_pixmap = self._get_map_pixmap()
+        x = option.rect.left() + text_margin + icon_offset + text_width + self._ICON_SPACING
+        y = option.rect.top() + (option.rect.height() - self._ICON_SIZE) // 2
+
+        painter.drawPixmap(x, y, self._ICON_SIZE, self._ICON_SIZE, map_pixmap)
 
 
 class PersonEditor(QWidget):
@@ -438,6 +506,7 @@ class PersonEditor(QWidget):
         self._edit_event_button.clicked.connect(self._on_edit_event)
         self._ui.remove_event_button.clicked.connect(self._on_remove_event)
         self._ui.events_list.itemDoubleClicked.connect(self._on_edit_event_item)
+        self._ui.events_list.setItemDelegate(EventListMapIconDelegate(self._ui.events_list))
 
         # Photos
         self._ui.select_profile_button.clicked.connect(self._on_select_profile)
@@ -890,33 +959,55 @@ class PersonEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _refresh_events_list(self) -> None:
-        """Populate the events list with events linked to this person, sorted by date."""
+        """Populate the events list with events linked to this person, sorted by date.
+
+        Display format: "{type} — {date} — {place_name}" with optional parts omitted
+        when not available. Shows a trailing map icon on items whose place has coordinates.
+        """
         self._ui.events_list.clear()
 
         if self._person is None:
             return
 
+        # Build a places lookup for resolving event place references
+        places_by_id = {p.id: p for p in self._project_data.places}
+
         # Collect events for this person
-        person_events: list[tuple[str, str, str, str]] = []  # (date_sort_key, display, event_id, event_type)
+        # (date_sort_key, display, event_id, event_type, has_coords)
+        person_events: list[tuple[str, str, str, str, bool]] = []
         for event in self._project_data.events:
             for participant in event.participants:
                 if participant.person_id == self._person.id:
                     type_label = get_event_type_label(event.type)
-                    display = f"{type_label} ({participant.role})"
+                    display = type_label
                     date_key = ""
                     if event.date:
                         display += f" — {event.date.value}"
                         date_key = event.date.value
-                    person_events.append((date_key, display, event.id, event.type))
+
+                    # Resolve place name and coordinates
+                    has_coords = False
+                    if event.place:
+                        place = places_by_id.get(event.place.place_id)
+                        if place:
+                            display += f" — {place.name}"
+                            has_coords = (
+                                place.latitude is not None
+                                and place.longitude is not None
+                            )
+
+                    person_events.append((date_key, display, event.id, event.type, has_coords))
                     break
 
         # Sort by date (empty dates last)
         person_events.sort(key=lambda x: (x[0] == "", x[0]))
 
-        for _date_key, display, event_id, event_type in person_events:
+        for _date_key, display, event_id, event_type, has_coords in person_events:
             item = QListWidgetItem(display)
             item.setIcon(QIcon(icon_registry.get_event_icon(event_type)))
             item.setData(Qt.ItemDataRole.UserRole, event_id)
+            if has_coords:
+                item.setData(_HAS_COORDS_ROLE, True)
             self._ui.events_list.addItem(item)
 
     def _on_add_event(self) -> None:

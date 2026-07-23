@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Karta</title>
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin="anonymous" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 14px;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        #no-markers-message {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 16px;
+            color: #555;
+            z-index: 1000;
+            text-align: center;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        .popup-place-name {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #ddd;
+        }
+        .popup-event {
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #eee;
+        }
+        .popup-event:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        .popup-event-type {
+            font-weight: bold;
+        }
+        .popup-event-date {
+            color: #666;
+            margin-left: 6px;
+        }
+        .popup-participants {
+            margin-top: 4px;
+        }
+        .popup-participant-link {
+            color: #0066cc;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .popup-participant-link:hover {
+            color: #004499;
+        }
+        .leaflet-popup-content {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="no-markers-message">Inga markeringar att visa.</div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin="anonymous"></script>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script>
+        window.MARKER_DATA = $$MARKER_DATA$$;
+    </script>
+    <script>
+        (function() {
+            "use strict";
+
+            var bridge = null;
+            var map = null;
+
+            // Initialize QWebChannel to get the bridge object
+            function initBridge(callback) {
+                if (typeof QWebChannel !== "undefined") {
+                    new QWebChannel(qt.webChannelTransport, function(channel) {
+                        bridge = channel.objects.bridge;
+                        if (callback) callback();
+                    });
+                } else {
+                    // Fallback if QWebChannel is not available (e.g., testing in browser)
+                    bridge = {
+                        navigateToPerson: function(personId) {
+                            console.log("navigateToPerson called with:", personId);
+                        }
+                    };
+                    if (callback) callback();
+                }
+            }
+
+            // Build popup HTML content for a marker
+            function buildPopupContent(markerData) {
+                var html = '<div class="popup-place-name">' + escapeHtml(markerData.place_name) + '</div>';
+
+                if (!markerData.events || markerData.events.length === 0) {
+                    return html;
+                }
+
+                for (var i = 0; i < markerData.events.length; i++) {
+                    var evt = markerData.events[i];
+                    html += '<div class="popup-event">';
+                    html += '<span class="popup-event-type">' + escapeHtml(evt.event_type_display) + '</span>';
+
+                    if (evt.date_display) {
+                        html += '<span class="popup-event-date">' + escapeHtml(evt.date_display) + '</span>';
+                    }
+
+                    if (evt.participants && evt.participants.length > 0) {
+                        html += '<div class="popup-participants">';
+                        for (var j = 0; j < evt.participants.length; j++) {
+                            var participant = evt.participants[j];
+                            if (j > 0) {
+                                html += ', ';
+                            }
+                            html += '<span class="popup-participant-link" '
+                                + 'onclick="navigateToPerson(\'' + escapeAttr(participant.person_id) + '\')">'
+                                + escapeHtml(participant.display_name)
+                                + '</span>';
+                        }
+                        html += '</div>';
+                    }
+
+                    html += '</div>';
+                }
+
+                return html;
+            }
+
+            // Escape HTML special characters
+            function escapeHtml(text) {
+                if (!text) return '';
+                var div = document.createElement('div');
+                div.appendChild(document.createTextNode(text));
+                return div.innerHTML;
+            }
+
+            // Escape for use in HTML attributes (single-quoted)
+            function escapeAttr(text) {
+                if (!text) return '';
+                return text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+            }
+
+            // Navigate to person via bridge
+            window.navigateToPerson = function(personId) {
+                if (bridge && bridge.navigateToPerson) {
+                    bridge.navigateToPerson(personId);
+                }
+            };
+
+            // Initialize the map with markers
+            function initMap() {
+                var markers = window.MARKER_DATA || [];
+
+                // Show message if no markers
+                if (!markers || markers.length === 0) {
+                    document.getElementById('no-markers-message').style.display = 'block';
+                    document.getElementById('map').style.display = 'none';
+                    return;
+                }
+
+                // Create the map
+                map = L.map('map');
+
+                // Add OpenStreetMap tile layer with attribution
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 19
+                }).addTo(map);
+
+                // Add markers
+                var leafletMarkers = [];
+
+                for (var i = 0; i < markers.length; i++) {
+                    var markerData = markers[i];
+                    var latLng = L.latLng(markerData.latitude, markerData.longitude);
+
+                    var leafletMarker = L.marker(latLng)
+                        .addTo(map)
+                        .bindTooltip(markerData.place_name)
+                        .bindPopup(buildPopupContent(markerData), {
+                            maxWidth: 350,
+                            minWidth: 200
+                        });
+
+                    leafletMarkers.push(leafletMarker);
+                }
+
+                // Fit bounds or center on single marker
+                if (leafletMarkers.length === 1) {
+                    map.setView(leafletMarkers[0].getLatLng(), 10);
+                } else {
+                    var group = L.featureGroup(leafletMarkers);
+                    map.fitBounds(group.getBounds(), { padding: [50, 50] });
+                }
+            }
+
+            // Start initialization
+            initBridge(function() {
+                initMap();
+            });
+        })();
+    </script>
+</body>
+</html>

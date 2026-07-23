@@ -191,6 +191,11 @@ class MainWindow(QMainWindow):
         self.action_settings.setToolTip("Öppna inställningar")
         self.action_settings.triggered.connect(self._app.show_settings)
 
+        # Karta (Map)
+        self.action_map_all_events = QAction("Alla händelser", self)
+        self.action_map_all_events.setToolTip("Visa alla händelser på karta")
+        self.action_map_all_events.triggered.connect(self._app.show_all_events_map)
+
         # Visa huvudperson
         self.action_show_main_person = QAction("Visa &huvudperson", self)
         self.action_show_main_person.setShortcut(QKeySequence("H"))
@@ -259,6 +264,10 @@ class MainWindow(QMainWindow):
         self.menu_tools = menu_bar.addMenu("V&erktyg")
         self.menu_tools.addAction(self.action_relationship)
         self.menu_tools.addAction(self.action_settings)
+
+        # Karta (Map)
+        self.menu_map = menu_bar.addMenu("&Karta")
+        self.menu_map.addAction(self.action_map_all_events)
 
         # Rapporter (Reports)
         from slaktbusken.ui.report_menu import ReportMenuBuilder
@@ -404,6 +413,7 @@ class MainWindow(QMainWindow):
         self.action_view_descendants.setEnabled(project_open)
         self.action_show_main_person.setEnabled(project_open)
         self.action_goto_selected_person.setEnabled(project_open)
+        self.action_map_all_events.setEnabled(project_open)
 
         if hasattr(self, '_report_menu_builder'):
             self._report_menu_builder.update_project_state(project_open)

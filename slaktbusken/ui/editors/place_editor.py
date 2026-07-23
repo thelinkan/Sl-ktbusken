@@ -13,7 +13,7 @@ import uuid
 from typing import Optional
 
 from PySide6.QtCore import QRect, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -46,6 +46,8 @@ from slaktbusken.model.place import (
 )
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.generated.ui_place_editor import Ui_PlaceEditor
+from slaktbusken.ui.icons.icon_registry import icon_registry
+from slaktbusken.ui.widgets.coordinate_spin_box import CoordinateSpinBox
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +193,25 @@ class PlaceEditor(QWidget):
         self._ui = Ui_PlaceEditor()
         self._ui.setupUi(self)
 
+        # Replace latitude/longitude spin boxes with CoordinateSpinBox (paste support)
+        self._replace_spin_with_coordinate_spin("latitude_spin")
+        self._replace_spin_with_coordinate_spin("longitude_spin")
+
+        # Add "Visa på karta" button beside the coordinates checkbox
+        self._btn_show_on_map = QPushButton("Visa på karta")
+        self._btn_show_on_map.setEnabled(self._ui.coordinates_check.isChecked())
+        # Replace the checkbox cell in the form layout with an HBox containing both
+        coords_row_layout = QHBoxLayout()
+        coords_row_layout.setContentsMargins(0, 0, 0, 0)
+        # Remove the checkbox from form row 3 and re-add in a horizontal layout
+        self._ui.form_layout.removeWidget(self._ui.coordinates_check)
+        coords_row_layout.addWidget(self._ui.coordinates_check)
+        coords_row_layout.addWidget(self._btn_show_on_map)
+        coords_row_layout.addStretch()
+        self._ui.form_layout.setLayout(
+            3, QFormLayout.ItemRole.FieldRole, coords_row_layout
+        )
+
         # Wrap the right panel in a QScrollArea so all content is accessible
         self._right_scroll = QScrollArea()
         self._right_scroll.setWidgetResizable(True)
@@ -246,6 +267,36 @@ class PlaceEditor(QWidget):
     # ------------------------------------------------------------------
     # Private: setup
     # ------------------------------------------------------------------
+
+    def _replace_spin_with_coordinate_spin(self, attr_name: str) -> None:
+        """Replace a QDoubleSpinBox in the form with a CoordinateSpinBox.
+
+        Copies the original widget's range, decimals, enabled state, and value,
+        then swaps it in the form layout at the same position.
+
+        Args:
+            attr_name: The attribute name on self._ui (e.g. "latitude_spin").
+        """
+        original = getattr(self._ui, attr_name)
+        new_spin = CoordinateSpinBox(self._ui.right_panel)
+        new_spin.setObjectName(original.objectName())
+        new_spin.setMinimum(original.minimum())
+        new_spin.setMaximum(original.maximum())
+        new_spin.setDecimals(original.decimals())
+        new_spin.setEnabled(original.isEnabled())
+        new_spin.setValue(original.value())
+
+        # Find the widget in the form layout and replace it
+        layout = self._ui.form_layout
+        for row in range(layout.rowCount()):
+            item = layout.itemAt(row, QFormLayout.ItemRole.FieldRole)
+            if item and item.widget() is original:
+                original.setParent(None)
+                layout.setWidget(row, QFormLayout.ItemRole.FieldRole, new_spin)
+                break
+
+        # Update the reference on the UI object so existing code keeps working
+        setattr(self._ui, attr_name, new_spin)
 
     def _setup_child_places_list(self) -> None:
         """Add a child places group box to the right panel.
@@ -355,6 +406,8 @@ class PlaceEditor(QWidget):
 
         # Coordinates checkbox
         self._ui.coordinates_check.toggled.connect(self._on_coordinates_toggled)
+        self._ui.coordinates_check.toggled.connect(self._btn_show_on_map.setEnabled)
+        self._btn_show_on_map.clicked.connect(self._on_show_place_on_map)
 
         # Type change updates parent combo
         self._ui.type_combo.currentIndexChanged.connect(self._on_type_changed)
@@ -405,6 +458,10 @@ class PlaceEditor(QWidget):
         for display, place_id in entries:
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, place_id)
+            # Show map icon for places with coordinates
+            place = self._find_place_by_id(place_id)
+            if place and place.latitude is not None and place.longitude is not None:
+                item.setIcon(QIcon(icon_registry.get_map_icon()))
             self._ui.place_list.addItem(item)
 
         self._ui.place_list.blockSignals(False)
@@ -969,7 +1026,12 @@ class PlaceEditor(QWidget):
         # Sort alphabetically
         parent_entries.sort(key=lambda x: x[0].lower())
         for display, place_id in parent_entries:
-            self._ui.parent_combo.addItem(display, place_id)
+            # Show map icon for places with coordinates
+            p = self._find_place_by_id(place_id)
+            if p and p.latitude is not None and p.longitude is not None:
+                self._ui.parent_combo.addItem(QIcon(icon_registry.get_map_icon()), display, place_id)
+            else:
+                self._ui.parent_combo.addItem(display, place_id)
 
     def _on_type_changed(self, index: int) -> None:
         """Handle type combo change to update parent combo options.
@@ -993,6 +1055,25 @@ class PlaceEditor(QWidget):
         """
         self._ui.latitude_spin.setEnabled(checked)
         self._ui.longitude_spin.setEnabled(checked)
+
+    def _on_show_place_on_map(self) -> None:
+        """Open a map dialog showing the current place's coordinates."""
+        from slaktbusken.services.map_data_service import MapMarker
+        from slaktbusken.ui.dialogs.map_dialog import MapDialog
+
+        lat = self._ui.latitude_spin.value()
+        lng = self._ui.longitude_spin.value()
+        name = self._ui.name_input.text() or "(namnlös plats)"
+
+        marker = MapMarker(
+            place_id="preview",
+            place_name=name,
+            latitude=lat,
+            longitude=lng,
+            events=[],
+        )
+        dialog = MapDialog([marker], f"Karta — {name}", parent=self)
+        dialog.exec()
 
     # ------------------------------------------------------------------
     # Private: add / delete

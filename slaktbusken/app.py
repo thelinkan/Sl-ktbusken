@@ -275,6 +275,8 @@ class Application:
             self._handle_delete_person(person_id)
         elif action_type == "filter_dna_matches":
             self._handle_filter_dna_matches(person_id)
+        elif action_type == "show_on_map":
+            self.show_person_map(person_id)
         else:
             logger.warning("Unknown context menu action: %s", action_type)
 
@@ -407,6 +409,63 @@ class Application:
         # Apply filter to person list panel
         panel = self.main_window.person_list_panel
         panel.apply_dna_match_filter(matched_person_ids, select_person_id=person_id)
+
+    def show_person_map(self, person_id: str) -> None:
+        """Open map dialog showing places for a person's events."""
+        from slaktbusken.services.map_data_service import build_markers_for_person
+        from slaktbusken.ui.dialogs.map_dialog import MapDialog
+
+        markers = build_markers_for_person(self.project_service.data, person_id)
+        if not markers:
+            QMessageBox.information(
+                self.main_window,
+                "Karta",
+                "Personen har inga händelser kopplade till platser med koordinater.",
+            )
+            return
+
+        # Resolve person name for dialog title
+        person = next(
+            (p for p in self.project_service.data.persons if p.id == person_id), None
+        )
+        if person and person.names:
+            name = f"{person.names[0].given} {person.names[0].surname}".strip()
+        else:
+            name = person_id
+
+        dialog = MapDialog(markers, f"Karta — {name}", parent=self.main_window)
+        dialog.person_navigation_requested.connect(self._handle_map_navigation)
+        dialog.exec()
+
+    def show_all_events_map(self) -> None:
+        """Open map dialog showing all project events."""
+        from slaktbusken.services.map_data_service import build_markers_all_events
+        from slaktbusken.ui.dialogs.map_dialog import MapDialog
+
+        markers = build_markers_all_events(self.project_service.data)
+        if not markers:
+            QMessageBox.information(
+                self.main_window,
+                "Karta",
+                "Inga platser med koordinater och händelser hittades i projektet.",
+            )
+            return
+
+        dialog = MapDialog(markers, "Karta — Alla händelser", parent=self.main_window)
+        dialog.person_navigation_requested.connect(self._handle_map_navigation)
+        dialog.exec()
+
+    def _handle_map_navigation(self, person_id: str) -> None:
+        """Navigate to a person triggered from the map dialog."""
+        person = next(
+            (p for p in self.project_service.data.persons if p.id == person_id), None
+        )
+        if person is None:
+            QMessageBox.warning(
+                self.main_window, "Karta", "Personen kunde inte hittas."
+            )
+            return
+        self.main_window.diagram_panel.set_active_person(person_id)
 
     def _show_relationship_for_person(self, person_id: str) -> None:
         """Open relationship calculator with the person pre-selected.
