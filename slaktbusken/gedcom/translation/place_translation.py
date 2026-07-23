@@ -27,10 +27,15 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from slaktbusken.data.county_registry import get_country_for_county, is_county, normalize_county
+from slaktbusken.data.county_registry import (
+    get_country_for_county,
+    get_county_code,
+    is_county,
+    normalize_county,
+)
 from slaktbusken.gedcom.translation.models import GedcomPlace
 from slaktbusken.model.id_generator import IDGenerator
-from slaktbusken.model.place import Place
+from slaktbusken.model.place import ExternalId, Place
 from slaktbusken.persistence.translation_io import PlaceMapping
 
 
@@ -352,6 +357,13 @@ def map_place_to_hierarchy(
                 name=name,
                 parent_place_id=parent_id,
             )
+            # For counties, store the länsbokstav if available
+            if place_type == "county":
+                code = get_county_code(name)
+                if code:
+                    new_place.external_ids.append(
+                        ExternalId(key="länsbokstav", value=code)
+                    )
             new_places.append(new_place)
             parent_id = new_id
 

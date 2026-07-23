@@ -1,6 +1,6 @@
 """Property-based tests for Red Dot indicator logic.
 
-Tests Property 10 from the place-editor-enhancements design document.
+Tests Property 1 from the place-hierarchy-levels design document.
 """
 
 from __future__ import annotations
@@ -12,40 +12,38 @@ from slaktbusken.model.place import Place, needs_red_dot
 from tests.conftest import place_strategy
 
 
-# Feature: place-editor-enhancements, Property 10: Red dot indicator correctness
+# Feature: place-hierarchy-levels, Property 1: Red dot indicator equivalence
 #
 # For any place, the red dot indicator SHALL be displayed if and only if the
-# place's type is not "country" AND the place has no parent_place_id assigned.
+# place's type is not "continent" AND the place has no parent_place_id assigned.
 # After any change to parent_place_id and a list refresh, this rule SHALL hold.
 
-_NON_COUNTRY_TYPES = ["county", "parish", "church", "cemetery", "village", "farm", "school"]
 
-
-class TestProperty10RedDotIndicator:
-    """Property 10: Red dot indicator correctness."""
+class TestProperty1RedDotIndicator:
+    """Property 1: Red dot indicator equivalence."""
 
     @given(place=place_strategy())
     @settings(max_examples=100)
-    def test_non_country_without_parent_shows_red_dot(self, place: Place) -> None:
+    def test_non_continent_without_parent_shows_red_dot(self, place: Place) -> None:
         """**Validates: Requirements 5.1**
 
-        For any non-country place with parent_place_id=None,
+        For any non-continent place with parent_place_id=None,
         needs_red_dot returns True.
         """
-        assume(place.type != "country")
+        assume(place.type != "continent")
         assume(place.parent_place_id is None)
 
         assert needs_red_dot(place) is True
 
     @given(place=place_strategy())
     @settings(max_examples=100)
-    def test_country_without_parent_no_red_dot(self, place: Place) -> None:
+    def test_continent_without_parent_no_red_dot(self, place: Place) -> None:
         """**Validates: Requirements 5.2**
 
-        For any country place with parent_place_id=None,
+        For any continent place with parent_place_id=None,
         needs_red_dot returns False.
         """
-        assume(place.type == "country")
+        assume(place.type == "continent")
         assume(place.parent_place_id is None)
 
         assert needs_red_dot(place) is False
@@ -73,9 +71,9 @@ class TestProperty10RedDotIndicator:
         """**Validates: Requirements 5.4**
 
         After changing parent_place_id from None to a value,
-        needs_red_dot changes from True to False (for non-country places).
+        needs_red_dot changes from True to False (for non-continent places).
         """
-        assume(place.type != "country")
+        assume(place.type != "continent")
 
         # Start with no parent — red dot should be shown
         place.parent_place_id = None
@@ -91,9 +89,9 @@ class TestProperty10RedDotIndicator:
         """**Validates: Requirements 5.5**
 
         After changing parent_place_id from a value to None,
-        needs_red_dot changes from False to True (for non-country places).
+        needs_red_dot changes from False to True (for non-continent places).
         """
-        assume(place.type != "country")
+        assume(place.type != "continent")
         assume(place.parent_place_id is not None)
 
         # Start with a parent — red dot should not be shown

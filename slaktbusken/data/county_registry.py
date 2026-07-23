@@ -31,6 +31,9 @@ _lookup: dict[str, str] = {}
 # Maps lowercase county name (canonical or alternate) → country name
 _county_country: dict[str, str] = {}
 
+# Maps lowercase canonical county name → county code (e.g., länsbokstav)
+_county_code: dict[str, str] = {}
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -94,6 +97,26 @@ def get_country_for_county(name: str) -> Optional[str]:
     return _county_country.get(name.strip().lower())
 
 
+def get_county_code(name: str) -> Optional[str]:
+    """Return the county code (e.g., länsbokstav) for a county name.
+
+    Looks up both canonical names and alternate spellings. First normalizes
+    the name to canonical form, then returns the code for that county.
+
+    Args:
+        name: The county name (canonical or alternate).
+
+    Returns:
+        The county code (e.g., "X" for Gävleborgs län), or None if not recognized
+        or the county has no code defined.
+    """
+    _ensure_loaded()
+    canonical = _lookup.get(name.strip().lower())
+    if canonical is None:
+        return None
+    return _county_code.get(canonical.lower())
+
+
 # ---------------------------------------------------------------------------
 # Loading logic
 # ---------------------------------------------------------------------------
@@ -137,6 +160,11 @@ def _load_county_file(path: Path) -> None:
         if country:
             _county_country[canonical.lower()] = country
 
+        # Register county code (e.g., länsbokstav)
+        code = entry.get("code", "")
+        if code:
+            _county_code[canonical.lower()] = code
+
         # Register all alternates
         for alt in entry.get("alternates", []):
             if alt:
@@ -151,3 +179,4 @@ def _reset() -> None:
     _loaded = False
     _lookup.clear()
     _county_country.clear()
+    _county_code.clear()

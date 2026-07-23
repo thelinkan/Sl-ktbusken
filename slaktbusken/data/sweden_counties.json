@@ -3,110 +3,137 @@
   "counties": [
     {
       "name": "Blekinge län",
+      "code": "K",
       "alternates": ["Blekinge"]
     },
     {
       "name": "Dalarnas län",
+      "code": "W",
       "alternates": ["Dalarna", "Kopparbergs län", "Kopparberg"]
     },
     {
       "name": "Gotlands län",
+      "code": "I",
       "alternates": ["Gotland"]
     },
     {
       "name": "Gävleborgs län",
+      "code": "X",
       "alternates": ["Gävleborg"]
     },
     {
       "name": "Hallands län",
+      "code": "N",
       "alternates": ["Halland"]
     },
     {
       "name": "Jämtlands län",
+      "code": "Z",
       "alternates": ["Jämtland"]
     },
     {
       "name": "Jönköpings län",
+      "code": "F",
       "alternates": ["Jönköping"]
     },
     {
       "name": "Kalmar län",
+      "code": "H",
       "alternates": ["Kalmar"]
     },
     {
       "name": "Kronobergs län",
+      "code": "G",
       "alternates": ["Kronoberg"]
     },
     {
       "name": "Norrbottens län",
+      "code": "BD",
       "alternates": ["Norrbotten"]
     },
     {
       "name": "Skåne län",
+      "code": "M",
       "alternates": ["Skåne"]
     },
     {
       "name": "Stockholms län",
+      "code": "AB",
       "alternates": ["Stockholm"]
     },
     {
       "name": "Stockholms stad",
+      "code": "A",
       "alternates": ["Stockholm stad"]
     },
     {
       "name": "Södermanlands län",
+      "code": "D",
       "alternates": ["Södermanland", "Sörmland"]
     },
     {
       "name": "Uppsala län",
+      "code": "C",
       "alternates": ["Uppsala"]
     },
     {
       "name": "Värmlands län",
+      "code": "S",
       "alternates": ["Värmland"]
     },
     {
       "name": "Västerbottens län",
+      "code": "AC",
       "alternates": ["Västerbotten"]
     },
     {
       "name": "Västernorrlands län",
+      "code": "Y",
       "alternates": ["Västernorrland", "Ångermanland"]
     },
     {
       "name": "Västmanlands län",
+      "code": "U",
       "alternates": ["Västmanland"]
     },
     {
       "name": "Västra Götalands län",
+      "code": "O",
       "alternates": ["Västra Götaland", "Göteborg"]
     },
     {
       "name": "Älvsborgs län",
+      "code": "P",
       "alternates": ["Älvsborg"]
     },
     {
       "name": "Skaraborgs län",
+      "code": "R",
       "alternates": ["Skaraborg"]
     },
     {
       "name": "Göteborgs och Bohus län",
+      "code": "O",
       "alternates": ["Göteborg och Bohus"]
     },
     {
       "name": "Kristianstads län",
+      "code": "L",
       "alternates": ["Kristianstad"]
     },
     {
       "name": "Malmöhus län",
+      "code": "M",
       "alternates": ["Malmöhus", "Malmö"]
     },
     {
       "name": "Örebro län",
+      "code": "T",
       "alternates": ["Örebro"]
     },
     {
       "name": "Östergötlands län",
+      "code": "E",
       "alternates": ["Östergötland"]
     }
   ]
