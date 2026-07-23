@@ -254,13 +254,11 @@ def test_ansedel_content_completeness(scenario: tuple[ProjectData, str]) -> None
             )
 
     # --- Verify sex display (Requirement 2.2) ---
-    # _sex_display maps "male"/"female"/"other"/"unknown" but model uses "M"/"F"/"X"/"U"
-    # Since the codes don't match the mapping, the raw value is returned
     sex_mapping = {
-        "male": "Man",
-        "female": "Kvinna",
-        "other": "Annat",
-        "unknown": "Okänt",
+        "M": "Man",
+        "F": "Kvinna",
+        "X": "Annat",
+        "U": "Okänt",
     }
     expected_sex = sex_mapping.get(target.sex, target.sex)
     assert expected_sex in report_text, (

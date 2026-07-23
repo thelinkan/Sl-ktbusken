@@ -896,6 +896,7 @@ class PersonListPanel(QWidget):
     person_selected = Signal(str)
     person_edit_requested = Signal(str)
     context_menu_action = Signal(str, str)  # action_type, person_id
+    person_count_changed = Signal(int, object)  # total, filtered_count_or_None
 
     def __init__(self, app: "Application", parent: Optional[QWidget] = None) -> None:
         """Initialise the PersonListPanel.
@@ -1290,6 +1291,13 @@ class PersonListPanel(QWidget):
         finally:
             self._syncing_from_diagram = False
 
+    def get_selected_person_id(self) -> Optional[str]:
+        """Return the person ID of the currently selected item, or None."""
+        current = self._tree_widget.currentItem()
+        if current is not None:
+            return current.data(0, Qt.ItemDataRole.UserRole)
+        return None
+
     # ------------------------------------------------------------------
     # Private slots
     # ------------------------------------------------------------------
@@ -1345,6 +1353,16 @@ class PersonListPanel(QWidget):
         else:
             self._filtered_list = list(self._display_list)
             self._update_list_widget()
+        self._emit_person_count()
+
+    def _emit_person_count(self) -> None:
+        """Emit the person_count_changed signal with current counts."""
+        total = len(self._display_list)
+        if self._showing_filtered:
+            filtered = len(self._filtered_list)
+            self.person_count_changed.emit(total, filtered)
+        else:
+            self.person_count_changed.emit(total, None)
 
     def _get_all_persons_names(self) -> dict[str, list[Name]]:
         """Build a mapping of person_id to all their Name records.

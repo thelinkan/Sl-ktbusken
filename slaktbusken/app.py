@@ -58,12 +58,19 @@ class Application:
         # Populate recent projects submenu
         self._refresh_recent_projects_menu()
 
-        # Auto-open default project if configured
-        self._auto_open_default_project()
-
         # Connect person list selection to diagram panel navigation
         self.main_window.person_list_panel.person_selected.connect(
             self.main_window.diagram_panel.set_active_person
+        )
+
+        # Connect person list selection to detail panel
+        self.main_window.person_list_panel.person_selected.connect(
+            self.main_window._on_person_activated_for_detail
+        )
+
+        # Connect person count changes to status bar
+        self.main_window.person_list_panel.person_count_changed.connect(
+            self.main_window.update_person_count
         )
 
         # Connect double-click signals to open person editor
@@ -88,6 +95,14 @@ class Application:
         self.main_window.person_list_panel.context_menu_action.connect(
             self.handle_context_menu_action
         )
+
+        # Connect diagram single-click selection to detail panel
+        self.main_window.diagram_panel.person_selected.connect(
+            self.main_window._on_person_activated_for_detail
+        )
+
+        # Auto-open default project if configured
+        self._auto_open_default_project()
 
     # ------------------------------------------------------------------
     # Action callbacks (invoked by MainWindow actions)
@@ -1383,6 +1398,10 @@ class Application:
             if settings:
                 panel._person_box_config = settings.person_box_config
                 panel._diagram_settings = settings.diagram_settings
+                # Apply background color from settings
+                if hasattr(settings.diagram_settings, 'background_color') and settings.diagram_settings.background_color:
+                    from PySide6.QtGui import QBrush, QColor
+                    panel._scene.setBackgroundBrush(QBrush(QColor(settings.diagram_settings.background_color)))
 
             # Set active person to main_person_id if available
             main_person = project_data.project.main_person_id

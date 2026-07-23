@@ -257,6 +257,10 @@ class DiagramPanel(QWidget):
             settings: DiagramSettings med djupinställningar.
         """
         self._diagram_settings = settings
+        # Apply background color
+        if hasattr(settings, 'background_color') and settings.background_color:
+            from PySide6.QtGui import QBrush, QColor
+            self._scene.setBackgroundBrush(QBrush(QColor(settings.background_color)))
         self._refresh_diagram()
 
     def set_active_person(self, person_id: Optional[str]) -> None:

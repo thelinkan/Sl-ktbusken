@@ -694,6 +694,17 @@ def _build_display_data(
     person_clusters.sort(key=lambda c: c["name"])
     data["clusters"] = person_clusters[:5]
 
+    # Calculate age text
+    data["age_text"] = None
+    data["age_over_100"] = False
+    birth_date_str = data.get("birth_date")
+    death_date_str = data.get("death_date")
+    if birth_date_str:
+        from slaktbusken.ui.views._age_helper import compute_age_display
+        age_text, over_100 = compute_age_display(birth_date_str, death_date_str)
+        data["age_text"] = age_text
+        data["age_over_100"] = over_100
+
     return data
 
 

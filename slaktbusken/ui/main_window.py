@@ -206,6 +206,22 @@ class MainWindow(QMainWindow):
             self._app.show_main_person
         )
 
+        # Visa/dölj personlista
+        self.action_toggle_person_list = QAction("&Personlista", self)
+        self.action_toggle_person_list.setShortcut(QKeySequence("F9"))
+        self.action_toggle_person_list.setCheckable(True)
+        self.action_toggle_person_list.setChecked(True)
+        self.action_toggle_person_list.setToolTip("Visa eller dölj personlistan (F9)")
+        self.action_toggle_person_list.toggled.connect(self._toggle_person_list)
+
+        # Visa/dölj detaljerad vy
+        self.action_toggle_detail_panel = QAction("&Detaljerad vy", self)
+        self.action_toggle_detail_panel.setShortcut(QKeySequence("F10"))
+        self.action_toggle_detail_panel.setCheckable(True)
+        self.action_toggle_detail_panel.setChecked(False)
+        self.action_toggle_detail_panel.setToolTip("Visa eller dölj detaljerad vy (F10)")
+        self.action_toggle_detail_panel.toggled.connect(self._toggle_detail_panel)
+
         self.action_goto_selected_person = QAction("M&arkerad person", self)
         self.action_goto_selected_person.setShortcut(QKeySequence("A"))
         self.action_goto_selected_person.setToolTip(
@@ -256,6 +272,9 @@ class MainWindow(QMainWindow):
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
+        self.menu_view.addAction(self.action_toggle_person_list)
+        self.menu_view.addAction(self.action_toggle_detail_panel)
+        self.menu_view.addSeparator()
         self.menu_view.addAction(self.action_view_family)
         self.menu_view.addAction(self.action_view_ancestry)
         self.menu_view.addAction(self.action_view_descendants)
@@ -314,8 +333,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _setup_central_widget(self) -> None:
-        """Create left/right panel splitter with PersonListPanel and DiagramPanel."""
+        """Create left/center/right panel splitter with PersonListPanel, DiagramPanel, and DetailPanel."""
         from slaktbusken.ui.diagram_panel import DiagramPanel
+        from slaktbusken.ui.person_detail_panel import PersonDetailPanel
         from slaktbusken.ui.person_list_panel import PersonListPanel
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -325,36 +345,117 @@ class MainWindow(QMainWindow):
         self.person_list_panel.setMinimumWidth(250)
         self.left_panel = self.person_list_panel
 
-        # Right panel: DiagramPanel
+        # Center panel: DiagramPanel
         self.diagram_panel = DiagramPanel(self)
         self.diagram_panel.switch_view(ViewType.FAMILY)
-        self.right_panel = self.diagram_panel
+
+        # Right panel: PersonDetailPanel (hidden on startup)
+        self.detail_panel = PersonDetailPanel(self._app)
+        self.detail_panel.setMinimumWidth(250)
+        self.detail_panel.hide()
 
         self.splitter.addWidget(self.left_panel)
-        self.splitter.addWidget(self.right_panel)
+        self.splitter.addWidget(self.diagram_panel)
+        self.splitter.addWidget(self.detail_panel)
 
-        # Set initial sizes: ~40% for person list, 60% for diagram
+        # Set initial sizes: ~40% for person list, 60% for diagram, 0% for detail (hidden)
         total = max(self.width(), 800)
         left_width = int(total * 0.4)
-        self.splitter.setSizes([left_width, total - left_width])
+        self.splitter.setSizes([left_width, total - left_width, 0])
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 0)
 
         self.setCentralWidget(self.splitter)
+
+        # Store default panel widths for restore
+        self._person_list_saved_width = left_width
+        self._detail_panel_saved_width = 300
 
         # Connect diagram person activation to person list sync
         self.diagram_panel.person_activated.connect(
             self.person_list_panel.select_person_from_diagram
         )
 
+    def _toggle_person_list(self, visible: bool) -> None:
+        """Show or hide the person list panel by collapsing the splitter.
+
+        Args:
+            visible: True to show, False to hide.
+        """
+        if visible:
+            current_sizes = self.splitter.sizes()
+            total = sum(current_sizes)
+            left_width = self._person_list_saved_width
+            self.splitter.setSizes([left_width, total - left_width, current_sizes[2] if len(current_sizes) > 2 else 0])
+            self.left_panel.show()
+        else:
+            current_sizes = self.splitter.sizes()
+            if current_sizes[0] > 0:
+                self._person_list_saved_width = current_sizes[0]
+            self.left_panel.hide()
+
+    def _toggle_detail_panel(self, visible: bool) -> None:
+        """Show or hide the detail panel on the right side.
+
+        Args:
+            visible: True to show, False to hide.
+        """
+        if visible:
+            current_sizes = self.splitter.sizes()
+            total = sum(current_sizes)
+            detail_width = self._detail_panel_saved_width
+            # Shrink the center panel to make room
+            center_width = current_sizes[1] - detail_width
+            if center_width < 200:
+                center_width = 200
+                detail_width = total - current_sizes[0] - center_width
+            self.splitter.setSizes([current_sizes[0], center_width, detail_width])
+            self.detail_panel.show()
+            # Refresh detail panel with currently selected person from list
+            selected_id = self.person_list_panel.get_selected_person_id()
+            if selected_id:
+                self.detail_panel.set_person(selected_id)
+        else:
+            current_sizes = self.splitter.sizes()
+            if len(current_sizes) > 2 and current_sizes[2] > 0:
+                self._detail_panel_saved_width = current_sizes[2]
+            self.detail_panel.hide()
+
+    def _on_person_activated_for_detail(self, person_id: str) -> None:
+        """Update the detail panel when a person is selected.
+
+        Always updates the panel content regardless of visibility, so it's
+        ready when toggled on.
+
+        Args:
+            person_id: The ID of the selected person.
+        """
+        self.detail_panel.set_person(person_id)
+
     # ------------------------------------------------------------------
     # Status Bar
     # ------------------------------------------------------------------
 
     def _setup_status_bar(self) -> None:
-        """Create status bar with project status label."""
+        """Create status bar with person count and project status (both permanent)."""
+        self._person_count_label = QLabel("")
+        self.statusBar().addPermanentWidget(self._person_count_label, 1)
+
         self._status_label = QLabel("Inget projekt öppet")
-        self.statusBar().addPermanentWidget(self._status_label)
+        self.statusBar().addPermanentWidget(self._status_label, 0)
+
+    def update_person_count(self, total: int, filtered: int | None = None) -> None:
+        """Update the person count display in the status bar.
+
+        Args:
+            total: Total number of persons in the project.
+            filtered: Number of persons in the active filter, or None if not filtering.
+        """
+        if filtered is not None:
+            self._person_count_label.setText(f"Antal personer: {total} ({filtered})")
+        else:
+            self._person_count_label.setText(f"Antal personer: {total}")
 
     # ------------------------------------------------------------------
     # Public helpers

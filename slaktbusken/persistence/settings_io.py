@@ -54,6 +54,7 @@ class PersonBoxConfig:
     notes: bool = False
     cause_of_death: bool = True
     clusters: bool = True
+    age: bool = True
 
 
 @dataclass
@@ -63,11 +64,14 @@ class DiagramSettings:
     Attributes:
         ancestry_depth: Number of ancestor generations to display (1-10).
         descendants_depth: Number of descendant generations to display (1-10).
+        ancestry_compact: Use compact layout for ancestry view.
+        background_color: Background color for the diagram canvas (hex string).
     """
 
     ancestry_depth: int = 4
     descendants_depth: int = 4
     ancestry_compact: bool = False
+    background_color: str = "#f0f0f0"
 
 
 @dataclass
@@ -214,12 +218,14 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         notes=person_box_data.get("notes", False),
         cause_of_death=person_box_data.get("cause_of_death", True),
         clusters=person_box_data.get("clusters", True),
+        age=person_box_data.get("age", True),
     )
 
     diagram_settings = DiagramSettings(
         ancestry_depth=diagram_data.get("ancestry_depth", 4),
         descendants_depth=diagram_data.get("descendants_depth", 4),
         ancestry_compact=diagram_data.get("ancestry_compact", False),
+        background_color=diagram_data.get("background_color", "#f0f0f0"),
     )
 
     ui_state = UiState(

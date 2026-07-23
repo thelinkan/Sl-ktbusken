@@ -43,10 +43,10 @@ def _format_person_name(names: list, fallback: str = "Okänt namn") -> str:
 def _sex_display(sex: str) -> str:
     """Return a Swedish display string for sex."""
     mapping = {
-        "male": "Man",
-        "female": "Kvinna",
-        "other": "Annat",
-        "unknown": "Okänt",
+        "M": "Man",
+        "F": "Kvinna",
+        "X": "Annat",
+        "U": "Okänt",
     }
     return mapping.get(sex, sex)
 
@@ -99,6 +99,50 @@ def _translate_event_type(event_type: str) -> str:
     return mapping.get(event_type.lower(), event_type)
 
 
+def _find_event_by_type(person_id: str, event_type: str, data: ProjectData) -> Optional[object]:
+    """Find the first event of a given type for a person."""
+    for event in data.events:
+        if event.type == event_type:
+            for p in event.participants:
+                if p.person_id == person_id:
+                    return event
+    return None
+
+
+def _format_event_date(event) -> str:
+    """Format an event's date value, or return empty string."""
+    if event and event.date and event.date.value:
+        return event.date.value
+    return ""
+
+
+def _calculate_age(birth_date: str, death_date: str) -> Optional[int]:
+    """Calculate age from ISO date strings (YYYY, YYYY-MM, YYYY-MM-DD).
+
+    Returns None if dates are insufficient for calculation.
+    """
+    try:
+        birth_year = int(birth_date[:4])
+        death_year = int(death_date[:4])
+        age = death_year - birth_year
+
+        # Adjust if we have month/day info
+        if len(birth_date) >= 7 and len(death_date) >= 7:
+            birth_month = int(birth_date[5:7])
+            death_month = int(death_date[5:7])
+            if death_month < birth_month:
+                age -= 1
+            elif death_month == birth_month and len(birth_date) >= 10 and len(death_date) >= 10:
+                birth_day = int(birth_date[8:10])
+                death_day = int(death_date[8:10])
+                if death_day < birth_day:
+                    age -= 1
+
+        return age if age >= 0 else None
+    except (ValueError, IndexError):
+        return None
+
+
 def generate_ansedel(
     data: ProjectData,
     person_id: str,
@@ -149,8 +193,38 @@ def generate_ansedel(
             name_lines.append(f"{label}: {' '.join(parts)}" if parts else f"{label}: -")
         report.blocks.append(ListBlock(items=name_lines))
 
-    # Sex
-    report.blocks.append(ParagraphBlock(text=f"Kön: {_sex_display(person.sex)}"))
+    # Sex, birth, death, age
+    sex_text = _sex_display(person.sex)
+    report.blocks.append(ParagraphBlock(text=f"Kön: {sex_text}"))
+
+    birth_event = _find_event_by_type(person_id, "birth", data)
+    death_event = _find_event_by_type(person_id, "death", data)
+    birth_date = _format_event_date(birth_event)
+    death_date = _format_event_date(death_event)
+
+    if birth_date:
+        places_by_id = {p.id: p for p in data.places}
+        birth_place = ""
+        if birth_event and birth_event.place:
+            place = places_by_id.get(birth_event.place.place_id)
+            if place:
+                birth_place = f", {place.name}"
+        report.blocks.append(ParagraphBlock(text=f"Född: {birth_date}{birth_place}"))
+
+    if death_date:
+        if not hasattr(generate_ansedel, '_places_by_id_cache'):
+            places_by_id = {p.id: p for p in data.places}
+        death_place = ""
+        if death_event and death_event.place:
+            place = places_by_id.get(death_event.place.place_id)
+            if place:
+                death_place = f", {place.name}"
+        report.blocks.append(ParagraphBlock(text=f"Död: {death_date}{death_place}"))
+
+    if birth_date and death_date:
+        age = _calculate_age(birth_date, death_date)
+        if age is not None:
+            report.blocks.append(ParagraphBlock(text=f"Blev {age} år"))
 
     # Title
     if person.title:
@@ -175,6 +249,10 @@ def generate_ansedel(
     # --- Children section ---
     report.blocks.append(HeadingBlock(text="Barn", level=2))
     _add_children_section(report, person_id, data, persons_by_id)
+
+    # --- Sources section ---
+    report.blocks.append(HeadingBlock(text="Källor", level=2))
+    _add_sources_section(report, person_id, data)
 
     return report
 
@@ -234,7 +312,7 @@ def _add_events_section(
     person_id: str,
     data: ProjectData,
 ) -> None:
-    """Add all events linked to the person."""
+    """Add all events linked to the person, including children's births/deaths, sorted by date."""
     places_by_id = {p.id: p for p in data.places}
 
     linked_events = []
@@ -244,24 +322,81 @@ def _add_events_section(
                 linked_events.append(event)
                 break
 
-    if not linked_events:
-        report.blocks.append(
-            EmptyStateBlock(text="Inga händelser registrerade.")
-        )
-        return
+    # Find person's death date for comparison with children's deaths
+    person_death_event = _find_event_by_type(person_id, "death", data)
+    person_death_date = _format_event_date(person_death_event)
 
-    event_items = []
+    # Find children
+    children_ids: set[str] = set()
+    for family in data.families:
+        if any(p.person_id == person_id for p in family.partners):
+            children_ids.update(family.children)
+
+    # Collect all event entries as (sort_key, display_text) tuples
+    # sort_key is the date string (empty dates sort first)
+    all_entries: list[tuple[str, str]] = []
+
+    # Person's own events
     for event in linked_events:
         parts = [_translate_event_type(event.type)]
+        date_key = ""
         if event.date:
+            date_key = event.date.value
             parts.append(event.date.value)
         if event.place:
             place = places_by_id.get(event.place.place_id)
             if place:
                 parts.append(place.name)
-        event_items.append(" – ".join(parts))
+        all_entries.append((date_key, " – ".join(parts)))
 
-    report.blocks.append(ListBlock(items=event_items))
+    # Children's birth and death events
+    for child_id in children_ids:
+        child_birth = _find_event_by_type(child_id, "birth", data)
+        child_death = _find_event_by_type(child_id, "death", data)
+
+        child = next((p for p in data.persons if p.id == child_id), None)
+        child_name = _format_person_name(child.names) if child else child_id
+
+        if child_birth and child_birth.date:
+            birth_place = ""
+            if child_birth.place:
+                place = places_by_id.get(child_birth.place.place_id)
+                if place:
+                    birth_place = f", {place.name}"
+            all_entries.append((
+                child_birth.date.value,
+                f"Barns födelse ({child_name}) – {child_birth.date.value}{birth_place}",
+            ))
+
+        # Show child's death if the child died before (or same year as) the person
+        if child_death and child_death.date and person_death_date:
+            child_death_date = child_death.date.value
+            try:
+                child_death_year = int(child_death_date[:4])
+                person_death_year = int(person_death_date[:4])
+                if child_death_year <= person_death_year:
+                    death_place = ""
+                    if child_death.place:
+                        place = places_by_id.get(child_death.place.place_id)
+                        if place:
+                            death_place = f", {place.name}"
+                    all_entries.append((
+                        child_death_date,
+                        f"Barns död ({child_name}) – {child_death_date}{death_place}",
+                    ))
+            except (ValueError, IndexError):
+                pass
+
+    if not all_entries:
+        report.blocks.append(
+            EmptyStateBlock(text="Inga händelser registrerade.")
+        )
+        return
+
+    # Sort by date (ISO string comparison works for YYYY, YYYY-MM, YYYY-MM-DD)
+    all_entries.sort(key=lambda e: e[0])
+
+    report.blocks.append(ListBlock(items=[entry[1] for entry in all_entries]))
 
 
 def _add_parents_section(
@@ -295,7 +430,7 @@ def _add_partners_section(
     data: ProjectData,
     persons_by_id: dict[str, object],
 ) -> None:
-    """Add the person's partners (other partners in families where person is a partner)."""
+    """Add the person's partners with birth and death dates."""
     partner_entries: list[str] = []
 
     for family in data.families:
@@ -308,7 +443,9 @@ def _add_partners_section(
                     partner = persons_by_id.get(fp.person_id)
                     if partner:
                         name = _format_person_name(partner.names)
-                        partner_entries.append(name)
+                        dates = _get_birth_death_str(fp.person_id, data)
+                        entry = f"{name}{dates}" if dates else name
+                        partner_entries.append(entry)
 
     if not partner_entries:
         report.blocks.append(
@@ -324,7 +461,7 @@ def _add_children_section(
     data: ProjectData,
     persons_by_id: dict[str, object],
 ) -> None:
-    """Add the person's children (from families where person is a partner)."""
+    """Add the person's children with birth and death dates."""
     children_entries: list[str] = []
 
     for family in data.families:
@@ -336,7 +473,9 @@ def _add_children_section(
                 child = persons_by_id.get(child_id)
                 if child:
                     name = _format_person_name(child.names)
-                    children_entries.append(name)
+                    dates = _get_birth_death_str(child_id, data)
+                    entry = f"{name}{dates}" if dates else name
+                    children_entries.append(entry)
 
     if not children_entries:
         report.blocks.append(
@@ -344,3 +483,70 @@ def _add_children_section(
         )
     else:
         report.blocks.append(ListBlock(items=children_entries))
+
+
+def _get_birth_death_str(person_id: str, data: ProjectData) -> str:
+    """Get a formatted birth/death string for a person like ' (f. 1820, d. 1890)'."""
+    birth_event = _find_event_by_type(person_id, "birth", data)
+    death_event = _find_event_by_type(person_id, "death", data)
+    birth_date = _format_event_date(birth_event)
+    death_date = _format_event_date(death_event)
+
+    parts = []
+    if birth_date:
+        parts.append(f"f. {birth_date}")
+    if death_date:
+        parts.append(f"d. {death_date}")
+
+    if parts:
+        return f" ({', '.join(parts)})"
+    return ""
+
+
+def _add_sources_section(
+    report: ReportContent,
+    person_id: str,
+    data: ProjectData,
+) -> None:
+    """Add a section listing all sources referenced in the person's events."""
+    sources_by_id = {s.id: s for s in data.sources}
+
+    # Collect all unique source IDs from the person's events
+    source_ids: set[str] = set()
+    for event in data.events:
+        person_in_event = any(p.person_id == person_id for p in event.participants)
+        if not person_in_event:
+            continue
+
+        # Sources from event date
+        if event.date:
+            for sr in event.date.source_refs:
+                source_ids.add(sr.source_id)
+
+        # Sources from event place
+        if event.place:
+            for sr in event.place.source_refs:
+                source_ids.add(sr.source_id)
+
+    if not source_ids:
+        report.blocks.append(
+            EmptyStateBlock(text="Inga källor registrerade.")
+        )
+        return
+
+    source_entries = []
+    for source_id in sorted(source_ids):
+        source = sources_by_id.get(source_id)
+        if source:
+            # Build display: title + provider
+            parts = []
+            if hasattr(source, 'title') and source.title:
+                parts.append(source.title)
+            if hasattr(source, 'provider') and source.provider:
+                parts.append(f"({source.provider})")
+            entry = " ".join(parts) if parts else source_id
+            source_entries.append(entry)
+        else:
+            source_entries.append(f"[Okänd källa: {source_id}]")
+
+    report.blocks.append(ListBlock(items=source_entries))
