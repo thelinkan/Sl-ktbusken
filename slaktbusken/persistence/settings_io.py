@@ -98,18 +98,51 @@ VALID_PAPER_SIZES = ("A4", "A3", "A5")
 
 
 @dataclass
+class PersonListConfig:
+    """Configuration for which columns/icons are visible in the person list.
+
+    Attributes:
+        sex: Show the sex/gender icon.
+        relation: Show the relation indicator (ancestor/descendant).
+        multiple_names: Show the multiple names icon.
+        birth_date: Show birth date.
+        birth_place: Show birth place.
+        death_date: Show death date.
+        death_place: Show death place.
+        title: Show title column.
+        occupation: Show occupation column.
+        clusters: Show cluster column.
+        dna: Show DNA column.
+    """
+
+    sex: bool = True
+    relation: bool = True
+    multiple_names: bool = True
+    birth_date: bool = True
+    birth_place: bool = True
+    death_date: bool = True
+    death_place: bool = True
+    title: bool = True
+    occupation: bool = True
+    clusters: bool = True
+    dna: bool = True
+
+
+@dataclass
 class ProjectSettings:
     """Container for all project-level settings.
 
     Attributes:
         person_box_config: Configuration for person box content fields.
         diagram_settings: Diagram view depth settings.
+        person_list_config: Configuration for person list columns/icons.
         ui_state: Optional saved UI layout state.
         report_paper_size: Paper size for report generation (A4, A3, or A5).
     """
 
     person_box_config: PersonBoxConfig = field(default_factory=PersonBoxConfig)
     diagram_settings: DiagramSettings = field(default_factory=DiagramSettings)
+    person_list_config: PersonListConfig = field(default_factory=PersonListConfig)
     ui_state: UiState = field(default_factory=UiState)
     report_paper_size: str = "A4"
 
@@ -228,6 +261,21 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         background_color=diagram_data.get("background_color", "#f0f0f0"),
     )
 
+    person_list_data = data.get("person_list_config", {})
+    person_list_config = PersonListConfig(
+        sex=person_list_data.get("sex", True),
+        relation=person_list_data.get("relation", True),
+        multiple_names=person_list_data.get("multiple_names", True),
+        birth_date=person_list_data.get("birth_date", True),
+        birth_place=person_list_data.get("birth_place", True),
+        death_date=person_list_data.get("death_date", True),
+        death_place=person_list_data.get("death_place", True),
+        title=person_list_data.get("title", True),
+        occupation=person_list_data.get("occupation", True),
+        clusters=person_list_data.get("clusters", True),
+        dna=person_list_data.get("dna", True),
+    )
+
     ui_state = UiState(
         window_width=ui_state_data.get("window_width"),
         window_height=ui_state_data.get("window_height"),
@@ -241,6 +289,7 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
     return ProjectSettings(
         person_box_config=person_box_config,
         diagram_settings=diagram_settings,
+        person_list_config=person_list_config,
         ui_state=ui_state,
         report_paper_size=report_paper_size,
     )

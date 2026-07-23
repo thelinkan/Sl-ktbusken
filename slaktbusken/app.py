@@ -955,6 +955,7 @@ class Application:
         dialog = SettingsDialog(
             person_box_config=settings.person_box_config,
             diagram_settings=settings.diagram_settings,
+            person_list_config=settings.person_list_config,
             app_settings_service=self.app_settings_service,
             current_project_path=current_project_path,
             parent=self.main_window,
@@ -966,10 +967,12 @@ class Application:
         # Retrieve updated values from the dialog.
         new_person_box_config = dialog.person_box_config
         new_diagram_settings = dialog.diagram_settings
+        new_person_list_config = dialog.person_list_config
 
         # Update the in-memory settings.
         settings.person_box_config = new_person_box_config
         settings.diagram_settings = new_diagram_settings
+        settings.person_list_config = new_person_list_config
 
         # Persist settings to the project folder.
         project_path = self.project_service.project_path
@@ -982,9 +985,8 @@ class Application:
         panel.set_person_box_config(new_person_box_config)
         panel.set_diagram_settings(new_diagram_settings)
 
-        # Mark project as dirty.
-        self.project_service._dirty = True
-        self._update_status()
+        # Apply person list config
+        self.main_window.person_list_panel.apply_person_list_config(new_person_list_config)
 
     def show_source_editor(self) -> None:
         """Open the source editor dialog.
@@ -1415,6 +1417,12 @@ class Application:
 
             # Refresh the person list panel with current project data
             self.main_window.person_list_panel.refresh()
+
+            # Apply person list config if available
+            if settings and hasattr(settings, 'person_list_config'):
+                self.main_window.person_list_panel.apply_person_list_config(
+                    settings.person_list_config
+                )
         else:
             panel.set_project_folder(None)
             panel.set_project_data(None)

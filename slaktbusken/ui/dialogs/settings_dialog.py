@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from slaktbusken.persistence.settings_io import (
     DiagramSettings,
     PersonBoxConfig,
+    PersonListConfig,
 )
 
 if TYPE_CHECKING:
@@ -45,17 +46,21 @@ class SettingsDialog(QDialog):
         self,
         person_box_config: PersonBoxConfig,
         diagram_settings: DiagramSettings,
+        person_list_config: Optional[PersonListConfig] = None,
         app_settings_service: Optional["AppSettingsService"] = None,
         current_project_path: Optional[Path] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Inställningar")
-        self.setMinimumSize(480, 520)
+        self.setMinimumSize(480, 560)
 
         self._app_settings_service = app_settings_service
         self._current_project_path = current_project_path
         self._bg_color = diagram_settings.background_color
+
+        if person_list_config is None:
+            person_list_config = PersonListConfig()
 
         main_layout = QVBoxLayout(self)
 
@@ -66,7 +71,10 @@ class SettingsDialog(QDialog):
         # Tab 1: Program
         self._build_program_tab()
 
-        # Tab 2: Diagram
+        # Tab 2: Personlista
+        self._build_person_list_tab(person_list_config)
+
+        # Tab 3: Diagram
         self._build_diagram_tab(person_box_config, diagram_settings)
 
         # Button box
@@ -109,6 +117,23 @@ class SettingsDialog(QDialog):
             descendants_depth=self._spin_descendants.value(),
             ancestry_compact=self._check_compact.isChecked(),
             background_color=self._bg_color,
+        )
+
+    @property
+    def person_list_config(self) -> PersonListConfig:
+        """Build a PersonListConfig from the current checkbox states."""
+        return PersonListConfig(
+            sex=self._pl_check_sex.isChecked(),
+            relation=self._pl_check_relation.isChecked(),
+            multiple_names=self._pl_check_multiple_names.isChecked(),
+            birth_date=self._pl_check_birth_date.isChecked(),
+            birth_place=self._pl_check_birth_place.isChecked(),
+            death_date=self._pl_check_death_date.isChecked(),
+            death_place=self._pl_check_death_place.isChecked(),
+            title=self._pl_check_title.isChecked(),
+            occupation=self._pl_check_occupation.isChecked(),
+            clusters=self._pl_check_clusters.isChecked(),
+            dna=self._pl_check_dna.isChecked(),
         )
 
     # ------------------------------------------------------------------
@@ -156,6 +181,58 @@ class SettingsDialog(QDialog):
         layout.addStretch()
 
         self._tabs.addTab(tab, "Program")
+
+    # ------------------------------------------------------------------
+    # Tab 2: Personlista
+    # ------------------------------------------------------------------
+
+    def _build_person_list_tab(self, config: PersonListConfig) -> None:
+        """Build the Personlista tab with column/icon visibility toggles."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        group = QGroupBox("Synliga kolumner och ikoner", tab)
+        group_layout = QVBoxLayout(group)
+
+        self._pl_check_sex = QCheckBox("Kön")
+        self._pl_check_relation = QCheckBox("Relation")
+        self._pl_check_multiple_names = QCheckBox("Multipla namn")
+        self._pl_check_birth_date = QCheckBox("Födelsedatum")
+        self._pl_check_birth_place = QCheckBox("Födelseort")
+        self._pl_check_death_date = QCheckBox("Dödsdatum")
+        self._pl_check_death_place = QCheckBox("Dödsort")
+        self._pl_check_title = QCheckBox("Titel")
+        self._pl_check_occupation = QCheckBox("Yrke")
+        self._pl_check_clusters = QCheckBox("Kluster")
+        self._pl_check_dna = QCheckBox("DNA")
+
+        for cb in [
+            self._pl_check_sex, self._pl_check_relation,
+            self._pl_check_multiple_names,
+            self._pl_check_birth_date, self._pl_check_birth_place,
+            self._pl_check_death_date, self._pl_check_death_place,
+            self._pl_check_title, self._pl_check_occupation,
+            self._pl_check_clusters, self._pl_check_dna,
+        ]:
+            group_layout.addWidget(cb)
+
+        # Load config values
+        self._pl_check_sex.setChecked(config.sex)
+        self._pl_check_relation.setChecked(config.relation)
+        self._pl_check_multiple_names.setChecked(config.multiple_names)
+        self._pl_check_birth_date.setChecked(config.birth_date)
+        self._pl_check_birth_place.setChecked(config.birth_place)
+        self._pl_check_death_date.setChecked(config.death_date)
+        self._pl_check_death_place.setChecked(config.death_place)
+        self._pl_check_title.setChecked(config.title)
+        self._pl_check_occupation.setChecked(config.occupation)
+        self._pl_check_clusters.setChecked(config.clusters)
+        self._pl_check_dna.setChecked(config.dna)
+
+        layout.addWidget(group)
+        layout.addStretch()
+
+        self._tabs.addTab(tab, "Personlista")
 
     # ------------------------------------------------------------------
     # Tab 2: Diagram

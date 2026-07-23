@@ -130,6 +130,10 @@ class PersonDisplayInfo:
     all_names: list[tuple[str, str, str]] = field(default_factory=list)
     is_ancestor: bool = False
     is_descendant: bool = False
+    birth_date: str = ""
+    birth_place: str = ""
+    death_date: str = ""
+    death_place: str = ""
 
 
 def extract_year(date_value_str: str) -> str:
@@ -174,6 +178,49 @@ def get_person_birth_death_years(
         if birth_year and death_year:
             break
     return birth_year, death_year
+
+
+def _get_person_birth_death_details(
+    person: Person,
+    events: list[Event],
+    place_by_id: dict[str, Place],
+) -> tuple[str, str, str, str]:
+    """Extract full birth/death date and place name for a person.
+
+    Args:
+        person: The person to look up.
+        events: All events in the project.
+        place_by_id: Pre-built place lookup dict.
+
+    Returns:
+        Tuple of (birth_date, birth_place, death_date, death_place).
+        Empty strings where data is unavailable.
+    """
+    birth_date = ""
+    birth_place = ""
+    death_date = ""
+    death_place = ""
+    for event in events:
+        for participant in event.participants:
+            if participant.person_id == person.id:
+                if event.type == "birth" and not birth_date:
+                    if event.date is not None:
+                        birth_date = event.date.value
+                    if event.place is not None:
+                        place = place_by_id.get(event.place.place_id)
+                        if place is not None:
+                            birth_place = place.name
+                elif event.type == "death" and not death_date:
+                    if event.date is not None:
+                        death_date = event.date.value
+                    if event.place is not None:
+                        place = place_by_id.get(event.place.place_id)
+                        if place is not None:
+                            death_place = place.name
+                break
+        if birth_date and death_date:
+            break
+    return birth_date, birth_place, death_date, death_place
 
 
 def get_person_marriage_year(
@@ -409,12 +456,18 @@ def build_person_display_list(
     for profile in dna_profiles:
         person_company_ids.setdefault(profile.person_id, set()).add(profile.company_id)
 
+    # Pre-build place lookup for birth/death place resolution
+    place_by_id: dict[str, Place] = {p.id: p for p in places}
+
     display_list: list[PersonDisplayInfo] = []
     for person in persons:
         if not person.names:
             continue
         first_name = person.names[0]
         birth_year, death_year = get_person_birth_death_years(person, events)
+        birth_date, birth_place, death_date, death_place = _get_person_birth_death_details(
+            person, events, place_by_id
+        )
         marriage_year = get_person_marriage_year(person, events, families)
         event_types = get_person_event_types(person, events, families)
         parish_names = get_person_parish_names(person, events, places)
@@ -479,6 +532,10 @@ def build_person_display_list(
                 all_names=all_names,
                 is_ancestor=is_ancestor,
                 is_descendant=is_descendant,
+                birth_date=birth_date,
+                birth_place=birth_place,
+                death_date=death_date,
+                death_place=death_place,
             )
         )
 
@@ -823,7 +880,7 @@ _DNA_ICON_SPACING = 2
 
 
 class _DnaIconDelegate(QStyledItemDelegate):
-    """Delegate for column 4 that draws DNA company logo icons side-by-side."""
+    """Delegate for column 8 that draws DNA company logo icons side-by-side."""
 
     def __init__(self, panel: "PersonListPanel") -> None:
         super().__init__(panel)
@@ -891,7 +948,7 @@ class PersonListPanel(QWidget):
         person_edit_requested: Emitted with person_id on double-click.
     """
 
-    _FULL_HEADERS = ["Namn", "Titel", "Yrke", "Kluster", "DNA"]
+    _FULL_HEADERS = ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA"]
 
     person_selected = Signal(str)
     person_edit_requested = Signal(str)
@@ -918,6 +975,7 @@ class PersonListPanel(QWidget):
         self._compact_mode: bool = False
         self._syncing_from_diagram: bool = False
         self._refreshing: bool = False
+        self._person_list_config = None  # Will be set via apply_person_list_config
 
         self._setup_ui()
         self._connect_signals()
@@ -947,9 +1005,12 @@ class PersonListPanel(QWidget):
         layout.addLayout(button_row)
 
         # Person list as QTreeWidget with columns
-        # Columns: 0=Namn, 1=Titel, 2=Yrke, 3=Kluster, 4=DNA
+        # Columns: 0=Namn, 1=Födelsedatum, 2=Födelseort, 3=Dödsdatum, 4=Dödsort,
+        #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA
         self._tree_widget = QTreeWidget()
-        self._tree_widget.setHeaderLabels(["Namn", "Titel", "Yrke", "Kluster", "DNA"])
+        self._tree_widget.setHeaderLabels(
+            ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA"]
+        )
         self._tree_widget.setIconSize(QSize(20, 20))
         self._tree_widget.setRootIsDecorated(False)
         self._tree_widget.setSelectionMode(
@@ -966,9 +1027,9 @@ class PersonListPanel(QWidget):
         self._dot_delegate = _DotDelegate(self._tree_widget)
         self._tree_widget.setItemDelegateForColumn(0, self._dot_delegate)
 
-        # Custom delegate for DNA company icons in column 4
+        # Custom delegate for DNA company icons in column 8
         self._dna_delegate = _DnaIconDelegate(self)
-        self._tree_widget.setItemDelegateForColumn(4, self._dna_delegate)
+        self._tree_widget.setItemDelegateForColumn(8, self._dna_delegate)
 
         # Configure header
         header = self._tree_widget.header()
@@ -978,10 +1039,18 @@ class PersonListPanel(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
-        header.resizeSection(1, 60)
-        header.resizeSection(2, 70)
-        header.resizeSection(3, 70)
-        header.resizeSection(4, 70)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(1, 90)
+        header.resizeSection(2, 90)
+        header.resizeSection(3, 90)
+        header.resizeSection(4, 90)
+        header.resizeSection(5, 60)
+        header.resizeSection(6, 70)
+        header.resizeSection(7, 70)
+        header.resizeSection(8, 70)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._show_column_visibility_menu)
 
@@ -1051,7 +1120,43 @@ class PersonListPanel(QWidget):
         settings = self._app.app_settings_service._settings
         visibility = settings.column_visibility
 
-        # Titel (column 1)
+        # Födelsedatum (column 1)
+        action_birth_date = QAction("Födelsedatum", menu)
+        action_birth_date.setCheckable(True)
+        action_birth_date.setChecked(visibility.birth_date if hasattr(visibility, 'birth_date') else True)
+        action_birth_date.toggled.connect(
+            lambda checked: self._on_column_visibility_changed("birth_date", checked)
+        )
+        menu.addAction(action_birth_date)
+
+        # Födelseort (column 2)
+        action_birth_place = QAction("Födelseort", menu)
+        action_birth_place.setCheckable(True)
+        action_birth_place.setChecked(visibility.birth_place if hasattr(visibility, 'birth_place') else True)
+        action_birth_place.toggled.connect(
+            lambda checked: self._on_column_visibility_changed("birth_place", checked)
+        )
+        menu.addAction(action_birth_place)
+
+        # Dödsdatum (column 3)
+        action_death_date = QAction("Dödsdatum", menu)
+        action_death_date.setCheckable(True)
+        action_death_date.setChecked(visibility.death_date if hasattr(visibility, 'death_date') else True)
+        action_death_date.toggled.connect(
+            lambda checked: self._on_column_visibility_changed("death_date", checked)
+        )
+        menu.addAction(action_death_date)
+
+        # Dödsort (column 4)
+        action_death_place = QAction("Dödsort", menu)
+        action_death_place.setCheckable(True)
+        action_death_place.setChecked(visibility.death_place if hasattr(visibility, 'death_place') else True)
+        action_death_place.toggled.connect(
+            lambda checked: self._on_column_visibility_changed("death_place", checked)
+        )
+        menu.addAction(action_death_place)
+
+        # Titel (column 5)
         action_titel = QAction("Titel", menu)
         action_titel.setCheckable(True)
         action_titel.setChecked(visibility.titel)
@@ -1060,7 +1165,7 @@ class PersonListPanel(QWidget):
         )
         menu.addAction(action_titel)
 
-        # Yrke (column 2)
+        # Yrke (column 6)
         action_yrke = QAction("Yrke", menu)
         action_yrke.setCheckable(True)
         action_yrke.setChecked(visibility.yrke)
@@ -1069,7 +1174,7 @@ class PersonListPanel(QWidget):
         )
         menu.addAction(action_yrke)
 
-        # Kluster (column 3)
+        # Kluster (column 7)
         action_kluster = QAction("Kluster", menu)
         action_kluster.setCheckable(True)
         action_kluster.setChecked(visibility.kluster)
@@ -1078,7 +1183,7 @@ class PersonListPanel(QWidget):
         )
         menu.addAction(action_kluster)
 
-        # DNA company (column 4)
+        # DNA company (column 8)
         action_dna = QAction("DNA", menu)
         action_dna.setCheckable(True)
         action_dna.setChecked(visibility.dna_company)
@@ -1100,7 +1205,11 @@ class PersonListPanel(QWidget):
             column: The column identifier ('titel', 'yrke', 'kluster', 'dna_company').
             visible: Whether the column should be visible.
         """
-        col_map = {"titel": 1, "yrke": 2, "kluster": 3, "dna_company": 4}
+        col_map = {
+            "birth_date": 1, "birth_place": 2,
+            "death_date": 3, "death_place": 4,
+            "titel": 5, "yrke": 6, "kluster": 7, "dna_company": 8,
+        }
         col_index = col_map.get(column)
         if col_index is not None:
             self._tree_widget.setColumnHidden(col_index, not visible)
@@ -1119,10 +1228,14 @@ class PersonListPanel(QWidget):
         settings = self._app.app_settings_service._settings
         visibility = settings.column_visibility
 
-        self._tree_widget.setColumnHidden(1, not visibility.titel)
-        self._tree_widget.setColumnHidden(2, not visibility.yrke)
-        self._tree_widget.setColumnHidden(3, not visibility.kluster)
-        self._tree_widget.setColumnHidden(4, not visibility.dna_company)
+        self._tree_widget.setColumnHidden(1, not getattr(visibility, 'birth_date', True))
+        self._tree_widget.setColumnHidden(2, not getattr(visibility, 'birth_place', True))
+        self._tree_widget.setColumnHidden(3, not getattr(visibility, 'death_date', True))
+        self._tree_widget.setColumnHidden(4, not getattr(visibility, 'death_place', True))
+        self._tree_widget.setColumnHidden(5, not visibility.titel)
+        self._tree_widget.setColumnHidden(6, not visibility.yrke)
+        self._tree_widget.setColumnHidden(7, not visibility.kluster)
+        self._tree_widget.setColumnHidden(8, not visibility.dna_company)
 
     def _connect_signals(self) -> None:
         """Connect button signals and tree selection signals."""
@@ -1298,6 +1411,35 @@ class PersonListPanel(QWidget):
             return current.data(0, Qt.ItemDataRole.UserRole)
         return None
 
+    def apply_person_list_config(self, config) -> None:
+        """Apply person list configuration to show/hide columns and icons.
+
+        Args:
+            config: PersonListConfig with visibility flags.
+        """
+        from slaktbusken.persistence.settings_io import PersonListConfig
+
+        if not isinstance(config, PersonListConfig):
+            return
+
+        self._person_list_config = config
+
+        # Column mapping: header index → config field
+        # Columns: 0=Namn, 1=Födelsedatum, 2=Födelseort, 3=Dödsdatum, 4=Dödsort,
+        #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA
+        header = self._tree_widget.header()
+        header.setSectionHidden(1, not config.birth_date)
+        header.setSectionHidden(2, not config.birth_place)
+        header.setSectionHidden(3, not config.death_date)
+        header.setSectionHidden(4, not config.death_place)
+        header.setSectionHidden(5, not config.title)
+        header.setSectionHidden(6, not config.occupation)
+        header.setSectionHidden(7, not config.clusters)
+        header.setSectionHidden(8, not config.dna)
+
+        # Refresh the list to apply icon/date visibility changes
+        self._apply_current_view()
+
     # ------------------------------------------------------------------
     # Private slots
     # ------------------------------------------------------------------
@@ -1376,8 +1518,9 @@ class PersonListPanel(QWidget):
         """Rebuild the QTreeWidget items from the filtered list.
 
         Uses QTreeWidgetItem for each person with text columns for Namn,
-        Titel, Yrke, Kluster, and DNA company names. The first column
-        includes gender icon, dot indicators, and multiple-names marker.
+        Födelsedatum, Födelseort, Dödsdatum, Dödsort, Titel, Yrke, Kluster,
+        and DNA company names. The first column includes gender icon, dot
+        indicators, and multiple-names marker.
         """
         self._tree_widget.clear()
 
@@ -1422,9 +1565,13 @@ class PersonListPanel(QWidget):
                     ]
                     dna_text = ", ".join(dna_names)
 
-                # Create tree item with columns (column 4 text empty; delegate paints icons)
+                # Create tree item with columns (column 8 text empty; delegate paints icons)
                 tree_item = QTreeWidgetItem([
                     display_name,
+                    person_info.birth_date,
+                    person_info.birth_place,
+                    person_info.death_date,
+                    person_info.death_place,
                     person_info.title,
                     person_info.occupation,
                     person_info.cluster_names_display,
@@ -1436,7 +1583,7 @@ class PersonListPanel(QWidget):
 
                 # Store DNA company IDs for the icon delegate
                 if person_info.dna_company_ids:
-                    tree_item.setData(4, _ROLE_DNA_COMPANY_IDS, person_info.dna_company_ids[:5])
+                    tree_item.setData(8, _ROLE_DNA_COMPANY_IDS, person_info.dna_company_ids[:5])
 
                 # Store lineage flags for the dot delegate
                 if person_info.is_ancestor:
@@ -1448,9 +1595,23 @@ class PersonListPanel(QWidget):
                 if person_info.person_id == main_person_id:
                     tree_item.setData(0, _ROLE_IS_MAIN_PERSON, True)
 
-                # Set gender icon
-                pixmap = icon_registry.get_gender_icon(person_info.sex)
-                tree_item.setIcon(0, QIcon(pixmap))
+                # Set gender icon (respects config)
+                cfg = self._person_list_config
+                show_sex = cfg.sex if cfg else True
+                show_relation = cfg.relation if cfg else True
+                show_multi_names = cfg.multiple_names if cfg else True
+
+                if show_sex:
+                    pixmap = icon_registry.get_gender_icon(person_info.sex)
+                    tree_item.setIcon(0, QIcon(pixmap))
+
+                # Only store relation/multi-names data if config enables them
+                if not show_relation:
+                    tree_item.setData(0, _ROLE_IS_ANCESTOR, False)
+                    tree_item.setData(0, _ROLE_IS_DESCENDANT, False)
+                    tree_item.setData(0, _ROLE_IS_MAIN_PERSON, False)
+                if not show_multi_names:
+                    tree_item.setData(0, _ROLE_HAS_MULTI_NAMES, False)
 
                 # Tooltips
                 tooltip_parts: list[str] = []
@@ -1463,13 +1624,13 @@ class PersonListPanel(QWidget):
                 if person_info.name_count > 1:
                     tooltip_parts.append(self._format_names_tooltip(person_info.all_names))
                 if person_info.title:
-                    tree_item.setToolTip(1, person_info.title)
+                    tree_item.setToolTip(5, person_info.title)
                 if person_info.occupation:
-                    tree_item.setToolTip(2, person_info.occupation)
+                    tree_item.setToolTip(6, person_info.occupation)
                 if person_info.cluster_names_display:
-                    tree_item.setToolTip(3, person_info.cluster_names_display)
+                    tree_item.setToolTip(7, person_info.cluster_names_display)
                 if dna_text:
-                    tree_item.setToolTip(4, dna_text)
+                    tree_item.setToolTip(8, dna_text)
                 if tooltip_parts:
                     tree_item.setToolTip(0, "\n".join(tooltip_parts))
 
@@ -1619,6 +1780,7 @@ class PersonListPanel(QWidget):
         """Format a person's display text for the list.
 
         Shows: "Surname, Given (birth–death)" with years where available.
+        Years always appear in the name column regardless of config.
 
         Args:
             info: The person display info.
@@ -1627,14 +1789,12 @@ class PersonListPanel(QWidget):
             Formatted display string.
         """
         name_part = f"{info.surname}, {info.given}"
-        years_parts: list[str] = []
-        if info.birth_year or info.death_year:
-            birth = info.birth_year if info.birth_year else "?"
-            death = info.death_year if info.death_year else "?"
-            years_parts.append(f"({birth}\u2013{death})")
 
-        if years_parts:
-            return f"{name_part} {years_parts[0]}"
+        if info.birth_year or info.death_year:
+            birth_display = info.birth_year if info.birth_year else "?"
+            death_display = info.death_year if info.death_year else "?"
+            return f"{name_part} ({birth_display}\u2013{death_display})"
+
         return name_part
 
     def _format_person_html(self, info: PersonDisplayInfo) -> str:

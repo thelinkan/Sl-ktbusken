@@ -183,6 +183,25 @@ class PersonEditor(QWidget):
         self._ui = Ui_PersonEditor()
         self._ui.setupUi(self)
 
+        # Override sex combo with Swedish labels
+        self._sex_label_to_internal = {
+            "Man": "M", "Kvinna": "F", "Annat": "X", "Okänt": "U",
+        }
+        self._sex_internal_to_label = {v: k for k, v in self._sex_label_to_internal.items()}
+        self._ui.sex_combo.clear()
+        self._ui.sex_combo.addItems(["Man", "Kvinna", "Annat", "Okänt"])
+
+        # Override name type combo with Swedish labels
+        self._name_type_label_to_internal = {
+            "Födelsenamn": "birth",
+            "Gift namn": "married",
+            "Adoptivnamn": "adopted",
+            "Annat": "other",
+        }
+        self._name_type_internal_to_label = {v: k for k, v in self._name_type_label_to_internal.items()}
+        self._ui.name_type_combo.clear()
+        self._ui.name_type_combo.addItems(["Födelsenamn", "Gift namn", "Adoptivnamn", "Annat"])
+
         # Parent service for managing parent relationships
         self._parent_service = ParentService(project_data)
 
@@ -377,7 +396,10 @@ class PersonEditor(QWidget):
         self._parents_table = QTableWidget(self._parents_group)
         self._parents_table.setColumnCount(2)
         self._parents_table.setHorizontalHeaderLabels(["Namn", "Föräldratyp"])
-        self._parents_table.horizontalHeader().setStretchLastSection(True)
+        header = self._parents_table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, header.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, header.ResizeMode.ResizeToContents)
         self._parents_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )
@@ -573,7 +595,8 @@ class PersonEditor(QWidget):
             return
 
         # Sex
-        sex_index = self._ui.sex_combo.findText(self._person.sex)
+        sex_label = self._sex_internal_to_label.get(self._person.sex, "Okänt")
+        sex_index = self._ui.sex_combo.findText(sex_label)
         if sex_index >= 0:
             self._ui.sex_combo.setCurrentIndex(sex_index)
 
@@ -633,8 +656,11 @@ class PersonEditor(QWidget):
         row = table.rowCount()
         table.insertRow(row)
 
-        type_item = QTableWidgetItem(name.type)
+        # Display Swedish label in type column, store internal key as data
+        type_label = self._name_type_internal_to_label.get(name.type, name.type)
+        type_item = QTableWidgetItem(type_label)
         type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+        type_item.setData(Qt.ItemDataRole.UserRole, name.type)
 
         given_item = QTableWidgetItem(name.given)
         given_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
@@ -717,7 +743,8 @@ class PersonEditor(QWidget):
 
     def _on_add_name(self) -> None:
         """Add a new name entry from the edit fields."""
-        name_type = self._ui.name_type_combo.currentText()
+        name_type_label = self._ui.name_type_combo.currentText()
+        name_type = self._name_type_label_to_internal.get(name_type_label, name_type_label)
         given = self._ui.given_name_input.text().strip()
         surname = self._ui.surname_input.text().strip()
 
@@ -745,7 +772,8 @@ class PersonEditor(QWidget):
             return
 
         row = selected[0].row()
-        name_type = self._ui.name_type_combo.currentText()
+        name_type_label = self._ui.name_type_combo.currentText()
+        name_type = self._name_type_label_to_internal.get(name_type_label, name_type_label)
         given = self._ui.given_name_input.text().strip()
         surname = self._ui.surname_input.text().strip()
 
@@ -761,7 +789,7 @@ class PersonEditor(QWidget):
                 return
 
         table = self._ui.names_table
-        table.item(row, 0).setText(name_type)
+        table.item(row, 0).setText(name_type_label)
         table.item(row, 1).setText(given)
         table.item(row, 2).setText(surname)
 
@@ -2222,7 +2250,14 @@ class PersonEditor(QWidget):
         names: list[Name] = []
         table = self._ui.names_table
         for row in range(table.rowCount()):
-            name_type = table.item(row, 0).text()
+            # Get internal name type from stored data, fallback to label conversion
+            type_item = table.item(row, 0)
+            name_type_internal = type_item.data(Qt.ItemDataRole.UserRole)
+            if not name_type_internal:
+                # Fallback: convert displayed label to internal
+                name_type_internal = self._name_type_label_to_internal.get(
+                    type_item.text(), type_item.text()
+                )
             given = table.item(row, 1).text()
             surname = table.item(row, 2).text()
 
@@ -2236,10 +2271,11 @@ class PersonEditor(QWidget):
                     if is_event_id_valid(self._project_data, selected_data):
                         event_id = selected_data
 
-            names.append(Name(type=name_type, given=given, surname=surname, event_id=event_id))
+            names.append(Name(type=name_type_internal, given=given, surname=surname, event_id=event_id))
 
         # Sex
-        sex = self._ui.sex_combo.currentText()
+        sex_label = self._ui.sex_combo.currentText()
+        sex = self._sex_label_to_internal.get(sex_label, "U")
 
         # Title and occupation
         title = self._ui.title_input.text().strip() or None
