@@ -503,6 +503,8 @@ def _media_item_invalid_type(draw: DrawFn) -> MediaItem:
     valid_types = {
         "photo", "source_image", "death_notice", "obituary", "funeral_program",
         "grave_photo", "map", "logo", "document",
+        "dödruna", "dödsannons", "bouppteckning", "dödsbevis",
+        "begravningsprogram", "minnesord",
     }
     invalid_type = draw(st.text(min_size=1, max_size=20).filter(
         lambda t: t not in valid_types

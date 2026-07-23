@@ -530,9 +530,12 @@ _MEDIA_TYPES = [
 ]
 _LINKED_ENTITY_TYPES = ["person", "event", "source", "place"]
 
-# File path segments using only safe characters and forward slashes
+# File path segments using NFC-stable characters (Latin letters, digits, Swedish chars)
 _PATH_SEGMENT = st.text(
-    alphabet=st.characters(categories=("L", "N")),
+    alphabet=st.characters(
+        whitelist_categories=("Ll", "Lu", "Nd"),
+        max_codepoint=0x024F,  # Basic Latin + Latin Extended-A/B (all NFC-stable)
+    ),
     min_size=1,
     max_size=15,
 )
