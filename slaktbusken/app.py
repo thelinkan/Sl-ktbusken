@@ -1036,30 +1036,17 @@ class Application:
         )
         layout.addWidget(editor)
 
-        # Connect editor signals to dialog accept/reject
-        editor.save_requested.connect(dialog.accept)
+        # Cancel closes the dialog; save stays open (editor shows confirmation)
         editor.cancel_requested.connect(dialog.reject)
+
+        # Mark project dirty when a place is saved
+        editor.save_requested.connect(lambda: setattr(self.project_service, '_dirty', True))
+        editor.save_requested.connect(self._update_status)
 
         # Connect person open signal to open person editor
         editor.person_open_requested.connect(self.open_person_editor)
 
         dialog.exec()
-
-        # If a place was saved via the editor, update project state
-        if editor.saved_place is not None:
-            saved = editor.saved_place
-            # Update or add the place in project data
-            found = False
-            for i, existing in enumerate(project_data.places):
-                if existing.id == saved.id:
-                    project_data.places[i] = saved
-                    found = True
-                    break
-            if not found:
-                project_data.places.append(saved)
-
-            self.project_service._dirty = True
-            self._update_status()
 
     def show_place_translation_editor(self) -> None:
         """Open the place translation editor dialog.

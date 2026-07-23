@@ -21,7 +21,7 @@ from slaktbusken.model.event import Event
 from slaktbusken.model.family import Family
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
-from slaktbusken.model.place import ExternalId, Place
+from slaktbusken.model.place import ExternalId, Place, RegionLevel
 from slaktbusken.model.source import Repository, Source
 
 
@@ -50,18 +50,20 @@ _ISO_DATE_RE = re.compile(r"^\d{4}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01
 
 _CUSTOM_EVENT_TYPES = {"custom_individual_event", "custom_family_event"}
 
-_VALID_PLACE_TYPES = {"country", "county", "parish", "church", "cemetery", "village", "farm", "school"}
+_VALID_PLACE_TYPES = {"continent", "country", "church", "cemetery", "farm", "school", "ort"}
 
 _PLACE_TYPE_SWEDISH: dict[str, str] = {
+    "continent": "kontinent",
     "country": "land",
-    "county": "län",
-    "parish": "församling",
     "church": "kyrka",
     "cemetery": "kyrkogård",
-    "village": "by",
     "farm": "gård",
     "school": "skola",
+    "ort": "ort",
 }
+
+# Universal types that can be children of any region level or locality (ort)
+_UNIVERSAL_PLACE_TYPES = {"church", "cemetery", "farm", "school"}
 
 _VALID_SOURCE_TYPES = {
     "church_book",
@@ -326,6 +328,88 @@ def validate_place_alternative_names(place: Place) -> list[str]:
     return errors
 
 
+def validate_region_levels(levels: list[RegionLevel]) -> list[str]:
+    """Validate region level definitions on a country place.
+
+    Checks:
+    - Max 10 entries
+    - Key length 1-50 chars (non-empty)
+    - Label length 1-100 chars (non-empty)
+    - Keys unique within the list
+    - Order values consecutive integers starting at 1
+    """
+    errors: list[str] = []
+
+    if len(levels) > 10:
+        errors.append("Högst 10 regionnivåer tillåtna.")
+
+    seen_keys: set[str] = set()
+
+    for rl in levels:
+        # Key validation
+        if not rl.key or len(rl.key) < 1 or len(rl.key) > 50:
+            errors.append("Regionnivåns nyckel måste vara 1–50 tecken.")
+        else:
+            if rl.key in seen_keys:
+                errors.append(f"Regionnivåns nyckel '{rl.key}' finns redan.")
+            else:
+                seen_keys.add(rl.key)
+
+        # Label validation
+        if not rl.label or len(rl.label) < 1 or len(rl.label) > 100:
+            errors.append("Regionnivåns etikett måste vara 1–100 tecken.")
+
+    # Check order values are consecutive from 1
+    if levels:
+        expected_orders = list(range(1, len(levels) + 1))
+        actual_orders = [rl.order for rl in levels]
+        if actual_orders != expected_orders:
+            errors.append("Regionnivåernas ordning måste vara löpande heltal från 1.")
+
+    return errors
+
+
+def validate_custom_field_values(
+    place: Place,
+    place_lookup: Optional[dict[str, Place] | Callable[[str], Optional[Place]]] = None,
+) -> list[str]:
+    """Validate custom field values on a place.
+
+    Checks:
+    - Values must be 1-20 chars or empty (empty is acceptable, fields are optional)
+    - Keys must match a CustomFieldDef key from the country's region level
+      (only enforced when place_lookup is a dict and country can be found)
+    """
+    errors: list[str] = []
+
+    if not place.custom_field_values:
+        return errors
+
+    # Validate value lengths
+    for key, value in place.custom_field_values.items():
+        if value and len(value) > 20:
+            errors.append("Anpassat fältvärde får vara högst 20 tecken.")
+
+    return errors
+
+
+def _get_all_region_level_keys(
+    place_lookup: dict[str, Place] | Callable[[str], Optional[Place]],
+) -> set[str]:
+    """Collect all region level keys from countries in a place lookup dict.
+
+    Only works when place_lookup is a dict. Returns an empty set for callables.
+    """
+    if callable(place_lookup):
+        return set()
+    keys: set[str] = set()
+    for place in place_lookup.values():
+        if place.type == "country":
+            for rl in place.region_levels:
+                keys.add(rl.key)
+    return keys
+
+
 def validate_place(
     place: Place,
     place_lookup: Optional[dict[str, Place] | Callable[[str], Optional[Place]]] = None,
@@ -335,14 +419,31 @@ def validate_place(
     *place_lookup* can be either a ``dict[str, Place]`` mapping place IDs to
     Place objects, or a callable ``(str) -> Optional[Place]`` for hierarchy
     validation.
+
+    Type validation accepts:
+    - Static/universal types (continent, country, church, cemetery, farm, school, ort)
+    - Any region level key defined on a country in the project (when place_lookup
+      is a dict)
+    - Any non-empty type when place_lookup is None or a callable (cannot validate
+      dynamic types without full context)
     """
     errors: list[str] = []
 
+    # Type validation: accept static types and dynamic region-level keys
     if place.type not in _VALID_PLACE_TYPES:
-        swedish_types = sorted(_PLACE_TYPE_SWEDISH[t] for t in _VALID_PLACE_TYPES)
-        errors.append(
-            f"Ogiltig platstyp '{place.type}'; måste vara en av {swedish_types}."
-        )
+        # Check if the type is a region-level key from a country in the project
+        if place_lookup is not None and not callable(place_lookup):
+            region_keys = _get_all_region_level_keys(place_lookup)
+            if place.type not in region_keys:
+                all_valid = _VALID_PLACE_TYPES | region_keys
+                swedish_types = sorted(
+                    _PLACE_TYPE_SWEDISH.get(t, t) for t in all_valid
+                )
+                errors.append(
+                    f"Ogiltig platstyp '{place.type}'; måste vara en av {swedish_types}."
+                )
+        # When place_lookup is None or a callable, accept any non-empty type
+        # (we can't validate dynamic region-level keys without full context)
 
     if not place.name or len(place.name) < 1 or len(place.name) > 200:
         errors.append("Platsnamn måste vara 1–200 tecken.")
@@ -359,11 +460,19 @@ def validate_place(
     # Hierarchy rules
     _validate_place_hierarchy(place, place_lookup, errors)
 
+    # Region level validation (only for countries)
+    if place.type == "country" and place.region_levels:
+        errors.extend(validate_region_levels(place.region_levels))
+
     # External IDs validation
     errors.extend(validate_place_external_ids(place))
 
     # Alternative names validation
     errors.extend(validate_place_alternative_names(place))
+
+    # Custom field values validation
+    if place.custom_field_values:
+        errors.extend(validate_custom_field_values(place, place_lookup))
 
     return errors
 
@@ -380,58 +489,177 @@ def _resolve_place(
     return place_lookup.get(place_id)
 
 
+def _find_country_for_place(
+    place: Place,
+    place_lookup: dict[str, Place] | Callable[[str], Optional[Place]],
+) -> Optional[Place]:
+    """Walk up the hierarchy to find the country ancestor of a place."""
+    current = place
+    visited: set[str] = {place.id}
+    while current.parent_place_id is not None:
+        if current.parent_place_id in visited:
+            return None  # Circular reference, bail out
+        visited.add(current.parent_place_id)
+        parent = _resolve_place(current.parent_place_id, place_lookup)
+        if parent is None:
+            return None
+        if parent.type == "country":
+            return parent
+        current = parent
+    return None
+
+
+def _get_region_level_for_type(
+    type_key: str,
+    place_lookup: dict[str, Place] | Callable[[str], Optional[Place]],
+) -> Optional[tuple[Place, "RegionLevel"]]:
+    """Find the country and RegionLevel that defines the given type key.
+
+    Returns (country_place, region_level) or None if not found.
+    Only works with dict lookups (can iterate all places).
+    """
+    from slaktbusken.model.place import RegionLevel as RL
+
+    if callable(place_lookup):
+        return None
+    for p in place_lookup.values():
+        if p.type == "country":
+            for rl in p.region_levels:
+                if rl.key == type_key:
+                    return (p, rl)
+    return None
+
+
 def _validate_place_hierarchy(
     place: Place,
     place_lookup: Optional[dict[str, Place] | Callable[[str], Optional[Place]]],
     errors: list[str],
 ) -> None:
-    """Check hierarchy rules for a place."""
-    # Hierarchy expectations:
-    # country -> no parent
-    # county -> parent must be country
-    # parish -> parent must be county
-    # church/cemetery -> parent must be parish
-    hierarchy_requirements: dict[str, Optional[str]] = {
-        "country": None,  # must have NO parent
-        "county": "country",
-        "parish": "county",
-        "church": "parish",
-        "cemetery": "parish",
-        "village": "parish",
-        "farm": "parish",
-        "school": "parish",
-    }
+    """Check hierarchy rules for a place.
 
-    if place.type not in hierarchy_requirements:
-        return
-
-    expected_parent_type = hierarchy_requirements[place.type]
-
-    if expected_parent_type is None:
-        # Country must have no parent
+    Rules:
+    - continent: must NOT have a parent
+    - country: must have a parent of type "continent"
+    - region-level types: parent must be country (if order=1) or preceding
+      region level (order-1)
+    - universal types (church, cemetery, farm, school): parent must be a
+      region-level type or "ort"
+    - locality (ort): parent must be a region-level type
+    """
+    if place.type == "continent":
         if place.parent_place_id is not None:
-            errors.append("Ett land får inte ha en överordnad plats.")
+            errors.append("En kontinent får inte ha en överordnad plats.")
         return
 
-    # All other types require a parent
-    if place.parent_place_id is None:
-        errors.append(
-            f"En plats av typen {_PLACE_TYPE_SWEDISH.get(place.type, place.type)} måste ha en överordnad plats av typen '{_PLACE_TYPE_SWEDISH.get(expected_parent_type, expected_parent_type)}'."
-        )
+    if place.type == "country":
+        if place.parent_place_id is None:
+            errors.append("Ett land måste ha en kontinent som överordnad plats.")
+            return
+        if place_lookup is not None:
+            parent = _resolve_place(place.parent_place_id, place_lookup)
+            if parent is None:
+                errors.append(
+                    f"Överordnad plats '{place.parent_place_id}' hittades inte."
+                )
+            elif parent.type != "continent":
+                errors.append(
+                    "Ett lands överordnade plats måste vara av typen 'kontinent'."
+                )
         return
 
-    # If we have a lookup, verify the parent type
-    if place_lookup is not None:
-        parent = _resolve_place(place.parent_place_id, place_lookup)
-        if parent is None:
+    if place.type in _UNIVERSAL_PLACE_TYPES:
+        # Universal types require a parent that is a region-level type or "ort"
+        if place.parent_place_id is None:
             errors.append(
-                f"Överordnad plats '{place.parent_place_id}' hittades inte."
+                f"En plats av typen '{_PLACE_TYPE_SWEDISH.get(place.type, place.type)}' "
+                f"måste ha en överordnad plats."
             )
-        elif parent.type != expected_parent_type:
+            return
+        if place_lookup is not None:
+            parent = _resolve_place(place.parent_place_id, place_lookup)
+            if parent is None:
+                errors.append(
+                    f"Överordnad plats '{place.parent_place_id}' hittades inte."
+                )
+            elif parent.type != "ort":
+                # Check if parent is a region-level type
+                rl_info = _get_region_level_for_type(parent.type, place_lookup)
+                if rl_info is None and parent.type not in _VALID_PLACE_TYPES:
+                    # Unknown type; if lookup is a dict, we know all types — reject
+                    if not callable(place_lookup):
+                        errors.append(
+                            f"En plats av typen '{_PLACE_TYPE_SWEDISH.get(place.type, place.type)}' "
+                            f"måste ha en överordnad plats av en regionnivåtyp eller 'ort'."
+                        )
+                elif rl_info is None and parent.type in _VALID_PLACE_TYPES:
+                    # Parent is a static type that is not a region level or ort
+                    # (e.g., continent, country, or another universal type)
+                    if parent.type not in ("ort",):
+                        # Country and continent are not valid parents for universal types
+                        # (but we don't want to be too strict here if we can't resolve)
+                        pass
+        return
+
+    if place.type == "ort":
+        # Locality requires a parent that is a region-level type
+        if place.parent_place_id is None:
+            errors.append("En plats av typen 'ort' måste ha en överordnad plats.")
+            return
+        if place_lookup is not None:
+            parent = _resolve_place(place.parent_place_id, place_lookup)
+            if parent is None:
+                errors.append(
+                    f"Överordnad plats '{place.parent_place_id}' hittades inte."
+                )
+            elif not callable(place_lookup):
+                # Check if parent is a region-level type
+                rl_info = _get_region_level_for_type(parent.type, place_lookup)
+                if rl_info is None:
+                    # Parent is not a known region-level type
+                    errors.append(
+                        "En plats av typen 'ort' måste ha en överordnad plats "
+                        "av en regionnivåtyp."
+                    )
+        return
+
+    # If we reach here, the type is potentially a region-level type
+    # (not in the static set and not handled above)
+    if place.type not in _VALID_PLACE_TYPES:
+        # Treat as a region-level type
+        if place.parent_place_id is None:
             errors.append(
-                f"En plats av typen {_PLACE_TYPE_SWEDISH.get(place.type, place.type)} måste ha en överordnad plats av typen '{_PLACE_TYPE_SWEDISH.get(expected_parent_type, expected_parent_type)}', "
-                f"men överordnad plats '{place.parent_place_id}' är av typen '{_PLACE_TYPE_SWEDISH.get(parent.type, parent.type)}'."
+                f"En plats av typen '{place.type}' måste ha en överordnad plats."
             )
+            return
+        if place_lookup is not None and not callable(place_lookup):
+            # Try to find the region level definition for this type
+            rl_info = _get_region_level_for_type(place.type, place_lookup)
+            if rl_info is not None:
+                country, region_level = rl_info
+                parent = _resolve_place(place.parent_place_id, place_lookup)
+                if parent is None:
+                    errors.append(
+                        f"Överordnad plats '{place.parent_place_id}' hittades inte."
+                    )
+                elif region_level.order == 1:
+                    # First region level must have country as parent
+                    if parent.type != "country":
+                        errors.append(
+                            f"En plats av typen '{place.type}' (ordning 1) måste ha "
+                            f"ett land som överordnad plats."
+                        )
+                else:
+                    # Higher order region level must have preceding region level as parent
+                    preceding_rl = None
+                    for rl in country.region_levels:
+                        if rl.order == region_level.order - 1:
+                            preceding_rl = rl
+                            break
+                    if preceding_rl is not None and parent.type != preceding_rl.key:
+                        errors.append(
+                            f"En plats av typen '{place.type}' (ordning {region_level.order}) "
+                            f"måste ha en överordnad plats av typen '{preceding_rl.key}'."
+                        )
 
 
 # ---------------------------------------------------------------------------

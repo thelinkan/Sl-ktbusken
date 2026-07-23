@@ -22,7 +22,7 @@ from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, Sou
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
 from slaktbusken.model.person import Name, Person
-from slaktbusken.model.place import ExternalId, Place
+from slaktbusken.model.place import CustomFieldDef, ExternalId, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import ArkivReferens, Kalltyp, Leverantor, Repository, RepositoryRef, Source, StructuredReference
@@ -216,6 +216,7 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (MediaItem, "annotations"): Annotation,
     (ResearchNote, "linked_entities"): LinkedEntity,
     (Place, "external_ids"): ExternalId,
+    (Place, "region_levels"): RegionLevel,
 }
 
 # Mapping of (parent_class, field_name) -> type for optional nested dataclass fields.
@@ -229,6 +230,7 @@ _NESTED_OPTIONAL_TYPES: dict[tuple[type, str], type] = {
 _DEEP_NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (DateValue, "source_refs"): SourceRef,
     (PlaceRef, "source_refs"): SourceRef,
+    (RegionLevel, "custom_fields"): CustomFieldDef,
 }
 
 

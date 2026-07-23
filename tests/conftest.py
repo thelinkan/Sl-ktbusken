@@ -29,7 +29,7 @@ from slaktbusken.model.event import (
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
 from slaktbusken.model.person import Name, Person
-from slaktbusken.model.place import Place
+from slaktbusken.model.place import CustomFieldDef, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, RepositoryRef, Source, StructuredReference
@@ -304,7 +304,41 @@ def event_strategy(draw: DrawFn) -> Event:
 # 3.4 – Place strategies
 # ---------------------------------------------------------------------------
 
-_PLACE_TYPES = ["continent", "country", "county", "parish", "church", "cemetery", "village", "farm", "school"]
+_PLACE_TYPES = ["continent", "country", "county", "parish", "church", "cemetery", "village", "farm", "school", "ort"]
+
+
+@st.composite
+def custom_field_def_strategy(draw: DrawFn) -> CustomFieldDef:
+    """Generate a valid CustomFieldDef instance."""
+    key = draw(st.text(
+        alphabet=st.characters(categories=("L", "N")),
+        min_size=1,
+        max_size=50,
+    ))
+    label = draw(st.text(
+        alphabet=st.characters(categories=("L", "N", "Z")),
+        min_size=1,
+        max_size=100,
+    ))
+    return CustomFieldDef(key=key, label=label)
+
+
+@st.composite
+def region_level_strategy(draw: DrawFn) -> RegionLevel:
+    """Generate a valid RegionLevel instance with order starting from 1."""
+    key = draw(st.text(
+        alphabet=st.characters(categories=("L", "N")),
+        min_size=1,
+        max_size=50,
+    ))
+    label = draw(st.text(
+        alphabet=st.characters(categories=("L", "N", "Z")),
+        min_size=1,
+        max_size=100,
+    ))
+    order = draw(st.integers(min_value=1, max_value=10))
+    custom_fields = draw(st.lists(custom_field_def_strategy(), min_size=0, max_size=3))
+    return RegionLevel(key=key, label=label, order=order, custom_fields=custom_fields)
 
 
 @st.composite
@@ -322,6 +356,47 @@ def place_strategy(draw: DrawFn) -> Place:
     longitude = draw(st.none() | st.floats(min_value=-180.0, max_value=180.0, allow_nan=False))
     notes = draw(_safe_text_or_empty)
 
+    # Conditionally generate region_levels for country-type places
+    # Must have consecutive orders from 1 and unique keys to pass validation
+    if place_type == "country":
+        count = draw(st.integers(min_value=0, max_value=3))
+        if count > 0:
+            keys = draw(st.lists(
+                st.text(alphabet=st.characters(categories=("L", "N")), min_size=1, max_size=50),
+                min_size=count, max_size=count, unique=True,
+            ))
+            region_levels = []
+            for i, key in enumerate(keys):
+                label = draw(st.text(
+                    alphabet=st.characters(categories=("L", "N", "Z")),
+                    min_size=1, max_size=100,
+                ))
+                custom_fields = draw(st.lists(custom_field_def_strategy(), min_size=0, max_size=2))
+                region_levels.append(RegionLevel(key=key, label=label, order=i + 1, custom_fields=custom_fields))
+        else:
+            region_levels = []
+    else:
+        region_levels = []
+
+    # Conditionally generate custom_field_values for non-country, non-continent places
+    if place_type not in ("country", "continent"):
+        custom_field_values = draw(st.dictionaries(
+            keys=st.text(
+                alphabet=st.characters(categories=("L", "N")),
+                min_size=1,
+                max_size=50,
+            ),
+            values=st.text(
+                alphabet=st.characters(categories=("L", "N", "Z")),
+                min_size=1,
+                max_size=20,
+            ),
+            min_size=0,
+            max_size=3,
+        ))
+    else:
+        custom_field_values = {}
+
     return Place(
         id=place_id,
         type=place_type,
@@ -330,6 +405,8 @@ def place_strategy(draw: DrawFn) -> Place:
         latitude=latitude,
         longitude=longitude,
         notes=notes,
+        region_levels=region_levels,
+        custom_field_values=custom_field_values,
     )
 
 

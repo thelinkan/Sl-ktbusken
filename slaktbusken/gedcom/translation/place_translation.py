@@ -48,6 +48,46 @@ _CEMETERY_SUFFIXES = ("kyrkogård", "begravningsplats")
 _COUNTRY_NAMES = {"sverige", "norway", "norge", "finland", "danmark", "denmark"}
 _LAN_PATTERN = re.compile(r".+\s+län$", re.IGNORECASE)
 
+# Mapping of country names (lowercased) to their continent
+_COUNTRY_TO_CONTINENT: dict[str, str] = {
+    "sverige": "Europa",
+    "norway": "Europa",
+    "norge": "Europa",
+    "finland": "Europa",
+    "danmark": "Europa",
+    "denmark": "Europa",
+    "tyskland": "Europa",
+    "germany": "Europa",
+    "england": "Europa",
+    "frankrike": "Europa",
+    "france": "Europa",
+    "polen": "Europa",
+    "poland": "Europa",
+    "irland": "Europa",
+    "ireland": "Europa",
+    "skottland": "Europa",
+    "scotland": "Europa",
+    "nederländerna": "Europa",
+    "netherlands": "Europa",
+    "belgien": "Europa",
+    "belgium": "Europa",
+    "schweiz": "Europa",
+    "switzerland": "Europa",
+    "österrike": "Europa",
+    "austria": "Europa",
+    "italien": "Europa",
+    "italy": "Europa",
+    "spanien": "Europa",
+    "spain": "Europa",
+    "portugal": "Europa",
+    "ryssland": "Europa",
+    "russia": "Europa",
+    "usa": "Nordamerika",
+    "united states": "Nordamerika",
+    "kanada": "Nordamerika",
+    "canada": "Nordamerika",
+}
+
 
 # ---------------------------------------------------------------------------
 # Public functions
@@ -218,6 +258,54 @@ def find_matching_place(
     return None
 
 
+def _find_or_create_continent(
+    country_name: str,
+    existing_places: list[Place],
+    new_places: list[Place],
+    id_generator: IDGenerator,
+) -> Optional[str]:
+    """Find or create the continent for a given country name.
+
+    Looks up the country name in _COUNTRY_TO_CONTINENT. If a continent is
+    needed, searches existing_places and new_places for it first. If not
+    found, creates a new continent Place.
+
+    Args:
+        country_name: The country name (will be lowercased for lookup).
+        existing_places: All Place records currently in the project.
+        new_places: Places created so far in this invocation (may include
+            a continent created for a previous country in the same batch).
+        id_generator: IDGenerator for creating new place IDs.
+
+    Returns:
+        The continent place ID, or None if the country has no known continent.
+    """
+    continent_name = _COUNTRY_TO_CONTINENT.get(country_name.strip().lower())
+    if continent_name is None:
+        return None
+
+    # Check existing places for this continent
+    for place in existing_places:
+        if place.type == "continent" and place.name.lower() == continent_name.lower():
+            return place.id
+
+    # Check places created in this batch
+    for place in new_places:
+        if place.type == "continent" and place.name.lower() == continent_name.lower():
+            return place.id
+
+    # Create a new continent
+    new_id = id_generator.generate("place")
+    continent = Place(
+        id=new_id,
+        type="continent",
+        name=continent_name,
+        parent_place_id=None,
+    )
+    new_places.append(continent)
+    return new_id
+
+
 def map_place_to_hierarchy(
     gedcom_place: GedcomPlace,
     existing_places: list[Place],
@@ -297,15 +385,26 @@ def map_place_to_hierarchy(
         existing_country = _find_existing_by_name_and_type(
             country_to_prepend, "country", None, existing_places
         )
+        if existing_country is None:
+            # Also check with continent parent
+            continent_id = _find_or_create_continent(
+                country_to_prepend, existing_places, new_places, id_generator
+            )
+            existing_country = _find_existing_by_name_and_type(
+                country_to_prepend, "country", continent_id, existing_places
+            )
         if existing_country is not None:
             parent_id = existing_country.id
         else:
+            continent_id = _find_or_create_continent(
+                country_to_prepend, existing_places, new_places, id_generator
+            )
             new_id = id_generator.generate("place")
             new_place = Place(
                 id=new_id,
                 type="country",
                 name=country_to_prepend,
-                parent_place_id=None,
+                parent_place_id=continent_id,
             )
             new_places.append(new_place)
             parent_id = new_id
@@ -351,11 +450,21 @@ def map_place_to_hierarchy(
         else:
             # Create a new place record
             new_id = id_generator.generate("place")
+
+            # For countries, assign a continent as parent
+            effective_parent_id = parent_id
+            if place_type == "country":
+                continent_id = _find_or_create_continent(
+                    name, existing_places, new_places, id_generator
+                )
+                if continent_id is not None:
+                    effective_parent_id = continent_id
+
             new_place = Place(
                 id=new_id,
                 type=place_type,
                 name=name,
-                parent_place_id=parent_id,
+                parent_place_id=effective_parent_id,
             )
             # For counties, store the länsbokstav if available
             if place_type == "county":

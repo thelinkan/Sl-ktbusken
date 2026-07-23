@@ -34,9 +34,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.data.country_presets import available_presets, get_preset
 from slaktbusken.model.place import (
+    CustomFieldDef,
     ExternalId,
     Place,
+    RegionLevel,
     add_alternative_name,
     add_external_id,
     edit_external_id,
@@ -51,31 +54,86 @@ from slaktbusken.ui.widgets.coordinate_spin_box import CoordinateSpinBox
 
 logger = logging.getLogger(__name__)
 
-# Mapping from Swedish UI labels to internal type strings
+# Mapping from Swedish UI labels to internal type strings (static types)
 _TYPE_LABEL_TO_INTERNAL: dict[str, str] = {
+    "Kontinent": "continent",
     "Land": "country",
-    "Län": "county",
-    "Socken": "parish",
     "Kyrka": "church",
     "Kyrkogård": "cemetery",
-    "By": "village",
     "Gård": "farm",
     "Skola": "school",
+    "Ort": "ort",
 }
 
 _TYPE_INTERNAL_TO_LABEL: dict[str, str] = {v: k for k, v in _TYPE_LABEL_TO_INTERNAL.items()}
 
-# Valid parent types for each place type
+# Valid parent types for each place type (legacy — kept for backward compat)
 _VALID_PARENT_TYPES: dict[str, Optional[str]] = {
-    "country": None,
-    "county": "country",
-    "parish": "county",
-    "church": "parish",
-    "cemetery": "parish",
-    "village": "parish",
-    "farm": "parish",
-    "school": "parish",
+    "continent": None,
+    "country": "continent",
+    "church": None,
+    "cemetery": None,
+    "farm": None,
+    "school": None,
+    "ort": None,
 }
+
+
+def build_type_options(project_data: ProjectData) -> list[str]:
+    """Build the list of available place type labels for the Type_Dropdown.
+
+    Always includes:
+    - "Kontinent" (first)
+    - "Land"
+    - Universal types: "Kyrka", "Kyrkogård", "Gård", "Skola", "Ort"
+
+    Additionally includes all unique region level labels from countries
+    in the project.
+
+    Args:
+        project_data: The current project data containing all entities.
+
+    Returns:
+        Ordered list of type labels for the dropdown.
+    """
+    # Fixed types always present
+    fixed_labels = ["Kontinent", "Land"]
+    universal_labels = ["Kyrka", "Kyrkogård", "Gård", "Skola", "Ort"]
+
+    # Collect unique region level labels from all countries in the project
+    region_labels: set[str] = set()
+    for place in project_data.places:
+        if place.type == "country":
+            for rl in place.region_levels:
+                region_labels.add(rl.label)
+
+    # Build final list: Kontinent first, then Land, then region labels sorted,
+    # then universal types
+    sorted_region_labels = sorted(region_labels)
+    return fixed_labels + sorted_region_labels + universal_labels
+
+
+def _resolve_type_label_to_internal(label: str, project_data: ProjectData) -> str:
+    """Resolve a type dropdown label to its internal type string.
+
+    Checks static types first, then looks up region level labels in project countries.
+
+    Args:
+        label: The Swedish UI label to resolve.
+        project_data: The project data for looking up dynamic region level labels.
+
+    Returns:
+        The internal type string corresponding to the label.
+    """
+    if label in _TYPE_LABEL_TO_INTERNAL:
+        return _TYPE_LABEL_TO_INTERNAL[label]
+    # Try to find among region level labels
+    for place in project_data.places:
+        if place.type == "country":
+            for rl in place.region_levels:
+                if rl.label == label:
+                    return rl.key
+    return label.lower()  # Fallback
 
 
 class PlaceListItemDelegate(QStyledItemDelegate):
@@ -225,16 +283,16 @@ class PlaceEditor(QWidget):
         # Add type filter combo box to left panel between filter_input and place_list
         self._type_filter_label = QLabel("Typ:", self._ui.left_panel)
         self._type_filter_combo = QComboBox(self._ui.left_panel)
-        self._type_filter_combo.addItems([
-            "Alla", "Land", "Län", "Socken", "Kyrka",
-            "Kyrkogård", "By", "Gård", "Skola",
-        ])
+        type_options = build_type_options(project_data)
+        self._type_filter_combo.addItems(["Alla"] + type_options)
         self._type_filter_combo.setCurrentIndex(0)
         # Insert at index 2 (after filter_input at index 1, before place_list)
         self._ui.left_layout.insertWidget(2, self._type_filter_label)
         self._ui.left_layout.insertWidget(3, self._type_filter_combo)
 
         self._setup_child_places_list()
+        self._setup_preset_section()
+        self._setup_custom_fields_section()
         self._connect_signals()
 
         # Set up custom delegate for red dot indicator on places missing a parent
@@ -304,12 +362,12 @@ class PlaceEditor(QWidget):
         Shows all places that have this place as their parent, allowing
         the user to see the hierarchy below the selected place.
         """
-        # Add missing place types to the type combo (generated UI only has 5)
+        # Populate the type combo dynamically using build_type_options
         existing_labels = [
             self._ui.type_combo.itemText(i)
             for i in range(self._ui.type_combo.count())
         ]
-        for label in _TYPE_LABEL_TO_INTERNAL:
+        for label in build_type_options(self._project_data):
             if label not in existing_labels:
                 self._ui.type_combo.addItem(label)
 
@@ -391,6 +449,63 @@ class PlaceEditor(QWidget):
         else:
             right_layout.addWidget(self._alt_names_group)
 
+    def _setup_preset_section(self) -> None:
+        """Create the preset selection UI, shown only for country places.
+
+        Adds a group box with a combo listing available presets, an apply button,
+        and a list widget showing the current region levels.
+        """
+        self._preset_group = QGroupBox("Förinställning regionnivåer", self._ui.right_panel)
+        preset_layout = QVBoxLayout(self._preset_group)
+
+        # Preset combo + apply button row
+        preset_row = QHBoxLayout()
+        self._preset_combo = QComboBox(self._preset_group)
+        self._preset_combo.addItem("(Välj förinställning)")
+        for preset_name in available_presets():
+            self._preset_combo.addItem(preset_name)
+        preset_row.addWidget(self._preset_combo)
+
+        self._preset_apply_btn = QPushButton("Använd", self._preset_group)
+        preset_row.addWidget(self._preset_apply_btn)
+        preset_layout.addLayout(preset_row)
+
+        # Region levels display list
+        self._region_levels_list = QListWidget(self._preset_group)
+        self._region_levels_list.setMaximumHeight(120)
+        preset_layout.addWidget(self._region_levels_list)
+
+        # Insert before status label in the right layout
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._preset_group)
+        else:
+            right_layout.addWidget(self._preset_group)
+
+        # Hidden by default; shown only when editing a country place
+        self._preset_group.setVisible(False)
+
+    def _setup_custom_fields_section(self) -> None:
+        """Create the custom fields UI, shown when place type matches a region level with custom fields.
+
+        Adds a group box with dynamically created QLineEdit inputs for each custom field.
+        """
+        self._custom_fields_group = QGroupBox("Anpassade fält", self._ui.right_panel)
+        self._custom_fields_layout = QFormLayout(self._custom_fields_group)
+        self._custom_field_inputs: dict[str, QLineEdit] = {}
+
+        # Insert before status label in the right layout
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._custom_fields_group)
+        else:
+            right_layout.addWidget(self._custom_fields_group)
+
+        # Hidden by default; shown only when place type has custom fields
+        self._custom_fields_group.setVisible(False)
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
         # Filter
@@ -421,6 +536,9 @@ class PlaceEditor(QWidget):
         self._alt_name_add_btn.clicked.connect(self._on_alt_name_add)
         self._alt_name_remove_btn.clicked.connect(self._on_alt_name_remove)
 
+        # Preset apply
+        self._preset_apply_btn.clicked.connect(self._on_preset_apply)
+
         # Linked persons double-click
         self._persons_list.itemDoubleClicked.connect(self._on_person_double_clicked)
 
@@ -436,11 +554,12 @@ class PlaceEditor(QWidget):
         """Rebuild the place list from project_data, applying text and type filters."""
         filter_text = self._ui.filter_input.text().strip().lower()
         type_filter_label = self._type_filter_combo.currentText()
-        type_filter = (
-            _TYPE_LABEL_TO_INTERNAL[type_filter_label]
-            if type_filter_label in _TYPE_LABEL_TO_INTERNAL
-            else "all"
-        )
+        if type_filter_label == "Alla":
+            type_filter = "all"
+        else:
+            type_filter = _resolve_type_label_to_internal(
+                type_filter_label, self._project_data
+            )
 
         self._ui.place_list.blockSignals(True)
         self._ui.place_list.clear()
@@ -498,6 +617,17 @@ class PlaceEditor(QWidget):
             Display string with name and parent context.
         """
         type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, place.type)
+        # For dynamic region level types, look up the label from country definitions
+        if place.type not in _TYPE_INTERNAL_TO_LABEL:
+            for p in self._project_data.places:
+                if p.type == "country":
+                    for rl in p.region_levels:
+                        if rl.key == place.type:
+                            type_label = rl.label
+                            break
+                    else:
+                        continue
+                    break
         display = f"{place.name} ({type_label})"
 
         # Show parent name for context
@@ -583,7 +713,19 @@ class PlaceEditor(QWidget):
             place: The Place to load into the form.
         """
         # Type
-        type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, "Land")
+        type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, None)
+        # If not in static mapping, check dynamic region level labels
+        if type_label is None:
+            for p in self._project_data.places:
+                if p.type == "country":
+                    for rl in p.region_levels:
+                        if rl.key == place.type:
+                            type_label = rl.label
+                            break
+                    if type_label:
+                        break
+        if type_label is None:
+            type_label = "Land"  # Fallback
         type_index = self._ui.type_combo.findText(type_label)
         if type_index >= 0:
             self._ui.type_combo.setCurrentIndex(type_index)
@@ -627,6 +769,15 @@ class PlaceEditor(QWidget):
         # Alternative Names
         self._refresh_alternative_names(place)
 
+        # Preset section (visible only for country places)
+        is_country = place.type == "country"
+        self._preset_group.setVisible(is_country)
+        if is_country:
+            self._refresh_region_levels_list(place)
+
+        # Custom fields (visible if type matches a region level with custom fields)
+        self._update_custom_fields_visibility(place.type)
+
         self._clear_status()
 
     def _clear_form(self) -> None:
@@ -644,6 +795,13 @@ class PlaceEditor(QWidget):
         self._persons_list.clear()
         self._ext_id_list.clear()
         self._alt_names_list.clear()
+        self._region_levels_list.clear()
+        self._preset_combo.setCurrentIndex(0)
+        self._preset_group.setVisible(False)
+        self._custom_fields_group.setVisible(False)
+        while self._custom_fields_layout.rowCount() > 0:
+            self._custom_fields_layout.removeRow(0)
+        self._custom_field_inputs.clear()
         self._clear_status()
 
     def _refresh_child_places(self, place: Place) -> None:
@@ -668,6 +826,17 @@ class PlaceEditor(QWidget):
         self._child_group.setTitle(f"Underordnade platser ({len(children)})")
         for child in children:
             type_label = _TYPE_INTERNAL_TO_LABEL.get(child.type, child.type)
+            # For dynamic region level types, look up the label from country definitions
+            if child.type not in _TYPE_INTERNAL_TO_LABEL:
+                for p in self._project_data.places:
+                    if p.type == "country":
+                        for rl in p.region_levels:
+                            if rl.key == child.type:
+                                type_label = rl.label
+                                break
+                        else:
+                            continue
+                        break
             display = f"{child.name} ({type_label})"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, child.id)
@@ -1036,12 +1205,20 @@ class PlaceEditor(QWidget):
     def _on_type_changed(self, index: int) -> None:
         """Handle type combo change to update parent combo options.
 
+        Also updates preset section visibility and custom fields visibility.
+
         Args:
             index: The new index in the type combo.
         """
         type_label = self._ui.type_combo.currentText()
-        internal_type = _TYPE_LABEL_TO_INTERNAL.get(type_label, "country")
+        internal_type = _resolve_type_label_to_internal(type_label, self._project_data)
         self._populate_parent_combo(internal_type)
+
+        # Show preset section only for country type
+        self._preset_group.setVisible(internal_type == "country")
+
+        # Update custom fields visibility based on new type
+        self._update_custom_fields_visibility(internal_type)
 
     # ------------------------------------------------------------------
     # Private: coordinates toggle
@@ -1055,6 +1232,93 @@ class PlaceEditor(QWidget):
         """
         self._ui.latitude_spin.setEnabled(checked)
         self._ui.longitude_spin.setEnabled(checked)
+
+    # ------------------------------------------------------------------
+    # Private: preset and custom fields
+    # ------------------------------------------------------------------
+
+    def _on_preset_apply(self) -> None:
+        """Handle preset apply button click.
+
+        Populates the editing place's region_levels from the selected preset.
+        The user can still modify them before saving.
+        """
+        if self._editing_place is None:
+            self._update_status("Välj en plats först.")
+            return
+
+        preset_name = self._preset_combo.currentText()
+        if preset_name == "(Välj förinställning)":
+            self._update_status("Välj en förinställning att använda.")
+            return
+
+        levels = get_preset(preset_name)
+        if not levels:
+            self._update_status(f"Ingen förinställning hittades för '{preset_name}'.")
+            return
+
+        # Populate the editing place's region_levels
+        self._editing_place.region_levels = levels
+        self._refresh_region_levels_list(self._editing_place)
+        self._clear_status()
+
+    def _refresh_region_levels_list(self, place: Place) -> None:
+        """Refresh the region levels list widget from the place's region_levels.
+
+        Args:
+            place: The place whose region levels should be displayed.
+        """
+        self._region_levels_list.clear()
+        for rl in place.region_levels:
+            custom_info = ""
+            if rl.custom_fields:
+                field_labels = ", ".join(cf.label for cf in rl.custom_fields)
+                custom_info = f" [{field_labels}]"
+            display = f"{rl.order}. {rl.label} (nyckel: {rl.key}){custom_info}"
+            self._region_levels_list.addItem(display)
+
+    def _update_custom_fields_visibility(self, internal_type: str) -> None:
+        """Show or hide custom fields section based on place type.
+
+        If the type matches a region level that has custom_fields defined,
+        shows the custom fields group with appropriate input fields.
+
+        Args:
+            internal_type: The internal type string of the current place.
+        """
+        # Clear existing custom field inputs
+        while self._custom_fields_layout.rowCount() > 0:
+            self._custom_fields_layout.removeRow(0)
+        self._custom_field_inputs.clear()
+
+        # Find if any country defines this type as a region level with custom fields
+        custom_fields_found: list[CustomFieldDef] = []
+        for p in self._project_data.places:
+            if p.type == "country":
+                for rl in p.region_levels:
+                    if rl.key == internal_type and rl.custom_fields:
+                        custom_fields_found = rl.custom_fields
+                        break
+                if custom_fields_found:
+                    break
+
+        if not custom_fields_found:
+            self._custom_fields_group.setVisible(False)
+            return
+
+        # Create input fields for each custom field definition
+        for cf_def in custom_fields_found:
+            line_edit = QLineEdit(self._custom_fields_group)
+            line_edit.setMaxLength(20)
+            line_edit.setPlaceholderText(f"Max 20 tecken")
+            self._custom_fields_layout.addRow(f"{cf_def.label}:", line_edit)
+            self._custom_field_inputs[cf_def.key] = line_edit
+
+            # Pre-populate from editing place if available
+            if self._editing_place and cf_def.key in self._editing_place.custom_field_values:
+                line_edit.setText(self._editing_place.custom_field_values[cf_def.key])
+
+        self._custom_fields_group.setVisible(True)
 
     def _on_show_place_on_map(self) -> None:
         """Open a map dialog showing the current place's coordinates."""
@@ -1163,7 +1427,7 @@ class PlaceEditor(QWidget):
         """
         # Get type
         type_label = self._ui.type_combo.currentText()
-        internal_type = _TYPE_LABEL_TO_INTERNAL.get(type_label, "country")
+        internal_type = _resolve_type_label_to_internal(type_label, self._project_data)
 
         # Validate name
         name = self._ui.name_input.text().strip()
@@ -1217,6 +1481,19 @@ class PlaceEditor(QWidget):
         # Alternative Names (collected from in-memory edits on the editing place)
         alternative_names = self._editing_place.alternative_names if self._editing_place else []
 
+        # Region levels (from in-memory edits on the editing place, only for countries)
+        region_levels = []
+        if internal_type == "country" and self._editing_place:
+            region_levels = self._editing_place.region_levels
+
+        # Custom field values (collected from UI inputs)
+        custom_field_values: dict[str, str] = {}
+        if self._custom_fields_group.isVisible():
+            for key, line_edit in self._custom_field_inputs.items():
+                value = line_edit.text().strip()
+                if value:
+                    custom_field_values[key] = value
+
         self._saved_place = Place(
             id=place_id,
             type=internal_type,
@@ -1227,16 +1504,36 @@ class PlaceEditor(QWidget):
             notes=notes,
             external_ids=external_ids,
             alternative_names=alternative_names,
+            region_levels=region_levels,
+            custom_field_values=custom_field_values,
         )
 
         self._clear_status()
         logger.info("Plats sparad: %s (%s)", name, place_id)
 
+        # Update the in-memory editing place reference
+        self._editing_place = self._saved_place
+
+        # Update the project data in-place
+        for i, p in enumerate(self._project_data.places):
+            if p.id == place_id:
+                self._project_data.places[i] = self._saved_place
+                break
+        else:
+            # New place — add to project
+            self._project_data.places.append(self._saved_place)
+
         # Refresh place list so red dot indicator reflects updated parent assignment
         self._refresh_place_list()
 
+        # Re-select the saved place in the list
+        self._select_place_in_list(place_id)
+
+        # Show confirmation in the status label instead of closing
+        self._update_status("✔ Platsen sparad.")
+        self._ui.status_label.setStyleSheet("color: green;")
+
         self.save_requested.emit()
-        self.close()
 
     def _on_cancel(self) -> None:
         """Close the editor without saving."""
@@ -1254,8 +1551,10 @@ class PlaceEditor(QWidget):
         Args:
             message: The status message to display.
         """
+        self._ui.status_label.setStyleSheet("color: red;")
         self._ui.status_label.setText(message)
 
     def _clear_status(self) -> None:
         """Clear the status label."""
         self._ui.status_label.setText("")
+        self._ui.status_label.setStyleSheet("")

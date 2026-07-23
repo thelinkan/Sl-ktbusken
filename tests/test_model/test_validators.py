@@ -24,6 +24,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.source import Repository, Source, StructuredReference
 from slaktbusken.model.validators import (
+    _VALID_PLACE_TYPES,
     validate_dna_cluster,
     validate_dna_match,
     validate_dna_profile,
@@ -94,17 +95,17 @@ class TestProperty7ValidDataAccepted:
     def test_valid_place_passes_validation(self, place: Place) -> None:
         """**Validates: Requirements 13.4**"""
         # The place_strategy generates random types and parent_place_id.
-        # The hierarchy validator requires non-country types to have a parent,
-        # and countries to have no parent. Filter to valid hierarchy combos.
-        hierarchy_requires_parent = {"county", "parish", "church", "cemetery", "village", "farm", "school"}
+        # Filter to valid hierarchy combos for the new hierarchy rules.
+        # Types that require a parent (when validated without place_lookup):
+        requires_parent = {"country", "church", "cemetery", "farm", "school", "ort"}
         if place.type == "continent":
             assume(place.parent_place_id is None)
-        elif place.type == "country":
-            assume(place.parent_place_id is None)
-        elif place.type in hierarchy_requires_parent:
+        elif place.type in requires_parent:
             assume(place.parent_place_id is not None)
-        # Skip continent type until validator is updated to support it
-        assume(place.type != "continent")
+        elif place.type not in _VALID_PLACE_TYPES:
+            # Dynamic region-level types (county, parish, village, etc.)
+            # require a parent
+            assume(place.parent_place_id is not None)
         # Pass None for place_lookup to skip parent type verification
         errors = validate_place(place, place_lookup=None)
         assert errors == [], f"Valid place rejected: {errors}"
@@ -402,9 +403,11 @@ def _event_invalid_precision(draw: DrawFn) -> Event:
 @st.composite
 def _place_invalid_type(draw: DrawFn) -> Place:
     """Generate a Place with an invalid type."""
-    valid_types = {"country", "county", "parish", "church", "cemetery"}
+    # All valid types include the static set plus any region level keys.
+    # With an empty place_lookup dict, no region level keys exist.
+    valid_types = _VALID_PLACE_TYPES
     invalid_type = draw(st.text(min_size=1, max_size=20).filter(
-        lambda t: t not in valid_types
+        lambda t: t not in valid_types and t.strip() != ""
     ))
     return Place(
         id="place_1",
@@ -782,7 +785,8 @@ class TestProperty6InvalidDataRejected:
     @settings(max_examples=50)
     def test_place_invalid_type_rejected(self, place: Place) -> None:
         """**Validates: Requirements 13.4**"""
-        errors = validate_place(place)
+        # Pass an empty dict as place_lookup so type validation is strict
+        errors = validate_place(place, place_lookup={})
         assert len(errors) > 0
         assert any("Ogiltig platstyp" in e for e in errors)
 
