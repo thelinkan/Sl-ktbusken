@@ -601,6 +601,31 @@ class SourceEditor(QWidget):
         fields = self._source.structured_reference.fields
         source_type = self._source.source_type
 
+        # Clear all structured reference fields first
+        self._ui.parish_input.setText("")
+        self._ui.county_code_input.setText("")
+        self._ui.series_input.setText("")
+        self._ui.volume_input.setText("")
+        self._ui.years_input.setText("")
+        self._ui.image_input.setText("")
+        self._ui.page_input.setText("")
+        self._ui.database_name_input.setText("")
+        self._ui.record_id_input.setText("")
+        self._ui.dn_newspaper_input.setText("")
+        self._ui.publication_date_input.setText("")
+        self._ui.dn_page_input.setText("")
+        self._ui.np_newspaper_input.setText("")
+        self._ui.np_date_input.setText("")
+        self._ui.np_page_input.setText("")
+        self._ui.article_title_input.setText("")
+
+        # Update visibility and populate fields for the matching type
+        has_fields = source_type in STRUCTURED_FIELDS
+        self._ui.structured_ref_group.setVisible(has_fields)
+
+        if not has_fields:
+            return
+
         if source_type == "church_book":
             self._ui.parish_input.setText(str(fields.get("parish", "") or ""))
             self._ui.county_code_input.setText(str(fields.get("county_code", "") or ""))
@@ -1140,8 +1165,28 @@ class SourceEditor(QWidget):
 
         self._clear_status()
         logger.info("Källa sparad: %s", source_id)
+
+        # Update project data in-place
+        found = False
+        for i, existing in enumerate(self._project_data.sources):
+            if existing.id == source_id:
+                self._project_data.sources[i] = self._saved_source
+                found = True
+                break
+        if not found:
+            self._project_data.sources.append(self._saved_source)
+
+        # Update the in-memory editing source
+        self._source = self._saved_source
+
+        # Refresh the source list
+        self._refresh_source_list()
+
+        # Show confirmation
+        self._ui.status_label.setStyleSheet("color: green;")
+        self._ui.status_label.setText("✔ Källan sparad.")
+
         self.save_requested.emit()
-        self.close()
 
     def _on_cancel(self) -> None:
         """Close the editor without saving."""
@@ -1269,11 +1314,13 @@ class SourceEditor(QWidget):
         Args:
             message: The status message to display.
         """
+        self._ui.status_label.setStyleSheet("color: red;")
         self._ui.status_label.setText(message)
 
     def _clear_status(self) -> None:
         """Clear the status label."""
         self._ui.status_label.setText("")
+        self._ui.status_label.setStyleSheet("")
 
     # ------------------------------------------------------------------
     # Private: direct link
