@@ -45,6 +45,7 @@ from slaktbusken.model.validators import (
 from slaktbusken.persistence.file_io import FilePersistence
 from slaktbusken.persistence.settings_io import (
     ProjectSettings,
+    UiState,
     create_default_settings,
     write_settings,
 )
@@ -143,7 +144,7 @@ class ProjectService:
         Creates:
             - Project folder at ``location / name``
             - App_JSON .json.gz file with empty entity arrays
-            - Settings file with defaults
+            - Settings file (carries forward current settings, or defaults)
             - Translation subfolder with empty JSON mapping files
             - Media subfolders for each media category
 
@@ -179,8 +180,16 @@ class ProjectService:
         data_file = project_folder / f"{name}.json.gz"
         FilePersistence.save(project_data, data_file)
 
-        # Write default settings.
-        settings = create_default_settings()
+        # Carry forward current settings to the new project (so user
+        # preferences persist across project switches). Fall back to
+        # defaults if no project is currently open.
+        if self._settings is not None:
+            import copy
+            settings = copy.deepcopy(self._settings)
+            # Reset UI state since window layout may differ per project
+            settings.ui_state = UiState()
+        else:
+            settings = create_default_settings()
         settings_file = project_folder / "settings.json"
         write_settings(settings, settings_file)
 

@@ -75,7 +75,7 @@ class AncestryView:
             project_data: Projektdata med personer, familjer och händelser.
             active_person_id: ID för den aktiva personen.
             config: Konfiguration för personrutornas innehåll.
-            depth: Antal generationer att visa (1-10, standard 4).
+            depth: Antal generationer att visa (1-30, standard 4).
             ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
             descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
             project_folder: Path to the project folder for resolving media files.
@@ -92,31 +92,33 @@ class AncestryView:
             descendant_set = set()
 
         # Clamp depth to valid range
-        depth = max(1, min(10, depth))
+        depth = max(1, min(30, depth))
 
         person = _find_person(project_data, active_person_id)
         if person is None:
             logger.warning("Aktiv person %s hittades inte.", active_person_id)
             return
 
-        # Collect ancestors into a tree structure
+        # Collect ancestors into a tree structure (SPARSE approach)
         # ancestor_map: (generation, position) -> person_id or None
-        # Position within a generation: 0-based index where for gen G,
-        # position 2*P = father of position P in gen G-1
-        # position 2*P+1 = mother of position P in gen G-1
+        # Only stores positions that have a known person OR are direct
+        # parent slots of a known person (placeholders).
         ancestor_map: dict[tuple[int, int], Optional[str]] = {}
         ancestor_map[(0, 0)] = active_person_id
 
-        # Build ancestor map breadth-first
+        # Track which positions at each generation have known persons
+        # so we only expand those (sparse BFS)
+        known_positions: dict[int, set[int]] = {0: {0}}
+
+        # Build ancestor map breadth-first — only expand positions with known persons
         for gen in range(depth):
             next_gen = gen + 1
-            for pos in range(2**gen):
+            if gen not in known_positions:
+                break
+            next_known: set[int] = set()
+            for pos in known_positions[gen]:
                 person_id = ancestor_map.get((gen, pos))
                 if person_id is None:
-                    # Even with a missing intermediate ancestor, mark children
-                    # positions as None so we maintain the tree structure
-                    ancestor_map[(next_gen, pos * 2)] = None
-                    ancestor_map[(next_gen, pos * 2 + 1)] = None
                     continue
 
                 # Find parent family for this person
@@ -136,61 +138,59 @@ class AncestryView:
                             elif mother_id is None:
                                 mother_id = partner.person_id
 
+                # Always store both parent slots (for placeholder rendering)
                 ancestor_map[(next_gen, pos * 2)] = father_id
                 ancestor_map[(next_gen, pos * 2 + 1)] = mother_id
+                if father_id is not None:
+                    next_known.add(pos * 2)
+                if mother_id is not None:
+                    next_known.add(pos * 2 + 1)
 
-        # Determine if there are any known ancestors at deeper levels
-        # beyond missing intermediates - we need to check recursively
-        # The ancestor_map already handles this because we still expand
-        # positions for None entries.
-        # BUT: for None entries we don't expand further unless we check
-        # if the missing person's parents might be known via other families.
-        # Actually, if a person is unknown (None), we cannot find their parents.
-        # The spec says "continue rendering known ancestors at deeper levels
-        # even if an intermediate ancestor is missing" - this means if person A
-        # has father B but no mother, we should still show B's parents.
-        # That's already handled since B is not None, so we expand B's parents.
+            if next_known:
+                known_positions[next_gen] = next_known
+
+        # Determine the effective deepest generation that has content
+        effective_depth = max(known_positions.keys()) if known_positions else 0
+        # But don't exceed the requested depth
+        effective_depth = min(effective_depth, depth)
 
         # Layout: each generation is a column from left to right
         # Gen 0 (active person) at x=0, Gen 1 at x=(_BOX_WIDTH + _H_GAP), etc.
-        # Vertical positions: for generation G with 2^G slots,
-        # distribute evenly centred around y=0.
 
         # Calculate total height needed based on deepest generation
         # Two-pass approach: first create boxes to know actual heights,
         # then position them to avoid overlap.
-        max_gen = depth  # deepest generation index
+        max_gen = effective_depth  # deepest generation index
         max_slots = 2**max_gen
 
         # Pass 1: Create all boxes and track actual heights per (gen, pos)
+        # Only iterate positions that exist in ancestor_map (sparse)
         box_map: dict[tuple[int, int], PersonBoxItem] = {}
         placeholder_positions: list[tuple[int, int, float]] = []  # (gen, pos, col_x)
 
-        for gen in range(depth + 1):
-            num_slots = 2**gen
+        for (gen, pos), person_id in ancestor_map.items():
+            if gen > effective_depth:
+                continue
             col_x = gen * (_BOX_WIDTH + _H_GAP)
 
-            for pos in range(num_slots):
-                person_id = ancestor_map.get((gen, pos))
-
-                if person_id is not None:
-                    p = _find_person(project_data, person_id)
-                    if p is not None:
-                        display_data = _build_display_data(p, project_data, self._project_folder)
-                        display_data["is_ancestor"] = p.id in ancestor_set
-                        display_data["is_descendant"] = p.id in descendant_set
-                        display_data["is_main_person"] = (
-                            p.id == project_data.project.main_person_id
-                        )
-                        box = PersonBoxItem(person_id, display_data, config)
-                        box_map[(gen, pos)] = box
-                    else:
-                        placeholder_positions.append((gen, pos, col_x))
-                elif gen > 0:
-                    parent_pos = pos // 2
-                    parent_id = ancestor_map.get((gen - 1, parent_pos))
-                    if parent_id is not None:
-                        placeholder_positions.append((gen, pos, col_x))
+            if person_id is not None:
+                p = _find_person(project_data, person_id)
+                if p is not None:
+                    display_data = _build_display_data(p, project_data, self._project_folder)
+                    display_data["is_ancestor"] = p.id in ancestor_set
+                    display_data["is_descendant"] = p.id in descendant_set
+                    display_data["is_main_person"] = (
+                        p.id == project_data.project.main_person_id
+                    )
+                    box = PersonBoxItem(person_id, display_data, config)
+                    box_map[(gen, pos)] = box
+                else:
+                    placeholder_positions.append((gen, pos, col_x))
+            elif gen > 0:
+                parent_pos = pos // 2
+                parent_id = ancestor_map.get((gen - 1, parent_pos))
+                if parent_id is not None:
+                    placeholder_positions.append((gen, pos, col_x))
 
         # Determine the effective box height for layout: use the maximum
         # actual height across all created boxes to prevent any overlap.
@@ -205,43 +205,6 @@ class AncestryView:
         if compact:
             # Compact mode: calculate actual leaf count per subtree to reduce
             # vertical space for branches with fewer generations.
-            # leaf_weight[gen][pos] = number of visible leaves in this subtree
-            leaf_weight: dict[tuple[int, int], int] = {}
-
-            def _calc_weight(g: int, p: int) -> int:
-                """Recursively calculate the number of leaf slots needed."""
-                if g == max_gen:
-                    # Deepest level: always counts as 1 leaf
-                    return 1
-                # Check if children exist (as person or placeholder)
-                child_gen = g + 1
-                child_pos_f = p * 2
-                child_pos_m = p * 2 + 1
-                has_father = (
-                    ancestor_map.get((child_gen, child_pos_f)) is not None
-                    or (child_gen, child_pos_f) in {(g2, p2) for g2, p2, _ in placeholder_positions}
-                )
-                has_mother = (
-                    ancestor_map.get((child_gen, child_pos_m)) is not None
-                    or (child_gen, child_pos_m) in {(g2, p2) for g2, p2, _ in placeholder_positions}
-                )
-
-                if not has_father and not has_mother:
-                    # Dead-end: this person is a leaf, counts as 1
-                    return 1
-
-                weight = 0
-                if has_father:
-                    weight += _calc_weight(child_gen, child_pos_f)
-                else:
-                    weight += 1
-                if has_mother:
-                    weight += _calc_weight(child_gen, child_pos_m)
-                else:
-                    weight += 1
-                return weight
-
-            # Pre-compute placeholder set for fast lookup
             _ph_set = {(g, p) for g, p, _ in placeholder_positions}
 
             def _calc_weight_fast(g: int, p: int) -> int:
@@ -263,16 +226,15 @@ class AncestryView:
             total_leaves = _calc_weight_fast(0, 0)
             total_height = total_leaves * (effective_box_height + _V_GAP) - _V_GAP
 
-            # Build a cumulative offset map for each (gen, pos)
-            # y_offset[gen][pos] = (y_start, height) within total_height
+            # Build a cumulative offset map — sparse iteration via pos_layout keys
             pos_layout: dict[tuple[int, int], tuple[float, float]] = {}
             pos_layout[(0, 0)] = (0.0, total_height)
 
-            for g in range(depth):
+            for g in range(effective_depth):
                 child_gen = g + 1
-                for p in range(2**g):
-                    if (g, p) not in pos_layout:
-                        continue
+                # Only process positions that have layout assigned
+                positions_at_gen = [(gg, pp) for (gg, pp) in pos_layout if gg == g]
+                for _, p in positions_at_gen:
                     y_start, h = pos_layout[(g, p)]
                     child_pos_f = p * 2
                     child_pos_m = p * 2 + 1
@@ -293,21 +255,18 @@ class AncestryView:
                     pos_layout[(child_gen, child_pos_f)] = (y_start, h_f)
                     pos_layout[(child_gen, child_pos_m)] = (y_start + h_f, h_m)
 
-            # Pass 2: Position boxes using compact layout
-            for gen in range(depth + 1):
+            # Pass 2: Position boxes using compact layout (sparse)
+            for (gen, pos), box in box_map.items():
                 col_x = gen * (_BOX_WIDTH + _H_GAP)
-                for pos in range(2**gen):
-                    box = box_map.get((gen, pos))
-                    if box is not None:
-                        if (gen, pos) in pos_layout:
-                            y_start, h = pos_layout[(gen, pos)]
-                            y = y_start + (h - effective_box_height) / 2.0
-                        else:
-                            y = 0.0
-                        box.setPos(col_x, y)
-                        scene.addItem(box)
-                        self._person_boxes.append(box)
-                        box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
+                if (gen, pos) in pos_layout:
+                    y_start, h = pos_layout[(gen, pos)]
+                    y = y_start + (h - effective_box_height) / 2.0
+                else:
+                    y = 0.0
+                box.setPos(col_x, y)
+                scene.addItem(box)
+                self._person_boxes.append(box)
+                box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
 
             # Add placeholders at compact positions
             for gen, pos, col_x in placeholder_positions:
@@ -322,21 +281,16 @@ class AncestryView:
             # Non-compact mode: uniform slot height based on deepest generation
             total_height = max_slots * (effective_box_height + _V_GAP) - _V_GAP
 
-            # Pass 2: Position and add boxes to scene
-            for gen in range(depth + 1):
-                num_slots = 2**gen
+            # Pass 2: Position and add boxes to scene (sparse)
+            for (gen, pos), box in box_map.items():
                 col_x = gen * (_BOX_WIDTH + _H_GAP)
-
-                for pos in range(num_slots):
-                    slot_height = total_height / num_slots
-                    y = pos * slot_height + (slot_height - effective_box_height) / 2.0
-
-                    box = box_map.get((gen, pos))
-                    if box is not None:
-                        box.setPos(col_x, y)
-                        scene.addItem(box)
-                        self._person_boxes.append(box)
-                        box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
+                num_slots = 2**gen
+                slot_height = total_height / num_slots
+                y = pos * slot_height + (slot_height - effective_box_height) / 2.0
+                box.setPos(col_x, y)
+                scene.addItem(box)
+                self._person_boxes.append(box)
+                box.setFlag(box.GraphicsItemFlag.ItemIsSelectable, True)
 
             # Add placeholders at correct positions
             for gen, pos, col_x in placeholder_positions:
@@ -345,73 +299,62 @@ class AncestryView:
                 y = pos * slot_height + (slot_height - effective_box_height) / 2.0
                 self._add_placeholder(scene, gen, pos, col_x, y)
 
-        # Draw connection lines between parent and child positions
-        # Uses orthogonal routing: horizontal from child → vertical midpoint → horizontal to ancestor
-        for gen in range(1, depth + 1):
+        # Draw connection lines (sparse — only iterate entries in ancestor_map)
+        for (gen, pos) in list(ancestor_map.keys()):
+            if gen < 1 or gen > effective_depth:
+                continue
+            person_id = ancestor_map.get((gen, pos))
             child_gen = gen - 1
             col_x = gen * (_BOX_WIDTH + _H_GAP)
             child_col_x = child_gen * (_BOX_WIDTH + _H_GAP)
-
-            # Vertical segment X is halfway between the two generation columns
             mid_x = child_col_x + _BOX_WIDTH + _H_GAP / 2.0
 
-            for pos in range(2**gen):
-                person_id = ancestor_map.get((gen, pos))
-                child_pos = pos // 2
-                child_id = ancestor_map.get((child_gen, child_pos))
+            child_pos = pos // 2
+            child_id = ancestor_map.get((child_gen, child_pos))
 
-                # Draw line if either end has a person or a placeholder was placed
-                has_ancestor = person_id is not None and _find_person(project_data, person_id) is not None
-                has_placeholder_at_pos = self._has_item_at_gen_pos(gen, pos)
+            has_ancestor = person_id is not None and _find_person(project_data, person_id) is not None
+            has_placeholder_at_pos = self._has_item_at_gen_pos(gen, pos)
 
-                if child_id is None:
-                    continue  # No child to connect from
+            if child_id is None:
+                continue
+            if not has_ancestor and not has_placeholder_at_pos:
+                continue
 
-                if not has_ancestor and not has_placeholder_at_pos:
-                    continue  # Nothing at this position to connect to
+            child_box = box_map.get((child_gen, child_pos))
+            ancestor_box = box_map.get((gen, pos))
 
-                # Get actual Y positions from placed boxes
-                child_box = box_map.get((child_gen, child_pos))
-                ancestor_box = box_map.get((gen, pos))
+            if child_box is not None:
+                child_y = child_box.pos().y()
+                child_h = child_box.box_height
+            else:
+                child_y = self._get_placeholder_y(child_gen, child_pos)
+                child_h = 50.0
 
-                if child_box is not None:
-                    child_y = child_box.pos().y()
-                    child_h = child_box.box_height
-                else:
-                    # Use placeholder position (50px height)
-                    child_y = self._get_placeholder_y(child_gen, child_pos)
-                    child_h = 50.0
+            if ancestor_box is not None:
+                ancestor_y = ancestor_box.pos().y()
+                ancestor_h = ancestor_box.box_height
+            else:
+                ancestor_y = self._get_placeholder_y(gen, pos)
+                ancestor_h = 50.0
 
-                if ancestor_box is not None:
-                    ancestor_y = ancestor_box.pos().y()
-                    ancestor_h = ancestor_box.box_height
-                else:
-                    ancestor_y = self._get_placeholder_y(gen, pos)
-                    ancestor_h = 50.0
+            child_mid_y = child_y + child_h / 2.0
+            ancestor_mid_y = ancestor_y + ancestor_h / 2.0
 
-                child_mid_y = child_y + child_h / 2.0
-                ancestor_mid_y = ancestor_y + ancestor_h / 2.0
-
-                # Segment 1: horizontal from child box right edge to mid_x
-                scene.addItem(ConnectionLineItem(
-                    QPointF(child_col_x + _BOX_WIDTH, child_mid_y),
-                    QPointF(mid_x, child_mid_y),
-                    ConnectionType.PARENT_CHILD,
-                ))
-
-                # Segment 2: vertical from child_mid_y to ancestor_mid_y at mid_x
-                scene.addItem(ConnectionLineItem(
-                    QPointF(mid_x, child_mid_y),
-                    QPointF(mid_x, ancestor_mid_y),
-                    ConnectionType.PARENT_CHILD,
-                ))
-
-                # Segment 3: horizontal from mid_x to ancestor box left edge
-                scene.addItem(ConnectionLineItem(
-                    QPointF(mid_x, ancestor_mid_y),
-                    QPointF(col_x, ancestor_mid_y),
-                    ConnectionType.PARENT_CHILD,
-                ))
+            scene.addItem(ConnectionLineItem(
+                QPointF(child_col_x + _BOX_WIDTH, child_mid_y),
+                QPointF(mid_x, child_mid_y),
+                ConnectionType.PARENT_CHILD,
+            ))
+            scene.addItem(ConnectionLineItem(
+                QPointF(mid_x, child_mid_y),
+                QPointF(mid_x, ancestor_mid_y),
+                ConnectionType.PARENT_CHILD,
+            ))
+            scene.addItem(ConnectionLineItem(
+                QPointF(mid_x, ancestor_mid_y),
+                QPointF(col_x, ancestor_mid_y),
+                ConnectionType.PARENT_CHILD,
+            ))
 
     def _add_placeholder(
         self,
@@ -542,22 +485,27 @@ def collect_ancestors(
     Args:
         project_data: Projektdata med familjer och personer.
         person_id: ID för startpersonen.
-        depth: Antal generationer att samla in (1-10).
+        depth: Antal generationer att samla in (1-30).
 
     Returns:
         Dictionary med (generation, position) -> person_id eller None.
     """
-    depth = max(1, min(10, depth))
+    depth = max(1, min(30, depth))
     ancestor_map: dict[tuple[int, int], Optional[str]] = {}
     ancestor_map[(0, 0)] = person_id
 
+    # Sparse BFS: only expand positions where a known person exists
+    known_positions: dict[int, set[int]] = {0: {0}}
+
     for gen in range(depth):
+        if gen not in known_positions:
+            break
         next_gen = gen + 1
-        for pos in range(2**gen):
+        next_known: set[int] = set()
+
+        for pos in known_positions[gen]:
             pid = ancestor_map.get((gen, pos))
             if pid is None:
-                ancestor_map[(next_gen, pos * 2)] = None
-                ancestor_map[(next_gen, pos * 2 + 1)] = None
                 continue
 
             parent_family = _find_parent_family(project_data, pid)
@@ -578,6 +526,13 @@ def collect_ancestors(
 
             ancestor_map[(next_gen, pos * 2)] = father_id
             ancestor_map[(next_gen, pos * 2 + 1)] = mother_id
+            if father_id is not None:
+                next_known.add(pos * 2)
+            if mother_id is not None:
+                next_known.add(pos * 2 + 1)
+
+        if next_known:
+            known_positions[next_gen] = next_known
 
     return ancestor_map
 

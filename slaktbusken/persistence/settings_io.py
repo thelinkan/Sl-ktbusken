@@ -62,8 +62,8 @@ class DiagramSettings:
     """Settings controlling diagram view depth limits.
 
     Attributes:
-        ancestry_depth: Number of ancestor generations to display (1-10).
-        descendants_depth: Number of descendant generations to display (1-10).
+        ancestry_depth: Number of ancestor generations to display (1-30).
+        descendants_depth: Number of descendant generations to display (1-30).
         ancestry_compact: Use compact layout for ancestry view.
         background_color: Background color for the diagram canvas (hex string).
     """

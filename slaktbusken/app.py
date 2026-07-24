@@ -174,9 +174,7 @@ class Application:
                     panel = self.main_window.diagram_panel
                     panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
                     panel.set_project_data(self.project_service.data)
-                    settings = self.project_service.settings
-                    if settings:
-                        panel.set_person_box_config(settings.person_box_config)
+                    panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
                 finally:
                     self.main_window.hide_progress()
 
@@ -254,9 +252,7 @@ class Application:
             panel = self.main_window.diagram_panel
             panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
             panel.set_project_data(data)
-            settings = self.project_service.settings
-            if settings:
-                panel.set_person_box_config(settings.person_box_config)
+            panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
             panel.set_active_person(saved.id)
         finally:
             self.main_window.hide_progress()
@@ -368,9 +364,7 @@ class Application:
                 else None
             )
             panel.set_project_data(self.project_service.data)
-            settings = self.project_service.settings
-            if settings:
-                panel.set_person_box_config(settings.person_box_config)
+            panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
 
             self.main_window.statusBar().showMessage(
                 f'"{consequences.person_name}" borttagen', 5000
@@ -702,9 +696,7 @@ class Application:
             panel = self.main_window.diagram_panel
             panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
             panel.set_project_data(data)
-            settings = self.project_service.settings
-            if settings:
-                panel.set_person_box_config(settings.person_box_config)
+            panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
         finally:
             self.main_window.hide_progress()
 
@@ -715,7 +707,8 @@ class Application:
 
         from slaktbusken.ui.dialogs.new_project_dialog import NewProjectDialog
 
-        dialog = NewProjectDialog(parent=self.main_window)
+        default_folder = self.app_settings_service.get_default_folder()
+        dialog = NewProjectDialog(parent=self.main_window, default_folder=default_folder)
         if dialog.exec() != NewProjectDialog.DialogCode.Accepted:
             return
 
@@ -759,6 +752,7 @@ class Application:
         QApplication.processEvents()
         try:
             self.project_service.open_project(Path(path))
+
             # Record in recent projects
             self.app_settings_service.add_recent_project(path)
             self._refresh_recent_projects_menu()
@@ -1016,31 +1010,23 @@ class Application:
         dialog.exec()
 
     def show_settings(self) -> None:
-        """Open the settings dialog for person box config and diagram depth.
+        """Open the settings dialog for program-level preferences.
 
-        Shows the SettingsDialog populated with current project settings.
-        On accept: saves settings to file, applies config to the diagram
-        panel, and marks the project as dirty. Also handles default project
-        set/clear actions from the dialog.
+        All settings are stored at the application level and can be
+        changed regardless of whether a project is open.
         """
         from slaktbusken.ui.dialogs.settings_dialog import SettingsDialog
-        from slaktbusken.persistence.settings_io import (
-            DiagramSettings,
-            PersonBoxConfig,
-            write_settings,
-        )
 
-        settings = self.project_service.settings
-        if settings is None:
-            return
+        # Read current settings from app-level
+        app_settings = self.app_settings_service._settings
 
         # Determine current project path for default project UI
         current_project_path = self.project_service.project_path
 
         dialog = SettingsDialog(
-            person_box_config=settings.person_box_config,
-            diagram_settings=settings.diagram_settings,
-            person_list_config=settings.person_list_config,
+            person_box_config=app_settings.person_box_config,
+            diagram_settings=app_settings.diagram_settings,
+            person_list_config=app_settings.person_list_config,
             app_settings_service=self.app_settings_service,
             current_project_path=current_project_path,
             parent=self.main_window,
@@ -1049,29 +1035,22 @@ class Application:
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
             return
 
-        # Retrieve updated values from the dialog.
-        new_person_box_config = dialog.person_box_config
-        new_diagram_settings = dialog.diagram_settings
-        new_person_list_config = dialog.person_list_config
-
-        # Update the in-memory settings.
-        settings.person_box_config = new_person_box_config
-        settings.diagram_settings = new_diagram_settings
-        settings.person_list_config = new_person_list_config
-
-        # Persist settings to the project folder.
-        project_path = self.project_service.project_path
-        if project_path is not None:
-            settings_file = project_path.parent / "settings.json"
-            write_settings(settings, settings_file)
+        # Save all settings to app-level
+        app_settings.startup_mode = dialog.startup_mode
+        app_settings.person_box_config = dialog.person_box_config
+        app_settings.diagram_settings = dialog.diagram_settings
+        app_settings.person_list_config = dialog.person_list_config
+        self.app_settings_service.save(app_settings)
 
         # Apply to diagram panel for immediate re-render.
         panel = self.main_window.diagram_panel
-        panel.set_person_box_config(new_person_box_config)
-        panel.set_diagram_settings(new_diagram_settings)
+        panel.set_person_box_config(app_settings.person_box_config)
+        panel.set_diagram_settings(app_settings.diagram_settings)
 
         # Apply person list config
-        self.main_window.person_list_panel.apply_person_list_config(new_person_list_config)
+        self.main_window.person_list_panel.apply_person_list_config(
+            app_settings.person_list_config
+        )
 
     def show_source_editor(self) -> None:
         """Open the source editor dialog.
@@ -1304,6 +1283,7 @@ class Application:
         QApplication.processEvents()
         try:
             self.project_service.open_project(Path(path))
+
             # Record in recent projects (moves to top)
             self.app_settings_service.add_recent_project(path)
             self._refresh_recent_projects_menu()
@@ -1392,48 +1372,69 @@ class Application:
         self.main_window.refresh_recent_projects_menu(recent)
 
     def _auto_open_default_project(self) -> None:
-        """Auto-open the default project on startup if configured.
+        """Auto-open a project on startup based on the configured startup mode.
 
-        If the default project path is set and the file exists, opens
-        the project automatically. If set but the file is missing,
-        shows a Swedish notification, clears the setting, and continues
-        to the normal empty state.
+        Startup modes:
+        - "none": Do nothing, start with no project open.
+        - "recent": Open the most recently used project.
+        - "default_project": Open the designated default project.
+
+        If the chosen project file is missing, shows a notification and
+        continues to the normal empty state.
         """
-        default_path = self.app_settings_service.get_default_project()
-        if default_path is None:
+        startup_mode = self.app_settings_service.get_startup_mode()
+
+        if startup_mode == "none":
             return
 
-        p = Path(default_path)
+        if startup_mode == "recent":
+            recent = self.app_settings_service.get_recent_projects()
+            if not recent:
+                return
+            target_path = recent[0]
+        elif startup_mode == "default_project":
+            target_path = self.app_settings_service.get_default_project()
+            if target_path is None:
+                return
+        else:
+            return
+
+        p = Path(target_path)
         if p.exists():
             self.main_window.show_progress("Laddar projekt...")
             QApplication.processEvents()
             try:
                 self.project_service.open_project(p)
-                self.app_settings_service.add_recent_project(default_path)
+                self.app_settings_service.add_recent_project(target_path)
                 self._refresh_recent_projects_menu()
                 self._update_status()
                 self._update_diagram_panel()
-                self.main_window.statusBar().showMessage(
-                    "Standardprojekt öppnat", 5000
-                )
+                if startup_mode == "default_project":
+                    self.main_window.statusBar().showMessage(
+                        "Standardprojekt öppnat", 5000
+                    )
+                else:
+                    self.main_window.statusBar().showMessage(
+                        "Senaste projekt öppnat", 5000
+                    )
             except Exception as e:
-                logger.warning("Kunde inte öppna standardprojektet: %s", e)
+                logger.warning("Kunde inte öppna projektet vid start: %s", e)
                 QMessageBox.warning(
                     self.main_window,
-                    "Standardprojekt",
-                    f"Kunde inte öppna standardprojektet:\n{e}",
+                    "Programstart",
+                    f"Kunde inte öppna projektet:\n{e}",
                 )
             finally:
                 self.main_window.hide_progress()
         else:
-            # File missing — notify, clear setting, continue
+            # File missing — notify and continue
             QMessageBox.information(
                 self.main_window,
-                "Standardprojekt",
-                f"Standardprojektet kunde inte hittas:\n{default_path}\n\n"
-                "Inställningen rensas.",
+                "Programstart",
+                f"Projektet kunde inte hittas:\n{target_path}",
             )
-            self.app_settings_service.set_default_project(None)
+            if startup_mode == "default_project":
+                self.app_settings_service.set_default_project(None)
 
     def _update_status(self) -> None:
         """Update the main window status bar with current project state."""
@@ -1452,9 +1453,10 @@ class Application:
         Sätter projektdata, personbox-konfiguration och aktiv person
         på DiagramPanel så att familjediagrammet renderas korrekt.
         Uppdaterar även personlistan så att den visar alla personer.
+        Settings are always read from app-level (not project-level).
         """
         panel = self.main_window.diagram_panel
-        settings = self.project_service.settings
+        app_settings = self.app_settings_service._settings
 
         if self.project_service.project_path is not None:
             project_data = self.project_service.data
@@ -1469,13 +1471,13 @@ class Application:
                 if panel._active_person_id not in person_ids:
                     panel._active_person_id = None
 
-            if settings:
-                panel._person_box_config = settings.person_box_config
-                panel._diagram_settings = settings.diagram_settings
-                # Apply background color from settings
-                if hasattr(settings.diagram_settings, 'background_color') and settings.diagram_settings.background_color:
-                    from PySide6.QtGui import QBrush, QColor
-                    panel._scene.setBackgroundBrush(QBrush(QColor(settings.diagram_settings.background_color)))
+            # Apply app-level visual settings
+            panel._person_box_config = app_settings.person_box_config
+            panel._diagram_settings = app_settings.diagram_settings
+            # Apply background color from settings
+            if app_settings.diagram_settings.background_color:
+                from PySide6.QtGui import QBrush, QColor
+                panel._scene.setBackgroundBrush(QBrush(QColor(app_settings.diagram_settings.background_color)))
 
             # Set active person to main_person_id if available
             main_person = project_data.project.main_person_id
@@ -1490,11 +1492,10 @@ class Application:
             # Refresh the person list panel with current project data
             self.main_window.person_list_panel.refresh()
 
-            # Apply person list config if available
-            if settings and hasattr(settings, 'person_list_config'):
-                self.main_window.person_list_panel.apply_person_list_config(
-                    settings.person_list_config
-                )
+            # Apply person list config from app-level
+            self.main_window.person_list_panel.apply_person_list_config(
+                app_settings.person_list_config
+            )
         else:
             panel.set_project_folder(None)
             panel.set_project_data(None)

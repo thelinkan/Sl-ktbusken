@@ -26,12 +26,17 @@ class NewProjectDialog(QDialog):
         parent: Optional parent widget.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, default_folder: Optional[str] = None) -> None:
         super().__init__(parent)
         self._ui = Ui_NewProjectDialog()
         self._ui.setupUi(self)
 
         self._location: str = ""
+
+        # Pre-fill location with default folder if provided
+        if default_folder:
+            self._location = default_folder
+            self._ui.labelLocationPath.setText(default_folder)
 
         # Rename the OK button to "Skapa"
         ok_button = self._ui.buttonBox.button(self._ui.buttonBox.StandardButton.Ok)
@@ -69,6 +74,7 @@ class NewProjectDialog(QDialog):
         directory = QFileDialog.getExistingDirectory(
             self,
             "Välj plats för projektet",
+            self._location,
         )
         if directory:
             self._location = directory

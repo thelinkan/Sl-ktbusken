@@ -18,11 +18,13 @@ from PySide6.QtWidgets import (
     QColorDialog,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QRadioButton,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -136,30 +138,63 @@ class SettingsDialog(QDialog):
             dna=self._pl_check_dna.isChecked(),
         )
 
+    @property
+    def startup_mode(self) -> str:
+        """Return the selected startup mode from radio buttons."""
+        if self._radio_recent.isChecked():
+            return "recent"
+        elif self._radio_default.isChecked():
+            return "default_project"
+        return "none"
+
     # ------------------------------------------------------------------
     # Tab 1: Program
     # ------------------------------------------------------------------
 
     def _build_program_tab(self) -> None:
-        """Build the Program tab with default project settings."""
+        """Build the Program tab with startup mode and default folder settings."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Standardprojekt group
-        group = QGroupBox("Standardprojekt", tab)
+        # Programstart group (replaces old Standardprojekt)
+        group = QGroupBox("Programstart", tab)
         vbox = QVBoxLayout(group)
 
+        # Determine current startup mode
+        startup_mode = "none"
+        if self._app_settings_service:
+            startup_mode = self._app_settings_service.get_startup_mode()
+
+        # Radio buttons
+        self._radio_none = QRadioButton("Öppna inget projekt")
+        self._radio_recent = QRadioButton("Öppna senaste projekt")
+        self._radio_default = QRadioButton("Öppna standardprojekt")
+
+        vbox.addWidget(self._radio_none)
+        vbox.addWidget(self._radio_recent)
+        vbox.addWidget(self._radio_default)
+
+        # Set current selection
+        if startup_mode == "recent":
+            self._radio_recent.setChecked(True)
+        elif startup_mode == "default_project":
+            self._radio_default.setChecked(True)
+        else:
+            self._radio_none.setChecked(True)
+
+        # Standard project selection (shown below the radio button)
         default_path = None
         if self._app_settings_service:
             default_path = self._app_settings_service.get_default_project()
 
         if default_path:
-            self._default_label = QLabel(f"Nuvarande: {default_path}")
+            self._default_label = QLabel(f"  Projekt: {default_path}")
         else:
-            self._default_label = QLabel("Inget standardprojekt angivet")
+            self._default_label = QLabel("  Inget standardprojekt angivet")
         vbox.addWidget(self._default_label)
 
         btn_layout = QHBoxLayout()
+        btn_layout.addSpacing(20)
         self._btn_set_default = QPushButton("Ange som standard")
         self._btn_set_default.setToolTip(
             "Ange det öppna projektet som standardprojekt vid uppstart"
@@ -177,7 +212,45 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(self._btn_clear_default)
 
         vbox.addLayout(btn_layout)
+
+        # Enable/disable the standard project controls based on radio selection
+        self._radio_default.toggled.connect(self._on_startup_radio_changed)
+        self._on_startup_radio_changed(self._radio_default.isChecked())
+
         layout.addWidget(group)
+
+        # Standardmapp group
+        folder_group = QGroupBox("Standardmapp", tab)
+        folder_vbox = QVBoxLayout(folder_group)
+
+        default_folder = None
+        if self._app_settings_service:
+            default_folder = self._app_settings_service.get_default_folder()
+
+        if default_folder:
+            self._folder_label = QLabel(f"Nuvarande: {default_folder}")
+        else:
+            self._folder_label = QLabel("Ingen standardmapp angiven")
+        folder_vbox.addWidget(self._folder_label)
+
+        folder_btn_layout = QHBoxLayout()
+        self._btn_set_folder = QPushButton("Välj mapp...")
+        self._btn_set_folder.setToolTip(
+            "Välj standardmapp för nya projekt"
+        )
+        self._btn_set_folder.clicked.connect(self._on_set_folder)
+        folder_btn_layout.addWidget(self._btn_set_folder)
+
+        self._btn_clear_folder = QPushButton("Rensa mapp")
+        self._btn_clear_folder.setToolTip("Ta bort standardmappsinställningen")
+        self._btn_clear_folder.clicked.connect(self._on_clear_folder)
+        if default_folder is None:
+            self._btn_clear_folder.setEnabled(False)
+        folder_btn_layout.addWidget(self._btn_clear_folder)
+
+        folder_vbox.addLayout(folder_btn_layout)
+        layout.addWidget(folder_group)
+
         layout.addStretch()
 
         self._tabs.addTab(tab, "Program")
@@ -298,7 +371,7 @@ class SettingsDialog(QDialog):
 
         self._spin_ancestry = QSpinBox()
         self._spin_ancestry.setMinimum(1)
-        self._spin_ancestry.setMaximum(10)
+        self._spin_ancestry.setMaximum(30)
         self._spin_ancestry.setValue(settings.ancestry_depth)
         depth_layout.addRow("Antal generationer uppåt (anor):", self._spin_ancestry)
 
@@ -311,7 +384,7 @@ class SettingsDialog(QDialog):
 
         self._spin_descendants = QSpinBox()
         self._spin_descendants.setMinimum(1)
-        self._spin_descendants.setMaximum(10)
+        self._spin_descendants.setMaximum(30)
         self._spin_descendants.setValue(settings.descendants_depth)
         depth_layout.addRow("Antal generationer nedåt (ättlingar):", self._spin_descendants)
 
@@ -367,7 +440,7 @@ class SettingsDialog(QDialog):
             return
         path_str = str(self._current_project_path)
         self._app_settings_service.set_default_project(path_str)
-        self._default_label.setText(f"Nuvarande: {path_str}")
+        self._default_label.setText(f"  Projekt: {path_str}")
         self._btn_clear_default.setEnabled(True)
 
     def _on_clear_default(self) -> None:
@@ -375,5 +448,38 @@ class SettingsDialog(QDialog):
         if self._app_settings_service is None:
             return
         self._app_settings_service.set_default_project(None)
-        self._default_label.setText("Inget standardprojekt angivet")
+        self._default_label.setText("  Inget standardprojekt angivet")
         self._btn_clear_default.setEnabled(False)
+
+    def _on_startup_radio_changed(self, default_checked: bool) -> None:
+        """Enable/disable standard project controls based on radio selection."""
+        self._default_label.setEnabled(default_checked)
+        self._btn_set_default.setEnabled(
+            default_checked and self._current_project_path is not None
+        )
+        self._btn_clear_default.setEnabled(
+            default_checked
+            and self._app_settings_service is not None
+            and self._app_settings_service.get_default_project() is not None
+        )
+
+    def _on_set_folder(self) -> None:
+        """Open a directory picker to set the default folder for new projects."""
+        if self._app_settings_service is None:
+            return
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Välj standardmapp för nya projekt",
+        )
+        if directory:
+            self._app_settings_service.set_default_folder(directory)
+            self._folder_label.setText(f"Nuvarande: {directory}")
+            self._btn_clear_folder.setEnabled(True)
+
+    def _on_clear_folder(self) -> None:
+        """Clear the default folder setting."""
+        if self._app_settings_service is None:
+            return
+        self._app_settings_service.set_default_folder(None)
+        self._folder_label.setText("Ingen standardmapp angiven")
+        self._btn_clear_folder.setEnabled(False)
