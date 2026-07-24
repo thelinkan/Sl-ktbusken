@@ -122,6 +122,21 @@ class ImportService:
                 f"Kunde inte läsa filen (teckenkodningsfel): {e}"
             ) from e
 
+        # Ensure all countries have their region_levels presets applied
+        # (needed for validation to recognize dynamic region-level types)
+        from slaktbusken.data.country_presets import get_preset
+        _COUNTRY_NAME_TO_PRESET = {
+            "sverige": "Sverige", "norway": "Norge", "norge": "Norge",
+            "finland": "Finland", "danmark": "Danmark", "denmark": "Danmark",
+            "tyskland": "Tyskland", "germany": "Tyskland", "england": "England",
+            "usa": "USA", "united states": "USA", "kanada": "USA", "canada": "USA",
+        }
+        for place in project_data.places:
+            if place.type == "country" and not place.region_levels:
+                preset_name = _COUNTRY_NAME_TO_PRESET.get(place.name.lower())
+                if preset_name:
+                    place.region_levels = get_preset(preset_name)
+
         # Post-import validation
         validation_errors = self._validation_service.validate_project(project_data)
         if validation_errors:

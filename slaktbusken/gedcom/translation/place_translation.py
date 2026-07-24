@@ -36,7 +36,7 @@ from slaktbusken.data.county_registry import (
 )
 from slaktbusken.gedcom.translation.models import GedcomPlace
 from slaktbusken.model.id_generator import IDGenerator
-from slaktbusken.model.place import ExternalId, Place
+from slaktbusken.model.place import Place
 from slaktbusken.persistence.translation_io import PlaceMapping
 
 
@@ -436,6 +436,10 @@ def map_place_to_hierarchy(
                 name=country_to_prepend,
                 parent_place_id=continent_id,
             )
+            # Apply region_levels preset for the auto-prepended country
+            preset_name = _COUNTRY_NAME_TO_PRESET.get(country_to_prepend.lower())
+            if preset_name:
+                new_place.region_levels = get_preset(preset_name)
             new_places.append(new_place)
             parent_id = new_id
 
@@ -520,13 +524,11 @@ def map_place_to_hierarchy(
                 if preset_name:
                     new_place.region_levels = get_preset(preset_name)
 
-            # For counties/län, store the länsbokstav if available
+            # For counties/län, store the länsbokstav as a custom field value
             if place_type in ("county", "lan"):
                 code = get_county_code(name)
                 if code:
-                    new_place.external_ids.append(
-                        ExternalId(key="länsbokstav", value=code)
-                    )
+                    new_place.custom_field_values["code"] = code
             new_places.append(new_place)
             parent_id = new_id
 

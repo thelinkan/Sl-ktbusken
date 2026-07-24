@@ -824,6 +824,13 @@ class Application:
             self._update_status()
             self._update_diagram_panel()
 
+            # Write detailed import log file
+            log_path = self._write_import_log(result, Path(path), project_path.parent)
+
+            # Show summary in dialog (with reference to log file if warnings exist)
+            if result.warnings and log_path:
+                summary += f"\n\nDetaljer sparade i:\n{log_path}"
+
             QMessageBox.information(
                 self.main_window,
                 "Import slutförd",
@@ -851,6 +858,84 @@ class Application:
             )
         finally:
             self.main_window.hide_progress()
+
+    def _write_import_log(self, result, gedcom_path: Path, project_folder: Path) -> Path | None:
+        """Write a detailed import log file to the project's log folder.
+
+        Args:
+            result: The ImportResult from the GEDCOM import.
+            gedcom_path: Path to the imported GEDCOM file.
+            project_folder: The project folder root.
+
+        Returns:
+            Path to the written log file, or None if writing failed.
+        """
+        import re
+        from datetime import datetime
+
+        try:
+            log_dir = project_folder / "log"
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            log_file = log_dir / f"import-log-{timestamp}.log"
+
+            # Build ID → name lookup for readable warnings
+            data = self.project_service.data
+            id_to_name: dict[str, str] = {}
+            for p in data.persons:
+                if p.names:
+                    name = f"{p.names[0].given} {p.names[0].surname}".strip()
+                    id_to_name[p.id] = name
+            for place in data.places:
+                id_to_name[place.id] = place.name
+            for source in data.sources:
+                id_to_name[source.id] = source.title or source.id
+            for family in data.families:
+                partner_names = []
+                for fp in family.partners:
+                    if fp.person_id in id_to_name:
+                        partner_names.append(id_to_name[fp.person_id])
+                id_to_name[family.id] = " & ".join(partner_names) if partner_names else family.id
+
+            def _resolve_ids(text: str) -> str:
+                """Replace entity IDs with human-readable names in warning text."""
+                def _replace_match(m):
+                    entity_id = m.group(1)
+                    name = id_to_name.get(entity_id)
+                    if name:
+                        return f"{name} [{entity_id}]"
+                    return entity_id
+                # Match patterns like "place_5", "person_123", "family_7", "source_42"
+                return re.sub(r'\b((?:place|person|family|source|event|media)_\d+)\b', _replace_match, text)
+
+            lines = []
+            lines.append(f"GEDCOM Import Log — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            lines.append(f"Fil: {gedcom_path.name}")
+            lines.append("")
+            lines.append("== Sammanfattning ==")
+            lines.append(f"  Personer tillagda: {result.persons_added}")
+            lines.append(f"  Personer uppdaterade: {result.persons_updated}")
+            lines.append(f"  Familjer tillagda: {result.families_added}")
+            if result.families_updated:
+                lines.append(f"  Familjer uppdaterade: {result.families_updated}")
+            lines.append(f"  Händelser tillagda: {result.events_added}")
+            lines.append(f"  Källor tillagda: {result.sources_added}")
+            lines.append(f"  Platser tillagda: {result.places_added}")
+            lines.append(f"  Varningar: {len(result.warnings)}")
+            lines.append("")
+
+            if result.warnings:
+                lines.append("== Varningar ==")
+                for i, warning in enumerate(result.warnings, 1):
+                    lines.append(f"  {i}. {_resolve_ids(warning)}")
+                lines.append("")
+
+            log_file.write_text("\n".join(lines), encoding="utf-8")
+            return log_file
+        except Exception as e:
+            logger.warning("Kunde inte skriva importlogg: %s", e)
+            return None
 
     def export_gedcom(self) -> None:
         """Export the current project to a GEDCOM file."""

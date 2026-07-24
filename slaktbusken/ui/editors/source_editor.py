@@ -373,13 +373,21 @@ class SourceEditor(QWidget):
         Each list item displays inline usage statistics:
         "{title} ({provider}) [{person_count} pers, {event_count} händ]"
 
+        Sources are sorted alphabetically by title.
+
         Args:
             filter_text: Case-insensitive filter string for title or provider.
         """
         self._ui.source_list.clear()
         filter_lower = filter_text.lower()
 
-        for source in self._project_data.sources:
+        # Collect and sort sources alphabetically by title
+        sorted_sources = sorted(
+            self._project_data.sources,
+            key=lambda s: (s.title or s.id).lower(),
+        )
+
+        for source in sorted_sources:
             if filter_lower:
                 title_match = filter_lower in source.title.lower()
                 provider_match = filter_lower in source.provider.lower()
@@ -625,6 +633,47 @@ class SourceEditor(QWidget):
 
         if not has_fields:
             return
+
+        # Set individual field visibility based on source type
+        church_visible = source_type == "church_book"
+        self._ui.parish_label.setVisible(church_visible)
+        self._ui.parish_input.setVisible(church_visible)
+        self._ui.county_code_label.setVisible(church_visible)
+        self._ui.county_code_input.setVisible(church_visible)
+        self._ui.series_label.setVisible(church_visible)
+        self._ui.series_input.setVisible(church_visible)
+        self._ui.volume_label.setVisible(church_visible)
+        self._ui.volume_input.setVisible(church_visible)
+        self._ui.years_label.setVisible(church_visible)
+        self._ui.years_input.setVisible(church_visible)
+        self._ui.image_label.setVisible(church_visible)
+        self._ui.image_input.setVisible(church_visible)
+        self._ui.page_label.setVisible(church_visible)
+        self._ui.page_input.setVisible(church_visible)
+
+        db_visible = source_type == "database"
+        self._ui.database_name_label.setVisible(db_visible)
+        self._ui.database_name_input.setVisible(db_visible)
+        self._ui.record_id_label.setVisible(db_visible)
+        self._ui.record_id_input.setVisible(db_visible)
+
+        dn_visible = source_type == "death_notice"
+        self._ui.dn_newspaper_label.setVisible(dn_visible)
+        self._ui.dn_newspaper_input.setVisible(dn_visible)
+        self._ui.publication_date_label.setVisible(dn_visible)
+        self._ui.publication_date_input.setVisible(dn_visible)
+        self._ui.dn_page_label.setVisible(dn_visible)
+        self._ui.dn_page_input.setVisible(dn_visible)
+
+        np_visible = source_type == "newspaper"
+        self._ui.np_newspaper_label.setVisible(np_visible)
+        self._ui.np_newspaper_input.setVisible(np_visible)
+        self._ui.np_date_label.setVisible(np_visible)
+        self._ui.np_date_input.setVisible(np_visible)
+        self._ui.np_page_label.setVisible(np_visible)
+        self._ui.np_page_input.setVisible(np_visible)
+        self._ui.article_title_label.setVisible(np_visible)
+        self._ui.article_title_input.setVisible(np_visible)
 
         if source_type == "church_book":
             self._ui.parish_input.setText(str(fields.get("parish", "") or ""))
@@ -1014,6 +1063,7 @@ class SourceEditor(QWidget):
         # Church book types
         church_book_types = {
             "Husförhörslängd",
+            "Församlingsbok",
             "Födelse- och dopbok",
             "Lysnings- och vigselbok",
             "Död- och begravningsbok",

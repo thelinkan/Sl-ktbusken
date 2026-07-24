@@ -43,6 +43,10 @@ _PRESETS: dict[str, list[RegionLevel]] = {
 }
 
 
+AVAILABLE_PRESETS: list[str] = list(_PRESETS.keys())
+"""List of country names that have predefined region level presets."""
+
+
 def get_preset(country_name: str) -> list[RegionLevel]:
     """Return predefined region levels for a known country.
 

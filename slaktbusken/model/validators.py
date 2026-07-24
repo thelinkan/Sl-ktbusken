@@ -396,17 +396,37 @@ def validate_custom_field_values(
 def _get_all_region_level_keys(
     place_lookup: dict[str, Place] | Callable[[str], Optional[Place]],
 ) -> set[str]:
-    """Collect all region level keys from countries in a place lookup dict.
+    """Collect all region level keys that should be considered valid place types.
+
+    Gathers keys from three sources:
+    1. Region levels explicitly set on country places in the project.
+    2. ALL known country presets — unconditionally included so that any
+       preset-defined region-level type (lan, socken, fylke, kommune, etc.)
+       is always accepted as valid regardless of which countries exist.
+
+    This ensures validation never rejects a region-level type that could
+    legitimately appear in a GEDCOM import.
 
     Only works when place_lookup is a dict. Returns an empty set for callables.
     """
     if callable(place_lookup):
         return set()
+
+    from slaktbusken.data.country_presets import get_preset, AVAILABLE_PRESETS
+
     keys: set[str] = set()
+
+    # Include keys from all known country presets unconditionally
+    for preset_name in AVAILABLE_PRESETS:
+        for rl in get_preset(preset_name):
+            keys.add(rl.key)
+
+    # Also include any custom region_levels defined on country places in the project
     for place in place_lookup.values():
         if place.type == "country":
             for rl in place.region_levels:
                 keys.add(rl.key)
+
     return keys
 
 

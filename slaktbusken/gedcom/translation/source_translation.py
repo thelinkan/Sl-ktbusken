@@ -255,6 +255,10 @@ def map_gedcom_source(
         if raw_text.lower().startswith(_ARKIV_DIGITAL_PREFIX):
             raw_text = raw_text[len(_ARKIV_DIGITAL_PREFIX):].strip()
 
+        # Normalize English keywords to Swedish before parsing
+        raw_text = re.sub(r'\bImage:', 'Bild:', raw_text, flags=re.IGNORECASE)
+        raw_text = re.sub(r'\bPage:', 'Sida:', raw_text, flags=re.IGNORECASE)
+
         parsed = parse_reference(raw_text)
 
         if parsed is not None:
@@ -268,6 +272,22 @@ def map_gedcom_source(
                             source.kalltyp_id = kt.id
                             break
                     break
+
+            # Override title from parsed result if available
+            if parsed.title:
+                source.title = parsed.title
+
+            # Set short_note if parsed result has it
+            if parsed.short_note:
+                source.short_note = parsed.short_note
+
+            # Set reference_text from parsed result (only for non-church_book,
+            # since church_book reference_text is already set with AID/NAD stripped)
+            if parsed.reference_text and source.source_type != "church_book":
+                source.reference_text = raw_text
+
+            # Clear provider_ref for parsed ArkivDigital sources
+            source.provider_ref = ""
 
             # Populate arkivreferenser from parsed result
             if parsed.arkivreferenser:
@@ -301,7 +321,36 @@ def map_gedcom_source(
         searchable = _get_searchable_text(gedcom_source)
         source.arkivreferens = _extract_sdb_identifier(searchable)
 
+    # Personbild detection: title ending with "personbild" → Skatteverket / Personbild (6401)
+    if not source.leverantor_id and _detect_personbild_source(gedcom_source):
+        _leverantorer = leverantorer or []
+        _kalltyper = kalltyper or []
+
+        skv_leverantor = None
+        for lev in _leverantorer:
+            if lev.name == "Skatteverket":
+                skv_leverantor = lev
+                break
+
+        if skv_leverantor is not None:
+            source.leverantor_id = skv_leverantor.id
+
+            # Find "Personbild (6401)" Källtyp for this Leverantör
+            for kt in _kalltyper:
+                if (
+                    kt.leverantor_id == skv_leverantor.id
+                    and "personbild" in kt.name.lower()
+                ):
+                    source.kalltyp_id = kt.id
+                    break
+
     return source
+
+
+def _detect_personbild_source(gedcom_source: GedcomSource) -> bool:
+    """Check if a GEDCOM source title starts or ends with 'personbild' (case-insensitive)."""
+    title = (gedcom_source.title or "").strip().lower()
+    return title.endswith("personbild") or title.startswith("personbild")
 
 
 def detect_source_type(gedcom_source: GedcomSource) -> str:
@@ -341,6 +390,8 @@ def detect_source_type(gedcom_source: GedcomSource) -> str:
         'census'
     """
     searchable_text = _get_searchable_text(gedcom_source)
+    # Normalize English keywords for pattern matching
+    searchable_text = _normalize_english_keywords(searchable_text)
 
     # Church book: check the structured citation pattern (colon or slash variant)
     if _CHURCH_BOOK_PATTERN.search(searchable_text):
@@ -365,13 +416,19 @@ def detect_source_type(gedcom_source: GedcomSource) -> str:
     if any(kw in searchable_lower for kw in _NEWSPAPER_KEYWORDS):
         return "newspaper"
 
-    # Photograph
-    if any(kw in searchable_lower for kw in _PHOTOGRAPH_KEYWORDS):
-        return "photograph"
-
-    # Census / husförhör
+    # Census / husförhör (check before photograph since "Bild:" in citations matches "bild")
     if any(kw in searchable_lower for kw in _CENSUS_KEYWORDS):
         return "census"
+
+    # Photograph (skip if "bild:" appears as part of a citation format like "Bild: 123")
+    if any(kw in searchable_lower for kw in _PHOTOGRAPH_KEYWORDS):
+        # Don't match "bild" if it's followed by ":" (citation format)
+        if "bild:" not in searchable_lower:
+            return "photograph"
+        # Check if there's a standalone photo keyword (not just "Bild:" in citation)
+        non_bild_photo_kws = [kw for kw in _PHOTOGRAPH_KEYWORDS if kw != "bild"]
+        if any(kw in searchable_lower for kw in non_bild_photo_kws):
+            return "photograph"
 
     return "other"
 
@@ -570,6 +627,16 @@ def find_matching_source(
 # ---------------------------------------------------------------------------
 
 
+def _normalize_english_keywords(text: str) -> str:
+    """Normalize English keywords to Swedish equivalents for parsing.
+
+    Replaces 'Image:' with 'Bild:' and 'Page:' with 'Sida:' (case-insensitive).
+    """
+    text = re.sub(r'\bImage:', 'Bild:', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bPage:', 'Sida:', text, flags=re.IGNORECASE)
+    return text
+
+
 def _get_searchable_text(gedcom_source: GedcomSource) -> str:
     """Combine relevant GEDCOM source fields into a single searchable string.
 
@@ -618,6 +685,7 @@ def _build_structured_reference(
             # Strip ArkivDigital prefix before parsing
             if text.lower().startswith(_ARKIV_DIGITAL_PREFIX):
                 text = text[len(_ARKIV_DIGITAL_PREFIX) :].strip()
+            text = _normalize_english_keywords(text)
             ref = parse_church_book_citation(text)
             if ref is not None:
                 return ref
@@ -628,13 +696,14 @@ def _build_structured_reference(
             # Strip ArkivDigital prefix before parsing
             if title_text.lower().startswith(_ARKIV_DIGITAL_PREFIX):
                 title_text = title_text[len(_ARKIV_DIGITAL_PREFIX):].strip()
+            title_text = _normalize_english_keywords(title_text)
             ref = parse_church_book_citation(title_text)
             if ref is not None:
                 return ref
 
         # Fall back to publication or abbreviation
         if gedcom_source.publication:
-            ref = parse_church_book_citation(gedcom_source.publication)
+            ref = parse_church_book_citation(_normalize_english_keywords(gedcom_source.publication))
             if ref is not None:
                 return ref
 
