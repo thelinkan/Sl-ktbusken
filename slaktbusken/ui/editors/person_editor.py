@@ -175,6 +175,9 @@ class PersonEditor(QWidget):
         self._project_data = project_data
         self._project_folder = project_folder
         self._person = person
+        self._is_new = person is None or not any(
+            p.id == person.id for p in project_data.persons
+        )
         self._saved_person: Optional[Person] = None
         self._editing_name_row: Optional[int] = None
         self._profile_media_id: Optional[str] = None
@@ -2240,11 +2243,87 @@ class PersonEditor(QWidget):
         Validates that at least one name entry exists and sex is set.
         On success, stores the result in saved_person.
         """
-        # Validate: at least one name required
+        from PySide6.QtWidgets import QMessageBox
+
+        # --- Hard validation: block save entirely if requirements not met ---
+
+        # Validate: at least one name row required
         if self._ui.names_table.rowCount() == 0:
             self._update_status("Minst ett namn krävs")
             self._ui.tab_widget.setCurrentWidget(self._ui.names_tab)
             return
+
+        # Check that at least one name has non-empty given or surname
+        has_valid_name = False
+        for row in range(self._ui.names_table.rowCount()):
+            given = self._ui.names_table.item(row, 1).text().strip()
+            surname = self._ui.names_table.item(row, 2).text().strip()
+            if given or surname:
+                has_valid_name = True
+                break
+
+        if not has_valid_name:
+            self._update_status("Minst ett namn med förnamn eller efternamn krävs")
+            self._ui.tab_widget.setCurrentWidget(self._ui.names_tab)
+            return
+
+        # --- Soft warnings: ask user to confirm potential mistakes ---
+
+        # Check for unsaved name field text (applies to both new and existing persons)
+        pending_given = self._ui.given_name_input.text().strip()
+        pending_surname = self._ui.surname_input.text().strip()
+        if pending_given or pending_surname:
+            # Don't warn if the text matches a currently selected row (user is just viewing it)
+            is_viewing_existing = False
+            selected = self._ui.names_table.selectedItems()
+            if selected:
+                row = selected[0].row()
+                existing_given = self._ui.names_table.item(row, 1).text().strip()
+                existing_surname = self._ui.names_table.item(row, 2).text().strip()
+                if pending_given == existing_given and pending_surname == existing_surname:
+                    is_viewing_existing = True
+
+            if not is_viewing_existing:
+                msg = (
+                    "Namnfälten innehåller text som inte lagts till i namnlistan.\n\n"
+                    "Vill du spara utan att lägga till namnet?"
+                )
+                box = QMessageBox(self)
+                box.setWindowTitle("Bekräfta")
+                box.setText(msg)
+                box.setIcon(QMessageBox.Icon.Question)
+                ja_button = box.addButton("Ja", QMessageBox.ButtonRole.YesRole)
+                nej_button = box.addButton("Nej", QMessageBox.ButtonRole.NoRole)
+                box.setDefaultButton(nej_button)
+                box.exec()
+                if box.clickedButton() != ja_button:
+                    return
+
+        # Additional new-person warnings
+        if self._is_new:
+            warnings: list[str] = []
+
+            # Check if sex is unknown
+            sex_label = self._ui.sex_combo.currentText()
+            sex_val = self._sex_label_to_internal.get(sex_label, "U")
+            if sex_val == "U":
+                warnings.append("Kön är satt till Okänt.")
+
+            if warnings:
+                msg = "Följande saker kan vara misstag:\n\n"
+                msg += "\n".join(f"• {w}" for w in warnings)
+                msg += "\n\nVill du spara personen ändå?"
+
+                box = QMessageBox(self)
+                box.setWindowTitle("Bekräfta")
+                box.setText(msg)
+                box.setIcon(QMessageBox.Icon.Question)
+                ja_button = box.addButton("Ja", QMessageBox.ButtonRole.YesRole)
+                nej_button = box.addButton("Nej", QMessageBox.ButtonRole.NoRole)
+                box.setDefaultButton(nej_button)
+                box.exec()
+                if box.clickedButton() != ja_button:
+                    return
 
         # Collect names from table
         names: list[Name] = []

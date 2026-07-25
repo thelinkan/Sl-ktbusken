@@ -1429,6 +1429,9 @@ class Application:
                 QToolBar { background-color: #353535; color: #ffffff; border: none; }
                 QToolBar QToolButton { color: #ffffff; }
                 QStatusBar { background-color: #353535; color: #ffffff; }
+                QTabBar::tab { color: #ffffff; background-color: #353535; padding: 6px 12px; }
+                QTabBar::tab:selected { background-color: #454545; }
+                QTabBar::tab:!selected { color: #cccccc; background-color: #2a2a2a; }
             """)
         elif theme == "light":
             app.setPalette(app.style().standardPalette())

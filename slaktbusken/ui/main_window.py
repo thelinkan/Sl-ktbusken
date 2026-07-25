@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
@@ -115,21 +115,32 @@ class MainWindow(QMainWindow):
         # Visa (View)
         self.action_view_family = QAction("&Familjevy", self)
         self.action_view_family.setToolTip("Visa familjevy")
+        self.action_view_family.setCheckable(True)
+        self.action_view_family.setChecked(True)  # Default view
         self.action_view_family.triggered.connect(
             lambda: self._switch_view(ViewType.FAMILY)
         )
 
         self.action_view_ancestry = QAction("&Antavla", self)
         self.action_view_ancestry.setToolTip("Visa antavla (uppåt)")
+        self.action_view_ancestry.setCheckable(True)
         self.action_view_ancestry.triggered.connect(
             lambda: self._switch_view(ViewType.ANCESTRY)
         )
 
         self.action_view_descendants = QAction("&Ättlingar", self)
         self.action_view_descendants.setToolTip("Visa ättlingar (nedåt)")
+        self.action_view_descendants.setCheckable(True)
         self.action_view_descendants.triggered.connect(
             lambda: self._switch_view(ViewType.DESCENDANTS)
         )
+
+        # Group view actions so only one can be checked at a time
+        self._view_action_group = QActionGroup(self)
+        self._view_action_group.setExclusive(True)
+        self._view_action_group.addAction(self.action_view_family)
+        self._view_action_group.addAction(self.action_view_ancestry)
+        self._view_action_group.addAction(self.action_view_descendants)
 
         # Redigera (Edit)
         self.action_source_editor = QAction("&Källredigerare...", self)
@@ -317,6 +328,12 @@ class MainWindow(QMainWindow):
         """Create toolbar with common actions."""
         self.toolbar = QToolBar("Huvudverktyg", self)
         self.toolbar.setObjectName("huvudverktyg")
+        self.toolbar.setStyleSheet("""
+            QToolButton:checked {
+                border: 1px solid palette(mid);
+                border-radius: 2px;
+            }
+        """)
         self.addToolBar(self.toolbar)
 
         self.toolbar.addAction(self.action_new)
@@ -539,6 +556,17 @@ class MainWindow(QMainWindow):
         """
         self._current_view = view_type
         self.diagram_panel.switch_view(view_type)
+
+        # Update checked state on view actions
+        action_map = {
+            ViewType.FAMILY: self.action_view_family,
+            ViewType.ANCESTRY: self.action_view_ancestry,
+            ViewType.DESCENDANTS: self.action_view_descendants,
+        }
+        target_action = action_map.get(view_type)
+        if target_action and not target_action.isChecked():
+            target_action.setChecked(True)
+
         view_names = {
             ViewType.FAMILY: "Familjevy",
             ViewType.ANCESTRY: "Antavla",

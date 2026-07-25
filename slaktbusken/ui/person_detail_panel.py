@@ -169,7 +169,13 @@ class PersonDetailPanel(QWidget):
 
         info_text = " · ".join(info_parts)
         info_widget = QLabel(info_text)
-        info_widget.setStyleSheet("color: #555; margin-top: 4px;")
+        info_widget.setStyleSheet("margin-top: 4px; opacity: 0.7;")
+        info_widget.setForegroundRole(info_widget.foregroundRole())
+        # Use palette-based dimmed color
+        palette = self.palette()
+        dimmed_color = palette.color(palette.ColorRole.WindowText)
+        dimmed_color.setAlpha(160)
+        info_widget.setStyleSheet(f"color: rgba({dimmed_color.red()}, {dimmed_color.green()}, {dimmed_color.blue()}, 160); margin-top: 4px;")
         info_widget.setWordWrap(True)
         self._content_layout.addWidget(info_widget)
 
@@ -217,7 +223,7 @@ class PersonDetailPanel(QWidget):
 
         if not parents_siblings and not families:
             no_fam = QLabel("  Inga familjeuppgifter")
-            no_fam.setStyleSheet("color: gray; margin-left: 8px;")
+            no_fam.setStyleSheet("font-style: italic; margin-left: 8px;")
             self._content_layout.addWidget(no_fam)
 
         # --- Notes ---
@@ -229,7 +235,7 @@ class PersonDetailPanel(QWidget):
 
             notes_widget = QLabel(person.notes)
             notes_widget.setWordWrap(True)
-            notes_widget.setStyleSheet("color: #333; margin-left: 8px;")
+            notes_widget.setStyleSheet("margin-left: 8px;")
             self._content_layout.addWidget(notes_widget)
 
         # --- DNA section ---
@@ -438,7 +444,12 @@ class PersonDetailPanel(QWidget):
         details.append(f"Matchningar: {match_count}")
         details.append(f"Triangleringar: {tri_count}")
 
-        text = f"  {parts[0]}<br/>    <span style='color:#555'>{' · '.join(details)}</span>"
+        # Use palette-aware dimmed color for details
+        palette = self.palette()
+        dim = palette.color(palette.ColorRole.WindowText)
+        dim_css = f"rgba({dim.red()}, {dim.green()}, {dim.blue()}, 160)"
+
+        text = f"  {parts[0]}<br/>    <span style='color:{dim_css}'>{' · '.join(details)}</span>"
         label = QLabel(text)
         label.setTextFormat(Qt.TextFormat.RichText)
         label.setWordWrap(True)
