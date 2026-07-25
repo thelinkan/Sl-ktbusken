@@ -71,6 +71,7 @@ class AppSettings:
     startup_mode: str = "none"
     default_project_path: Optional[str] = None
     default_folder: Optional[str] = None
+    theme: str = "system"
     person_box_config: PersonBoxConfig = field(default_factory=PersonBoxConfig)
     diagram_settings: DiagramSettings = field(default_factory=DiagramSettings)
     person_list_config: PersonListConfig = field(default_factory=PersonListConfig)
@@ -258,6 +259,7 @@ class AppSettingsService:
             "startup_mode": settings.startup_mode,
             "default_project_path": settings.default_project_path,
             "default_folder": settings.default_folder,
+            "theme": settings.theme,
             "person_box_config": asdict(settings.person_box_config),
             "diagram_settings": asdict(settings.diagram_settings),
             "person_list_config": asdict(settings.person_list_config),
@@ -317,6 +319,12 @@ class AppSettingsService:
         default_folder = data.get("default_folder")
         if default_folder is not None and not isinstance(default_folder, str):
             default_folder = None
+
+        # Deserialize theme with fallback
+        _VALID_THEMES = ("light", "dark", "system")
+        theme = data.get("theme", "system")
+        if theme not in _VALID_THEMES:
+            theme = "system"
 
         # Deserialize column visibility with graceful fallback
         cv_data = data.get("column_visibility")
@@ -391,6 +399,7 @@ class AppSettingsService:
             startup_mode=startup_mode,
             default_project_path=default_project_path,
             default_folder=default_folder,
+            theme=theme,
             person_box_config=person_box_config,
             diagram_settings=diagram_settings,
             person_list_config=person_list_config,

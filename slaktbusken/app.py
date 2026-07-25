@@ -101,6 +101,9 @@ class Application:
             self.main_window._on_person_activated_for_detail
         )
 
+        # Apply saved theme
+        self._apply_theme(self.app_settings_service._settings.theme)
+
         # Auto-open default project if configured
         self._auto_open_default_project()
 
@@ -1043,10 +1046,14 @@ class Application:
 
         # Save all settings to app-level
         app_settings.startup_mode = dialog.startup_mode
+        app_settings.theme = dialog.theme
         app_settings.person_box_config = dialog.person_box_config
         app_settings.diagram_settings = dialog.diagram_settings
         app_settings.person_list_config = dialog.person_list_config
         self.app_settings_service.save(app_settings)
+
+        # Apply theme
+        self._apply_theme(app_settings.theme)
 
         # Apply to diagram panel for immediate re-render.
         panel = self.main_window.diagram_panel
@@ -1376,6 +1383,60 @@ class Application:
         """Refresh the recent projects submenu in the main window."""
         recent = self.app_settings_service.get_recent_projects()
         self.main_window.refresh_recent_projects_menu(recent)
+
+    def _apply_theme(self, theme: str) -> None:
+        """Apply the specified theme to the application.
+
+        Args:
+            theme: One of "light", "dark", or "system".
+        """
+        from PySide6.QtGui import QPalette, QColor
+        from PySide6.QtCore import Qt
+
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        if theme == "dark":
+            palette = QPalette()
+            # Window and base colors
+            palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.WindowText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Base, QColor(35, 35, 35))
+            palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(25, 25, 25))
+            palette.setColor(QPalette.ColorRole.ToolTipText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Text, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.ButtonText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
+            palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+            # Disabled state
+            palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(127, 127, 127))
+            palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
+            palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(127, 127, 127))
+            app.setPalette(palette)
+            app.setStyleSheet("""
+                QToolTip { color: #ffffff; background-color: #2a2a2a; border: 1px solid white; }
+                QMenuBar { background-color: #353535; color: #ffffff; }
+                QMenuBar::item:selected { background-color: #2a82da; }
+                QMenu { background-color: #353535; color: #ffffff; border: 1px solid #555555; }
+                QMenu::item { padding: 5px 30px 5px 20px; }
+                QMenu::item:selected { background-color: #2a82da; }
+                QMenu::separator { height: 1px; background: #555555; margin: 4px 10px; }
+                QToolBar { background-color: #353535; color: #ffffff; border: none; }
+                QToolBar QToolButton { color: #ffffff; }
+                QStatusBar { background-color: #353535; color: #ffffff; }
+            """)
+        elif theme == "light":
+            app.setPalette(app.style().standardPalette())
+            app.setStyleSheet("")
+        else:
+            # System default — reset to default palette
+            app.setPalette(app.style().standardPalette())
+            app.setStyleSheet("")
 
     def _auto_open_default_project(self) -> None:
         """Auto-open a project on startup based on the configured startup mode.

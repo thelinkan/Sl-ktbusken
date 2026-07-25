@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -147,6 +148,11 @@ class SettingsDialog(QDialog):
             return "default_project"
         return "none"
 
+    @property
+    def theme(self) -> str:
+        """Return the selected theme from the combo box."""
+        return self._theme_combo.currentData() or "system"
+
     # ------------------------------------------------------------------
     # Tab 1: Program
     # ------------------------------------------------------------------
@@ -250,6 +256,26 @@ class SettingsDialog(QDialog):
 
         folder_vbox.addLayout(folder_btn_layout)
         layout.addWidget(folder_group)
+
+        # Tema group
+        theme_group = QGroupBox("Tema", tab)
+        theme_vbox = QVBoxLayout(theme_group)
+
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItem("Ljust tema", "light")
+        self._theme_combo.addItem("Mörkt tema", "dark")
+        self._theme_combo.addItem("Systemets standard", "system")
+
+        # Set current theme selection
+        current_theme = "system"
+        if self._app_settings_service:
+            current_theme = self._app_settings_service._settings.theme
+        theme_index = self._theme_combo.findData(current_theme)
+        if theme_index >= 0:
+            self._theme_combo.setCurrentIndex(theme_index)
+
+        theme_vbox.addWidget(self._theme_combo)
+        layout.addWidget(theme_group)
 
         layout.addStretch()
 
