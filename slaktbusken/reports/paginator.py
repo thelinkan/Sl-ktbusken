@@ -150,6 +150,7 @@ def _wrap_text(text: str, max_width_mm: float, char_width: float) -> list[str]:
     """Break text into lines at word/hyphen boundaries to fit max_width_mm.
 
     Line breaks occur ONLY at whitespace or hyphen boundaries (Requirement 6.1).
+    URLs (starting with http:// or https://) are never broken at hyphens.
     """
     if not text:
         return [""]
@@ -163,8 +164,12 @@ def _wrap_text(text: str, max_width_mm: float, char_width: float) -> list[str]:
     current_line = ""
 
     for word in words:
-        # Handle words with hyphens — we can break at hyphens too
-        parts = _split_at_hyphens(word)
+        # Never split URLs at hyphens — they must stay intact
+        if word.startswith("http://") or word.startswith("https://"):
+            parts = [word]
+        else:
+            # Handle words with hyphens — we can break at hyphens too
+            parts = _split_at_hyphens(word)
         for i, part in enumerate(parts):
             candidate = part
             if current_line:

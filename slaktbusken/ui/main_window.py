@@ -307,6 +307,9 @@ class MainWindow(QMainWindow):
         self._report_menu_builder.action_ansedel.triggered.connect(
             self._generate_ansedel
         )
+        self._report_menu_builder.action_kallrapport.triggered.connect(
+            self._generate_kallrapport
+        )
         self._report_menu_builder.action_geographic.triggered.connect(
             self._generate_geographic
         )
@@ -613,6 +616,23 @@ class MainWindow(QMainWindow):
 
         service = ReportGeneratorService()
         content = service.generate_geographic_consistency(data)
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
+    def _generate_kallrapport(self) -> None:
+        """Generate and display the Källrapport (Source Report)."""
+        if self._app.project_service.project_path is None:
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        data = self._app.project_service.data
+
+        service = ReportGeneratorService()
+        content = service.generate_kallrapport(data)
 
         settings = self._app.project_service.settings
         dlg = ReportPreviewDialog(content, settings, parent=self)

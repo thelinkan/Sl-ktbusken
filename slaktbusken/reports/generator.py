@@ -13,6 +13,7 @@ from slaktbusken.model.project import ProjectData
 from slaktbusken.reports.ansedel import generate_ansedel
 from slaktbusken.reports.content import ReportContent
 from slaktbusken.reports.geographic import generate_geographic_report
+from slaktbusken.reports.kallrapport import generate_kallrapport
 from slaktbusken.reports.media_consistency import generate_media_report
 
 
@@ -70,3 +71,20 @@ class ReportGeneratorService:
             ReportContent with orphaned, unlinked, missing, and duplicate checks.
         """
         return generate_media_report(data, project_folder)
+
+    def generate_kallrapport(
+        self,
+        data: ProjectData,
+    ) -> ReportContent:
+        """Generate a Källrapport (Source Report) for the project.
+
+        Lists all sources organized by Leverantör → Källtyp → Title,
+        with special grouping for Arkiv Digital (Volym → Sida/Bild).
+
+        Args:
+            data: The full project data containing sources.
+
+        Returns:
+            ReportContent with the hierarchical source listing.
+        """
+        return generate_kallrapport(data)
