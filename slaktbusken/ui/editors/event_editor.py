@@ -1008,8 +1008,7 @@ class EventEditor(QWidget):
         # Check if a source was saved
         saved_source = editor.saved_source
         if saved_source is not None:
-            # Add to project data
-            self._project_data.sources.append(saved_source)
+            # Source already added to project data by SourceEditor._on_save
 
             # Add to combo and select it
             display = self._format_source_display(saved_source)
@@ -1053,8 +1052,7 @@ class EventEditor(QWidget):
 
         saved_place = editor.saved_place
         if saved_place is not None:
-            # Add to project data
-            self._project_data.places.append(saved_place)
+            # Place already added to project data by PlaceEditor._on_save
 
             # Add to combo and select it
             display = self._format_place_hierarchy(saved_place)
