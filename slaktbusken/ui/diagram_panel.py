@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Zoom limits as scale factors (1.0 = 100%)
-_MIN_ZOOM = 0.25
+_MIN_ZOOM = 0.01
 _MAX_ZOOM = 4.0
 _ZOOM_STEP = 1.15  # Each wheel notch scales by 15%
 

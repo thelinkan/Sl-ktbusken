@@ -323,8 +323,9 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(self.action_open)
         self.toolbar.addAction(self.action_save)
         self.toolbar.addSeparator()
-        self.toolbar.addAction(self.action_import)
-        self.toolbar.addAction(self.action_export)
+        self.toolbar.addAction(self.action_view_family)
+        self.toolbar.addAction(self.action_view_ancestry)
+        self.toolbar.addAction(self.action_view_descendants)
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.action_show_main_person)
 

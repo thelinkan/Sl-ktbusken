@@ -240,7 +240,7 @@ class RelationshipDialog(QDialog):
                 return False
 
             zoom_step = 1.15
-            min_zoom = 0.25
+            min_zoom = 0.01
             max_zoom = 4.0
 
             factor = zoom_step if angle > 0 else 1.0 / zoom_step

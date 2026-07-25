@@ -161,21 +161,33 @@ def get_person_birth_death_years(
         events: All events in the project.
 
     Returns:
-        Tuple of (birth_year, death_year) as strings. Empty string if not found.
+        Tuple of (birth_year, death_year) as strings.
+        - A year string (e.g. "1845") if the event has a parseable year.
+        - "?" if the event exists but has no parseable year.
+        - "" if no such event exists for the person.
     """
     birth_year = ""
     death_year = ""
+    has_birth_event = False
+    has_death_event = False
+
     for event in events:
-        if event.date is None:
-            continue
         for participant in event.participants:
             if participant.person_id == person.id:
-                if event.type == "birth" and not birth_year:
-                    birth_year = extract_year(event.date.value)
-                elif event.type == "death" and not death_year:
-                    death_year = extract_year(event.date.value)
+                if event.type == "birth" and not has_birth_event:
+                    has_birth_event = True
+                    if event.date is not None:
+                        birth_year = extract_year(event.date.value)
+                    if not birth_year:
+                        birth_year = "?"
+                elif event.type == "death" and not has_death_event:
+                    has_death_event = True
+                    if event.date is not None:
+                        death_year = extract_year(event.date.value)
+                    if not death_year:
+                        death_year = "?"
                 break
-        if birth_year and death_year:
+        if has_birth_event and has_death_event:
             break
     return birth_year, death_year
 
@@ -1781,6 +1793,7 @@ class PersonListPanel(QWidget):
 
         Shows: "Surname, Given (birth–death)" with years where available.
         Years always appear in the name column regardless of config.
+        No death recorded = no "?" shown. Death without year = "?".
 
         Args:
             info: The person display info.
@@ -1792,8 +1805,11 @@ class PersonListPanel(QWidget):
 
         if info.birth_year or info.death_year:
             birth_display = info.birth_year if info.birth_year else "?"
-            death_display = info.death_year if info.death_year else "?"
-            return f"{name_part} ({birth_display}\u2013{death_display})"
+            death_display = info.death_year
+            if death_display:
+                return f"{name_part} ({birth_display}\u2013{death_display})"
+            else:
+                return f"{name_part} ({birth_display}\u2013)"
 
         return name_part
 
@@ -1830,8 +1846,11 @@ class PersonListPanel(QWidget):
         # Add years if available
         if info.birth_year or info.death_year:
             birth = info.birth_year if info.birth_year else "?"
-            death = info.death_year if info.death_year else "?"
-            return f"{name_html} ({birth}\u2013{death})"
+            death = info.death_year
+            if death:
+                return f"{name_html} ({birth}\u2013{death})"
+            else:
+                return f"{name_html} ({birth}\u2013)"
         return name_html
 
     def _on_item_clicked(self, current: QTreeWidgetItem, previous: QTreeWidgetItem) -> None:

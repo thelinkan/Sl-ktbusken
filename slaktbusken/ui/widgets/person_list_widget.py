@@ -36,6 +36,7 @@ def _person_display_name(person: Person, events: list[Event] | None = None) -> s
 
     If events are provided, appends birth/death years for disambiguation:
     e.g. "Erik Andersson (1845–1901)", "Erik Andersson (?–1901)".
+    Only shows the year range if at least one event (birth or death) is recorded.
     """
     if not person.names:
         return f"(Person {person.id})"
@@ -47,8 +48,11 @@ def _person_display_name(person: Person, events: list[Event] | None = None) -> s
         birth_year, death_year = get_person_birth_death_years(person, events)
         if birth_year or death_year:
             b = birth_year if birth_year else "?"
-            d = death_year if death_year else "?"
-            display = f"{display} ({b}\u2013{d})"
+            d = death_year if death_year else ""
+            if d:
+                display = f"{display} ({b}\u2013{d})"
+            else:
+                display = f"{display} ({b}\u2013)"
 
     return display
 

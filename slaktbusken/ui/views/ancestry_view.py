@@ -168,6 +168,21 @@ class AncestryView:
         box_map: dict[tuple[int, int], PersonBoxItem] = {}
         placeholder_positions: list[tuple[int, int, float]] = []  # (gen, pos, col_x)
 
+        # Add placeholder parent slots for known persons at the deepest generation
+        # so they get "Lägg till far/mor" buttons
+        if effective_depth < depth:
+            deepest_known = known_positions.get(effective_depth, set())
+            placeholder_gen = effective_depth + 1
+            placeholder_col_x = placeholder_gen * (_BOX_WIDTH + _H_GAP)
+            for pos in deepest_known:
+                # Add father and mother placeholder slots
+                ancestor_map[(placeholder_gen, pos * 2)] = None
+                ancestor_map[(placeholder_gen, pos * 2 + 1)] = None
+            if deepest_known:
+                effective_depth += 1
+                max_gen = effective_depth
+                max_slots = 2**max_gen
+
         for (gen, pos), person_id in ancestor_map.items():
             if gen > effective_depth:
                 continue
@@ -627,6 +642,9 @@ def _build_display_data(
         elif event.type == "death":
             if event.date:
                 data["death_date"] = event.date.value
+            else:
+                # Death recorded but no date — mark for display
+                data["death_date"] = "Datum okänt"
             if event.place:
                 place = _find_place(project_data, event.place.place_id)
                 if place:

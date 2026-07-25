@@ -554,6 +554,8 @@ def _build_display_data(
         elif event.type == "death":
             if event.date:
                 data["death_date"] = event.date.value
+            else:
+                data["death_date"] = "Datum okänt"
             if event.place:
                 place = _find_place(project_data, event.place.place_id)
                 if place:

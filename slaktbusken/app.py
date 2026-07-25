@@ -133,7 +133,13 @@ class Application:
 
         # Create dialog wrapper
         dialog = QDialog(self.main_window)
-        dialog.setWindowTitle("Redigera person")
+        # Build display name for the title
+        if person.names:
+            first_name = person.names[0]
+            person_display = f"{first_name.given} {first_name.surname}".strip()
+        else:
+            person_display = person.id
+        dialog.setWindowTitle(f"Redigera Person - {person_display}")
         dialog.setMinimumSize(600, 700)
         dialog.resize(700, 850)
         layout = QVBoxLayout(dialog)
