@@ -45,3 +45,5 @@ class MediaItem:
     mentioned_person_ids: list[str] = field(default_factory=list)
     mentioned_names: list[str] = field(default_factory=list)
     annotations: list[Annotation] = field(default_factory=list)
+    photo_date: Optional[dict] = None
+    notes: str = ""

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -33,6 +35,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+if TYPE_CHECKING:
+    from slaktbusken.services.photo_service import PhotoService
 
 from slaktbusken.data.country_presets import available_presets, get_preset
 from slaktbusken.model.place import (
@@ -343,6 +348,7 @@ class PlaceEditor(QWidget):
         project_data: ProjectData,
         place: Optional[Place] = None,
         parent: QWidget | None = None,
+        photo_service: "Optional[PhotoService]" = None,
     ) -> None:
         """Initialise the place editor.
 
@@ -350,11 +356,13 @@ class PlaceEditor(QWidget):
             project_data: The current project data containing all entities.
             place: Optional existing Place to select initially for editing.
             parent: Optional parent widget.
+            photo_service: Optional PhotoService for photo management operations.
         """
         super().__init__(parent)
 
         self._project_data = project_data
         self._place = place
+        self._photo_service = photo_service
         self._saved_place: Optional[Place] = None
         self._editing_place: Optional[Place] = None
 
@@ -407,6 +415,7 @@ class PlaceEditor(QWidget):
         self._setup_child_places_list()
         self._setup_preset_section()
         self._setup_custom_fields_section()
+        self._setup_photo_section()
         self._connect_signals()
 
         # Set up custom delegate for red dot indicator on places missing a parent
@@ -619,6 +628,33 @@ class PlaceEditor(QWidget):
 
         # Hidden by default; shown only when place type has custom fields
         self._custom_fields_group.setVisible(False)
+
+    def _setup_photo_section(self) -> None:
+        """Create the photo section using PhotoSectionWidget.
+
+        Adds a "Foton" group box with the reusable PhotoSectionWidget
+        configured for place mode (buttons: Visa foto, Redigera foto, Lägg till foto).
+        The section is hidden until a place is selected.
+        """
+        from slaktbusken.ui.widgets.photo_section_widget import PhotoSectionWidget
+
+        self._photo_group = QGroupBox("Foton", self._ui.right_panel)
+        photo_layout = QVBoxLayout(self._photo_group)
+
+        # Create a placeholder PhotoSectionWidget (will be replaced on place selection)
+        self._photo_section: Optional[PhotoSectionWidget] = None
+        self._photo_section_layout = photo_layout
+
+        # Insert before status label in the right layout
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._photo_group)
+        else:
+            right_layout.addWidget(self._photo_group)
+
+        # Hidden until a place is selected
+        self._photo_group.setVisible(False)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
@@ -908,6 +944,9 @@ class PlaceEditor(QWidget):
         # Custom fields (visible if type matches a region level with custom fields)
         self._update_custom_fields_visibility(place.type)
 
+        # Photo section
+        self._refresh_photo_section(place)
+
         self._clear_status()
 
     def _clear_form(self) -> None:
@@ -932,6 +971,7 @@ class PlaceEditor(QWidget):
         while self._custom_fields_layout.rowCount() > 0:
             self._custom_fields_layout.removeRow(0)
         self._custom_field_inputs.clear()
+        self._photo_group.setVisible(False)
         self._clear_status()
 
     def _refresh_child_places(self, place: Place) -> None:
@@ -1736,6 +1776,197 @@ class PlaceEditor(QWidget):
         self._saved_place = None
         self.cancel_requested.emit()
         self.close()
+
+    # ------------------------------------------------------------------
+    # Private: photo section
+    # ------------------------------------------------------------------
+
+    def _refresh_photo_section(self, place: Place) -> None:
+        """Rebuild the PhotoSectionWidget for the given place.
+
+        Creates or replaces the PhotoSectionWidget inside the photo group box,
+        connecting its buttons to appropriate handlers.
+
+        Args:
+            place: The place whose photos should be displayed.
+        """
+        from slaktbusken.ui.widgets.photo_section_widget import PhotoSectionWidget
+
+        # Remove existing photo section widget if present
+        if self._photo_section is not None:
+            self._photo_section_layout.removeWidget(self._photo_section)
+            self._photo_section.setParent(None)
+            self._photo_section.deleteLater()
+            self._photo_section = None
+
+        if self._photo_service is None:
+            self._photo_group.setVisible(False)
+            return
+
+        # Create new PhotoSectionWidget for this place
+        self._photo_section = PhotoSectionWidget(
+            project_data=self._project_data,
+            photo_service=self._photo_service,
+            entity_type="place",
+            entity_id=place.id,
+            parent=self._photo_group,
+        )
+        self._photo_section_layout.addWidget(self._photo_section)
+
+        # Connect button signals
+        self._photo_section.add_button.clicked.connect(self._on_photo_add)
+        if self._photo_section.view_button:
+            self._photo_section.view_button.clicked.connect(self._on_photo_view)
+        self._photo_section.photo_edited.connect(self._on_photo_edit)
+
+        self._photo_group.setVisible(True)
+
+    def _on_photo_add(self) -> None:
+        """Handle 'Lägg till foto' button click in the photo section.
+
+        Opens a file dialog filtered to image formats. On file selection,
+        creates a new MediaItem with type 'photo' and a LinkedEntity
+        linking it to the current place.
+        """
+        if self._editing_place is None or self._photo_service is None:
+            return
+
+        file_filter = "Bildfiler (*.png *.jpg *.jpeg *.bmp *.gif *.tiff *.tif)"
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Välj bild",
+            "",
+            file_filter,
+        )
+
+        if not file_path:
+            # User cancelled — do nothing (Requirement 9.7)
+            return
+
+        from slaktbusken.model.media import LinkedEntity, MediaItem
+
+        # Create the new MediaItem
+        new_media = MediaItem(
+            id=str(uuid.uuid4()),
+            type="photo",
+            file=file_path,
+            title=Path(file_path).stem,
+            linked_entities=[
+                LinkedEntity(entity_type="place", entity_id=self._editing_place.id)
+            ],
+        )
+
+        # Add to project data
+        self._project_data.media.append(new_media)
+
+        # Refresh the photo section and emit signal
+        if self._photo_section is not None:
+            self._photo_section.refresh()
+            self._photo_section.emit_photo_added(new_media.id)
+
+    def _on_photo_view(self) -> None:
+        """Handle 'Visa foto' button click.
+
+        Opens a modal dialog showing the selected photo's image file.
+        """
+        if self._photo_section is None or self._photo_service is None:
+            return
+
+        photo_id = self._photo_section.get_selected_photo_id()
+        if photo_id is None:
+            return
+
+        # Find the MediaItem
+        media_item = self._find_media_item_by_id(photo_id)
+        if media_item is None:
+            return
+
+        # Resolve the file path
+        file_path = Path(media_item.file)
+        if not file_path.is_absolute():
+            file_path = self._photo_service._foto_mapp / file_path
+
+        if not file_path.exists():
+            QMessageBox.warning(
+                self,
+                "Fil saknas",
+                f"Bildfilen kunde inte hittas:\n{file_path}",
+            )
+            return
+
+        # Open a modal image viewer dialog
+        from PySide6.QtGui import QPixmap
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(media_item.title)
+        dialog.setModal(True)
+        layout = QVBoxLayout(dialog)
+
+        pixmap = QPixmap(str(file_path))
+        if pixmap.isNull():
+            QMessageBox.warning(
+                self,
+                "Kan inte visa",
+                f"Bildfilen kunde inte läsas:\n{file_path}",
+            )
+            return
+
+        # Scale to reasonable size while keeping aspect ratio
+        scaled = pixmap.scaled(800, 600, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        image_label = QLabel()
+        image_label.setPixmap(scaled)
+        layout.addWidget(image_label)
+
+        close_btn = QPushButton("Stäng")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+
+        dialog.exec()
+
+    def _on_photo_edit(self, media_item_id: str) -> None:
+        """Handle 'Redigera foto' button click.
+
+        Opens EditPhotoDialog with the selected MediaItem.
+
+        Args:
+            media_item_id: The ID of the MediaItem to edit.
+        """
+        if self._photo_service is None:
+            return
+
+        media_item = self._find_media_item_by_id(media_item_id)
+        if media_item is None:
+            return
+
+        from slaktbusken.ui.dialogs.edit_photo_dialog import EditPhotoDialog
+
+        dialog = EditPhotoDialog(
+            media_item=media_item,
+            project_data=self._project_data,
+            photo_service=self._photo_service,
+            parent=self,
+        )
+        dialog.exec()
+
+        # Refresh photo section after dialog closes (changes may have been saved)
+        if self._photo_section is not None:
+            self._photo_section.refresh()
+
+    def _find_media_item_by_id(self, media_id: str) -> "Optional[MediaItem]":
+        """Find a MediaItem by its ID in the project data.
+
+        Args:
+            media_id: The MediaItem ID to search for.
+
+        Returns:
+            The MediaItem if found, None otherwise.
+        """
+        from slaktbusken.model.media import MediaItem
+
+        for item in self._project_data.media:
+            if item.id == media_id:
+                return item
+        return None
 
     # ------------------------------------------------------------------
     # Private: helpers

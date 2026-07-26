@@ -1103,8 +1103,12 @@ class Application:
         project's places for viewing, editing, and linking.
         """
         from slaktbusken.ui.editors.place_editor import PlaceEditor
+        from slaktbusken.services.photo_service import PhotoService
 
         project_data = self.project_service.data
+        project_folder = self.project_service.project_path.parent if self.project_service.project_path else None
+        foto_mapp = (project_folder / "media" / "photos") if project_folder else Path("media/photos")
+        photo_service = PhotoService(project_data, foto_mapp)
 
         dialog = QDialog(self.main_window)
         dialog.setWindowTitle("Platsredigerare")
@@ -1114,6 +1118,7 @@ class Application:
         editor = PlaceEditor(
             project_data=project_data,
             parent=dialog,
+            photo_service=photo_service,
         )
         layout.addWidget(editor)
 

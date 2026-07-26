@@ -604,6 +604,22 @@ def media_item_strategy(draw: DrawFn) -> MediaItem:
     mentioned_person_ids = draw(st.lists(_id_strategy("person"), min_size=0, max_size=3))
     mentioned_names = draw(st.lists(_safe_text, min_size=0, max_size=3))
     annotations = draw(st.lists(annotation_strategy(), min_size=0, max_size=5))
+
+    # photo_date: None or a dict with year + optional month/day
+    photo_date = draw(st.none() | st.builds(
+        lambda y, m, d: {"year": y, "month": m, "day": d},
+        y=st.integers(min_value=1, max_value=9999),
+        m=st.none() | st.integers(min_value=1, max_value=12),
+        d=st.none() | st.integers(min_value=1, max_value=28),
+    ))
+
+    # notes: empty or short text (max 2000 chars in the real app, keep short for tests)
+    notes = draw(st.text(
+        alphabet=st.characters(categories=("L", "N", "P", "Z")),
+        min_size=0,
+        max_size=100,
+    ))
+
     return MediaItem(
         id=media_id,
         type=media_type,
@@ -615,6 +631,8 @@ def media_item_strategy(draw: DrawFn) -> MediaItem:
         mentioned_person_ids=mentioned_person_ids,
         mentioned_names=mentioned_names,
         annotations=annotations,
+        photo_date=photo_date,
+        notes=notes,
     )
 
 

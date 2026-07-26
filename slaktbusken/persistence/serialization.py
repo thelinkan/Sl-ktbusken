@@ -125,6 +125,9 @@ def _serialize_dataclass(obj: Any) -> dict[str, Any]:
         # Omit empty lists for fields that have default_factory=list.
         if value == [] and _has_default_factory_list(f):
             continue
+        # Omit empty strings for fields that have default="".
+        if value == "" and _has_default_empty_string(f):
+            continue
         result[f.name] = _serialize_value(value)
     return result
 
@@ -177,6 +180,16 @@ def _has_default_factory_list(f: Any) -> bool:
         f.default_factory is not dataclasses.MISSING
         and f.default_factory is list
     )
+
+
+def _has_default_empty_string(f: Any) -> bool:
+    """Check if a dataclass field has default="".
+
+    Used to determine whether an empty string value can be safely omitted
+    from serialized output to keep JSON clean.
+    """
+    import dataclasses
+    return f.default is not dataclasses.MISSING and f.default == ""
 
 
 # ---------------------------------------------------------------------------
