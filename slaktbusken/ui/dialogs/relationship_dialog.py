@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, QSortFilterProxyModel, QStringListModel
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -44,6 +44,36 @@ from slaktbusken.model.person import Person
 from slaktbusken.relationship.calculator import RelationshipCalculator, RelationshipPath
 
 
+class _MultiWordFilterProxy(QSortFilterProxyModel):
+    """Proxy model that matches each word in the filter independently.
+
+    Typing "Frida Hallen" matches "Frida Maria Hallen (1990–)" because
+    both "Frida" and "Hallen" are found in the entry (case-insensitive).
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._filter_words: list[str] = []
+
+    def setFilterText(self, text: str) -> None:
+        """Set the filter text, splitting into words for multi-word matching."""
+        self._filter_words = [w for w in text.lower().split() if w]
+        self.invalidate()
+
+    def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
+        """Accept a row if ALL words in the filter appear in the item text."""
+        if not self._filter_words:
+            return True
+
+        index = self.sourceModel().index(source_row, 0, source_parent)
+        item_text = self.sourceModel().data(index)
+        if not item_text:
+            return False
+
+        item_lower = item_text.lower()
+        return all(word in item_lower for word in self._filter_words)
+
+
 class RelationshipDialog(QDialog):
     """Dialog for computing and displaying relationships between two persons.
 
@@ -74,7 +104,7 @@ class RelationshipDialog(QDialog):
         self._data = data
         self._calculator = RelationshipCalculator(data)
         self._persons: list[Person] = sorted(
-            data.persons, key=lambda p: self._person_display_name(p)
+            data.persons, key=lambda p: self._person_display_name(p, data)
         )
         self._person_id_map: dict[int, str] = {}  # combo index -> person id
 
@@ -276,18 +306,30 @@ class RelationshipDialog(QDialog):
 
         display_names: list[str] = []
         for idx, person in enumerate(self._persons):
-            display = self._person_display_name(person)
+            display = self._person_display_name(person, self._data)
             self._combo_a.addItem(display)
             self._combo_b.addItem(display)
             self._person_id_map[idx] = person.id
             display_names.append(display)
 
-        # Create custom QCompleter with substring matching for each combo box
+        # Create custom QCompleter with multi-word matching for each combo box
+        # "Frida Hallen" matches "Frida Maria Hallen" (each word matched independently)
+        self._display_names_model = QStringListModel(display_names)
+
         for combo in (self._combo_a, self._combo_b):
-            completer = QCompleter(display_names, combo)
-            completer.setFilterMode(Qt.MatchFlag.MatchContains)
+            proxy = _MultiWordFilterProxy(combo)
+            proxy.setSourceModel(self._display_names_model)
+            proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+            completer = QCompleter(combo)
+            completer.setModel(proxy)
+            # UnfilteredPopupCompletion: show all rows from model (proxy handles filtering)
+            completer.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
             completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
             combo.setCompleter(completer)
+
+            # Update filter when text changes
+            combo.editTextChanged.connect(proxy.setFilterText)
 
     # ------------------------------------------------------------------
     # Calculation
@@ -295,15 +337,8 @@ class RelationshipDialog(QDialog):
 
     def _on_calculate(self) -> None:
         """Run the relationship calculation and display results."""
-        idx_a = self._combo_a.currentIndex()
-        idx_b = self._combo_b.currentIndex()
-
-        if idx_a < 0 or idx_b < 0:
-            self._show_no_result("Välj två personer att beräkna släktskap mellan.")
-            return
-
-        person_a_id = self._person_id_map.get(idx_a)
-        person_b_id = self._person_id_map.get(idx_b)
+        person_a_id = self._resolve_person_from_combo(self._combo_a)
+        person_b_id = self._resolve_person_from_combo(self._combo_b)
 
         if not person_a_id or not person_b_id:
             self._show_no_result("Välj två personer att beräkna släktskap mellan.")
@@ -332,6 +367,34 @@ class RelationshipDialog(QDialog):
         # Display results
         self._display_results(paths)
 
+    def _resolve_person_from_combo(self, combo: QComboBox) -> Optional[str]:
+        """Resolve the selected person ID from a combo box.
+
+        First tries currentIndex (works for mouse/arrow selection).
+        Falls back to matching currentText against items (works for
+        completer/Tab selection where index may not update).
+
+        Args:
+            combo: The person combo box.
+
+        Returns:
+            Person ID string or None if no match found.
+        """
+        # Try index-based lookup first
+        idx = combo.currentIndex()
+        if idx >= 0:
+            text_at_idx = combo.itemText(idx)
+            if text_at_idx == combo.currentText():
+                return self._person_id_map.get(idx)
+
+        # Fallback: search by text (handles Tab-completion case)
+        current_text = combo.currentText()
+        for i in range(combo.count()):
+            if combo.itemText(i) == current_text:
+                return self._person_id_map.get(i)
+
+        return None
+
     def _show_no_result(self, message: str) -> None:
         """Show a message when no relationship is found.
 
@@ -348,21 +411,43 @@ class RelationshipDialog(QDialog):
         Args:
             paths: List of computed relationship paths.
         """
-        # Deduplicate paths by swedish_term (keep one representative per term)
-        seen_terms: set[str] = set()
-        unique_paths: list[RelationshipPath] = []
+        # Separate deduplication for text (unique terms) vs diagram (all paths)
+        # Text: show each unique relationship term once
+        # Diagram: draw all paths to show both grandparents for cousins, etc.
+        seen_terms: dict[str, int] = {}  # term -> index in text_paths
+        text_paths: list[RelationshipPath] = []
+        has_symmetric = False
         for path in paths:
-            if path.swedish_term not in seen_terms:
-                seen_terms.add(path.swedish_term)
-                unique_paths.append(path)
+            term = path.swedish_term
+            if term.startswith("SYMMETRIC:"):
+                if has_symmetric:
+                    continue
+                has_symmetric = True
+                text_paths.append(path)
+            elif term not in seen_terms:
+                seen_terms[term] = len(text_paths)
+                text_paths.append(path)
 
-        # Build text description
+        # Build text description (using deduplicated text_paths)
         descriptions: list[str] = []
-        for i, path in enumerate(unique_paths, 1):
+        for i, path in enumerate(text_paths, 1):
             term = self._calculator.describe_relationship(path)
             person_a_name = self._get_person_name(path.person_a_id)
             person_b_name = self._get_person_name(path.person_b_id)
-            if len(unique_paths) == 1:
+
+            # Handle symmetric partner-through relationships
+            if term.startswith("SYMMETRIC:"):
+                # Format: "SYMMETRIC:a_side_term::b_side_term"
+                parts = term[len("SYMMETRIC:"):].split("::")
+                a_term = parts[0] if len(parts) > 0 else ""
+                b_term = parts[1] if len(parts) > 1 else ""
+                desc = (
+                    f"{person_a_name}s {a_term} är gift med "
+                    f"{person_b_name}s {b_term}"
+                )
+                if len(text_paths) > 1:
+                    desc = f"{i}. {desc}"
+            elif len(text_paths) == 1:
                 desc = (
                     f"{person_b_name} är {term} till {person_a_name}"
                 )
@@ -376,8 +461,9 @@ class RelationshipDialog(QDialog):
 
         self._result_label.setText("\n".join(descriptions))
 
-        # Draw all unique paths in a unified generational graph
-        self._draw_generational_diagram(unique_paths)
+        # Draw ALL paths (including duplicates with same term) in the diagram
+        # so both grandparents are shown for cousin relationships
+        self._draw_generational_diagram(paths)
         self._btn_print.setEnabled(True)
 
     # ------------------------------------------------------------------
@@ -820,12 +906,13 @@ class RelationshipDialog(QDialog):
                     pen = QPen(QColor("#e74c3c"), 1.5)
                     self._scene.addLine(left_x, bar_y, right_x, bar_y, pen)
 
-                # Trunk: vertical line from bar center down to sibling level
+                # Trunk: vertical line from partner bar center down to sibling level
                 trunk_x = (ax + node_w / 2 + bx + node_w / 2) / 2
-                trunk_top = max(ay, by) + node_h  # below the boxes
+                trunk_top = bar_y  # starts from the partner bar (red line)
                 # Midpoint between parents' bottom and children's top
+                parent_bottom = max(ay, by) + node_h
                 first_child_y = min(positions[c][1] for c in children_list)
-                trunk_bottom = (trunk_top + first_child_y) / 2
+                trunk_bottom = (parent_bottom + first_child_y) / 2
 
                 path_line = QPainterPath()
                 path_line.moveTo(trunk_x, trunk_top)
@@ -1073,14 +1160,16 @@ class RelationshipDialog(QDialog):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _person_display_name(person: Person) -> str:
-        """Get display name for a person (Förnamn Efternamn).
+    def _person_display_name(person: Person, data=None) -> str:
+        """Get display name for a person (Förnamn Efternamn (f.år–d.år)).
 
         Uses parse_given_name() to strip tilltalsnamn asterisk markers
-        and produce a clean display string.
+        and produce a clean display string. Appends birth/death years
+        in parentheses if available.
 
         Args:
             person: The Person instance.
+            data: Optional ProjectData to look up birth/death events.
 
         Returns:
             Formatted display name string.
@@ -1093,13 +1182,48 @@ class RelationshipDialog(QDialog):
                     parsed = parse_given_name(name.given)
                     parts.append(parsed.display_string)
                 except ValueError:
-                    # Multiple markers — fall back to raw given name
                     parts.append(name.given)
             if name.surname:
                 parts.append(name.surname)
             if parts:
-                return " ".join(parts)
+                display = " ".join(parts)
+                # Add birth/death years if data available
+                if data is not None:
+                    years = RelationshipDialog._get_life_years(person.id, data)
+                    if years:
+                        display = f"{display} ({years})"
+                return display
         return f"[Okänd] ({person.id})"
+
+    @staticmethod
+    def _get_life_years(person_id: str, data) -> str:
+        """Get birth–death year string for a person.
+
+        Returns formats like "1920–1995", "1920–", "–1995", or "".
+        """
+        birth_year = ""
+        death_year = ""
+
+        for event in data.events:
+            if not event.date or not event.date.value:
+                continue
+            for participant in event.participants:
+                if participant.person_id == person_id:
+                    # Extract year from date value (format: YYYY-MM-DD or YYYY-MM or YYYY)
+                    year = event.date.value.split("-")[0] if event.date.value else ""
+                    if event.type == "birth" and year:
+                        birth_year = year
+                    elif event.type == "death" and year:
+                        death_year = year
+                    break
+
+        if birth_year and death_year:
+            return f"{birth_year}–{death_year}"
+        elif birth_year:
+            return f"{birth_year}–"
+        elif death_year:
+            return f"–{death_year}"
+        return ""
 
     def _get_person_name(self, person_id: str) -> str:
         """Look up a person's display name by ID.
@@ -1112,7 +1236,7 @@ class RelationshipDialog(QDialog):
         """
         for person in self._data.persons:
             if person.id == person_id:
-                return self._person_display_name(person)
+                return self._person_display_name(person, self._data)
         return person_id
 
     def _get_person_name_html(self, person_id: str) -> str:

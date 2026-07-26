@@ -635,15 +635,19 @@ class RelationshipCalculator:
             )
             term = self._kinship._get_in_law_or_partner_term(base_term, sex_b)
         else:
-            # Partner edge in the middle - complex path
-            # A --edges--> X --partner--> Y --edges--> B
-            # Simplify: just describe as "gift med" + relationship
-            relative_id = path_nodes[partner_idx]
-            sex_relative = self._person_sex_map.get(relative_id, "U")
-            base_term = self._compute_base_term_from_edges(
-                edges_before, parentage_types[:partner_idx], relative_id
+            # Partner edge in the middle - both A and B have blood distance
+            # A --edges_before--> X --partner--> Y --edges_after--> B
+            # Example: A's grandchild married B's grandchild
+            # Generate a symmetric description that will be used as-is
+            # (not plugged into "{B} är {term} till {A}")
+            a_side_term = self._compute_base_term_from_edges(
+                edges_before, parentage_types[:partner_idx], path_nodes[partner_idx]
             )
-            term = self._kinship._get_in_law_or_partner_term(base_term, sex_b)
+            b_side_term = self._compute_base_term_from_edges(
+                edges_after, parentage_types[partner_idx + 1:], person_b_id
+            )
+            # Mark as symmetric: the dialog will use this directly
+            term = f"SYMMETRIC:{a_side_term}::{b_side_term}"
 
         # Determine overall relationship type
         non_partner_parentage = [
