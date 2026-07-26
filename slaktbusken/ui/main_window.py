@@ -186,6 +186,11 @@ class MainWindow(QMainWindow):
         self.action_add_person.setToolTip("Skapa en ny person utan kopplingar")
         self.action_add_person.triggered.connect(self._app.add_standalone_person)
 
+        self.action_edit_person = QAction("&Redigera person", self)
+        self.action_edit_person.setShortcut("R")
+        self.action_edit_person.setToolTip("Redigera den markerade personen")
+        self.action_edit_person.triggered.connect(self._edit_active_person)
+
         # DNA
         self.action_dna_editor = QAction("&DNA och Kluster", self)
         self.action_dna_editor.setToolTip(
@@ -276,6 +281,7 @@ class MainWindow(QMainWindow):
         # Person
         self.menu_person = menu_bar.addMenu("&Person")
         self.menu_person.addAction(self.action_add_person)
+        self.menu_person.addAction(self.action_edit_person)
         self.menu_person.addSeparator()
         self.menu_goto = self.menu_person.addMenu("Gå till")
         self.menu_goto.addAction(self.action_show_main_person)
@@ -550,6 +556,16 @@ class MainWindow(QMainWindow):
         if selected_id:
             self.diagram_panel.person_activated.emit(selected_id)
             self.diagram_panel.set_active_person(selected_id)
+
+    def _edit_active_person(self) -> None:
+        """Open the person editor for the currently selected person."""
+        selected_id = (
+            self.diagram_panel._family_view.selected_person_id
+            or self.diagram_panel._ancestry_view.selected_person_id
+            or self.diagram_panel._descendants_view.selected_person_id
+        )
+        if selected_id:
+            self._app.open_person_editor(selected_id)
 
     def _switch_view(self, view_type: ViewType) -> None:
         """Switch the diagram panel view type.
