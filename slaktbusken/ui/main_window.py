@@ -203,6 +203,10 @@ class MainWindow(QMainWindow):
         self.action_relationship.setToolTip("Beräkna släktskap mellan två personer")
         self.action_relationship.triggered.connect(self._app.show_relationship_calculator)
 
+        self.action_person_checks = QAction("Kontrollera &personer...", self)
+        self.action_person_checks.setToolTip("Kontrollera personuppgifter i projektet")
+        self.action_person_checks.triggered.connect(self._app.show_person_checks)
+
         self.action_settings = QAction("&Inställningar...", self)
         self.action_settings.setToolTip("Öppna inställningar")
         self.action_settings.triggered.connect(self._app.show_settings)
@@ -299,6 +303,7 @@ class MainWindow(QMainWindow):
         # Verktyg (Tools)
         self.menu_tools = menu_bar.addMenu("V&erktyg")
         self.menu_tools.addAction(self.action_relationship)
+        self.menu_tools.addAction(self.action_person_checks)
         self.menu_tools.addAction(self.action_settings)
 
         # Karta (Map)
@@ -530,6 +535,7 @@ class MainWindow(QMainWindow):
         self.action_export.setEnabled(project_open)
         self.action_close.setEnabled(project_open)
         self.action_relationship.setEnabled(project_open)
+        self.action_person_checks.setEnabled(project_open)
         self.action_source_editor.setEnabled(project_open)
         self.action_source_translation_editor.setEnabled(project_open)
         self.action_provider_editor.setEnabled(project_open)

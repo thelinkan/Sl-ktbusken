@@ -1018,6 +1018,47 @@ class Application:
         )
         dialog.exec()
 
+    def show_person_checks(self) -> None:
+        """Open the Kontrollera personer dialog."""
+        from slaktbusken.ui.dialogs.kontrollera_personer_dialog import (
+            KontrolleraPersonerDialog,
+        )
+        from slaktbusken.persistence.settings_io import write_settings
+
+        config = self.project_service.settings.person_check_config
+        dialog = KontrolleraPersonerDialog(
+            data=self.project_service.data,
+            config=config,
+            project_folder=(
+                self.project_service.project_path.parent
+                if self.project_service.project_path
+                else None
+            ),
+            parent=self.main_window,
+        )
+        dialog.exec()
+
+        # Save updated config
+        self.project_service.settings.person_check_config = dialog.config
+        if self.project_service.project_path is not None:
+            settings_file = self.project_service.project_path.parent / "settings.json"
+            try:
+                write_settings(self.project_service.settings, settings_file)
+            except OSError as e:
+                from PySide6.QtWidgets import QMessageBox
+
+                QMessageBox.warning(
+                    self.main_window,
+                    "Fel",
+                    f"Kunde inte spara kontrollinställningarna:\n{e}",
+                )
+
+        # Navigate to selected person if double-clicked
+        if dialog.selected_person_id:
+            self.main_window.diagram_panel.set_active_person(
+                dialog.selected_person_id
+            )
+
     def show_settings(self) -> None:
         """Open the settings dialog for program-level preferences.
 
