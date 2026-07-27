@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QStyleOptionViewItem,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -65,6 +67,72 @@ _PARENTAGE_TYPE_LABELS: dict[str, str] = {
 
 # Reverse mapping for combo selection
 _PARENTAGE_LABEL_TO_TYPE: dict[str, str] = {v: k for k, v in _PARENTAGE_TYPE_LABELS.items()}
+
+# Custom role for storing the has-coordinates flag on event list items
+_HAS_COORDS_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class EventListMapIconDelegate(QStyledItemDelegate):
+    """Delegate that draws a trailing map icon on event list items with coordinates.
+
+    When an item has data set at _HAS_COORDS_ROLE == True, the map icon is drawn
+    after the item text, providing a visual indicator that the event's place is
+    mappable.
+    """
+
+    _ICON_SIZE = 14
+    _ICON_SPACING = 8
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._map_pixmap: QPixmap | None = None
+
+    def _get_map_pixmap(self) -> QPixmap:
+        """Lazily load and cache the map icon pixmap."""
+        if self._map_pixmap is None:
+            self._map_pixmap = icon_registry.get_map_icon()
+        return self._map_pixmap
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index,
+    ) -> None:
+        """Paint the item, appending a map icon after the text when flagged."""
+        super().paint(painter, option, index)
+
+        has_coords = index.data(_HAS_COORDS_ROLE)
+        if not has_coords:
+            return
+
+        # Calculate text width to position the icon after it
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        font_metrics = option.fontMetrics
+        text_width = font_metrics.horizontalAdvance(text)
+
+        # Account for the item's decoration (event icon) width + spacing
+        icon_offset = 0
+        item_icon = index.data(Qt.ItemDataRole.DecorationRole)
+        if item_icon is not None:
+            # Standard icon size used in list items (16px) + spacing
+            icon_offset = 16 + 4
+
+        style = option.widget.style() if option.widget else None
+        text_margin = (
+            style.pixelMetric(
+                style.PixelMetric.PM_FocusFrameHMargin, option, option.widget
+            )
+            + 1
+            if style
+            else 4
+        )
+
+        map_pixmap = self._get_map_pixmap()
+        x = option.rect.left() + text_margin + icon_offset + text_width + self._ICON_SPACING
+        y = option.rect.top() + (option.rect.height() - self._ICON_SIZE) // 2
+
+        painter.drawPixmap(x, y, self._ICON_SIZE, self._ICON_SIZE, map_pixmap)
 
 
 class PersonEditor(QWidget):
@@ -107,6 +175,9 @@ class PersonEditor(QWidget):
         self._project_data = project_data
         self._project_folder = project_folder
         self._person = person
+        self._is_new = person is None or not any(
+            p.id == person.id for p in project_data.persons
+        )
         self._saved_person: Optional[Person] = None
         self._editing_name_row: Optional[int] = None
         self._profile_media_id: Optional[str] = None
@@ -114,6 +185,25 @@ class PersonEditor(QWidget):
         # Set up UI from generated form
         self._ui = Ui_PersonEditor()
         self._ui.setupUi(self)
+
+        # Override sex combo with Swedish labels
+        self._sex_label_to_internal = {
+            "Man": "M", "Kvinna": "F", "Annat": "X", "Okänt": "U",
+        }
+        self._sex_internal_to_label = {v: k for k, v in self._sex_label_to_internal.items()}
+        self._ui.sex_combo.clear()
+        self._ui.sex_combo.addItems(["Man", "Kvinna", "Annat", "Okänt"])
+
+        # Override name type combo with Swedish labels
+        self._name_type_label_to_internal = {
+            "Födelsenamn": "birth",
+            "Gift namn": "married",
+            "Adoptivnamn": "adopted",
+            "Annat": "other",
+        }
+        self._name_type_internal_to_label = {v: k for k, v in self._name_type_label_to_internal.items()}
+        self._ui.name_type_combo.clear()
+        self._ui.name_type_combo.addItems(["Födelsenamn", "Gift namn", "Adoptivnamn", "Annat"])
 
         # Parent service for managing parent relationships
         self._parent_service = ParentService(project_data)
@@ -194,7 +284,7 @@ class PersonEditor(QWidget):
         layout.insertLayout(cluster_list_index + 1, buttons_layout)
 
     def _setup_dna_profile_button(self) -> None:
-        """Add 'Lägg till profil' and 'Redigera' buttons below the DNA profiles list."""
+        """Add 'Lägg till profil', 'Redigera', and 'DNA-visare' buttons below the DNA profiles list."""
         buttons_layout = QHBoxLayout()
         self._add_dna_profile_button = QPushButton(
             "Lägg till profil", self._ui.dna_tab
@@ -202,8 +292,12 @@ class PersonEditor(QWidget):
         self._edit_dna_profile_button = QPushButton(
             "Redigera", self._ui.dna_tab
         )
+        self._dna_viewer_button = QPushButton(
+            "DNA-visare", self._ui.dna_tab
+        )
         buttons_layout.addWidget(self._add_dna_profile_button)
         buttons_layout.addWidget(self._edit_dna_profile_button)
+        buttons_layout.addWidget(self._dna_viewer_button)
         buttons_layout.addStretch()
 
         # Insert the buttons layout after the dna_profiles_list in the dna_tab_layout
@@ -214,9 +308,11 @@ class PersonEditor(QWidget):
         self._add_dna_profile_button.setVisible(False)
         self._edit_dna_profile_button.setVisible(False)
         self._edit_dna_profile_button.setEnabled(False)
+        self._dna_viewer_button.setVisible(False)
+        self._dna_viewer_button.setEnabled(False)
 
     def _setup_dna_match_button(self) -> None:
-        """Add 'Lägg till matchning' and 'Redigera' buttons below the DNA matches list."""
+        """Add 'Lägg till matchning', 'Redigera', 'Relationsdiagram', and 'Kromosomvy' buttons below the DNA matches list."""
         buttons_layout = QHBoxLayout()
         self._add_dna_match_button = QPushButton(
             "Lägg till matchning", self._ui.dna_tab
@@ -224,8 +320,16 @@ class PersonEditor(QWidget):
         self._edit_dna_match_button = QPushButton(
             "Redigera", self._ui.dna_tab
         )
+        self._relationship_graph_button = QPushButton(
+            "Relationsdiagram", self._ui.dna_tab
+        )
+        self._chromosome_view_button = QPushButton(
+            "Kromosomvy", self._ui.dna_tab
+        )
         buttons_layout.addWidget(self._add_dna_match_button)
         buttons_layout.addWidget(self._edit_dna_match_button)
+        buttons_layout.addWidget(self._relationship_graph_button)
+        buttons_layout.addWidget(self._chromosome_view_button)
         buttons_layout.addStretch()
 
         # Insert the buttons layout after the dna_matches_list in the dna_tab_layout
@@ -236,6 +340,10 @@ class PersonEditor(QWidget):
         self._add_dna_match_button.setVisible(False)
         self._edit_dna_match_button.setVisible(False)
         self._edit_dna_match_button.setEnabled(False)
+        self._relationship_graph_button.setVisible(False)
+        self._relationship_graph_button.setEnabled(False)
+        self._chromosome_view_button.setVisible(False)
+        self._chromosome_view_button.setEnabled(False)
         # Initially disabled — requires at least one DNA profile
         self._add_dna_match_button.setEnabled(False)
         self._add_dna_match_button.setToolTip(
@@ -263,8 +371,12 @@ class PersonEditor(QWidget):
         self._edit_triangulation_button = QPushButton(
             "Redigera", self._ui.dna_tab
         )
+        self._tri_chromosome_view_button = QPushButton(
+            "Kromosomvy", self._ui.dna_tab
+        )
         buttons_layout.addWidget(self._add_triangulation_button)
         buttons_layout.addWidget(self._edit_triangulation_button)
+        buttons_layout.addWidget(self._tri_chromosome_view_button)
         buttons_layout.addStretch()
         layout.addLayout(buttons_layout)
 
@@ -272,6 +384,8 @@ class PersonEditor(QWidget):
         self._add_triangulation_button.setVisible(False)
         self._edit_triangulation_button.setVisible(False)
         self._edit_triangulation_button.setEnabled(False)
+        self._tri_chromosome_view_button.setVisible(False)
+        self._tri_chromosome_view_button.setEnabled(False)
 
     def _setup_parents_section(self) -> None:
         """Add 'Föräldrar' section to the first (names) tab below notes."""
@@ -285,7 +399,10 @@ class PersonEditor(QWidget):
         self._parents_table = QTableWidget(self._parents_group)
         self._parents_table.setColumnCount(2)
         self._parents_table.setHorizontalHeaderLabels(["Namn", "Föräldratyp"])
-        self._parents_table.horizontalHeader().setStretchLastSection(True)
+        header = self._parents_table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, header.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, header.ResizeMode.ResizeToContents)
         self._parents_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )
@@ -414,6 +531,7 @@ class PersonEditor(QWidget):
         self._edit_event_button.clicked.connect(self._on_edit_event)
         self._ui.remove_event_button.clicked.connect(self._on_remove_event)
         self._ui.events_list.itemDoubleClicked.connect(self._on_edit_event_item)
+        self._ui.events_list.setItemDelegate(EventListMapIconDelegate(self._ui.events_list))
 
         # Photos
         self._ui.select_profile_button.clicked.connect(self._on_select_profile)
@@ -421,6 +539,7 @@ class PersonEditor(QWidget):
         # DNA profile button
         self._add_dna_profile_button.clicked.connect(self._on_add_dna_profile)
         self._edit_dna_profile_button.clicked.connect(self._on_edit_dna_profile)
+        self._dna_viewer_button.clicked.connect(self._on_open_dna_viewer)
         self._ui.dna_profiles_list.itemDoubleClicked.connect(self._on_edit_dna_profile)
         self._ui.dna_profiles_list.itemSelectionChanged.connect(
             self._update_dna_button_states
@@ -438,12 +557,19 @@ class PersonEditor(QWidget):
             self._update_dna_button_states
         )
 
+        # Relationship graph button
+        self._relationship_graph_button.clicked.connect(self._on_show_relationship_graph)
+
+        # Chromosome view button
+        self._chromosome_view_button.clicked.connect(self._on_show_chromosome_view)
+
         # DNA triangulation
         self._triangulations_list.itemSelectionChanged.connect(
             self._update_dna_button_states
         )
         self._add_triangulation_button.clicked.connect(self._on_add_triangulation)
         self._edit_triangulation_button.clicked.connect(self._on_edit_triangulation)
+        self._tri_chromosome_view_button.clicked.connect(self._on_show_tri_chromosome_view)
         self._triangulations_list.itemDoubleClicked.connect(self._on_edit_triangulation)
 
         # DNA cluster membership
@@ -472,7 +598,8 @@ class PersonEditor(QWidget):
             return
 
         # Sex
-        sex_index = self._ui.sex_combo.findText(self._person.sex)
+        sex_label = self._sex_internal_to_label.get(self._person.sex, "Okänt")
+        sex_index = self._ui.sex_combo.findText(sex_label)
         if sex_index >= 0:
             self._ui.sex_combo.setCurrentIndex(sex_index)
 
@@ -532,8 +659,11 @@ class PersonEditor(QWidget):
         row = table.rowCount()
         table.insertRow(row)
 
-        type_item = QTableWidgetItem(name.type)
+        # Display Swedish label in type column, store internal key as data
+        type_label = self._name_type_internal_to_label.get(name.type, name.type)
+        type_item = QTableWidgetItem(type_label)
         type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+        type_item.setData(Qt.ItemDataRole.UserRole, name.type)
 
         given_item = QTableWidgetItem(name.given)
         given_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
@@ -616,7 +746,8 @@ class PersonEditor(QWidget):
 
     def _on_add_name(self) -> None:
         """Add a new name entry from the edit fields."""
-        name_type = self._ui.name_type_combo.currentText()
+        name_type_label = self._ui.name_type_combo.currentText()
+        name_type = self._name_type_label_to_internal.get(name_type_label, name_type_label)
         given = self._ui.given_name_input.text().strip()
         surname = self._ui.surname_input.text().strip()
 
@@ -644,7 +775,8 @@ class PersonEditor(QWidget):
             return
 
         row = selected[0].row()
-        name_type = self._ui.name_type_combo.currentText()
+        name_type_label = self._ui.name_type_combo.currentText()
+        name_type = self._name_type_label_to_internal.get(name_type_label, name_type_label)
         given = self._ui.given_name_input.text().strip()
         surname = self._ui.surname_input.text().strip()
 
@@ -660,7 +792,7 @@ class PersonEditor(QWidget):
                 return
 
         table = self._ui.names_table
-        table.item(row, 0).setText(name_type)
+        table.item(row, 0).setText(name_type_label)
         table.item(row, 1).setText(given)
         table.item(row, 2).setText(surname)
 
@@ -858,33 +990,55 @@ class PersonEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _refresh_events_list(self) -> None:
-        """Populate the events list with events linked to this person, sorted by date."""
+        """Populate the events list with events linked to this person, sorted by date.
+
+        Display format: "{type} — {date} — {place_name}" with optional parts omitted
+        when not available. Shows a trailing map icon on items whose place has coordinates.
+        """
         self._ui.events_list.clear()
 
         if self._person is None:
             return
 
+        # Build a places lookup for resolving event place references
+        places_by_id = {p.id: p for p in self._project_data.places}
+
         # Collect events for this person
-        person_events: list[tuple[str, str, str, str]] = []  # (date_sort_key, display, event_id, event_type)
+        # (date_sort_key, display, event_id, event_type, has_coords)
+        person_events: list[tuple[str, str, str, str, bool]] = []
         for event in self._project_data.events:
             for participant in event.participants:
                 if participant.person_id == self._person.id:
                     type_label = get_event_type_label(event.type)
-                    display = f"{type_label} ({participant.role})"
+                    display = type_label
                     date_key = ""
                     if event.date:
                         display += f" — {event.date.value}"
                         date_key = event.date.value
-                    person_events.append((date_key, display, event.id, event.type))
+
+                    # Resolve place name and coordinates
+                    has_coords = False
+                    if event.place:
+                        place = places_by_id.get(event.place.place_id)
+                        if place:
+                            display += f" — {place.name}"
+                            has_coords = (
+                                place.latitude is not None
+                                and place.longitude is not None
+                            )
+
+                    person_events.append((date_key, display, event.id, event.type, has_coords))
                     break
 
         # Sort by date (empty dates last)
         person_events.sort(key=lambda x: (x[0] == "", x[0]))
 
-        for _date_key, display, event_id, event_type in person_events:
+        for _date_key, display, event_id, event_type, has_coords in person_events:
             item = QListWidgetItem(display)
             item.setIcon(QIcon(icon_registry.get_event_icon(event_type)))
             item.setData(Qt.ItemDataRole.UserRole, event_id)
+            if has_coords:
+                item.setData(_HAS_COORDS_ROLE, True)
             self._ui.events_list.addItem(item)
 
     def _on_add_event(self) -> None:
@@ -914,6 +1068,7 @@ class PersonEditor(QWidget):
             subject_person_id=self._person.id,
             parent=dialog,
             project_folder=self._project_folder,
+            photo_service=self._photo_service,
         )
         layout.addWidget(editor)
 
@@ -996,6 +1151,7 @@ class PersonEditor(QWidget):
             event=event,
             parent=dialog,
             project_folder=self._project_folder,
+            photo_service=self._photo_service,
         )
         layout.addWidget(editor)
 
@@ -1286,6 +1442,8 @@ class PersonEditor(QWidget):
                 other_name = person_name_map.get(other_person_id, other_person_id or "Okänd")
 
                 display = f"{other_name}: {match.shared_cm} cM ({match.segment_count} segment)"
+                if match.segment_file:
+                    display += " 📊"
                 item = QListWidgetItem(display)
                 item.setData(Qt.ItemDataRole.UserRole, match.id)
                 icon = resolve_company_logo_icon(
@@ -1314,12 +1472,29 @@ class PersonEditor(QWidget):
             if not tri_profile_set.intersection(person_profile_ids):
                 continue
 
-            n = len(triangulation.profile_ids)
+            # Resolve other person names (excluding active person)
+            other_names: list[str] = []
+            for profile_id in triangulation.profile_ids:
+                if profile_id in person_profile_ids:
+                    continue
+                # Resolve profile → person → name
+                for profile in self._project_data.dna_profiles:
+                    if profile.id == profile_id:
+                        for person in self._project_data.persons:
+                            if person.id == profile.person_id and person.names:
+                                name = person.names[0]
+                                other_names.append(f"{name.given} {name.surname}".strip())
+                            elif person.id == profile.person_id:
+                                other_names.append(person.id)
+                        break
+
+            names_str = ", ".join(other_names) if other_names else "—"
             display = (
-                f"{triangulation.shared_cm:.2f} cM, "
-                f"{triangulation.segment_count} segment "
-                f"({n} profiler)"
+                f"{names_str}: {triangulation.shared_cm:.2f} cM "
+                f"({triangulation.segment_count} segment)"
             )
+            if triangulation.segment_file:
+                display += " 📊"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, triangulation.id)
 
@@ -1356,6 +1531,7 @@ class PersonEditor(QWidget):
         dialog = DnaProfileDialog(
             project_data=self._project_data,
             person_id=self._person.id,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1391,6 +1567,7 @@ class PersonEditor(QWidget):
             project_data=self._project_data,
             person_id=self._person.id,
             existing_profile=selected_profile,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1406,6 +1583,66 @@ class PersonEditor(QWidget):
                 self._refresh_dna_matches()
                 self._update_dna_button_states()
 
+    def _get_selected_dna_profile(self) -> "DnaProfile | None":
+        """Return the DnaProfile for the currently selected item in the profiles list."""
+        current_item = self._ui.dna_profiles_list.currentItem()
+        if current_item is None:
+            return None
+        profile_id = current_item.data(Qt.ItemDataRole.UserRole)
+        return next(
+            (p for p in self._project_data.dna_profiles if p.id == profile_id),
+            None,
+        )
+
+    def _get_selected_dna_match(self) -> "DnaMatch | None":
+        """Return the DnaMatch for the currently selected item in the matches list."""
+        current_item = self._ui.dna_matches_list.currentItem()
+        if current_item is None:
+            return None
+        match_id = current_item.data(Qt.ItemDataRole.UserRole)
+        return next(
+            (m for m in self._project_data.dna_matches if m.id == match_id),
+            None,
+        )
+
+    def _on_open_dna_viewer(self) -> None:
+        """Open the DNA Viewer dialog for the selected profile's raw data file."""
+        import json
+
+        from slaktbusken.services.dna_raw_parser import RawSnpRecord
+        from slaktbusken.ui.dialogs.dna_viewer_dialog import DnaViewerDialog
+
+        selected_profile = self._get_selected_dna_profile()
+        if selected_profile is None or not selected_profile.raw_data_file:
+            return
+
+        records: list[RawSnpRecord] | None = None
+
+        try:
+            # Resolve the full path: project_folder / "dna" / raw_data_file
+            if self._project_folder is not None:
+                raw_path = self._project_folder / "dna" / selected_profile.raw_data_file
+            else:
+                raw_path = Path("dna") / selected_profile.raw_data_file
+
+            data = json.loads(raw_path.read_text(encoding="utf-8"))
+            raw_records = data.get("records", [])
+            records = [
+                RawSnpRecord(
+                    rsid=r["rsid"],
+                    chromosome=r["chromosome"],
+                    position=r["position"],
+                    alleles=r["alleles"],
+                )
+                for r in raw_records
+            ]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
+            # File not found or unreadable — pass None to show error state
+            records = None
+
+        dialog = DnaViewerDialog(records=records, parent=self)
+        dialog.exec()
+
     def _on_add_dna_match(self) -> None:
         """Open the DnaMatchDialog and handle the result."""
         if self._person is None:
@@ -1416,6 +1653,7 @@ class PersonEditor(QWidget):
         dialog = DnaMatchDialog(
             project_data=self._project_data,
             person_id=self._person.id,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1448,6 +1686,7 @@ class PersonEditor(QWidget):
             project_data=self._project_data,
             person_id=self._person.id,
             existing_match=selected_match,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1461,6 +1700,152 @@ class PersonEditor(QWidget):
                 self._refresh_dna_matches()
                 self._update_dna_button_states()
 
+    def _on_show_relationship_graph(self) -> None:
+        """Open the RelationshipGraphDialog for the selected DNA match's shared cM value."""
+        if self._person is None:
+            return
+
+        current_item = self._ui.dna_matches_list.currentItem()
+        if current_item is None:
+            return
+
+        match_id = current_item.data(Qt.ItemDataRole.UserRole)
+        selected_match = next(
+            (m for m in self._project_data.dna_matches if m.id == match_id),
+            None,
+        )
+        if selected_match is None:
+            return
+
+        from slaktbusken.ui.dialogs.relationship_graph_dialog import RelationshipGraphDialog
+
+        dialog = RelationshipGraphDialog(
+            shared_cm=selected_match.shared_cm,
+            parent=self,
+        )
+        dialog.exec()
+
+    def _on_show_chromosome_view(self) -> None:
+        """Open the ChromosomeBrowserDialog for the selected DNA match's segment data."""
+        if self._person is None:
+            return
+
+        selected_match = self._get_selected_dna_match()
+        if selected_match is None or not selected_match.segment_file:
+            return
+
+        if self._project_folder is None:
+            return
+
+        from slaktbusken.services.match_segment_storage import load_match_segments
+        from slaktbusken.ui.dialogs.chromosome_browser_dialog import ChromosomeBrowserDialog
+
+        try:
+            segments = load_match_segments(self._project_folder, selected_match.segment_file)
+        except (FileNotFoundError, Exception):
+            return
+
+        # Resolve person names for both profiles
+        def _resolve_profile_person_name(profile_id: str) -> str:
+            for profile in self._project_data.dna_profiles:
+                if profile.id == profile_id:
+                    for person in self._project_data.persons:
+                        if person.id == profile.person_id and person.names:
+                            n = person.names[0]
+                            return f"{n.given} {n.surname}".strip()
+                    break
+            return "(okänd)"
+
+        person1_name = _resolve_profile_person_name(selected_match.profile1_id)
+        person2_name = _resolve_profile_person_name(selected_match.profile2_id)
+        match_title = f"{person1_name} och {person2_name}"
+
+        dialog = ChromosomeBrowserDialog(
+            segments=segments,
+            person_name=person2_name,
+            title=match_title,
+            parent=self,
+        )
+        dialog.exec()
+
+    def _get_selected_triangulation(self) -> "DnaTriangulation | None":
+        """Return the DnaTriangulation for the currently selected item."""
+        current_item = self._triangulations_list.currentItem()
+        if current_item is None:
+            return None
+        tri_id = current_item.data(Qt.ItemDataRole.UserRole)
+        return next(
+            (t for t in self._project_data.dna_triangulations if t.id == tri_id),
+            None,
+        )
+
+    def _on_show_tri_chromosome_view(self) -> None:
+        """Open the ChromosomeBrowserDialog for the selected triangulation's segment data."""
+        if self._person is None:
+            return
+
+        selected_tri = self._get_selected_triangulation()
+        if selected_tri is None or not selected_tri.segment_file:
+            return
+
+        if self._project_folder is None:
+            return
+
+        import json
+
+        from slaktbusken.services.dna_file_utils import read_dna_file
+        from slaktbusken.services.dna_match_csv_parser import MatchSegmentRecord
+        from slaktbusken.services.match_segment_storage import deserialize_segments
+        from slaktbusken.ui.dialogs.chromosome_browser_dialog import ChromosomeBrowserDialog
+
+        try:
+            data = read_dna_file(self._project_folder, selected_tri.segment_file)
+        except (FileNotFoundError, Exception):
+            return
+
+        # Data format: either grouped dict {person_name: [segments...]}
+        # or flat list [segments...] (legacy)
+        segments_by_person: dict[str, list[MatchSegmentRecord]] = {}
+        if isinstance(data, dict):
+            for person_name, seg_list in data.items():
+                segments_by_person[person_name] = deserialize_segments(seg_list)
+        elif isinstance(data, list):
+            # Legacy flat format — use a generic name
+            segments_by_person["(alla)"] = deserialize_segments(data)
+
+        # Resolve active person name for the title
+        active_name = "(okänd)"
+        if self._person and self._person.names:
+            n = self._person.names[0]
+            active_name = f"{n.given} {n.surname}".strip()
+
+        # Resolve other person names from profiles
+        person_profile_ids = {
+            p.id for p in self._project_data.dna_profiles
+            if p.person_id == self._person.id
+        }
+        other_names: list[str] = []
+        for profile_id in selected_tri.profile_ids:
+            if profile_id in person_profile_ids:
+                continue
+            for profile in self._project_data.dna_profiles:
+                if profile.id == profile_id:
+                    for person in self._project_data.persons:
+                        if person.id == profile.person_id and person.names:
+                            name = person.names[0]
+                            other_names.append(f"{name.given} {name.surname}".strip())
+                    break
+
+        others_str = " och ".join(other_names) if other_names else "(okänd)"
+        tri_title = f"{active_name} triangulering med {others_str}"
+
+        dialog = ChromosomeBrowserDialog(
+            segments_by_person=segments_by_person,
+            title=tri_title,
+            parent=self,
+        )
+        dialog.exec()
+
     def _on_add_triangulation(self) -> None:
         """Open the DnaTriangulationDialog in create mode and handle the result."""
         if self._person is None:
@@ -1471,6 +1856,7 @@ class PersonEditor(QWidget):
         dialog = DnaTriangulationDialog(
             project_data=self._project_data,
             person_id=self._person.id,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1503,6 +1889,7 @@ class PersonEditor(QWidget):
             project_data=self._project_data,
             person_id=self._person.id,
             existing_triangulation=selected_tri,
+            project_path=self._project_folder,
             parent=self,
         )
 
@@ -1521,6 +1908,7 @@ class PersonEditor(QWidget):
 
         - Shows/hides DNA buttons based on whether a person is loaded.
         - Enables edit button only when a profile is selected.
+        - Shows DNA-visare button only when the selected profile has raw_data_file set.
         - Enables match edit button only when a match is selected.
         - Enables match button if person has at least one DNA profile.
         - Disables match button with tooltip if person has no profiles.
@@ -1530,34 +1918,63 @@ class PersonEditor(QWidget):
         if self._person is None:
             self._add_dna_profile_button.setVisible(False)
             self._edit_dna_profile_button.setVisible(False)
+            self._dna_viewer_button.setVisible(False)
             self._add_dna_match_button.setVisible(False)
             self._edit_dna_match_button.setVisible(False)
+            self._relationship_graph_button.setVisible(False)
+            self._chromosome_view_button.setVisible(False)
             self._add_triangulation_button.setVisible(False)
             self._edit_triangulation_button.setVisible(False)
+            self._tri_chromosome_view_button.setVisible(False)
             return
 
         self._add_dna_profile_button.setVisible(True)
         self._edit_dna_profile_button.setVisible(True)
         self._add_dna_match_button.setVisible(True)
         self._edit_dna_match_button.setVisible(True)
+        self._relationship_graph_button.setVisible(True)
+        self._chromosome_view_button.setVisible(True)
         self._add_triangulation_button.setVisible(True)
         self._edit_triangulation_button.setVisible(True)
+        self._tri_chromosome_view_button.setVisible(True)
 
         # Enable edit button only when a profile is selected
         has_selection = self._ui.dna_profiles_list.currentItem() is not None
         self._edit_dna_profile_button.setEnabled(has_selection)
+
+        # Show/hide DNA-visare button based on whether selected profile has raw_data_file
+        selected_profile = self._get_selected_dna_profile()
+        if selected_profile is not None and selected_profile.raw_data_file:
+            self._dna_viewer_button.setVisible(True)
+            self._dna_viewer_button.setEnabled(True)
+        else:
+            self._dna_viewer_button.setVisible(False)
+            self._dna_viewer_button.setEnabled(False)
 
         # Enable match edit button only when a match is selected
         has_match_selection = (
             self._ui.dna_matches_list.currentItem() is not None
         )
         self._edit_dna_match_button.setEnabled(has_match_selection)
+        self._relationship_graph_button.setEnabled(has_match_selection)
+
+        # Enable chromosome view button only when selected match has segment data
+        selected_match = self._get_selected_dna_match()
+        self._chromosome_view_button.setEnabled(
+            selected_match is not None and selected_match.segment_file is not None
+        )
 
         # Enable triangulation edit button only when a triangulation is selected
         has_triangulation_selection = (
             self._triangulations_list.currentItem() is not None
         )
         self._edit_triangulation_button.setEnabled(has_triangulation_selection)
+
+        # Enable triangulation chromosome view only when selected has segment data
+        selected_tri = self._get_selected_triangulation()
+        self._tri_chromosome_view_button.setEnabled(
+            selected_tri is not None and selected_tri.segment_file is not None
+        )
 
         # Check if person has at least one DNA profile
         has_profiles = any(
@@ -1828,17 +2245,100 @@ class PersonEditor(QWidget):
         Validates that at least one name entry exists and sex is set.
         On success, stores the result in saved_person.
         """
-        # Validate: at least one name required
+        from PySide6.QtWidgets import QMessageBox
+
+        # --- Hard validation: block save entirely if requirements not met ---
+
+        # Validate: at least one name row required
         if self._ui.names_table.rowCount() == 0:
             self._update_status("Minst ett namn krävs")
             self._ui.tab_widget.setCurrentWidget(self._ui.names_tab)
             return
 
+        # Check that at least one name has non-empty given or surname
+        has_valid_name = False
+        for row in range(self._ui.names_table.rowCount()):
+            given = self._ui.names_table.item(row, 1).text().strip()
+            surname = self._ui.names_table.item(row, 2).text().strip()
+            if given or surname:
+                has_valid_name = True
+                break
+
+        if not has_valid_name:
+            self._update_status("Minst ett namn med förnamn eller efternamn krävs")
+            self._ui.tab_widget.setCurrentWidget(self._ui.names_tab)
+            return
+
+        # --- Soft warnings: ask user to confirm potential mistakes ---
+
+        # Check for unsaved name field text (applies to both new and existing persons)
+        pending_given = self._ui.given_name_input.text().strip()
+        pending_surname = self._ui.surname_input.text().strip()
+        if pending_given or pending_surname:
+            # Don't warn if the text matches a currently selected row (user is just viewing it)
+            is_viewing_existing = False
+            selected = self._ui.names_table.selectedItems()
+            if selected:
+                row = selected[0].row()
+                existing_given = self._ui.names_table.item(row, 1).text().strip()
+                existing_surname = self._ui.names_table.item(row, 2).text().strip()
+                if pending_given == existing_given and pending_surname == existing_surname:
+                    is_viewing_existing = True
+
+            if not is_viewing_existing:
+                msg = (
+                    "Namnfälten innehåller text som inte lagts till i namnlistan.\n\n"
+                    "Vill du spara utan att lägga till namnet?"
+                )
+                box = QMessageBox(self)
+                box.setWindowTitle("Bekräfta")
+                box.setText(msg)
+                box.setIcon(QMessageBox.Icon.Question)
+                ja_button = box.addButton("Ja", QMessageBox.ButtonRole.YesRole)
+                nej_button = box.addButton("Nej", QMessageBox.ButtonRole.NoRole)
+                box.setDefaultButton(nej_button)
+                box.exec()
+                if box.clickedButton() != ja_button:
+                    return
+
+        # Additional new-person warnings
+        if self._is_new:
+            warnings: list[str] = []
+
+            # Check if sex is unknown
+            sex_label = self._ui.sex_combo.currentText()
+            sex_val = self._sex_label_to_internal.get(sex_label, "U")
+            if sex_val == "U":
+                warnings.append("Kön är satt till Okänt.")
+
+            if warnings:
+                msg = "Följande saker kan vara misstag:\n\n"
+                msg += "\n".join(f"• {w}" for w in warnings)
+                msg += "\n\nVill du spara personen ändå?"
+
+                box = QMessageBox(self)
+                box.setWindowTitle("Bekräfta")
+                box.setText(msg)
+                box.setIcon(QMessageBox.Icon.Question)
+                ja_button = box.addButton("Ja", QMessageBox.ButtonRole.YesRole)
+                nej_button = box.addButton("Nej", QMessageBox.ButtonRole.NoRole)
+                box.setDefaultButton(nej_button)
+                box.exec()
+                if box.clickedButton() != ja_button:
+                    return
+
         # Collect names from table
         names: list[Name] = []
         table = self._ui.names_table
         for row in range(table.rowCount()):
-            name_type = table.item(row, 0).text()
+            # Get internal name type from stored data, fallback to label conversion
+            type_item = table.item(row, 0)
+            name_type_internal = type_item.data(Qt.ItemDataRole.UserRole)
+            if not name_type_internal:
+                # Fallback: convert displayed label to internal
+                name_type_internal = self._name_type_label_to_internal.get(
+                    type_item.text(), type_item.text()
+                )
             given = table.item(row, 1).text()
             surname = table.item(row, 2).text()
 
@@ -1852,10 +2352,11 @@ class PersonEditor(QWidget):
                     if is_event_id_valid(self._project_data, selected_data):
                         event_id = selected_data
 
-            names.append(Name(type=name_type, given=given, surname=surname, event_id=event_id))
+            names.append(Name(type=name_type_internal, given=given, surname=surname, event_id=event_id))
 
         # Sex
-        sex = self._ui.sex_combo.currentText()
+        sex_label = self._ui.sex_combo.currentText()
+        sex = self._sex_label_to_internal.get(sex_label, "U")
 
         # Title and occupation
         title = self._ui.title_input.text().strip() or None
@@ -1871,10 +2372,6 @@ class PersonEditor(QWidget):
 
         # Determine person ID
         person_id = self._person.id if self._person else str(uuid.uuid4())
-
-        # Flush pending FotoTab person-list changes before save
-        if hasattr(self, '_foto_tab') and self._foto_tab is not None:
-            self._foto_tab.flush_pending_person_list()
 
         self._saved_person = Person(
             id=person_id,

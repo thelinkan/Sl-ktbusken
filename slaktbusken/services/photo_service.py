@@ -80,6 +80,20 @@ class PhotoService:
                 return candidate
             counter += 1
 
+    @staticmethod
+    def validate_title(title: str) -> list[str]:
+        """Validate photo title. Returns error messages (empty = valid).
+
+        Rules:
+        - Title must not be empty or whitespace-only.
+        - Title must be 1–200 characters.
+        """
+        if not title or not title.strip():
+            return ["Titel måste vara 1–200 tecken."]
+        if len(title) > 200:
+            return ["Titel måste vara 1–200 tecken."]
+        return []
+
     def format_title(self, foto_typ: str, title: str) -> str:
         """Format as '[Foto_Typ] title'."""
         return f"[{foto_typ}] {title}"

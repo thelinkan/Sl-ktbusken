@@ -24,6 +24,7 @@ class ParsedReference:
     structured_fields: dict[str, Optional[str | int]]
     arkivreferens: str = ""
     arkivreferenser: list[ArkivReferens] = field(default_factory=list)
+    short_note: str = ""
 
 
 # Mapping from church book series codes to Källtyp names.
@@ -208,8 +209,18 @@ def parse_arkiv_digital(text: str) -> Optional[ParsedReference]:
             ],
         )
 
-    # Try census pattern
+    # Try census pattern (simple rX.pXXXXX)
     result = parse_arkiv_digital_census(text)
+    if result is not None:
+        return result
+
+    # Try SCB folkräkning pattern (e.g., "Statistiska Centralbyrån (SCB) - 1940 års folkräkning ...")
+    result = parse_arkiv_digital_scb_census(text)
+    if result is not None:
+        return result
+
+    # Try Mantalslängd pattern (e.g., "Mantalslängder 1951 205 (1951) Bild: 81 Sida: 79")
+    result = parse_arkiv_digital_mantalslangd(text)
     if result is not None:
         return result
 
@@ -244,6 +255,101 @@ def parse_arkiv_digital_census(text: str) -> Optional[ParsedReference]:
         arkivreferenser=[
             ArkivReferens(leverantor_name="Arkiv Digital", reference_value=matched_string),
         ],
+    )
+
+
+# SCB Folkräkning pattern:
+# "Statistiska Centralbyrån (SCB) - YYYY års folkräkning SERIES:VOLUME (YEAR) Bild: N Sida: N"
+_SCB_CENSUS_PATTERN = re.compile(
+    r"(?P<org>[^-]+?)\s*-\s*(?P<year>\d{4})\s+års\s+folkräkning\s+"
+    r"(?P<series>\w+):(?P<volume>\d+)\s*"
+    r"\((?P<period>[^)]+)\)\s*"
+    r"(?:Bild:\s*(?P<image>\d+)\s*)?"
+    r"(?:Sida:\s*(?P<page>\d+))?"
+)
+
+# Mantalslängd pattern:
+# "Mantalslängder YYYY NNN (YYYY) Bild: N Sida: N"
+_MANTALSLANGD_PATTERN = re.compile(
+    r"(?P<type>Mantalslängder?)\s+(?P<year>\d{4})\s+(?P<volume>\d+)\s*"
+    r"\((?P<period>[^)]+)\)\s*"
+    r"(?:Bild:\s*(?P<image>\d+)\s*)?"
+    r"(?:Sida:\s*(?P<page>\d+))?"
+)
+
+
+def parse_arkiv_digital_scb_census(text: str) -> Optional[ParsedReference]:
+    """Parse ArkivDigital SCB census pattern.
+
+    Matches references like:
+    "Statistiska Centralbyrån (SCB) - 1940 års folkräkning H1AA:473 (1940) Bild: 1900 Sida: 35"
+
+    Returns:
+        ParsedReference with leverantor="Arkiv Digital", kalltyp="Folkräkning",
+        title formatted as "YYYY års folkräkning SERIES:VOLUME Sida: N",
+        short_note set to the organization name (e.g., "Statistiska Centralbyrån (SCB)").
+    """
+    stripped = text.strip()
+    m = _SCB_CENSUS_PATTERN.search(stripped)
+    if not m:
+        return None
+
+    org = m.group("org").strip()
+    year = m.group("year")
+    series = m.group("series")
+    volume = m.group("volume")
+    page = m.group("page") or ""
+
+    # Build title: "YYYY års folkräkning SERIES:VOLUME Sida: N"
+    title = f"{year} års folkräkning {series}:{volume}"
+    if page:
+        title += f" Sida: {page}"
+
+    return ParsedReference(
+        leverantor_name="Arkiv Digital",
+        kalltyp_name="Folkräkning",
+        title=title,
+        reference_text=text,
+        structured_fields={},
+        arkivreferens="",
+        arkivreferenser=[],
+        short_note=org,
+    )
+
+
+def parse_arkiv_digital_mantalslangd(text: str) -> Optional[ParsedReference]:
+    """Parse ArkivDigital Mantalslängd pattern.
+
+    Matches references like:
+    "Mantalslängder 1951 205 (1951) Bild: 81 Sida: 79"
+
+    Returns:
+        ParsedReference with leverantor="Arkiv Digital", kalltyp="Mantalslängd",
+        title formatted as "Mantalslängder YYYY NNN Sida: N".
+    """
+    stripped = text.strip()
+    m = _MANTALSLANGD_PATTERN.search(stripped)
+    if not m:
+        return None
+
+    type_name = m.group("type")
+    year = m.group("year")
+    volume = m.group("volume")
+    page = m.group("page") or ""
+
+    # Build title: "Mantalslängder YYYY NNN Sida: N"
+    title = f"{type_name} {year} {volume}"
+    if page:
+        title += f" Sida: {page}"
+
+    return ParsedReference(
+        leverantor_name="Arkiv Digital",
+        kalltyp_name="Mantalslängd",
+        title=title,
+        reference_text=text,
+        structured_fields={},
+        arkivreferens="",
+        arkivreferenser=[],
     )
 
 

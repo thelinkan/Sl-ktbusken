@@ -87,6 +87,14 @@ class ContextMenuBuilder:
             )
         )
 
+        # Action: Filtrera på DNA-träffar
+        action_dna_filter = menu.addAction("Filtrera på DNA-träffar")
+        action_dna_filter.setData(("filter_dna_matches", person_id))
+
+        # Action: Visa på karta
+        action_show_map = menu.addAction("Visa på karta")
+        action_show_map.setData(("show_on_map", person_id))
+
         # Separator before destructive action
         menu.addSeparator()
 

@@ -22,7 +22,7 @@ from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, Sou
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
 from slaktbusken.model.person import Name, Person
-from slaktbusken.model.place import ExternalId, Place
+from slaktbusken.model.place import CustomFieldDef, ExternalId, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import ArkivReferens, Kalltyp, Leverantor, Repository, RepositoryRef, Source, StructuredReference
@@ -125,6 +125,9 @@ def _serialize_dataclass(obj: Any) -> dict[str, Any]:
         # Omit empty lists for fields that have default_factory=list.
         if value == [] and _has_default_factory_list(f):
             continue
+        # Omit empty strings for fields that have default="".
+        if value == "" and _has_default_empty_string(f):
+            continue
         result[f.name] = _serialize_value(value)
     return result
 
@@ -179,6 +182,16 @@ def _has_default_factory_list(f: Any) -> bool:
     )
 
 
+def _has_default_empty_string(f: Any) -> bool:
+    """Check if a dataclass field has default="".
+
+    Used to determine whether an empty string value can be safely omitted
+    from serialized output to keep JSON clean.
+    """
+    import dataclasses
+    return f.default is not dataclasses.MISSING and f.default == ""
+
+
 # ---------------------------------------------------------------------------
 # Deserialization helpers
 # ---------------------------------------------------------------------------
@@ -216,6 +229,7 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (MediaItem, "annotations"): Annotation,
     (ResearchNote, "linked_entities"): LinkedEntity,
     (Place, "external_ids"): ExternalId,
+    (Place, "region_levels"): RegionLevel,
 }
 
 # Mapping of (parent_class, field_name) -> type for optional nested dataclass fields.
@@ -229,6 +243,7 @@ _NESTED_OPTIONAL_TYPES: dict[tuple[type, str], type] = {
 _DEEP_NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (DateValue, "source_refs"): SourceRef,
     (PlaceRef, "source_refs"): SourceRef,
+    (RegionLevel, "custom_fields"): CustomFieldDef,
 }
 
 

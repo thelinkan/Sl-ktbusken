@@ -54,6 +54,7 @@ class PersonBoxConfig:
     notes: bool = False
     cause_of_death: bool = True
     clusters: bool = True
+    age: bool = True
 
 
 @dataclass
@@ -61,12 +62,16 @@ class DiagramSettings:
     """Settings controlling diagram view depth limits.
 
     Attributes:
-        ancestry_depth: Number of ancestor generations to display (1-10).
-        descendants_depth: Number of descendant generations to display (1-10).
+        ancestry_depth: Number of ancestor generations to display (1-30).
+        descendants_depth: Number of descendant generations to display (1-30).
+        ancestry_compact: Use compact layout for ancestry view.
+        background_color: Background color for the diagram canvas (hex string).
     """
 
     ancestry_depth: int = 4
     descendants_depth: int = 4
+    ancestry_compact: bool = False
+    background_color: str = "#f0f0f0"
 
 
 @dataclass
@@ -93,20 +98,123 @@ VALID_PAPER_SIZES = ("A4", "A3", "A5")
 
 
 @dataclass
+class PersonListConfig:
+    """Configuration for which columns/icons are visible in the person list.
+
+    Attributes:
+        sex: Show the sex/gender icon.
+        relation: Show the relation indicator (ancestor/descendant).
+        multiple_names: Show the multiple names icon.
+        birth_date: Show birth date.
+        birth_place: Show birth place.
+        death_date: Show death date.
+        death_place: Show death place.
+        title: Show title column.
+        occupation: Show occupation column.
+        clusters: Show cluster column.
+        dna: Show DNA column.
+    """
+
+    sex: bool = True
+    relation: bool = True
+    multiple_names: bool = True
+    birth_date: bool = True
+    birth_place: bool = True
+    death_date: bool = True
+    death_place: bool = True
+    title: bool = True
+    occupation: bool = True
+    clusters: bool = True
+    dna: bool = True
+
+
+@dataclass
+class AgeCheckThreshold:
+    """Tröskelvärden för en ålderskontroll, separerade per kön."""
+
+    enabled: bool = True
+    male: int = 0
+    female: int = 0
+
+
+@dataclass
+class AgeCheckConfig:
+    """Konfiguration för alla ålderskontroller."""
+
+    master_enabled: bool = True
+    max_age: AgeCheckThreshold = field(
+        default_factory=lambda: AgeCheckThreshold(True, 130, 130)
+    )
+    max_age_at_baptism: AgeCheckThreshold = field(
+        default_factory=lambda: AgeCheckThreshold(True, 1, 1)
+    )
+    min_age_at_marriage: AgeCheckThreshold = field(
+        default_factory=lambda: AgeCheckThreshold(True, 12, 12)
+    )
+    max_age_at_marriage: AgeCheckThreshold = field(
+        default_factory=lambda: AgeCheckThreshold(True, 110, 110)
+    )
+    max_partner_age_diff: int = 50
+    max_partner_age_diff_enabled: bool = True
+    min_age_at_childbirth: AgeCheckThreshold = field(
+        default_factory=lambda: AgeCheckThreshold(True, 12, 12)
+    )
+    max_age_at_childbirth: AgeCheckThreshold = field(
+        default_factory=lambda: AgeCheckThreshold(True, 80, 60)
+    )
+    min_days_between_births: int = 240
+    min_days_between_births_enabled: bool = True
+    max_days_death_to_burial: AgeCheckThreshold = field(
+        default_factory=lambda: AgeCheckThreshold(True, 365, 365)
+    )
+
+
+@dataclass
+class LogicCheckConfig:
+    """Konfiguration för logiska/strukturella kontroller."""
+
+    reasonable_dates: bool = True
+    no_event_before_birth: bool = True
+    burial_not_before_death: bool = True
+    only_burial_after_death: bool = True
+    no_own_events_after_death: bool = True
+    birth_not_after_parent_death: bool = True
+    no_event_before_parent_birth: bool = True
+    no_incest: bool = True
+    must_have_relations: bool = True
+    no_ancestor_cycle: bool = True
+    media_files_exist: bool = True
+    valid_swedish_calendar: bool = True
+    connected_to_main_person: bool = True
+
+
+@dataclass
+class PersonCheckConfig:
+    """Samlad konfiguration för alla personkontroller."""
+
+    age_checks: AgeCheckConfig = field(default_factory=AgeCheckConfig)
+    logic_checks: LogicCheckConfig = field(default_factory=LogicCheckConfig)
+
+
+@dataclass
 class ProjectSettings:
     """Container for all project-level settings.
 
     Attributes:
         person_box_config: Configuration for person box content fields.
         diagram_settings: Diagram view depth settings.
+        person_list_config: Configuration for person list columns/icons.
         ui_state: Optional saved UI layout state.
         report_paper_size: Paper size for report generation (A4, A3, or A5).
+        person_check_config: Configuration for person validation checks.
     """
 
     person_box_config: PersonBoxConfig = field(default_factory=PersonBoxConfig)
     diagram_settings: DiagramSettings = field(default_factory=DiagramSettings)
+    person_list_config: PersonListConfig = field(default_factory=PersonListConfig)
     ui_state: UiState = field(default_factory=UiState)
     report_paper_size: str = "A4"
+    person_check_config: PersonCheckConfig = field(default_factory=PersonCheckConfig)
 
 
 def create_default_settings() -> ProjectSettings:
@@ -213,11 +321,29 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         notes=person_box_data.get("notes", False),
         cause_of_death=person_box_data.get("cause_of_death", True),
         clusters=person_box_data.get("clusters", True),
+        age=person_box_data.get("age", True),
     )
 
     diagram_settings = DiagramSettings(
         ancestry_depth=diagram_data.get("ancestry_depth", 4),
         descendants_depth=diagram_data.get("descendants_depth", 4),
+        ancestry_compact=diagram_data.get("ancestry_compact", False),
+        background_color=diagram_data.get("background_color", "#f0f0f0"),
+    )
+
+    person_list_data = data.get("person_list_config", {})
+    person_list_config = PersonListConfig(
+        sex=person_list_data.get("sex", True),
+        relation=person_list_data.get("relation", True),
+        multiple_names=person_list_data.get("multiple_names", True),
+        birth_date=person_list_data.get("birth_date", True),
+        birth_place=person_list_data.get("birth_place", True),
+        death_date=person_list_data.get("death_date", True),
+        death_place=person_list_data.get("death_place", True),
+        title=person_list_data.get("title", True),
+        occupation=person_list_data.get("occupation", True),
+        clusters=person_list_data.get("clusters", True),
+        dna=person_list_data.get("dna", True),
     )
 
     ui_state = UiState(
@@ -230,9 +356,115 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
     raw_paper_size = data.get("report_paper_size", "A4")
     report_paper_size = raw_paper_size if raw_paper_size in VALID_PAPER_SIZES else "A4"
 
+    # Person check config deserialization with fallback to defaults
+    pcc_data = data.get("person_check_config", {})
+    age_data = pcc_data.get("age_checks", {})
+    logic_data = pcc_data.get("logic_checks", {})
+
+    def _deserialize_threshold(
+        d: dict, default: AgeCheckThreshold
+    ) -> AgeCheckThreshold:
+        return AgeCheckThreshold(
+            enabled=d.get("enabled", default.enabled),
+            male=d.get("male", default.male),
+            female=d.get("female", default.female),
+        )
+
+    defaults = AgeCheckConfig()
+    age_checks = AgeCheckConfig(
+        master_enabled=age_data.get("master_enabled", defaults.master_enabled),
+        max_age=_deserialize_threshold(
+            age_data.get("max_age", {}), defaults.max_age
+        ),
+        max_age_at_baptism=_deserialize_threshold(
+            age_data.get("max_age_at_baptism", {}), defaults.max_age_at_baptism
+        ),
+        min_age_at_marriage=_deserialize_threshold(
+            age_data.get("min_age_at_marriage", {}), defaults.min_age_at_marriage
+        ),
+        max_age_at_marriage=_deserialize_threshold(
+            age_data.get("max_age_at_marriage", {}), defaults.max_age_at_marriage
+        ),
+        max_partner_age_diff=age_data.get(
+            "max_partner_age_diff", defaults.max_partner_age_diff
+        ),
+        max_partner_age_diff_enabled=age_data.get(
+            "max_partner_age_diff_enabled", defaults.max_partner_age_diff_enabled
+        ),
+        min_age_at_childbirth=_deserialize_threshold(
+            age_data.get("min_age_at_childbirth", {}),
+            defaults.min_age_at_childbirth,
+        ),
+        max_age_at_childbirth=_deserialize_threshold(
+            age_data.get("max_age_at_childbirth", {}),
+            defaults.max_age_at_childbirth,
+        ),
+        min_days_between_births=age_data.get(
+            "min_days_between_births", defaults.min_days_between_births
+        ),
+        min_days_between_births_enabled=age_data.get(
+            "min_days_between_births_enabled",
+            defaults.min_days_between_births_enabled,
+        ),
+        max_days_death_to_burial=_deserialize_threshold(
+            age_data.get("max_days_death_to_burial", {}),
+            defaults.max_days_death_to_burial,
+        ),
+    )
+
+    logic_defaults = LogicCheckConfig()
+    logic_checks = LogicCheckConfig(
+        reasonable_dates=logic_data.get(
+            "reasonable_dates", logic_defaults.reasonable_dates
+        ),
+        no_event_before_birth=logic_data.get(
+            "no_event_before_birth", logic_defaults.no_event_before_birth
+        ),
+        burial_not_before_death=logic_data.get(
+            "burial_not_before_death", logic_defaults.burial_not_before_death
+        ),
+        only_burial_after_death=logic_data.get(
+            "only_burial_after_death", logic_defaults.only_burial_after_death
+        ),
+        no_own_events_after_death=logic_data.get(
+            "no_own_events_after_death", logic_defaults.no_own_events_after_death
+        ),
+        birth_not_after_parent_death=logic_data.get(
+            "birth_not_after_parent_death",
+            logic_defaults.birth_not_after_parent_death,
+        ),
+        no_event_before_parent_birth=logic_data.get(
+            "no_event_before_parent_birth",
+            logic_defaults.no_event_before_parent_birth,
+        ),
+        no_incest=logic_data.get("no_incest", logic_defaults.no_incest),
+        must_have_relations=logic_data.get(
+            "must_have_relations", logic_defaults.must_have_relations
+        ),
+        no_ancestor_cycle=logic_data.get(
+            "no_ancestor_cycle", logic_defaults.no_ancestor_cycle
+        ),
+        media_files_exist=logic_data.get(
+            "media_files_exist", logic_defaults.media_files_exist
+        ),
+        valid_swedish_calendar=logic_data.get(
+            "valid_swedish_calendar", logic_defaults.valid_swedish_calendar
+        ),
+        connected_to_main_person=logic_data.get(
+            "connected_to_main_person", logic_defaults.connected_to_main_person
+        ),
+    )
+
+    person_check_config = PersonCheckConfig(
+        age_checks=age_checks,
+        logic_checks=logic_checks,
+    )
+
     return ProjectSettings(
         person_box_config=person_box_config,
         diagram_settings=diagram_settings,
+        person_list_config=person_list_config,
         ui_state=ui_state,
         report_paper_size=report_paper_size,
+        person_check_config=person_check_config,
     )

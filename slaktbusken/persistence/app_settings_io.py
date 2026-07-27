@@ -1,21 +1,28 @@
 """Read/write application-level settings JSON file.
 
 This module handles persistence of application-level settings including
-the recent projects list and default project path. Settings are stored
-as a human-readable JSON file (UTF-8, indented) in the user's home
+the recent projects list, default project path, and all visual preferences
+(diagram settings, person box config, person list config). Settings are
+stored as a human-readable JSON file (UTF-8, indented) in the user's home
 directory under ~/.slaktbusken/app_settings.json.
 
-Unlike project settings (which live alongside a project file), application
-settings are shared across all projects and persist independently.
+All user preferences are stored here at the application level — they are
+global and apply regardless of which project is open.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from slaktbusken.persistence.settings_io import (
+    DiagramSettings,
+    PersonBoxConfig,
+    PersonListConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +47,34 @@ class ColumnVisibility:
 class AppSettings:
     """Application-level settings persisted across sessions.
 
+    All user preferences are stored here — none are project-specific.
+
     Attributes:
         recent_projects: File paths of recently opened projects, most
             recent first. Limited to a maximum of 10 entries.
+        startup_mode: What to do on startup: "none" (open nothing),
+            "recent" (open last used project), "default_project" (open
+            the specified default project).
         default_project_path: Path to the project that should be opened
-            automatically on application start, or None if not set.
+            automatically on application start (used when startup_mode
+            is "default_project"), or None if not set.
+        default_folder: Default base folder for creating new projects,
+            or None to use the system default.
+        person_box_config: Configuration for person box content fields.
+        diagram_settings: Diagram view depth and background settings.
+        person_list_config: Configuration for person list columns/icons.
         column_visibility: Visibility flags for optional columns in the
             person list table.
     """
 
     recent_projects: list[str] = field(default_factory=list)
+    startup_mode: str = "none"
     default_project_path: Optional[str] = None
+    default_folder: Optional[str] = None
+    theme: str = "system"
+    person_box_config: PersonBoxConfig = field(default_factory=PersonBoxConfig)
+    diagram_settings: DiagramSettings = field(default_factory=DiagramSettings)
+    person_list_config: PersonListConfig = field(default_factory=PersonListConfig)
     column_visibility: ColumnVisibility = field(default_factory=ColumnVisibility)
 
 
@@ -185,6 +209,41 @@ class AppSettingsService:
         """
         return self._settings.default_project_path
 
+    def set_startup_mode(self, mode: str) -> None:
+        """Set the startup mode.
+
+        Args:
+            mode: One of "none", "recent", or "default_project".
+        """
+        self._settings.startup_mode = mode
+        self.save(self._settings)
+
+    def get_startup_mode(self) -> str:
+        """Return the current startup mode.
+
+        Returns:
+            One of "none", "recent", or "default_project".
+        """
+        return self._settings.startup_mode
+
+    def set_default_folder(self, path: Optional[str]) -> None:
+        """Set or clear the default folder for new projects.
+
+        Args:
+            path: The folder path to use as base for new projects,
+                or None to clear the setting.
+        """
+        self._settings.default_folder = path
+        self.save(self._settings)
+
+    def get_default_folder(self) -> Optional[str]:
+        """Return the default folder for new projects, or None if not set.
+
+        Returns:
+            The default folder path, or None.
+        """
+        return self._settings.default_folder
+
     def _serialize(self, settings: AppSettings) -> dict:
         """Convert an AppSettings instance to a JSON-compatible dict.
 
@@ -197,7 +256,13 @@ class AppSettingsService:
         cv = settings.column_visibility
         return {
             "recent_projects": settings.recent_projects,
+            "startup_mode": settings.startup_mode,
             "default_project_path": settings.default_project_path,
+            "default_folder": settings.default_folder,
+            "theme": settings.theme,
+            "person_box_config": asdict(settings.person_box_config),
+            "diagram_settings": asdict(settings.diagram_settings),
+            "person_list_config": asdict(settings.person_list_config),
             "column_visibility": {
                 "titel": cv.titel,
                 "yrke": cv.yrke,
@@ -240,6 +305,27 @@ class AppSettingsService:
         ):
             default_project_path = None
 
+        # Read startup_mode with backward compatibility: if not present
+        # but default_project_path is set, assume "default_project"
+        _VALID_STARTUP_MODES = ("none", "recent", "default_project")
+        startup_mode = data.get("startup_mode")
+        if startup_mode not in _VALID_STARTUP_MODES:
+            # Backward compat: old settings without startup_mode
+            if default_project_path:
+                startup_mode = "default_project"
+            else:
+                startup_mode = "none"
+
+        default_folder = data.get("default_folder")
+        if default_folder is not None and not isinstance(default_folder, str):
+            default_folder = None
+
+        # Deserialize theme with fallback
+        _VALID_THEMES = ("light", "dark", "system")
+        theme = data.get("theme", "system")
+        if theme not in _VALID_THEMES:
+            theme = "system"
+
         # Deserialize column visibility with graceful fallback
         cv_data = data.get("column_visibility")
         if isinstance(cv_data, dict):
@@ -257,8 +343,65 @@ class AppSettingsService:
         else:
             column_visibility = ColumnVisibility()
 
+        # Deserialize visual settings with graceful fallback
+        pbc_data = data.get("person_box_config")
+        if isinstance(pbc_data, dict):
+            person_box_config = PersonBoxConfig(
+                name=pbc_data.get("name", True),
+                birth_date=pbc_data.get("birth_date", True),
+                birth_place=pbc_data.get("birth_place", True),
+                death_date=pbc_data.get("death_date", True),
+                death_place=pbc_data.get("death_place", True),
+                marriage_date=pbc_data.get("marriage_date", False),
+                marriage_place=pbc_data.get("marriage_place", False),
+                occupation=pbc_data.get("occupation", False),
+                photo=pbc_data.get("photo", True),
+                dna_info=pbc_data.get("dna_info", True),
+                notes=pbc_data.get("notes", False),
+                cause_of_death=pbc_data.get("cause_of_death", True),
+                clusters=pbc_data.get("clusters", True),
+                age=pbc_data.get("age", True),
+            )
+        else:
+            person_box_config = PersonBoxConfig()
+
+        ds_data = data.get("diagram_settings")
+        if isinstance(ds_data, dict):
+            diagram_settings = DiagramSettings(
+                ancestry_depth=ds_data.get("ancestry_depth", 4),
+                descendants_depth=ds_data.get("descendants_depth", 4),
+                ancestry_compact=ds_data.get("ancestry_compact", False),
+                background_color=ds_data.get("background_color", "#f0f0f0"),
+            )
+        else:
+            diagram_settings = DiagramSettings()
+
+        plc_data = data.get("person_list_config")
+        if isinstance(plc_data, dict):
+            person_list_config = PersonListConfig(
+                sex=plc_data.get("sex", True),
+                relation=plc_data.get("relation", True),
+                multiple_names=plc_data.get("multiple_names", True),
+                birth_date=plc_data.get("birth_date", True),
+                birth_place=plc_data.get("birth_place", True),
+                death_date=plc_data.get("death_date", True),
+                death_place=plc_data.get("death_place", True),
+                title=plc_data.get("title", True),
+                occupation=plc_data.get("occupation", True),
+                clusters=plc_data.get("clusters", True),
+                dna=plc_data.get("dna", True),
+            )
+        else:
+            person_list_config = PersonListConfig()
+
         return AppSettings(
             recent_projects=recent_projects,
+            startup_mode=startup_mode,
             default_project_path=default_project_path,
+            default_folder=default_folder,
+            theme=theme,
+            person_box_config=person_box_config,
+            diagram_settings=diagram_settings,
+            person_list_config=person_list_config,
             column_visibility=column_visibility,
         )

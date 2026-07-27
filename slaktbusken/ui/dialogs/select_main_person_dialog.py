@@ -149,8 +149,11 @@ class SelectMainPersonDialog(QDialog):
             name_part = f"{surname}, {given}"
             if birth_year or death_year:
                 birth = birth_year if birth_year else "?"
-                death = death_year if death_year else "?"
-                display_text = f"{name_part} ({birth}\u2013{death})"
+                death = death_year
+                if death:
+                    display_text = f"{name_part} ({birth}\u2013{death})"
+                else:
+                    display_text = f"{name_part} ({birth}\u2013)"
             else:
                 display_text = name_part
 

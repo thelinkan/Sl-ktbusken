@@ -3,11 +3,13 @@
 Provides a modal form for creating or editing a DnaTriangulation.
 The dialog works like the DNA match dialog: pick a company, select profiles,
 and enter shared cM, segment count, and largest segment cM.
+Includes CSV paste functionality for importing segment data.
 All UI text is in Swedish.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
@@ -18,11 +20,17 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
+    QHeaderView,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -30,6 +38,13 @@ from PySide6.QtWidgets import (
 from slaktbusken.model.dna import DnaProfile, DnaTriangulation
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.dna_match_csv_parser import (
+    GroupedMatchCsvParseResult,
+    MatchCsvParseResult,
+    parse_match_csv,
+    parse_match_csv_grouped,
+)
+from slaktbusken.services.match_segment_storage import save_match_segments
 
 
 def has_dna_match(
@@ -164,6 +179,7 @@ class DnaTriangulationDialog(QDialog):
         project_data: ProjectData,
         person_id: str,
         existing_triangulation: Optional[DnaTriangulation] = None,
+        project_path: Optional[Path] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -172,6 +188,16 @@ class DnaTriangulationDialog(QDialog):
         self._existing_triangulation = existing_triangulation
         self._created_triangulation: Optional[DnaTriangulation] = None
         self._edited_triangulation: Optional[DnaTriangulation] = None
+        self._parsed_result: Optional[GroupedMatchCsvParseResult] = None
+
+        # Resolve project path for segment storage
+        if project_path is not None:
+            if project_path.is_dir():
+                self._project_path = project_path
+            else:
+                self._project_path = project_path.parent
+        else:
+            self._project_path: Optional[Path] = None
 
         self.setWindowTitle("Ny triangulering")
         self.setMinimumWidth(450)
@@ -238,6 +264,9 @@ class DnaTriangulationDialog(QDialog):
         form.addRow("Anteckningar:", self._edit_notes)
 
         layout.addLayout(form)
+
+        # --- CSV paste section for segment data ---
+        self._setup_paste_section(layout)
 
         # Profile selection section
         self._label_profiles = QLabel("Välj profiler (minst 3):")
@@ -378,6 +407,124 @@ class DnaTriangulationDialog(QDialog):
         return selected_ids
 
     # ------------------------------------------------------------------
+    # CSV Paste section
+    # ------------------------------------------------------------------
+
+    def _setup_paste_section(self, parent_layout: QVBoxLayout) -> None:
+        """Set up the triangulation segment CSV paste section."""
+        paste_label = QLabel("Klistra in segmentdata:")
+        parent_layout.addWidget(paste_label)
+
+        self._paste_text = QPlainTextEdit()
+        self._paste_text.setMaximumHeight(80)
+        self._paste_text.setPlaceholderText(
+            "Klistra in CSV-data från MyHeritage här..."
+        )
+        parent_layout.addWidget(self._paste_text)
+
+        btn_layout = QHBoxLayout()
+        self._btn_parse = QPushButton("Tolka data")
+        self._btn_parse.clicked.connect(self._on_parse_paste)
+        btn_layout.addWidget(self._btn_parse)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+
+        self._label_parse_status = QLabel("")
+        self._label_parse_status.setWordWrap(True)
+        self._label_parse_status.setVisible(False)
+        parent_layout.addWidget(self._label_parse_status)
+
+        self._segment_table = QTableWidget()
+        self._segment_table.setColumnCount(4)
+        self._segment_table.setHorizontalHeaderLabels(
+            ["Kromosom", "Start", "Slut", "cM"]
+        )
+        self._segment_table.setMaximumHeight(120)
+        self._segment_table.setVisible(False)
+        header = self._segment_table.horizontalHeader()
+        if header is not None:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        parent_layout.addWidget(self._segment_table)
+
+        self._label_total_cm = QLabel("")
+        self._label_total_cm.setVisible(False)
+        parent_layout.addWidget(self._label_total_cm)
+
+    def _on_parse_paste(self) -> None:
+        """Handle the 'Tolka data' button click: parse pasted CSV data."""
+        text = self._paste_text.toPlainText().strip()
+        if not text:
+            self._clear_parse_preview()
+            return
+
+        try:
+            result = parse_match_csv_grouped(text)
+        except ValueError as e:
+            self._show_parse_error(str(e))
+            return
+
+        self._parsed_result = result
+        self._show_parse_preview(result)
+
+    def _show_parse_error(self, message: str) -> None:
+        """Display a parse error message."""
+        self._label_parse_status.setText(message)
+        self._label_parse_status.setStyleSheet("color: red;")
+        self._label_parse_status.setVisible(True)
+        self._segment_table.setVisible(False)
+        self._label_total_cm.setVisible(False)
+        self._parsed_result = None
+
+    def _clear_parse_preview(self) -> None:
+        """Clear the parse preview area."""
+        self._label_parse_status.setVisible(False)
+        self._segment_table.setVisible(False)
+        self._label_total_cm.setVisible(False)
+        self._parsed_result = None
+
+    def _show_parse_preview(self, result: GroupedMatchCsvParseResult) -> None:
+        """Display parsed segment preview table and total cM."""
+        all_segments = [
+            seg for segs in result.segments_by_person.values() for seg in segs
+        ]
+
+        self._segment_table.setRowCount(len(all_segments))
+        row_idx = 0
+        for person_name, segs in result.segments_by_person.items():
+            for seg in segs:
+                self._segment_table.setItem(
+                    row_idx, 0, QTableWidgetItem(seg.chromosome)
+                )
+                self._segment_table.setItem(
+                    row_idx, 1, QTableWidgetItem(str(seg.start_position))
+                )
+                self._segment_table.setItem(
+                    row_idx, 2, QTableWidgetItem(str(seg.end_position))
+                )
+                self._segment_table.setItem(
+                    row_idx, 3, QTableWidgetItem(f"{seg.centimorgans:.2f}")
+                )
+                row_idx += 1
+        self._segment_table.setVisible(True)
+
+        total_cm = sum(seg.centimorgans for seg in all_segments)
+        num_persons = len(result.segments_by_person)
+        person_names = ", ".join(result.segments_by_person.keys())
+        status_parts = [f"Totalt delad cM: {total_cm:.2f} ({num_persons} personer: {person_names})"]
+        if result.skipped_rows > 0:
+            status_parts.append(
+                f"({result.skipped_rows} rader hoppades över)"
+            )
+        self._label_total_cm.setText(" ".join(status_parts))
+        self._label_total_cm.setVisible(True)
+
+        self._label_parse_status.setText(
+            f"{len(all_segments)} segment tolkade."
+        )
+        self._label_parse_status.setStyleSheet("color: green;")
+        self._label_parse_status.setVisible(True)
+
+    # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
 
@@ -436,6 +583,43 @@ class DnaTriangulationDialog(QDialog):
             else None
         )
 
+        # Check for existing segment data replacement
+        if (
+            self._parsed_result is not None
+            and self._existing_triangulation is not None
+            and self._existing_triangulation.segment_file
+        ):
+            reply = QMessageBox.question(
+                self,
+                "Ersätt segmentdata",
+                "Ersätt befintlig segmentdata?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return
+
+        # Determine segment_file value
+        segment_file = (
+            self._existing_triangulation.segment_file
+            if self._existing_triangulation is not None
+            else None
+        )
+
+        # Save parsed segments if available
+        if self._parsed_result is not None and self._project_path is not None:
+            filename = f"tri_segments_{triangulation_id}.json"
+            from slaktbusken.services.dna_file_utils import write_dna_file
+            from slaktbusken.services.match_segment_storage import serialize_segments
+
+            # Store grouped by person for triangulation chromosome view
+            import json
+            grouped_data = {}
+            for person_name, segs in self._parsed_result.segments_by_person.items():
+                grouped_data[person_name] = serialize_segments(segs)
+            write_dna_file(self._project_path, filename, grouped_data)
+            segment_file = filename
+
         triangulation = DnaTriangulation(
             id=triangulation_id,
             company_id=company_id,
@@ -445,6 +629,7 @@ class DnaTriangulationDialog(QDialog):
             largest_segment_cm=self._spin_largest_segment.value(),
             cluster_id=cluster_id,
             notes=self._edit_notes.toPlainText().strip(),
+            segment_file=segment_file,
         )
 
         if self._existing_triangulation is not None:

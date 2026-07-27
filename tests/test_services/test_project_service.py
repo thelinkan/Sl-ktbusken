@@ -317,10 +317,12 @@ class TestAddEntities:
 
     def test_add_valid_place(self, service: ProjectService) -> None:
         """Adding a valid place succeeds."""
-        place = Place(id="pl1", type="country", name="Sverige")
+        continent = Place(id="cont1", type="continent", name="Europa")
+        service.add_place(continent)
+        place = Place(id="pl1", type="country", name="Sverige", parent_place_id="cont1")
         result = service.add_place(place)
         assert result.id == "pl1"
-        assert len(service.data.places) == 1
+        assert len(service.data.places) == 2
 
     def test_add_invalid_place_raises(self, service: ProjectService) -> None:
         """Adding a place with invalid type raises ValidationError."""

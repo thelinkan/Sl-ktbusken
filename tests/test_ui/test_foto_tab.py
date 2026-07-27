@@ -6,8 +6,11 @@ Verifies that:
 - The empty state message is shown when no photos are linked.
 - The table is shown when photos exist.
 - The refresh() method reloads the photo list.
+- Button layout order and enable/disable states (Requirements 2.1, 2.2, 2.3, 2.4).
+- Inline editing sections are removed (Requirements 11.1, 11.2, 11.3, 11.4, 11.5).
+- Double-click opens EditPhotoDialog (Requirement 11.5).
 
-Covers Requirements 3.1, 3.2, 3.5, 3.7.
+Covers Requirements 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.5, 3.7, 11.1, 11.2, 11.3, 11.4, 11.5.
 """
 
 from __future__ import annotations
@@ -257,3 +260,292 @@ class TestRefresh:
         assert tab._stack_layout.currentWidget() == tab._table
         assert tab._table.item(0, 0).text() == "Övrigt foto"
         assert tab._table.item(0, 1).text() == "Nytt foto"
+
+
+class TestButtonLayout:
+    """Tests for button layout order (Requirement 2.1)."""
+
+    def test_buttons_in_correct_order(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """Buttons are arranged: 'Lägg till foto', 'Redigera foto', 'Ta bort foto'."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # The buttons should be in the expected order
+        assert tab._add_button.text() == "Lägg till foto"
+        assert tab._edit_button.text() == "Redigera foto"
+        assert tab._delete_button.text() == "Ta bort foto"
+
+    def test_button_visual_order_left_to_right(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """Buttons are positioned left to right in the correct order."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+        tab.show()
+        tab.resize(600, 400)
+
+        # Force geometry calculation
+        QApplication.processEvents()
+
+        # Verify left-to-right ordering via x-position
+        add_x = tab._add_button.geometry().x()
+        edit_x = tab._edit_button.geometry().x()
+        delete_x = tab._delete_button.geometry().x()
+
+        assert add_x < edit_x < delete_x
+
+
+class TestButtonInitialState:
+    """Tests for button initial state (Requirements 2.2, 2.3)."""
+
+    def test_add_button_enabled_initially(
+        self, qapp, person: Person, project_data_empty: ProjectData, foto_mapp: Path
+    ):
+        """'Lägg till foto' is always enabled, even with no photos."""
+        service = PhotoService(project_data_empty, foto_mapp)
+        tab = FotoTab(project_data_empty, person, service)
+
+        assert tab._add_button.isEnabled() is True
+
+    def test_edit_button_disabled_initially(
+        self, qapp, person: Person, project_data_empty: ProjectData, foto_mapp: Path
+    ):
+        """'Redigera foto' is disabled when no photo is selected."""
+        service = PhotoService(project_data_empty, foto_mapp)
+        tab = FotoTab(project_data_empty, person, service)
+
+        assert tab._edit_button.isEnabled() is False
+
+    def test_delete_button_disabled_initially(
+        self, qapp, person: Person, project_data_empty: ProjectData, foto_mapp: Path
+    ):
+        """'Ta bort foto' is disabled when no photo is selected."""
+        service = PhotoService(project_data_empty, foto_mapp)
+        tab = FotoTab(project_data_empty, person, service)
+
+        assert tab._delete_button.isEnabled() is False
+
+    def test_add_button_enabled_with_photos(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """'Lägg till foto' stays enabled when photos exist but none selected."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        assert tab._add_button.isEnabled() is True
+
+    def test_edit_button_disabled_with_photos_no_selection(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """'Redigera foto' is disabled even when photos exist but none selected."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        assert tab._edit_button.isEnabled() is False
+
+
+class TestButtonStateWithSelection:
+    """Tests for button state when a photo is selected (Requirement 2.4)."""
+
+    def test_edit_button_enabled_on_selection(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """'Redigera foto' becomes enabled when a photo is selected."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # Select the first row
+        tab._table.selectRow(0)
+
+        assert tab._edit_button.isEnabled() is True
+
+    def test_delete_button_enabled_on_selection(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """'Ta bort foto' becomes enabled when a photo is selected."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # Select the first row
+        tab._table.selectRow(0)
+
+        assert tab._delete_button.isEnabled() is True
+
+    def test_add_button_still_enabled_on_selection(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """'Lägg till foto' stays enabled when a photo is selected."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        tab._table.selectRow(0)
+
+        assert tab._add_button.isEnabled() is True
+
+
+class TestButtonStateOnDeselection:
+    """Tests for button state when selection is cleared (Requirement 2.3)."""
+
+    def test_edit_button_disabled_on_deselection(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """'Redigera foto' becomes disabled when selection is cleared."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # Select then deselect
+        tab._table.selectRow(0)
+        assert tab._edit_button.isEnabled() is True
+
+        tab._table.clearSelection()
+
+        assert tab._edit_button.isEnabled() is False
+
+    def test_delete_button_disabled_on_deselection(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """'Ta bort foto' becomes disabled when selection is cleared."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # Select then deselect
+        tab._table.selectRow(0)
+        assert tab._delete_button.isEnabled() is True
+
+        tab._table.clearSelection()
+
+        assert tab._delete_button.isEnabled() is False
+
+
+class TestNoInlineEditingSections:
+    """Tests that inline editing sections are removed (Requirements 11.1, 11.2, 11.3)."""
+
+    def test_no_edit_group_attribute(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """FotoTab does not have _edit_group attribute (inline edit section removed)."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        assert not hasattr(tab, "_edit_group")
+
+    def test_no_person_list_group_attribute(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """FotoTab does not have _person_list_group attribute (person list section removed)."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        assert not hasattr(tab, "_person_list_group")
+
+    def test_no_spara_andringar_button(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """No 'Spara ändringar' button exists in FotoTab."""
+        from PySide6.QtWidgets import QPushButton
+
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # Search all QPushButton children for the old inline save button
+        buttons = tab.findChildren(QPushButton)
+        button_texts = [btn.text() for btn in buttons]
+
+        assert "Spara ändringar" not in button_texts
+
+    def test_no_spara_personlista_button(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """No 'Spara personlista' button exists in FotoTab."""
+        from PySide6.QtWidgets import QPushButton
+
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # Search all QPushButton children for the old person list save button
+        buttons = tab.findChildren(QPushButton)
+        button_texts = [btn.text() for btn in buttons]
+
+        assert "Spara personlista" not in button_texts
+
+    def test_selection_does_not_show_inline_editing(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path
+    ):
+        """Selecting a photo does not create any inline editing sections (Req 11.4)."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # Select a photo
+        tab._table.selectRow(0)
+
+        # Verify no inline editing attributes appeared
+        assert not hasattr(tab, "_edit_group")
+        assert not hasattr(tab, "_person_list_group")
+
+
+class TestDoubleClickOpensDialog:
+    """Tests that double-click opens EditPhotoDialog (Requirement 11.5)."""
+
+    def test_double_click_calls_handler(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Double-clicking a row triggers _on_double_click_photo."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        called_with = {}
+
+        def mock_on_double_click(row: int, column: int) -> None:
+            called_with["row"] = row
+            called_with["column"] = column
+
+        monkeypatch.setattr(tab, "_on_double_click_photo", mock_on_double_click)
+
+        # Emit the signal directly to simulate a double-click
+        tab._table.cellDoubleClicked.emit(0, 0)
+
+        assert called_with == {"row": 0, "column": 0}
+
+    def test_double_click_opens_edit_photo_dialog(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Double-clicking a photo row opens EditPhotoDialog."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        dialog_opened = {"called": False, "media_item": None}
+
+        # Mock _on_edit_photo to track if it's called
+        def mock_on_edit_photo() -> None:
+            dialog_opened["called"] = True
+            dialog_opened["media_item"] = tab._selected_media_item
+
+        monkeypatch.setattr(tab, "_on_edit_photo", mock_on_edit_photo)
+
+        # Call the double-click handler directly with row 0
+        tab._on_double_click_photo(0, 0)
+
+        assert dialog_opened["called"] is True
+        assert dialog_opened["media_item"] is not None
+
+    def test_double_click_sets_selected_media_item(
+        self, qapp, person: Person, project_data_with_photos: ProjectData, foto_mapp: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Double-clicking sets _selected_media_item before opening dialog."""
+        service = PhotoService(project_data_with_photos, foto_mapp)
+        tab = FotoTab(project_data_with_photos, person, service)
+
+        # Mock _on_edit_photo to prevent actual dialog
+        monkeypatch.setattr(tab, "_on_edit_photo", lambda: None)
+
+        # Initially no selection
+        assert tab._selected_media_item is None
+
+        # Double-click first row
+        tab._on_double_click_photo(0, 0)
+
+        # After double-click, a media item should be selected
+        assert tab._selected_media_item is not None
+        assert tab._selected_media_item.type == "photo"

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Zoom limits as scale factors (1.0 = 100%)
-_MIN_ZOOM = 0.25
+_MIN_ZOOM = 0.01
 _MAX_ZOOM = 4.0
 _ZOOM_STEP = 1.15  # Each wheel notch scales by 15%
 
@@ -257,6 +257,10 @@ class DiagramPanel(QWidget):
             settings: DiagramSettings med djupinställningar.
         """
         self._diagram_settings = settings
+        # Apply background color
+        if hasattr(settings, 'background_color') and settings.background_color:
+            from PySide6.QtGui import QBrush, QColor
+            self._scene.setBackgroundBrush(QBrush(QColor(settings.background_color)))
         self._refresh_diagram()
 
     def set_active_person(self, person_id: Optional[str]) -> None:
@@ -509,22 +513,23 @@ class DiagramPanel(QWidget):
                 and self._active_person_id is not None
                 and self._person_box_config is not None
             ):
-                from slaktbusken.persistence.settings_io import DiagramSettings
-
-                # Get ancestry depth from the config; default to 4
+                # Get ancestry depth and compact mode from the config
                 ancestry_depth = 4
+                ancestry_compact = False
                 if hasattr(self, "_diagram_settings") and self._diagram_settings:
                     ancestry_depth = self._diagram_settings.ancestry_depth
+                    ancestry_compact = self._diagram_settings.ancestry_compact
 
                 self._ancestry_view.render(
                     self._scene,
                     self._project_data,
                     self._active_person_id,
                     self._person_box_config,
-                    depth=ancestry_depth,
+                    depth=ancestry_depth - 1,
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,
+                    compact=ancestry_compact,
                 )
 
                 # Enable selection on person boxes
@@ -555,7 +560,7 @@ class DiagramPanel(QWidget):
                     self._project_data,
                     self._active_person_id,
                     self._person_box_config,
-                    depth=descendants_depth,
+                    depth=descendants_depth - 1,
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,

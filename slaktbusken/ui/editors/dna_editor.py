@@ -15,14 +15,23 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
+    QSplitter,
+    QTextEdit,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -35,9 +44,16 @@ from slaktbusken.model.dna import (
     DnaTriangulation,
 )
 from slaktbusken.model.media import MediaItem
+from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.cluster_filter import get_dna_match_filtered_persons
+from slaktbusken.services.dna_file_utils import delete_dna_file
+from slaktbusken.services.match_segment_storage import load_match_segments
+from slaktbusken.services.triangulation_format import format_triangulation_entry
+from slaktbusken.ui.dialogs.chromosome_browser_dialog import ChromosomeBrowserDialog
 from slaktbusken.ui.dna_match_display import format_match_entry, matches_filter
 from slaktbusken.ui.generated.ui_dna_editor import Ui_DnaEditor
+from slaktbusken.ui.widgets.person_search_widget import PersonSearchWidget
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +61,7 @@ logger = logging.getLogger(__name__)
 CHROMOSOMES: list[str] = [str(i) for i in range(1, 23)] + ["X", "Y"]
 
 # Test type options
-TEST_TYPES: list[str] = ["autosomal", "y-dna", "mtdna"]
+TEST_TYPES: list[str] = ["autosomal", "y-dna", "mtdna", "combined"]
 
 # Admin status options
 ADMIN_STATUSES: list[str] = ["self", "managed_by_user", "self_managed"]
@@ -362,8 +378,8 @@ def resolve_profile_logo_icon(
 class DnaEditor(QWidget):
     """Editor widget for DNA-related records with tabbed interface.
 
-    Provides management of DNA companies, profiles, matches, segments,
-    clusters, and triangulations via a six-tab interface. Each tab
+    Provides management of DNA companies, profiles, matches,
+    clusters, and triangulations via a five-tab interface. Each tab
     contains a list on the left and a form on the right.
 
     Args:
@@ -406,7 +422,31 @@ class DnaEditor(QWidget):
         self._ui = Ui_DnaEditor()
         self._ui.setupUi(self)
 
-        # Add logo choose button and preview label to company form
+        # Remove Segment tab and reorder remaining tabs.
+        # After setupUi the order is: Företag(0), Profiler(1), Matchningar(2),
+        # Segment(3), Kluster(4), Triangulering(5).
+        # Target order: Företag(0), Profiler(1), Matchningar(2), Triangulering(3),
+        # Kluster(4).
+        self._ui.tab_widget.removeTab(
+            self._ui.tab_widget.indexOf(self._ui.segments_tab)
+        )
+        # After segment removal: Företag(0), Profiler(1), Matchningar(2),
+        # Kluster(3), Triangulering(4).
+        # Move Triangulering (index 4) before Kluster (index 3):
+        tri_idx = self._ui.tab_widget.indexOf(self._ui.triangulations_tab)
+        self._ui.tab_widget.tabBar().moveTab(tri_idx, 3)
+
+        # Hide the logo media-ID text field and its label (Req 3.1)
+        self._ui.company_logo_input.setVisible(False)
+        self._ui.company_logo_label.setVisible(False)
+
+        # Add URL field with maxLength 2048 (Req 3.7)
+        self._company_url_input = QLineEdit()
+        self._company_url_input.setMaxLength(2048)
+        self._company_url_input.setPlaceholderText("https://")
+        self._ui.company_form_layout.insertRow(2, "URL:", self._company_url_input)
+
+        # Add logo choose button and preview label to company form (Req 3.2, 3.3, 3.4)
         self._logo_choose_button = QPushButton("Välj logo...")
         self._logo_choose_button.setEnabled(False)
         self._logo_preview_label = QLabel()
@@ -416,9 +456,79 @@ class DnaEditor(QWidget):
         logo_row_layout.addWidget(self._logo_choose_button)
         logo_row_layout.addWidget(self._logo_preview_label)
 
-        self._ui.company_form_layout.insertRow(3, "", logo_row_layout)
+        self._ui.company_form_layout.insertRow(4, "", logo_row_layout)
+
+        # ---------------------------------------------------------------
+        # Profile form customization (Req 1.1–1.5, 1.7, 1.8, 4.1–4.5)
+        # ---------------------------------------------------------------
+
+        # --- Replace person_id input with read-only name label (Req 4.1, 4.2)
+        self._profile_person_name_label = QLabel()
+        self._profile_person_name_label.setObjectName("profile_person_name_label")
+        # Hide the original editable person_id input
+        self._ui.profile_person_input.hide()
+        # Insert the read-only name label in the same form row (row 0 field)
+        self._ui.profile_form_layout.setWidget(
+            0, QFormLayout.ItemRole.FieldRole, self._profile_person_name_label
+        )
+
+        # --- Add haplogroup fields (Req 1.2–1.5, 1.8)
+        self._y_haplogroup_label = QLabel("Y-haplogrupp:")
+        self._y_haplogroup_input = QLineEdit()
+        self._y_haplogroup_input.setMaxLength(50)
+        self._y_haplogroup_input.setPlaceholderText("T.ex. R1b-M269")
+
+        self._mt_haplogroup_label = QLabel("mt-haplogrupp:")
+        self._mt_haplogroup_input = QLineEdit()
+        self._mt_haplogroup_input.setMaxLength(50)
+        self._mt_haplogroup_input.setPlaceholderText("T.ex. H1a1")
+
+        # Insert haplogroup fields after test_type (row 2) — insert at row 3
+        # We insert mt first at row 3, then y at row 3 so y ends up above mt
+        self._ui.profile_form_layout.insertRow(
+            3, self._mt_haplogroup_label, self._mt_haplogroup_input
+        )
+        self._ui.profile_form_layout.insertRow(
+            3, self._y_haplogroup_label, self._y_haplogroup_input
+        )
+
+        # --- Replace admin_person_id input with PersonSearchWidget (Req 4.3, 4.4)
+        self._admin_person_search = PersonSearchWidget()
+        self._admin_person_search.setObjectName("admin_person_search_widget")
+        # Hide the original admin person input
+        self._ui.profile_admin_person_input.hide()
+        # Find the row of the admin person field. Originally at row 5, after
+        # inserting 2 haplogroup rows it's shifted to row 7.
+        self._ui.profile_form_layout.setWidget(
+            7, QFormLayout.ItemRole.FieldRole, self._admin_person_search
+        )
+
+        # --- Remove/hide admin_status combo box (Req 4.5)
+        self._ui.profile_admin_status_combo.hide()
+        self._ui.profile_admin_status_label.hide()
+
+        # Connect test_type change signal to show/hide haplogroup fields
+        self._ui.profile_test_type_combo.currentIndexChanged.connect(
+            self._on_test_type_changed
+        )
+        # Initialize visibility based on default selection
+        self._update_haplogroup_visibility()
 
         self._logo_choose_button.clicked.connect(self._on_choose_logo)
+
+        # Redesign cluster tab with split-panel layout (Req 8.1–8.7)
+        self._setup_cluster_panel()
+
+        # Redesign triangulation tab — read-only detail view (Req 7.1–7.5)
+        self._setup_triangulation_detail_view()
+
+        # Add "Kromosomvy" button to match form (Req 15.1, 15.2)
+        self._chromosome_view_button = QPushButton("Kromosomvy")
+        self._chromosome_view_button.setObjectName("chromosome_view_button")
+        self._chromosome_view_button.setEnabled(False)
+        self._ui.match_form_layout.insertRow(
+            9, "", self._chromosome_view_button
+        )
 
         self._populate_combos()
         self._connect_signals()
@@ -427,6 +537,235 @@ class DnaEditor(QWidget):
     # ------------------------------------------------------------------
     # Private: setup
     # ------------------------------------------------------------------
+
+    def _on_test_type_changed(self, _index: int) -> None:
+        """Handle test_type combo box change — update haplogroup field visibility.
+
+        Req 1.2–1.5, 1.7: Show/hide haplogroup fields based on test type,
+        but never clear the underlying data model values.
+        """
+        self._update_haplogroup_visibility()
+
+    def _update_haplogroup_visibility(self) -> None:
+        """Show or hide haplogroup fields based on current test_type selection.
+
+        - y-dna: show Y-haplogroup only
+        - mtdna: show mt-haplogroup only
+        - combined: show both
+        - autosomal: hide both
+        """
+        test_type = self._ui.profile_test_type_combo.currentData() or ""
+        show_y = test_type in ("y-dna", "combined")
+        show_mt = test_type in ("mtdna", "combined")
+
+        self._y_haplogroup_label.setVisible(show_y)
+        self._y_haplogroup_input.setVisible(show_y)
+        self._mt_haplogroup_label.setVisible(show_mt)
+        self._mt_haplogroup_input.setVisible(show_mt)
+
+    def _setup_triangulation_detail_view(self) -> None:
+        """Replace the triangulation form with a read-only detail view.
+
+        Hides the original editable form group and replaces it with:
+        - Read-only labels: Företag, Delad cM, Antal segment, Största segment,
+          Anteckningar, and a profiles list
+        - A "Redigera" button that opens DnaTriangulationDialog in edit mode
+
+        Req 7.1–7.5, 2.1–2.3
+        """
+        # Hide the original editable form group
+        self._ui.triangulation_form_group.hide()
+
+        # Create a new QGroupBox for the read-only detail view
+        self._triangulation_detail_group = QGroupBox("Trianguleringsuppgifter")
+        self._triangulation_detail_group.setObjectName("triangulation_detail_group")
+
+        detail_layout = QVBoxLayout(self._triangulation_detail_group)
+
+        # Form layout for read-only labels
+        form = QFormLayout()
+
+        self._tri_detail_company_label = QLabel("—")
+        self._tri_detail_company_label.setObjectName("tri_detail_company")
+        form.addRow("Företag:", self._tri_detail_company_label)
+
+        self._tri_detail_shared_cm_label = QLabel("—")
+        self._tri_detail_shared_cm_label.setObjectName("tri_detail_shared_cm")
+        form.addRow("Delad cM:", self._tri_detail_shared_cm_label)
+
+        self._tri_detail_segment_count_label = QLabel("—")
+        self._tri_detail_segment_count_label.setObjectName("tri_detail_segment_count")
+        form.addRow("Antal segment:", self._tri_detail_segment_count_label)
+
+        self._tri_detail_largest_segment_label = QLabel("—")
+        self._tri_detail_largest_segment_label.setObjectName("tri_detail_largest_segment")
+        form.addRow("Största segment:", self._tri_detail_largest_segment_label)
+
+        self._tri_detail_notes_label = QLabel("—")
+        self._tri_detail_notes_label.setObjectName("tri_detail_notes")
+        self._tri_detail_notes_label.setWordWrap(True)
+        form.addRow("Anteckningar:", self._tri_detail_notes_label)
+
+        detail_layout.addLayout(form)
+
+        # Profiles list (read-only)
+        profiles_header = QLabel("Profiler:")
+        profiles_header.setObjectName("tri_detail_profiles_header")
+        detail_layout.addWidget(profiles_header)
+
+        self._tri_detail_profiles_list = QListWidget()
+        self._tri_detail_profiles_list.setObjectName("tri_detail_profiles_list")
+        self._tri_detail_profiles_list.setSelectionMode(
+            QListWidget.SelectionMode.NoSelection
+        )
+        self._tri_detail_profiles_list.setMaximumHeight(120)
+        detail_layout.addWidget(self._tri_detail_profiles_list)
+
+        # "Redigera" button (Req 7.2, 7.3)
+        self._tri_edit_button = QPushButton("Redigera")
+        self._tri_edit_button.setObjectName("tri_edit_button")
+        self._tri_edit_button.setEnabled(False)
+        self._tri_edit_button.clicked.connect(self._on_edit_triangulation)
+        detail_layout.addWidget(self._tri_edit_button)
+
+        detail_layout.addStretch()
+
+        # Add the new detail group to the triangulations tab layout
+        self._ui.triangulations_layout.addWidget(self._triangulation_detail_group)
+
+    def _setup_cluster_panel(self) -> None:
+        """Replace the cluster tab content with a split-panel layout.
+
+        Builds a horizontal QSplitter (30%/70%):
+        - Left: scrollable QListWidget of clusters
+        - Right upper: scrollable QListWidget of persons in selected cluster
+        - Right lower: QLabel "Anteckningar" + QTextEdit for cluster notes
+
+        Req 8.1–8.7
+        """
+        # Get the cluster tab widget
+        clusters_tab = self._ui.clusters_tab
+
+        # Remove existing layout and all children
+        old_layout = clusters_tab.layout()
+        if old_layout is not None:
+            # Delete all child widgets from old layout
+            while old_layout.count():
+                child = old_layout.takeAt(0)
+                if child.widget():
+                    child.widget().deleteLater()
+                elif child.layout():
+                    # Recursively delete sub-layout items
+                    sub_layout = child.layout()
+                    while sub_layout.count():
+                        sub_child = sub_layout.takeAt(0)
+                        if sub_child.widget():
+                            sub_child.widget().deleteLater()
+            # Remove the old layout from the widget
+            from PySide6.QtWidgets import QWidget as _QW
+            _QW().setLayout(old_layout)
+
+        # Create a new layout for the clusters tab
+        new_layout = QVBoxLayout(clusters_tab)
+        new_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create horizontal splitter
+        self._cluster_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # Left panel: cluster list (30%)
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._cluster_list_widget = QListWidget()
+        self._cluster_list_widget.setObjectName("cluster_panel_list")
+        left_layout.addWidget(self._cluster_list_widget)
+
+        # Right panel (70%)
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(4, 0, 0, 0)
+
+        # Right upper: persons list header with filter toggle
+        persons_header_layout = QHBoxLayout()
+        persons_label = QLabel("Personer i kluster:")
+        persons_header_layout.addWidget(persons_label)
+        persons_header_layout.addStretch()
+
+        # "Visa filtrerade" toggle button (Req 9.5)
+        self._cluster_filter_toggle = QPushButton("Visa filtrerade")
+        self._cluster_filter_toggle.setObjectName("cluster_filter_toggle")
+        self._cluster_filter_toggle.setCheckable(True)
+        self._cluster_filter_toggle.setChecked(False)
+        self._cluster_filter_toggle.clicked.connect(self._on_cluster_filter_toggle)
+        persons_header_layout.addWidget(self._cluster_filter_toggle)
+
+        right_layout.addLayout(persons_header_layout)
+
+        self._cluster_persons_list = QListWidget()
+        self._cluster_persons_list.setObjectName("cluster_persons_list")
+        # Enable context menu (Req 9.1)
+        self._cluster_persons_list.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self._cluster_persons_list.customContextMenuRequested.connect(
+            self._on_cluster_person_context_menu
+        )
+        right_layout.addWidget(self._cluster_persons_list, stretch=1)
+
+        # Right lower: notes
+        notes_label = QLabel("Anteckningar:")
+        right_layout.addWidget(notes_label)
+
+        self._cluster_notes_edit = QTextEdit()
+        self._cluster_notes_edit.setObjectName("cluster_notes_edit")
+        self._cluster_notes_edit.setPlaceholderText("Klusteranteckningar...")
+        # Minimum height for 3 visible text lines (~60px)
+        self._cluster_notes_edit.setMinimumHeight(60)
+        right_layout.addWidget(self._cluster_notes_edit, stretch=0)
+
+        # Save notes button
+        self._cluster_save_notes_button = QPushButton("Spara anteckningar")
+        self._cluster_save_notes_button.setObjectName("cluster_save_notes_button")
+        self._cluster_save_notes_button.setEnabled(False)
+        self._cluster_save_notes_button.clicked.connect(self._on_save_cluster_notes)
+        right_layout.addWidget(self._cluster_save_notes_button)
+
+        # Add panels to splitter
+        self._cluster_splitter.addWidget(left_widget)
+        self._cluster_splitter.addWidget(right_widget)
+
+        # Set stretch factors for approximately 30%/70% split
+        self._cluster_splitter.setStretchFactor(0, 30)
+        self._cluster_splitter.setStretchFactor(1, 70)
+
+        new_layout.addWidget(self._cluster_splitter)
+
+        # Set initial empty state (Req 8.6)
+        self._cluster_notes_edit.setEnabled(False)
+
+        # Track the previously selected cluster for notes persistence
+        self._previous_cluster_id: str | None = None
+
+        # Track DNA match filter state (Req 9.3–9.6)
+        self._cluster_filter_active: bool = False
+        self._cluster_filter_person_id: str | None = None
+
+    def _resolve_person_display_name(self, person_id: str) -> str:
+        """Resolve a person_id to a display name string.
+
+        Returns 'given surname' if found, or the raw person_id string
+        if the person is not in the project data (Req 4.1, 4.2).
+        """
+        for person in self._project_data.persons:
+            if person.id == person_id:
+                if person.names:
+                    name = person.names[0]
+                    given = name.given.replace("*", "")
+                    return f"{given} {name.surname}".strip()
+                return f"(Person {person.id})"
+        # Person not found — display raw id (Req 4.2)
+        return person_id
 
     def _populate_combos(self) -> None:
         """Fill all combo boxes with their fixed option values."""
@@ -530,33 +869,21 @@ class DnaEditor(QWidget):
         self._ui.match_filter_input.textChanged.connect(
             self._on_match_filter_changed
         )
-
-        # Segments tab
-        self._ui.segments_list.currentItemChanged.connect(
-            self._on_segment_selected
+        self._chromosome_view_button.clicked.connect(
+            self._on_chromosome_view
         )
-        self._ui.add_segment_button.clicked.connect(self._on_add_segment)
-        self._ui.remove_segment_button.clicked.connect(self._on_remove_segment)
-        self._ui.save_segment_button.clicked.connect(self._on_save_segment)
 
-        # Clusters tab
-        self._ui.clusters_list.currentItemChanged.connect(
+        # Segments tab (removed from UI; signals disabled)
+        # self._ui.segments_list.currentItemChanged.connect(
+        #     self._on_segment_selected
+        # )
+        # self._ui.add_segment_button.clicked.connect(self._on_add_segment)
+        # self._ui.remove_segment_button.clicked.connect(self._on_remove_segment)
+        # self._ui.save_segment_button.clicked.connect(self._on_save_segment)
+
+        # Clusters tab — use the new split-panel cluster list widget
+        self._cluster_list_widget.currentItemChanged.connect(
             self._on_cluster_selected
-        )
-        self._ui.add_cluster_button.clicked.connect(self._on_add_cluster)
-        self._ui.remove_cluster_button.clicked.connect(self._on_remove_cluster)
-        self._ui.save_cluster_button.clicked.connect(self._on_save_cluster)
-        self._ui.add_cluster_member_button.clicked.connect(
-            self._on_add_cluster_member
-        )
-        self._ui.remove_cluster_member_button.clicked.connect(
-            self._on_remove_cluster_member
-        )
-        self._ui.add_cluster_match_button.clicked.connect(
-            self._on_add_cluster_match
-        )
-        self._ui.remove_cluster_match_button.clicked.connect(
-            self._on_remove_cluster_match
         )
 
         # Triangulations tab
@@ -569,21 +896,22 @@ class DnaEditor(QWidget):
         self._ui.remove_triangulation_button.clicked.connect(
             self._on_remove_triangulation
         )
-        self._ui.save_triangulation_button.clicked.connect(
-            self._on_save_triangulation
-        )
-        self._ui.add_triangulation_segment_button.clicked.connect(
-            self._on_add_triangulation_segment
-        )
-        self._ui.remove_triangulation_segment_button.clicked.connect(
-            self._on_remove_triangulation_segment
-        )
-        self._ui.add_triangulation_profile_button.clicked.connect(
-            self._on_add_triangulation_profile
-        )
-        self._ui.remove_triangulation_profile_button.clicked.connect(
-            self._on_remove_triangulation_profile
-        )
+        # Old form buttons are hidden — signals disconnected
+        # self._ui.save_triangulation_button.clicked.connect(
+        #     self._on_save_triangulation
+        # )
+        # self._ui.add_triangulation_segment_button.clicked.connect(
+        #     self._on_add_triangulation_segment
+        # )
+        # self._ui.remove_triangulation_segment_button.clicked.connect(
+        #     self._on_remove_triangulation_segment
+        # )
+        # self._ui.add_triangulation_profile_button.clicked.connect(
+        #     self._on_add_triangulation_profile
+        # )
+        # self._ui.remove_triangulation_profile_button.clicked.connect(
+        #     self._on_remove_triangulation_profile
+        # )
 
     # ------------------------------------------------------------------
     # Private: refresh lists
@@ -594,7 +922,6 @@ class DnaEditor(QWidget):
         self._refresh_companies_list()
         self._refresh_profiles_list()
         self._refresh_matches_list()
-        self._refresh_segments_list()
         self._refresh_clusters_list()
         self._refresh_triangulations_list()
 
@@ -631,6 +958,16 @@ class DnaEditor(QWidget):
         )
         for match in filtered_matches:
             display = format_match_entry(match, self._project_data)
+            # Req 14.5: Check for missing segment file and add visual warning
+            if match.segment_file and self._project_path:
+                segment_path = self._project_path.parent / "dna" / match.segment_file
+                if not segment_path.exists():
+                    logger.warning(
+                        "Segmentfil saknas för matchning %s: %s",
+                        match.id,
+                        segment_path,
+                    )
+                    display = f"⚠ {display} (saknar segmentfil)"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, match.id)
             icon = resolve_company_logo_icon(
@@ -649,22 +986,31 @@ class DnaEditor(QWidget):
             self._ui.segments_list.addItem(item)
 
     def _refresh_clusters_list(self) -> None:
-        """Rebuild the clusters list widget."""
-        self._ui.clusters_list.clear()
+        """Rebuild the clusters list widget in the split panel."""
+        self._cluster_list_widget.clear()
         for cluster in self._project_data.dna_clusters:
             display = cluster.name or cluster.id
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, cluster.id)
-            self._ui.clusters_list.addItem(item)
+            self._cluster_list_widget.addItem(item)
 
     def _refresh_triangulations_list(self) -> None:
-        """Rebuild the triangulations list widget."""
+        """Rebuild the triangulations list widget.
+
+        Uses format_triangulation_entry() for display text with ellipsis
+        truncation and full-text tooltip for long entries.
+        """
         self._ui.triangulations_list.clear()
         for tri in self._project_data.dna_triangulations:
-            display = f"{tri.shared_cm:.2f} cM ({len(tri.profile_ids)} profiler)"
+            display = format_triangulation_entry(tri, self._project_data)
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, tri.id)
+            item.setToolTip(display)
             self._ui.triangulations_list.addItem(item)
+        # Enable ellipsis truncation on the list widget
+        self._ui.triangulations_list.setTextElideMode(
+            Qt.TextElideMode.ElideRight
+        )
 
     # ------------------------------------------------------------------
     # Companies: selection, add, remove, save
@@ -843,6 +1189,7 @@ class DnaEditor(QWidget):
         self._ui.company_name_input.setText(company.name)
         self._ui.company_notes_input.setPlainText(company.description)
         self._ui.company_logo_input.setText(company.logo_media_id or "")
+        self._company_url_input.setText(company.url)
 
     def _on_add_company(self) -> None:
         """Clear form for new company entry."""
@@ -850,6 +1197,7 @@ class DnaEditor(QWidget):
         self._ui.company_name_input.clear()
         self._ui.company_notes_input.clear()
         self._ui.company_logo_input.clear()
+        self._company_url_input.clear()
         self._update_logo_preview()
         self._logo_choose_button.setEnabled(False)
         self._clear_status()
@@ -888,17 +1236,20 @@ class DnaEditor(QWidget):
                 return
 
         description = self._ui.company_notes_input.toPlainText()
+        url = self._company_url_input.text().strip()
 
         if self._editing_company:
             self._editing_company.name = name
             self._editing_company.description = description
             self._editing_company.logo_media_id = logo_id
+            self._editing_company.url = url
         else:
             new_company = DnaCompany(
                 id=str(uuid.uuid4()),
                 name=name,
                 logo_media_id=logo_id,
                 description=description,
+                url=url,
             )
             self._project_data.dna_companies.append(new_company)
             self._editing_company = new_company
@@ -936,33 +1287,43 @@ class DnaEditor(QWidget):
         Args:
             profile: The profile to load into the form.
         """
+        # Show person name as read-only label (Req 4.1, 4.2)
         self._ui.profile_person_input.setText(profile.person_id)
+        self._profile_person_name_label.setText(
+            self._resolve_person_display_name(profile.person_id)
+        )
         idx = self._ui.profile_company_combo.findData(profile.company_id)
         if idx >= 0:
             self._ui.profile_company_combo.setCurrentIndex(idx)
         idx = self._ui.profile_test_type_combo.findData(profile.test_type)
         if idx >= 0:
             self._ui.profile_test_type_combo.setCurrentIndex(idx)
+        # Load haplogroup values (Req 1.2–1.5, 1.7)
+        self._y_haplogroup_input.setText(profile.y_haplogroup)
+        self._mt_haplogroup_input.setText(profile.mt_haplogroup)
+        self._update_haplogroup_visibility()
+
         self._ui.profile_kit_name_input.setText(profile.kit_name)
         self._ui.profile_kit_id_input.setText(profile.kit_id)
-        self._ui.profile_admin_person_input.setText(
-            profile.admin_person_id or ""
+        # Populate admin person search widget (Req 4.3)
+        self._admin_person_search.set_selected_person(
+            profile.admin_person_id, self._project_data.persons
         )
-        idx = self._ui.profile_admin_status_combo.findData(profile.admin_status)
-        if idx >= 0:
-            self._ui.profile_admin_status_combo.setCurrentIndex(idx)
         self._ui.profile_notes_input.setPlainText(profile.notes)
 
     def _on_add_profile(self) -> None:
         """Clear form for new profile entry."""
         self._editing_profile = None
         self._ui.profile_person_input.clear()
+        self._profile_person_name_label.clear()
         self._ui.profile_company_combo.setCurrentIndex(0)
         self._ui.profile_test_type_combo.setCurrentIndex(0)
+        self._y_haplogroup_input.clear()
+        self._mt_haplogroup_input.clear()
+        self._update_haplogroup_visibility()
         self._ui.profile_kit_name_input.clear()
         self._ui.profile_kit_id_input.clear()
-        self._ui.profile_admin_person_input.clear()
-        self._ui.profile_admin_status_combo.setCurrentIndex(0)
+        self._admin_person_search.clear_selection()
         self._ui.profile_notes_input.clear()
         self._clear_status()
 
@@ -1006,9 +1367,12 @@ class DnaEditor(QWidget):
         test_type = self._ui.profile_test_type_combo.currentData() or ""
         kit_name = self._ui.profile_kit_name_input.text().strip()
         kit_id = self._ui.profile_kit_id_input.text().strip()
-        admin_person_id = (
-            self._ui.profile_admin_person_input.text().strip() or None
-        )
+        # Read haplogroup values from the input fields (Req 1.7 — always save
+        # even if the field is currently hidden)
+        y_haplogroup = self._y_haplogroup_input.text().strip()
+        mt_haplogroup = self._mt_haplogroup_input.text().strip()
+        # Use PersonSearchWidget for admin_person_id (Req 4.3, 4.4)
+        admin_person_id = self._admin_person_search.selected_person_id()
         if admin_person_id:
             if not any(
                 p.id == admin_person_id for p in self._project_data.persons
@@ -1018,7 +1382,6 @@ class DnaEditor(QWidget):
                 )
                 return
 
-        admin_status = self._ui.profile_admin_status_combo.currentData() or ""
         notes = self._ui.profile_notes_input.toPlainText()
 
         if self._editing_profile:
@@ -1027,8 +1390,9 @@ class DnaEditor(QWidget):
             self._editing_profile.test_type = test_type
             self._editing_profile.kit_name = kit_name
             self._editing_profile.kit_id = kit_id
+            self._editing_profile.y_haplogroup = y_haplogroup
+            self._editing_profile.mt_haplogroup = mt_haplogroup
             self._editing_profile.admin_person_id = admin_person_id
-            self._editing_profile.admin_status = admin_status
             self._editing_profile.notes = notes
         else:
             new_profile = DnaProfile(
@@ -1038,8 +1402,9 @@ class DnaEditor(QWidget):
                 test_type=test_type,
                 kit_name=kit_name,
                 kit_id=kit_id,
+                y_haplogroup=y_haplogroup,
+                mt_haplogroup=mt_haplogroup,
                 admin_person_id=admin_person_id,
-                admin_status=admin_status,
                 notes=notes,
             )
             self._project_data.dna_profiles.append(new_profile)
@@ -1093,6 +1458,9 @@ class DnaEditor(QWidget):
             self._ui.match_source_combo.setCurrentIndex(idx)
         self._ui.match_notes_input.setPlainText(match.notes)
 
+        # Enable Kromosomvy button only when segment data is available (Req 15.1, 15.2)
+        self._chromosome_view_button.setEnabled(match.segment_file is not None)
+
     def _on_add_match(self) -> None:
         """Clear form for new match entry."""
         self._editing_match = None
@@ -1104,6 +1472,7 @@ class DnaEditor(QWidget):
         self._ui.match_largest_segment_input.setValue(0.0)
         self._ui.match_source_combo.setCurrentIndex(0)
         self._ui.match_notes_input.clear()
+        self._chromosome_view_button.setEnabled(False)
         self._clear_status()
 
     def _on_remove_match(self) -> None:
@@ -1113,6 +1482,14 @@ class DnaEditor(QWidget):
             self._update_status("Välj en matchning att ta bort.")
             return
         match_id = current.data(Qt.ItemDataRole.UserRole)
+
+        # Delete associated segment file if present
+        match_to_remove = next(
+            (m for m in self._project_data.dna_matches if m.id == match_id), None
+        )
+        if match_to_remove and match_to_remove.segment_file and self._project_path:
+            delete_dna_file(self._project_path, match_to_remove.segment_file)
+
         self._project_data.dna_matches = [
             m for m in self._project_data.dna_matches if m.id != match_id
         ]
@@ -1179,6 +1556,44 @@ class DnaEditor(QWidget):
     def _on_match_filter_changed(self, text: str) -> None:
         """Re-filter matches list when filter text changes."""
         self._refresh_matches_list()
+
+    def _on_chromosome_view(self) -> None:
+        """Open the chromosome browser dialog for the selected match.
+
+        Loads segment data from disk and resolves the person name for Profile 2.
+        Shows an error message if segments cannot be loaded.
+        Req 15.1, 15.2.
+        """
+        match = self._editing_match
+        if not match or not match.segment_file:
+            return
+
+        if not self._project_path:
+            self._update_status("Kan inte läsa segmentfil – inget projektfilsökväg.")
+            return
+
+        # Load segments from the dna/ subfolder
+        try:
+            segments = load_match_segments(self._project_path, match.segment_file)
+        except (FileNotFoundError, Exception) as exc:
+            self._update_status(f"Kunde inte läsa segmentfil: {exc}")
+            return
+
+        # Resolve person names for both profiles
+        person1_name = "(okänd)"
+        person2_name = "(okänd)"
+        for profile in self._project_data.dna_profiles:
+            if profile.id == match.profile1_id:
+                person1_name = self._resolve_person_display_name(profile.person_id)
+            if profile.id == match.profile2_id:
+                person2_name = self._resolve_person_display_name(profile.person_id)
+
+        match_title = f"{person1_name} och {person2_name}"
+
+        dialog = ChromosomeBrowserDialog(
+            segments=segments, person_name=person2_name, title=match_title, parent=self
+        )
+        dialog.exec()
 
     # ------------------------------------------------------------------
     # Segments: selection, add, remove, save
@@ -1298,58 +1713,196 @@ class DnaEditor(QWidget):
     def _on_cluster_selected(
         self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
     ) -> None:
-        """Handle cluster list selection change.
+        """Handle cluster list selection change in the split panel.
+
+        Persists notes from previously selected cluster before loading
+        the new one (Req 8.7). Updates persons list and notes (Req 8.4).
+        Shows empty state when no cluster selected (Req 8.6).
+        Exits filter mode on cluster change (Req 9.6).
 
         Args:
             current: The newly selected item, or None.
             _previous: The previously selected item (unused).
         """
+        # Persist notes for the previously selected cluster (Req 8.7)
+        self._persist_cluster_notes()
+
+        # Exit filter mode on cluster change (Req 9.6)
+        if self._cluster_filter_active:
+            self._exit_cluster_filter()
+
         if current is None:
+            # Empty state (Req 8.6)
+            self._editing_cluster = None
+            self._previous_cluster_id = None
+            self._cluster_persons_list.clear()
+            self._cluster_notes_edit.clear()
+            self._cluster_notes_edit.setEnabled(False)
+            self._cluster_save_notes_button.setEnabled(False)
             return
+
         cluster_id = current.data(Qt.ItemDataRole.UserRole)
         for cluster in self._project_data.dna_clusters:
             if cluster.id == cluster_id:
                 self._editing_cluster = cluster
-                self._load_cluster(cluster)
+                self._previous_cluster_id = cluster.id
+                self._load_cluster_panel(cluster)
                 break
 
-    def _load_cluster(self, cluster: DnaCluster) -> None:
-        """Populate cluster form fields from a DnaCluster instance.
+    def _persist_cluster_notes(self) -> None:
+        """Save current notes text to the previously selected cluster.
+
+        Req 8.5, 8.7: Auto-persist notes on cluster switch.
+        """
+        if self._previous_cluster_id is None:
+            return
+        notes_text = self._cluster_notes_edit.toPlainText()
+        for cluster in self._project_data.dna_clusters:
+            if cluster.id == self._previous_cluster_id:
+                cluster.notes = notes_text
+                break
+
+    def _on_save_cluster_notes(self) -> None:
+        """Explicitly save the current cluster's notes via the save button."""
+        if self._editing_cluster is None:
+            return
+        notes_text = self._cluster_notes_edit.toPlainText()
+        self._editing_cluster.notes = notes_text
+        self._update_status("Anteckningar sparade.")
+
+    def _load_cluster_panel(self, cluster: DnaCluster) -> None:
+        """Populate the split panel right side from a DnaCluster.
+
+        Shows person names in the persons list and loads notes (Req 8.2, 8.4).
 
         Args:
-            cluster: The cluster to load into the form.
+            cluster: The cluster to display.
         """
-        self._ui.cluster_name_input.setText(cluster.name)
-        self._ui.cluster_notes_input.setPlainText(cluster.notes)
-        self._ui.cluster_color_input.setText(cluster.color or "")
+        # Enable notes area and save button
+        self._cluster_notes_edit.setEnabled(True)
+        self._cluster_save_notes_button.setEnabled(True)
 
-        # Populate members list
-        self._ui.cluster_members_list.clear()
+        # Populate persons list with resolved names
+        self._cluster_persons_list.clear()
         for person_id in cluster.person_ids:
-            item = QListWidgetItem(person_id)
+            display_name = self._resolve_person_display_name(person_id)
+            item = QListWidgetItem(display_name)
             item.setData(Qt.ItemDataRole.UserRole, person_id)
-            self._ui.cluster_members_list.addItem(item)
+            self._cluster_persons_list.addItem(item)
 
-        # Populate matches list
-        self._ui.cluster_matches_list.clear()
-        for match_id in cluster.dna_match_ids:
-            item = QListWidgetItem(match_id)
-            item.setData(Qt.ItemDataRole.UserRole, match_id)
-            self._ui.cluster_matches_list.addItem(item)
+        # Load notes
+        self._cluster_notes_edit.setPlainText(cluster.notes)
+
+    def _on_cluster_person_context_menu(self, position) -> None:
+        """Show context menu on right-click in the cluster persons list.
+
+        Req 9.1: Show "Filtrera på DNA-träffar" option.
+        Req 9.2: Disable if person has no DnaProfile.
+
+        Args:
+            position: The position where the context menu was requested.
+        """
+        item = self._cluster_persons_list.itemAt(position)
+        if item is None:
+            return
+
+        person_id = item.data(Qt.ItemDataRole.UserRole)
+        if not person_id:
+            return
+
+        menu = QMenu(self._cluster_persons_list)
+        filter_action = QAction("Filtrera på DNA-träffar", menu)
+
+        # Check if person has at least one DnaProfile (Req 9.2)
+        has_profile = any(
+            p.person_id == person_id for p in self._project_data.dna_profiles
+        )
+        filter_action.setEnabled(has_profile)
+
+        filter_action.triggered.connect(
+            lambda: self._apply_cluster_dna_filter(person_id)
+        )
+        menu.addAction(filter_action)
+        menu.exec(self._cluster_persons_list.mapToGlobal(position))
+
+    def _apply_cluster_dna_filter(self, person_id: str) -> None:
+        """Apply DNA match filter for the given person.
+
+        Req 9.3: Filter person list to only those with a DnaMatch linking
+        to the right-clicked person's profiles.
+        Req 9.4: Show empty list if no matches found.
+
+        Args:
+            person_id: The person to filter DNA matches for.
+        """
+        if self._editing_cluster is None:
+            return
+
+        self._cluster_filter_active = True
+        self._cluster_filter_person_id = person_id
+
+        # Set the toggle to checked (Req 9.3)
+        self._cluster_filter_toggle.setChecked(True)
+
+        # Apply filter using pure logic function
+        filtered_person_ids = get_dna_match_filtered_persons(
+            person_id=person_id,
+            cluster_person_ids=self._editing_cluster.person_ids,
+            profiles=self._project_data.dna_profiles,
+            matches=self._project_data.dna_matches,
+        )
+
+        # Update the persons list with filtered results
+        self._cluster_persons_list.clear()
+        for pid in filtered_person_ids:
+            display_name = self._resolve_person_display_name(pid)
+            item = QListWidgetItem(display_name)
+            item.setData(Qt.ItemDataRole.UserRole, pid)
+            self._cluster_persons_list.addItem(item)
+
+    def _on_cluster_filter_toggle(self) -> None:
+        """Handle the 'Visa filtrerade' toggle button state change.
+
+        Req 9.5: When unchecked, exit filter mode and show all persons.
+        """
+        if not self._cluster_filter_toggle.isChecked():
+            # Exit filter mode (Req 9.5)
+            self._cluster_filter_active = False
+            self._cluster_filter_person_id = None
+            # Restore full persons list for the current cluster
+            if self._editing_cluster is not None:
+                self._load_cluster_panel(self._editing_cluster)
+
+    def _exit_cluster_filter(self) -> None:
+        """Exit filter mode, uncheck toggle, and reset state.
+
+        Req 9.6: Called on cluster change while filtered.
+        """
+        self._cluster_filter_active = False
+        self._cluster_filter_person_id = None
+        self._cluster_filter_toggle.setChecked(False)
+
+    def _load_cluster(self, cluster: DnaCluster) -> None:
+        """Legacy cluster form loader — delegates to the new panel.
+
+        Args:
+            cluster: The cluster to load into the panel.
+        """
+        self._load_cluster_panel(cluster)
 
     def _on_add_cluster(self) -> None:
-        """Clear form for new cluster entry."""
+        """Clear selection for new cluster entry (no longer used in split panel)."""
         self._editing_cluster = None
-        self._ui.cluster_name_input.clear()
-        self._ui.cluster_notes_input.clear()
-        self._ui.cluster_color_input.clear()
-        self._ui.cluster_members_list.clear()
-        self._ui.cluster_matches_list.clear()
+        self._previous_cluster_id = None
+        self._cluster_list_widget.clearSelection()
+        self._cluster_persons_list.clear()
+        self._cluster_notes_edit.clear()
+        self._cluster_notes_edit.setEnabled(False)
         self._clear_status()
 
     def _on_remove_cluster(self) -> None:
         """Remove the selected cluster from project data."""
-        current = self._ui.clusters_list.currentItem()
+        current = self._cluster_list_widget.currentItem()
         if not current:
             self._update_status("Välj ett kluster att ta bort.")
             return
@@ -1358,110 +1911,37 @@ class DnaEditor(QWidget):
             c for c in self._project_data.dna_clusters if c.id != cluster_id
         ]
         self._editing_cluster = None
+        self._previous_cluster_id = None
+        self._cluster_persons_list.clear()
+        self._cluster_notes_edit.clear()
+        self._cluster_notes_edit.setEnabled(False)
         self._refresh_clusters_list()
         self._refresh_cluster_combos()
         self._clear_status()
 
     def _on_add_cluster_member(self) -> None:
-        """Add a person ID to the cluster members list."""
-        person_id = self._ui.cluster_member_input.text().strip()
-        if not person_id:
-            self._update_status("Ange ett person-ID.")
-            return
-        if not any(p.id == person_id for p in self._project_data.persons):
-            self._update_status(f"Person-ID '{person_id}' finns inte.")
-            return
-        item = QListWidgetItem(person_id)
-        item.setData(Qt.ItemDataRole.UserRole, person_id)
-        self._ui.cluster_members_list.addItem(item)
-        self._ui.cluster_member_input.clear()
-        self._clear_status()
+        """Add a person ID to the cluster members list (legacy, not used in split panel)."""
+        pass
 
     def _on_remove_cluster_member(self) -> None:
-        """Remove the selected member from the cluster members list."""
-        current = self._ui.cluster_members_list.currentItem()
-        if not current:
-            self._update_status("Välj en medlem att ta bort.")
-            return
-        row = self._ui.cluster_members_list.row(current)
-        self._ui.cluster_members_list.takeItem(row)
-        self._clear_status()
+        """Remove the selected member from the cluster members list (legacy, not used in split panel)."""
+        pass
 
     def _on_add_cluster_match(self) -> None:
-        """Add a match to the cluster matches list."""
-        match_id = self._ui.cluster_match_combo.currentData()
-        if not match_id:
-            self._update_status("Välj en matchning att lägga till.")
-            return
-        item = QListWidgetItem(match_id)
-        item.setData(Qt.ItemDataRole.UserRole, match_id)
-        self._ui.cluster_matches_list.addItem(item)
-        self._clear_status()
+        """Add a match to the cluster matches list (legacy, not used in split panel)."""
+        pass
 
     def _on_remove_cluster_match(self) -> None:
-        """Remove the selected match from the cluster matches list."""
-        current = self._ui.cluster_matches_list.currentItem()
-        if not current:
-            self._update_status("Välj en matchning att ta bort.")
-            return
-        row = self._ui.cluster_matches_list.row(current)
-        self._ui.cluster_matches_list.takeItem(row)
-        self._clear_status()
+        """Remove the selected match from the cluster matches list (legacy, not used in split panel)."""
+        pass
 
     def _on_save_cluster(self) -> None:
-        """Validate and save the cluster form data."""
-        name = self._ui.cluster_name_input.text().strip()
-        if not name:
-            self._update_status("Klusternamn krävs.")
-            return
-        if len(name) > 200:
-            self._update_status("Klusternamn får vara max 200 tecken.")
-            return
+        """Persist current cluster notes (auto-persist on split panel).
 
-        notes = self._ui.cluster_notes_input.toPlainText()
-        color = self._ui.cluster_color_input.text().strip() or None
-
-        # Collect person IDs from members list
-        person_ids: list[str] = []
-        for i in range(self._ui.cluster_members_list.count()):
-            item = self._ui.cluster_members_list.item(i)
-            if item:
-                pid = item.data(Qt.ItemDataRole.UserRole)
-                if pid:
-                    person_ids.append(pid)
-
-        # Collect match IDs from matches list
-        match_ids: list[str] = []
-        for i in range(self._ui.cluster_matches_list.count()):
-            item = self._ui.cluster_matches_list.item(i)
-            if item:
-                mid = item.data(Qt.ItemDataRole.UserRole)
-                if mid:
-                    match_ids.append(mid)
-
-        if self._editing_cluster:
-            self._editing_cluster.name = name
-            self._editing_cluster.notes = notes
-            self._editing_cluster.color = color
-            self._editing_cluster.person_ids = person_ids
-            self._editing_cluster.dna_match_ids = match_ids
-        else:
-            new_cluster = DnaCluster(
-                id=str(uuid.uuid4()),
-                name=name,
-                notes=notes,
-                company_ids=[],
-                person_ids=person_ids,
-                dna_match_ids=match_ids,
-                color=color,
-            )
-            self._project_data.dna_clusters.append(new_cluster)
-            self._editing_cluster = new_cluster
-
-        self._refresh_clusters_list()
-        self._refresh_cluster_combos()
-        self._clear_status()
-        logger.info("DNA-kluster sparat: %s", name)
+        In the new split-panel layout, notes are auto-persisted on cluster switch.
+        This method can also be called explicitly to save the current notes.
+        """
+        self._persist_cluster_notes()
 
     # ------------------------------------------------------------------
     # Triangulations: selection, add, remove, save, segment/profile mgmt
@@ -1472,54 +1952,166 @@ class DnaEditor(QWidget):
     ) -> None:
         """Handle triangulation list selection change.
 
+        Populates the read-only detail view and enables the Redigera button.
+
         Args:
             current: The newly selected item, or None.
             _previous: The previously selected item (unused).
         """
         if current is None:
+            self._editing_triangulation = None
+            self._clear_triangulation_detail()
+            self._tri_edit_button.setEnabled(False)
             return
         tri_id = current.data(Qt.ItemDataRole.UserRole)
         for tri in self._project_data.dna_triangulations:
             if tri.id == tri_id:
                 self._editing_triangulation = tri
-                self._load_triangulation(tri)
+                self._load_triangulation_detail(tri)
+                self._tri_edit_button.setEnabled(True)
                 break
 
-    def _load_triangulation(self, tri: DnaTriangulation) -> None:
-        """Populate triangulation form fields from a DnaTriangulation instance.
+    def _clear_triangulation_detail(self) -> None:
+        """Clear the read-only triangulation detail view to default state."""
+        self._tri_detail_company_label.setText("—")
+        self._tri_detail_shared_cm_label.setText("—")
+        self._tri_detail_segment_count_label.setText("—")
+        self._tri_detail_largest_segment_label.setText("—")
+        self._tri_detail_notes_label.setText("—")
+        self._tri_detail_profiles_list.clear()
+
+    def _load_triangulation_detail(self, tri: DnaTriangulation) -> None:
+        """Populate the read-only triangulation detail view.
+
+        Displays: Företag (company name), Delad cM (2 decimals),
+        Antal segment, Största segment (2 decimals), Anteckningar,
+        and a list of profile display names.
 
         Args:
-            tri: The triangulation to load into the form.
+            tri: The triangulation to display.
         """
-        idx = self._ui.triangulation_company_combo.findData(tri.company_id)
-        if idx >= 0:
-            self._ui.triangulation_company_combo.setCurrentIndex(idx)
-        self._ui.triangulation_shared_cm_input.setValue(tri.shared_cm)
-        self._ui.triangulation_segment_count_input.setValue(tri.segment_count)
-        self._ui.triangulation_largest_segment_input.setValue(tri.largest_segment_cm)
-        idx = self._ui.triangulation_cluster_combo.findData(tri.cluster_id or "")
-        if idx >= 0:
-            self._ui.triangulation_cluster_combo.setCurrentIndex(idx)
-        self._ui.triangulation_notes_input.setPlainText(tri.notes)
+        # Resolve company name
+        company_name = "(okänt företag)"
+        for c in self._project_data.dna_companies:
+            if c.id == tri.company_id:
+                company_name = c.name
+                break
+        self._tri_detail_company_label.setText(company_name)
 
-        # Populate profile IDs list
-        self._ui.triangulation_profiles_list.clear()
-        for prof_id in tri.profile_ids:
-            item = QListWidgetItem(prof_id)
-            item.setData(Qt.ItemDataRole.UserRole, prof_id)
-            self._ui.triangulation_profiles_list.addItem(item)
+        self._tri_detail_shared_cm_label.setText(f"{tri.shared_cm:.2f}")
+        self._tri_detail_segment_count_label.setText(str(tri.segment_count))
+        self._tri_detail_largest_segment_label.setText(
+            f"{tri.largest_segment_cm:.2f}"
+        )
+        self._tri_detail_notes_label.setText(tri.notes or "—")
+
+        # Populate profiles list with resolved person names
+        self._tri_detail_profiles_list.clear()
+        for profile_id in tri.profile_ids:
+            display_name = self._resolve_profile_display_name(profile_id)
+            self._tri_detail_profiles_list.addItem(display_name)
+
+    def _resolve_profile_display_name(self, profile_id: str) -> str:
+        """Resolve a profile_id to a human-readable display name.
+
+        Resolution: profile_id → DnaProfile → person_id → Person → names[0]
+        Falls back to "(okänd)" if resolution fails at any step.
+        """
+        profile = None
+        for p in self._project_data.dna_profiles:
+            if p.id == profile_id:
+                profile = p
+                break
+        if profile is None:
+            return "(okänd)"
+
+        person = None
+        for per in self._project_data.persons:
+            if per.id == profile.person_id:
+                person = per
+                break
+        if person is None:
+            return "(okänd)"
+
+        if not person.names:
+            return "(okänd)"
+
+        name = person.names[0]
+        return f"{name.given} {name.surname}"
+
+    def _on_edit_triangulation(self) -> None:
+        """Open DnaTriangulationDialog in edit mode for the selected triangulation.
+
+        Req 7.3: Pre-populated with current triangulation data.
+        Req 7.4: Refresh detail view on dialog accept.
+        Req 7.5: No change on cancel.
+        """
+        if self._editing_triangulation is None:
+            return
+
+        from slaktbusken.ui.dialogs.dna_triangulation_dialog import (
+            DnaTriangulationDialog,
+        )
+
+        # Use an empty person_id since the DNA editor doesn't have a single
+        # "active person" context — the dialog needs it for eligibility filtering
+        # but in edit mode it's mainly informational.
+        # We pick the first profile's person_id if available.
+        person_id = ""
+        if self._editing_triangulation.profile_ids:
+            first_profile_id = self._editing_triangulation.profile_ids[0]
+            for p in self._project_data.dna_profiles:
+                if p.id == first_profile_id:
+                    person_id = p.person_id
+                    break
+
+        dialog = DnaTriangulationDialog(
+            project_data=self._project_data,
+            person_id=person_id,
+            existing_triangulation=self._editing_triangulation,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            edited = dialog.edited_triangulation
+            if edited is not None:
+                # Update triangulation in project data
+                for i, t in enumerate(self._project_data.dna_triangulations):
+                    if t.id == edited.id:
+                        self._project_data.dna_triangulations[i] = edited
+                        break
+                self._editing_triangulation = edited
+                # Refresh list and detail view
+                self._refresh_triangulations_list()
+                self._load_triangulation_detail(edited)
+        # If cancelled, do nothing (Req 7.5)
 
     def _on_add_triangulation(self) -> None:
-        """Clear form for new triangulation entry."""
-        self._editing_triangulation = None
-        self._ui.triangulation_company_combo.setCurrentIndex(0)
-        self._ui.triangulation_chromosome_combo.setCurrentIndex(0)
-        self._ui.triangulation_start_input.setValue(0)
-        self._ui.triangulation_end_input.setValue(0)
-        self._ui.triangulation_cluster_combo.setCurrentIndex(0)
-        self._ui.triangulation_notes_input.clear()
-        self._ui.triangulation_segments_list.clear()
-        self._ui.triangulation_profiles_list.clear()
+        """Open DnaTriangulationDialog in create mode to add a new triangulation."""
+        from slaktbusken.ui.dialogs.dna_triangulation_dialog import (
+            DnaTriangulationDialog,
+        )
+
+        # Use an empty person_id — the dialog will allow selecting profiles
+        person_id = ""
+        if self._project_data.persons:
+            person_id = self._project_data.persons[0].id
+
+        dialog = DnaTriangulationDialog(
+            project_data=self._project_data,
+            person_id=person_id,
+            existing_triangulation=None,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            created = dialog.created_triangulation
+            if created is not None:
+                self._project_data.dna_triangulations.append(created)
+                self._editing_triangulation = created
+                self._refresh_triangulations_list()
+                self._load_triangulation_detail(created)
+                self._tri_edit_button.setEnabled(True)
         self._clear_status()
 
     def _on_remove_triangulation(self) -> None:
@@ -1533,6 +2125,8 @@ class DnaEditor(QWidget):
             t for t in self._project_data.dna_triangulations if t.id != tri_id
         ]
         self._editing_triangulation = None
+        self._clear_triangulation_detail()
+        self._tri_edit_button.setEnabled(False)
         self._refresh_triangulations_list()
         self._clear_status()
 

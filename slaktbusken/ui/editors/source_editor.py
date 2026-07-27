@@ -373,13 +373,21 @@ class SourceEditor(QWidget):
         Each list item displays inline usage statistics:
         "{title} ({provider}) [{person_count} pers, {event_count} händ]"
 
+        Sources are sorted alphabetically by title.
+
         Args:
             filter_text: Case-insensitive filter string for title or provider.
         """
         self._ui.source_list.clear()
         filter_lower = filter_text.lower()
 
-        for source in self._project_data.sources:
+        # Collect and sort sources alphabetically by title
+        sorted_sources = sorted(
+            self._project_data.sources,
+            key=lambda s: (s.title or s.id).lower(),
+        )
+
+        for source in sorted_sources:
             if filter_lower:
                 title_match = filter_lower in source.title.lower()
                 provider_match = filter_lower in source.provider.lower()
@@ -600,6 +608,72 @@ class SourceEditor(QWidget):
 
         fields = self._source.structured_reference.fields
         source_type = self._source.source_type
+
+        # Clear all structured reference fields first
+        self._ui.parish_input.setText("")
+        self._ui.county_code_input.setText("")
+        self._ui.series_input.setText("")
+        self._ui.volume_input.setText("")
+        self._ui.years_input.setText("")
+        self._ui.image_input.setText("")
+        self._ui.page_input.setText("")
+        self._ui.database_name_input.setText("")
+        self._ui.record_id_input.setText("")
+        self._ui.dn_newspaper_input.setText("")
+        self._ui.publication_date_input.setText("")
+        self._ui.dn_page_input.setText("")
+        self._ui.np_newspaper_input.setText("")
+        self._ui.np_date_input.setText("")
+        self._ui.np_page_input.setText("")
+        self._ui.article_title_input.setText("")
+
+        # Update visibility and populate fields for the matching type
+        has_fields = source_type in STRUCTURED_FIELDS
+        self._ui.structured_ref_group.setVisible(has_fields)
+
+        if not has_fields:
+            return
+
+        # Set individual field visibility based on source type
+        church_visible = source_type == "church_book"
+        self._ui.parish_label.setVisible(church_visible)
+        self._ui.parish_input.setVisible(church_visible)
+        self._ui.county_code_label.setVisible(church_visible)
+        self._ui.county_code_input.setVisible(church_visible)
+        self._ui.series_label.setVisible(church_visible)
+        self._ui.series_input.setVisible(church_visible)
+        self._ui.volume_label.setVisible(church_visible)
+        self._ui.volume_input.setVisible(church_visible)
+        self._ui.years_label.setVisible(church_visible)
+        self._ui.years_input.setVisible(church_visible)
+        self._ui.image_label.setVisible(church_visible)
+        self._ui.image_input.setVisible(church_visible)
+        self._ui.page_label.setVisible(church_visible)
+        self._ui.page_input.setVisible(church_visible)
+
+        db_visible = source_type == "database"
+        self._ui.database_name_label.setVisible(db_visible)
+        self._ui.database_name_input.setVisible(db_visible)
+        self._ui.record_id_label.setVisible(db_visible)
+        self._ui.record_id_input.setVisible(db_visible)
+
+        dn_visible = source_type == "death_notice"
+        self._ui.dn_newspaper_label.setVisible(dn_visible)
+        self._ui.dn_newspaper_input.setVisible(dn_visible)
+        self._ui.publication_date_label.setVisible(dn_visible)
+        self._ui.publication_date_input.setVisible(dn_visible)
+        self._ui.dn_page_label.setVisible(dn_visible)
+        self._ui.dn_page_input.setVisible(dn_visible)
+
+        np_visible = source_type == "newspaper"
+        self._ui.np_newspaper_label.setVisible(np_visible)
+        self._ui.np_newspaper_input.setVisible(np_visible)
+        self._ui.np_date_label.setVisible(np_visible)
+        self._ui.np_date_input.setVisible(np_visible)
+        self._ui.np_page_label.setVisible(np_visible)
+        self._ui.np_page_input.setVisible(np_visible)
+        self._ui.article_title_label.setVisible(np_visible)
+        self._ui.article_title_input.setVisible(np_visible)
 
         if source_type == "church_book":
             self._ui.parish_input.setText(str(fields.get("parish", "") or ""))
@@ -989,6 +1063,7 @@ class SourceEditor(QWidget):
         # Church book types
         church_book_types = {
             "Husförhörslängd",
+            "Församlingsbok",
             "Födelse- och dopbok",
             "Lysnings- och vigselbok",
             "Död- och begravningsbok",
@@ -1140,8 +1215,28 @@ class SourceEditor(QWidget):
 
         self._clear_status()
         logger.info("Källa sparad: %s", source_id)
+
+        # Update project data in-place
+        found = False
+        for i, existing in enumerate(self._project_data.sources):
+            if existing.id == source_id:
+                self._project_data.sources[i] = self._saved_source
+                found = True
+                break
+        if not found:
+            self._project_data.sources.append(self._saved_source)
+
+        # Update the in-memory editing source
+        self._source = self._saved_source
+
+        # Refresh the source list
+        self._refresh_source_list()
+
+        # Show confirmation
+        self._ui.status_label.setStyleSheet("color: green;")
+        self._ui.status_label.setText("✔ Källan sparad.")
+
         self.save_requested.emit()
-        self.close()
 
     def _on_cancel(self) -> None:
         """Close the editor without saving."""
@@ -1269,11 +1364,13 @@ class SourceEditor(QWidget):
         Args:
             message: The status message to display.
         """
+        self._ui.status_label.setStyleSheet("color: red;")
         self._ui.status_label.setText(message)
 
     def _clear_status(self) -> None:
         """Clear the status label."""
         self._ui.status_label.setText("")
+        self._ui.status_label.setStyleSheet("")
 
     # ------------------------------------------------------------------
     # Private: direct link

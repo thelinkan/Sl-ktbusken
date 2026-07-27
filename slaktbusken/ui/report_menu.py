@@ -39,6 +39,7 @@ class ReportMenuBuilder:
     def __init__(self) -> None:
         # Implemented report actions (enabled when project is open)
         self.action_ansedel: QAction | None = None
+        self.action_kallrapport: QAction | None = None
         self.action_geographic: QAction | None = None
         self.action_media: QAction | None = None
 
@@ -67,6 +68,7 @@ class ReportMenuBuilder:
         # --- Standardrapporter ---
         menu_standard = self.menu.addMenu("Standardrapporter")
         self.action_ansedel = menu_standard.addAction("Ansedel")
+        self.action_kallrapport = menu_standard.addAction("Källrapport")
         self._add_placeholder(menu_standard, "Antavla")
         self._add_placeholder(menu_standard, "Ättlingarapport")
 
@@ -117,6 +119,7 @@ class ReportMenuBuilder:
         # Implemented actions: enabled only when project is open
         for action in (
             self.action_ansedel,
+            self.action_kallrapport,
             self.action_geographic,
             self.action_media,
         ):

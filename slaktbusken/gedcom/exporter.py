@@ -397,6 +397,14 @@ class GEDCOMExporter:
             place_str = self._resolve_place_hierarchy(event.place.place_id)
             if place_str:
                 lines.append(f"2 PLAC {place_str}")
+                # MAP coordinates (from the most specific place)
+                place_obj = self._places.get(event.place.place_id)
+                if place_obj and place_obj.latitude is not None and place_obj.longitude is not None:
+                    lat_prefix = "N" if place_obj.latitude >= 0 else "S"
+                    lon_prefix = "E" if place_obj.longitude >= 0 else "W"
+                    lines.append("3 MAP")
+                    lines.append(f"4 LATI {lat_prefix}{abs(place_obj.latitude)}")
+                    lines.append(f"4 LONG {lon_prefix}{abs(place_obj.longitude)}")
 
         # Source citations on date
         if event.date and event.date.source_refs:

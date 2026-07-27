@@ -84,10 +84,10 @@ class TestPlaceListItemDelegateRedDotLogic:
         place = Place(id="p1", type="parish", name="Ljusdal", parent_place_id=None)
         assert needs_red_dot(place) is True
 
-    def test_country_without_parent_no_dot(self) -> None:
-        """A country without parent_place_id does NOT need the red dot."""
+    def test_country_without_parent_needs_dot(self) -> None:
+        """A country without parent_place_id needs the red dot (should have continent)."""
         place = Place(id="p1", type="country", name="Sverige", parent_place_id=None)
-        assert needs_red_dot(place) is False
+        assert needs_red_dot(place) is True
 
     def test_non_country_with_parent_no_dot(self) -> None:
         """A parish with parent_place_id does NOT need the red dot."""

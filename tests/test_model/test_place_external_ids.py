@@ -141,8 +141,12 @@ class TestProperty3ExternalIdWhitespaceOnlyRejection:
             alphabet=st.characters(whitelist_categories=("Zs", "Cc")),
             min_size=0,
             max_size=100,
-        ),
-        valid_value=st.text(min_size=1, max_size=500),
+        ).filter(lambda s: not s.strip()),
+        valid_value=st.text(
+            alphabet=st.characters(blacklist_categories=("Zs", "Cc", "Cs")),
+            min_size=1,
+            max_size=500,
+        ).filter(lambda s: s.strip()),
     )
     @settings(max_examples=100)
     def test_whitespace_only_key_rejected(
@@ -153,9 +157,6 @@ class TestProperty3ExternalIdWhitespaceOnlyRejection:
         An ExternalId with a whitespace-only (or empty) key is rejected
         by validate_external_id.
         """
-        assume(valid_value.strip())
-        # Ensure key is actually whitespace-only or empty
-        assume(not whitespace_key.strip())
 
         ext_id = ExternalId(key=whitespace_key, value=valid_value)
         errors = validate_external_id(ext_id)

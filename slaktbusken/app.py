@@ -58,12 +58,19 @@ class Application:
         # Populate recent projects submenu
         self._refresh_recent_projects_menu()
 
-        # Auto-open default project if configured
-        self._auto_open_default_project()
-
         # Connect person list selection to diagram panel navigation
         self.main_window.person_list_panel.person_selected.connect(
             self.main_window.diagram_panel.set_active_person
+        )
+
+        # Connect person list selection to detail panel
+        self.main_window.person_list_panel.person_selected.connect(
+            self.main_window._on_person_activated_for_detail
+        )
+
+        # Connect person count changes to status bar
+        self.main_window.person_list_panel.person_count_changed.connect(
+            self.main_window.update_person_count
         )
 
         # Connect double-click signals to open person editor
@@ -88,6 +95,17 @@ class Application:
         self.main_window.person_list_panel.context_menu_action.connect(
             self.handle_context_menu_action
         )
+
+        # Connect diagram single-click selection to detail panel
+        self.main_window.diagram_panel.person_selected.connect(
+            self.main_window._on_person_activated_for_detail
+        )
+
+        # Apply saved theme
+        self._apply_theme(self.app_settings_service._settings.theme)
+
+        # Auto-open default project if configured
+        self._auto_open_default_project()
 
     # ------------------------------------------------------------------
     # Action callbacks (invoked by MainWindow actions)
@@ -118,7 +136,13 @@ class Application:
 
         # Create dialog wrapper
         dialog = QDialog(self.main_window)
-        dialog.setWindowTitle("Redigera person")
+        # Build display name for the title
+        if person.names:
+            first_name = person.names[0]
+            person_display = f"{first_name.given} {first_name.surname}".strip()
+        else:
+            person_display = person.id
+        dialog.setWindowTitle(f"Redigera Person - {person_display}")
         dialog.setMinimumSize(600, 700)
         dialog.resize(700, 850)
         layout = QVBoxLayout(dialog)
@@ -159,9 +183,7 @@ class Application:
                     panel = self.main_window.diagram_panel
                     panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
                     panel.set_project_data(self.project_service.data)
-                    settings = self.project_service.settings
-                    if settings:
-                        panel.set_person_box_config(settings.person_box_config)
+                    panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
                 finally:
                     self.main_window.hide_progress()
 
@@ -239,9 +261,7 @@ class Application:
             panel = self.main_window.diagram_panel
             panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
             panel.set_project_data(data)
-            settings = self.project_service.settings
-            if settings:
-                panel.set_person_box_config(settings.person_box_config)
+            panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
             panel.set_active_person(saved.id)
         finally:
             self.main_window.hide_progress()
@@ -273,6 +293,10 @@ class Application:
             self._show_relationship_for_person(person_id)
         elif action_type == "delete_person":
             self._handle_delete_person(person_id)
+        elif action_type == "filter_dna_matches":
+            self._handle_filter_dna_matches(person_id)
+        elif action_type == "show_on_map":
+            self.show_person_map(person_id)
         else:
             logger.warning("Unknown context menu action: %s", action_type)
 
@@ -349,15 +373,117 @@ class Application:
                 else None
             )
             panel.set_project_data(self.project_service.data)
-            settings = self.project_service.settings
-            if settings:
-                panel.set_person_box_config(settings.person_box_config)
+            panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
 
             self.main_window.statusBar().showMessage(
                 f'"{consequences.person_name}" borttagen', 5000
             )
         finally:
             self.main_window.hide_progress()
+
+    def _handle_filter_dna_matches(self, person_id: str) -> None:
+        """Filter the Personlista to show the person and their DNA matches.
+
+        Makes the right-clicked person active and shows them plus all persons
+        who have at least one DnaMatch linking their profiles to this person's profiles.
+
+        Args:
+            person_id: The ID of the person to filter DNA matches for.
+        """
+        data = self.project_service.data
+        if data is None:
+            return
+
+        # Select the right-clicked person in the person list after filtering
+        panel = self.main_window.person_list_panel
+
+        # Find all profile IDs belonging to this person
+        person_profile_ids = {
+            p.id for p in data.dna_profiles if p.person_id == person_id
+        }
+
+        if not person_profile_ids:
+            QMessageBox.information(
+                self.main_window,
+                "Inga DNA-profiler",
+                "Personen har inga DNA-profiler registrerade.",
+            )
+            return
+
+        # Find all matches involving this person's profiles
+        other_profile_ids: set[str] = set()
+        for match in data.dna_matches:
+            if match.profile1_id in person_profile_ids:
+                other_profile_ids.add(match.profile2_id)
+            elif match.profile2_id in person_profile_ids:
+                other_profile_ids.add(match.profile1_id)
+
+        # Resolve profile IDs to person IDs
+        matched_person_ids: set[str] = {person_id}  # Include the person themselves
+        for profile in data.dna_profiles:
+            if profile.id in other_profile_ids:
+                matched_person_ids.add(profile.person_id)
+
+        # Apply filter to person list panel
+        panel = self.main_window.person_list_panel
+        panel.apply_dna_match_filter(matched_person_ids, select_person_id=person_id)
+
+    def show_person_map(self, person_id: str) -> None:
+        """Open map dialog showing places for a person's events."""
+        from slaktbusken.services.map_data_service import build_markers_for_person
+        from slaktbusken.ui.dialogs.map_dialog import MapDialog
+
+        markers = build_markers_for_person(self.project_service.data, person_id)
+        if not markers:
+            QMessageBox.information(
+                self.main_window,
+                "Karta",
+                "Personen har inga händelser kopplade till platser med koordinater.",
+            )
+            return
+
+        # Resolve person name for dialog title
+        person = next(
+            (p for p in self.project_service.data.persons if p.id == person_id), None
+        )
+        if person and person.names:
+            name = f"{person.names[0].given} {person.names[0].surname}".strip()
+        else:
+            name = person_id
+
+        dialog = MapDialog(markers, f"Karta — {name}", parent=self.main_window)
+        dialog.person_navigation_requested.connect(self._handle_map_navigation)
+        dialog.exec()
+
+    def show_all_events_map(self) -> None:
+        """Open map dialog showing all project events."""
+        from slaktbusken.services.map_data_service import build_markers_all_events
+        from slaktbusken.ui.dialogs.map_dialog import MapDialog
+
+        markers = build_markers_all_events(self.project_service.data)
+        if not markers:
+            QMessageBox.information(
+                self.main_window,
+                "Karta",
+                "Inga platser med koordinater och händelser hittades i projektet.",
+            )
+            return
+
+        dialog = MapDialog(markers, "Karta — Alla händelser", parent=self.main_window)
+        dialog.person_navigation_requested.connect(self._handle_map_navigation)
+        dialog.exec()
+
+    def _handle_map_navigation(self, person_id: str) -> None:
+        """Navigate to a person triggered from the map dialog."""
+        person = next(
+            (p for p in self.project_service.data.persons if p.id == person_id), None
+        )
+        if person is None:
+            QMessageBox.warning(
+                self.main_window, "Karta", "Personen kunde inte hittas."
+            )
+            return
+        self.main_window.diagram_panel.set_active_person(person_id)
 
     def _show_relationship_for_person(self, person_id: str) -> None:
         """Open relationship calculator with the person pre-selected.
@@ -579,9 +705,7 @@ class Application:
             panel = self.main_window.diagram_panel
             panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
             panel.set_project_data(data)
-            settings = self.project_service.settings
-            if settings:
-                panel.set_person_box_config(settings.person_box_config)
+            panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
         finally:
             self.main_window.hide_progress()
 
@@ -592,7 +716,8 @@ class Application:
 
         from slaktbusken.ui.dialogs.new_project_dialog import NewProjectDialog
 
-        dialog = NewProjectDialog(parent=self.main_window)
+        default_folder = self.app_settings_service.get_default_folder()
+        dialog = NewProjectDialog(parent=self.main_window, default_folder=default_folder)
         if dialog.exec() != NewProjectDialog.DialogCode.Accepted:
             return
 
@@ -636,6 +761,7 @@ class Application:
         QApplication.processEvents()
         try:
             self.project_service.open_project(Path(path))
+
             # Record in recent projects
             self.app_settings_service.add_recent_project(path)
             self._refresh_recent_projects_menu()
@@ -701,6 +827,13 @@ class Application:
             self._update_status()
             self._update_diagram_panel()
 
+            # Write detailed import log file
+            log_path = self._write_import_log(result, Path(path), project_path.parent)
+
+            # Show summary in dialog (with reference to log file if warnings exist)
+            if result.warnings and log_path:
+                summary += f"\n\nDetaljer sparade i:\n{log_path}"
+
             QMessageBox.information(
                 self.main_window,
                 "Import slutförd",
@@ -728,6 +861,84 @@ class Application:
             )
         finally:
             self.main_window.hide_progress()
+
+    def _write_import_log(self, result, gedcom_path: Path, project_folder: Path) -> Path | None:
+        """Write a detailed import log file to the project's log folder.
+
+        Args:
+            result: The ImportResult from the GEDCOM import.
+            gedcom_path: Path to the imported GEDCOM file.
+            project_folder: The project folder root.
+
+        Returns:
+            Path to the written log file, or None if writing failed.
+        """
+        import re
+        from datetime import datetime
+
+        try:
+            log_dir = project_folder / "log"
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            log_file = log_dir / f"import-log-{timestamp}.log"
+
+            # Build ID → name lookup for readable warnings
+            data = self.project_service.data
+            id_to_name: dict[str, str] = {}
+            for p in data.persons:
+                if p.names:
+                    name = f"{p.names[0].given} {p.names[0].surname}".strip()
+                    id_to_name[p.id] = name
+            for place in data.places:
+                id_to_name[place.id] = place.name
+            for source in data.sources:
+                id_to_name[source.id] = source.title or source.id
+            for family in data.families:
+                partner_names = []
+                for fp in family.partners:
+                    if fp.person_id in id_to_name:
+                        partner_names.append(id_to_name[fp.person_id])
+                id_to_name[family.id] = " & ".join(partner_names) if partner_names else family.id
+
+            def _resolve_ids(text: str) -> str:
+                """Replace entity IDs with human-readable names in warning text."""
+                def _replace_match(m):
+                    entity_id = m.group(1)
+                    name = id_to_name.get(entity_id)
+                    if name:
+                        return f"{name} [{entity_id}]"
+                    return entity_id
+                # Match patterns like "place_5", "person_123", "family_7", "source_42"
+                return re.sub(r'\b((?:place|person|family|source|event|media)_\d+)\b', _replace_match, text)
+
+            lines = []
+            lines.append(f"GEDCOM Import Log — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            lines.append(f"Fil: {gedcom_path.name}")
+            lines.append("")
+            lines.append("== Sammanfattning ==")
+            lines.append(f"  Personer tillagda: {result.persons_added}")
+            lines.append(f"  Personer uppdaterade: {result.persons_updated}")
+            lines.append(f"  Familjer tillagda: {result.families_added}")
+            if result.families_updated:
+                lines.append(f"  Familjer uppdaterade: {result.families_updated}")
+            lines.append(f"  Händelser tillagda: {result.events_added}")
+            lines.append(f"  Källor tillagda: {result.sources_added}")
+            lines.append(f"  Platser tillagda: {result.places_added}")
+            lines.append(f"  Varningar: {len(result.warnings)}")
+            lines.append("")
+
+            if result.warnings:
+                lines.append("== Varningar ==")
+                for i, warning in enumerate(result.warnings, 1):
+                    lines.append(f"  {i}. {_resolve_ids(warning)}")
+                lines.append("")
+
+            log_file.write_text("\n".join(lines), encoding="utf-8")
+            return log_file
+        except Exception as e:
+            logger.warning("Kunde inte skriva importlogg: %s", e)
+            return None
 
     def export_gedcom(self) -> None:
         """Export the current project to a GEDCOM file."""
@@ -807,31 +1018,65 @@ class Application:
         )
         dialog.exec()
 
-    def show_settings(self) -> None:
-        """Open the settings dialog for person box config and diagram depth.
+    def show_person_checks(self) -> None:
+        """Open the Kontrollera personer dialog."""
+        from slaktbusken.ui.dialogs.kontrollera_personer_dialog import (
+            KontrolleraPersonerDialog,
+        )
+        from slaktbusken.persistence.settings_io import write_settings
 
-        Shows the SettingsDialog populated with current project settings.
-        On accept: saves settings to file, applies config to the diagram
-        panel, and marks the project as dirty. Also handles default project
-        set/clear actions from the dialog.
+        config = self.project_service.settings.person_check_config
+        dialog = KontrolleraPersonerDialog(
+            data=self.project_service.data,
+            config=config,
+            project_folder=(
+                self.project_service.project_path.parent
+                if self.project_service.project_path
+                else None
+            ),
+            parent=self.main_window,
+        )
+        dialog.exec()
+
+        # Save updated config
+        self.project_service.settings.person_check_config = dialog.config
+        if self.project_service.project_path is not None:
+            settings_file = self.project_service.project_path.parent / "settings.json"
+            try:
+                write_settings(self.project_service.settings, settings_file)
+            except OSError as e:
+                from PySide6.QtWidgets import QMessageBox
+
+                QMessageBox.warning(
+                    self.main_window,
+                    "Fel",
+                    f"Kunde inte spara kontrollinställningarna:\n{e}",
+                )
+
+        # Navigate to selected person if double-clicked
+        if dialog.selected_person_id:
+            self.main_window.diagram_panel.set_active_person(
+                dialog.selected_person_id
+            )
+
+    def show_settings(self) -> None:
+        """Open the settings dialog for program-level preferences.
+
+        All settings are stored at the application level and can be
+        changed regardless of whether a project is open.
         """
         from slaktbusken.ui.dialogs.settings_dialog import SettingsDialog
-        from slaktbusken.persistence.settings_io import (
-            DiagramSettings,
-            PersonBoxConfig,
-            write_settings,
-        )
 
-        settings = self.project_service.settings
-        if settings is None:
-            return
+        # Read current settings from app-level
+        app_settings = self.app_settings_service._settings
 
         # Determine current project path for default project UI
         current_project_path = self.project_service.project_path
 
         dialog = SettingsDialog(
-            person_box_config=settings.person_box_config,
-            diagram_settings=settings.diagram_settings,
+            person_box_config=app_settings.person_box_config,
+            diagram_settings=app_settings.diagram_settings,
+            person_list_config=app_settings.person_list_config,
             app_settings_service=self.app_settings_service,
             current_project_path=current_project_path,
             parent=self.main_window,
@@ -840,28 +1085,26 @@ class Application:
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
             return
 
-        # Retrieve updated values from the dialog.
-        new_person_box_config = dialog.person_box_config
-        new_diagram_settings = dialog.diagram_settings
+        # Save all settings to app-level
+        app_settings.startup_mode = dialog.startup_mode
+        app_settings.theme = dialog.theme
+        app_settings.person_box_config = dialog.person_box_config
+        app_settings.diagram_settings = dialog.diagram_settings
+        app_settings.person_list_config = dialog.person_list_config
+        self.app_settings_service.save(app_settings)
 
-        # Update the in-memory settings.
-        settings.person_box_config = new_person_box_config
-        settings.diagram_settings = new_diagram_settings
-
-        # Persist settings to the project folder.
-        project_path = self.project_service.project_path
-        if project_path is not None:
-            settings_file = project_path.parent / "settings.json"
-            write_settings(settings, settings_file)
+        # Apply theme
+        self._apply_theme(app_settings.theme)
 
         # Apply to diagram panel for immediate re-render.
         panel = self.main_window.diagram_panel
-        panel.set_person_box_config(new_person_box_config)
-        panel.set_diagram_settings(new_diagram_settings)
+        panel.set_person_box_config(app_settings.person_box_config)
+        panel.set_diagram_settings(app_settings.diagram_settings)
 
-        # Mark project as dirty.
-        self.project_service._dirty = True
-        self._update_status()
+        # Apply person list config
+        self.main_window.person_list_panel.apply_person_list_config(
+            app_settings.person_list_config
+        )
 
     def show_source_editor(self) -> None:
         """Open the source editor dialog.
@@ -885,27 +1128,14 @@ class Application:
         )
         layout.addWidget(editor)
 
-        # Connect editor signals to dialog accept/reject
-        editor.save_requested.connect(dialog.accept)
+        # Cancel closes the dialog; save stays open (editor shows confirmation)
         editor.cancel_requested.connect(dialog.reject)
 
+        # Mark project dirty on save
+        editor.save_requested.connect(lambda: setattr(self.project_service, '_dirty', True))
+        editor.save_requested.connect(self._update_status)
+
         dialog.exec()
-
-        # If a source was saved via the editor, update project state
-        if editor.saved_source is not None:
-            saved = editor.saved_source
-            # Update or add the source in project data
-            found = False
-            for i, existing in enumerate(project_data.sources):
-                if existing.id == saved.id:
-                    project_data.sources[i] = saved
-                    found = True
-                    break
-            if not found:
-                project_data.sources.append(saved)
-
-            self.project_service._dirty = True
-            self._update_status()
 
     def show_place_editor(self) -> None:
         """Open the place editor dialog.
@@ -914,8 +1144,12 @@ class Application:
         project's places for viewing, editing, and linking.
         """
         from slaktbusken.ui.editors.place_editor import PlaceEditor
+        from slaktbusken.services.photo_service import PhotoService
 
         project_data = self.project_service.data
+        project_folder = self.project_service.project_path.parent if self.project_service.project_path else None
+        foto_mapp = (project_folder / "media" / "photos") if project_folder else Path("media/photos")
+        photo_service = PhotoService(project_data, foto_mapp)
 
         dialog = QDialog(self.main_window)
         dialog.setWindowTitle("Platsredigerare")
@@ -925,33 +1159,21 @@ class Application:
         editor = PlaceEditor(
             project_data=project_data,
             parent=dialog,
+            photo_service=photo_service,
         )
         layout.addWidget(editor)
 
-        # Connect editor signals to dialog accept/reject
-        editor.save_requested.connect(dialog.accept)
+        # Cancel closes the dialog; save stays open (editor shows confirmation)
         editor.cancel_requested.connect(dialog.reject)
+
+        # Mark project dirty when a place is saved
+        editor.save_requested.connect(lambda: setattr(self.project_service, '_dirty', True))
+        editor.save_requested.connect(self._update_status)
 
         # Connect person open signal to open person editor
         editor.person_open_requested.connect(self.open_person_editor)
 
         dialog.exec()
-
-        # If a place was saved via the editor, update project state
-        if editor.saved_place is not None:
-            saved = editor.saved_place
-            # Update or add the place in project data
-            found = False
-            for i, existing in enumerate(project_data.places):
-                if existing.id == saved.id:
-                    project_data.places[i] = saved
-                    found = True
-                    break
-            if not found:
-                project_data.places.append(saved)
-
-            self.project_service._dirty = True
-            self._update_status()
 
     def show_place_translation_editor(self) -> None:
         """Open the place translation editor dialog.
@@ -1120,6 +1342,7 @@ class Application:
         QApplication.processEvents()
         try:
             self.project_service.open_project(Path(path))
+
             # Record in recent projects (moves to top)
             self.app_settings_service.add_recent_project(path)
             self._refresh_recent_projects_menu()
@@ -1207,49 +1430,127 @@ class Application:
         recent = self.app_settings_service.get_recent_projects()
         self.main_window.refresh_recent_projects_menu(recent)
 
-    def _auto_open_default_project(self) -> None:
-        """Auto-open the default project on startup if configured.
+    def _apply_theme(self, theme: str) -> None:
+        """Apply the specified theme to the application.
 
-        If the default project path is set and the file exists, opens
-        the project automatically. If set but the file is missing,
-        shows a Swedish notification, clears the setting, and continues
-        to the normal empty state.
+        Args:
+            theme: One of "light", "dark", or "system".
         """
-        default_path = self.app_settings_service.get_default_project()
-        if default_path is None:
+        from PySide6.QtGui import QPalette, QColor
+        from PySide6.QtCore import Qt
+
+        app = QApplication.instance()
+        if app is None:
             return
 
-        p = Path(default_path)
+        if theme == "dark":
+            palette = QPalette()
+            # Window and base colors
+            palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.WindowText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Base, QColor(35, 35, 35))
+            palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(25, 25, 25))
+            palette.setColor(QPalette.ColorRole.ToolTipText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Text, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.ButtonText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
+            palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+            # Disabled state
+            palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(127, 127, 127))
+            palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
+            palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(127, 127, 127))
+            app.setPalette(palette)
+            app.setStyleSheet("""
+                QToolTip { color: #ffffff; background-color: #2a2a2a; border: 1px solid white; }
+                QMenuBar { background-color: #353535; color: #ffffff; }
+                QMenuBar::item:selected { background-color: #2a82da; }
+                QMenu { background-color: #353535; color: #ffffff; border: 1px solid #555555; }
+                QMenu::item { padding: 5px 30px 5px 20px; }
+                QMenu::item:selected { background-color: #2a82da; }
+                QMenu::separator { height: 1px; background: #555555; margin: 4px 10px; }
+                QToolBar { background-color: #353535; color: #ffffff; border: none; }
+                QToolBar QToolButton { color: #ffffff; }
+                QStatusBar { background-color: #353535; color: #ffffff; }
+                QTabBar::tab { color: #ffffff; background-color: #353535; padding: 6px 12px; }
+                QTabBar::tab:selected { background-color: #454545; }
+                QTabBar::tab:!selected { color: #cccccc; background-color: #2a2a2a; }
+            """)
+        elif theme == "light":
+            app.setPalette(app.style().standardPalette())
+            app.setStyleSheet("")
+        else:
+            # System default — reset to default palette
+            app.setPalette(app.style().standardPalette())
+            app.setStyleSheet("")
+
+    def _auto_open_default_project(self) -> None:
+        """Auto-open a project on startup based on the configured startup mode.
+
+        Startup modes:
+        - "none": Do nothing, start with no project open.
+        - "recent": Open the most recently used project.
+        - "default_project": Open the designated default project.
+
+        If the chosen project file is missing, shows a notification and
+        continues to the normal empty state.
+        """
+        startup_mode = self.app_settings_service.get_startup_mode()
+
+        if startup_mode == "none":
+            return
+
+        if startup_mode == "recent":
+            recent = self.app_settings_service.get_recent_projects()
+            if not recent:
+                return
+            target_path = recent[0]
+        elif startup_mode == "default_project":
+            target_path = self.app_settings_service.get_default_project()
+            if target_path is None:
+                return
+        else:
+            return
+
+        p = Path(target_path)
         if p.exists():
             self.main_window.show_progress("Laddar projekt...")
             QApplication.processEvents()
             try:
                 self.project_service.open_project(p)
-                self.app_settings_service.add_recent_project(default_path)
+                self.app_settings_service.add_recent_project(target_path)
                 self._refresh_recent_projects_menu()
                 self._update_status()
                 self._update_diagram_panel()
-                self.main_window.statusBar().showMessage(
-                    "Standardprojekt öppnat", 5000
-                )
+                if startup_mode == "default_project":
+                    self.main_window.statusBar().showMessage(
+                        "Standardprojekt öppnat", 5000
+                    )
+                else:
+                    self.main_window.statusBar().showMessage(
+                        "Senaste projekt öppnat", 5000
+                    )
             except Exception as e:
-                logger.warning("Kunde inte öppna standardprojektet: %s", e)
+                logger.warning("Kunde inte öppna projektet vid start: %s", e)
                 QMessageBox.warning(
                     self.main_window,
-                    "Standardprojekt",
-                    f"Kunde inte öppna standardprojektet:\n{e}",
+                    "Programstart",
+                    f"Kunde inte öppna projektet:\n{e}",
                 )
             finally:
                 self.main_window.hide_progress()
         else:
-            # File missing — notify, clear setting, continue
+            # File missing — notify and continue
             QMessageBox.information(
                 self.main_window,
-                "Standardprojekt",
-                f"Standardprojektet kunde inte hittas:\n{default_path}\n\n"
-                "Inställningen rensas.",
+                "Programstart",
+                f"Projektet kunde inte hittas:\n{target_path}",
             )
-            self.app_settings_service.set_default_project(None)
+            if startup_mode == "default_project":
+                self.app_settings_service.set_default_project(None)
 
     def _update_status(self) -> None:
         """Update the main window status bar with current project state."""
@@ -1268,9 +1569,10 @@ class Application:
         Sätter projektdata, personbox-konfiguration och aktiv person
         på DiagramPanel så att familjediagrammet renderas korrekt.
         Uppdaterar även personlistan så att den visar alla personer.
+        Settings are always read from app-level (not project-level).
         """
         panel = self.main_window.diagram_panel
-        settings = self.project_service.settings
+        app_settings = self.app_settings_service._settings
 
         if self.project_service.project_path is not None:
             project_data = self.project_service.data
@@ -1285,8 +1587,13 @@ class Application:
                 if panel._active_person_id not in person_ids:
                     panel._active_person_id = None
 
-            if settings:
-                panel._person_box_config = settings.person_box_config
+            # Apply app-level visual settings
+            panel._person_box_config = app_settings.person_box_config
+            panel._diagram_settings = app_settings.diagram_settings
+            # Apply background color from settings
+            if app_settings.diagram_settings.background_color:
+                from PySide6.QtGui import QBrush, QColor
+                panel._scene.setBackgroundBrush(QBrush(QColor(app_settings.diagram_settings.background_color)))
 
             # Set active person to main_person_id if available
             main_person = project_data.project.main_person_id
@@ -1300,6 +1607,11 @@ class Application:
 
             # Refresh the person list panel with current project data
             self.main_window.person_list_panel.refresh()
+
+            # Apply person list config from app-level
+            self.main_window.person_list_panel.apply_person_list_config(
+                app_settings.person_list_config
+            )
         else:
             panel.set_project_folder(None)
             panel.set_project_data(None)

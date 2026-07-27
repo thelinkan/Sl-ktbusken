@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
@@ -115,21 +115,32 @@ class MainWindow(QMainWindow):
         # Visa (View)
         self.action_view_family = QAction("&Familjevy", self)
         self.action_view_family.setToolTip("Visa familjevy")
+        self.action_view_family.setCheckable(True)
+        self.action_view_family.setChecked(True)  # Default view
         self.action_view_family.triggered.connect(
             lambda: self._switch_view(ViewType.FAMILY)
         )
 
         self.action_view_ancestry = QAction("&Antavla", self)
         self.action_view_ancestry.setToolTip("Visa antavla (uppåt)")
+        self.action_view_ancestry.setCheckable(True)
         self.action_view_ancestry.triggered.connect(
             lambda: self._switch_view(ViewType.ANCESTRY)
         )
 
         self.action_view_descendants = QAction("&Ättlingar", self)
         self.action_view_descendants.setToolTip("Visa ättlingar (nedåt)")
+        self.action_view_descendants.setCheckable(True)
         self.action_view_descendants.triggered.connect(
             lambda: self._switch_view(ViewType.DESCENDANTS)
         )
+
+        # Group view actions so only one can be checked at a time
+        self._view_action_group = QActionGroup(self)
+        self._view_action_group.setExclusive(True)
+        self._view_action_group.addAction(self.action_view_family)
+        self._view_action_group.addAction(self.action_view_ancestry)
+        self._view_action_group.addAction(self.action_view_descendants)
 
         # Redigera (Edit)
         self.action_source_editor = QAction("&Källredigerare...", self)
@@ -175,8 +186,13 @@ class MainWindow(QMainWindow):
         self.action_add_person.setToolTip("Skapa en ny person utan kopplingar")
         self.action_add_person.triggered.connect(self._app.add_standalone_person)
 
+        self.action_edit_person = QAction("&Redigera person", self)
+        self.action_edit_person.setShortcut("R")
+        self.action_edit_person.setToolTip("Redigera den markerade personen")
+        self.action_edit_person.triggered.connect(self._edit_active_person)
+
         # DNA
-        self.action_dna_editor = QAction("&DNA-redigerare...", self)
+        self.action_dna_editor = QAction("&DNA och Kluster", self)
         self.action_dna_editor.setToolTip(
             "Hantera DNA-företag, profiler, matchningar, segment, kluster och trianguleringar"
         )
@@ -187,9 +203,18 @@ class MainWindow(QMainWindow):
         self.action_relationship.setToolTip("Beräkna släktskap mellan två personer")
         self.action_relationship.triggered.connect(self._app.show_relationship_calculator)
 
+        self.action_person_checks = QAction("Kontrollera &personer...", self)
+        self.action_person_checks.setToolTip("Kontrollera personuppgifter i projektet")
+        self.action_person_checks.triggered.connect(self._app.show_person_checks)
+
         self.action_settings = QAction("&Inställningar...", self)
         self.action_settings.setToolTip("Öppna inställningar")
         self.action_settings.triggered.connect(self._app.show_settings)
+
+        # Karta (Map)
+        self.action_map_all_events = QAction("Alla händelser", self)
+        self.action_map_all_events.setToolTip("Visa alla händelser på karta")
+        self.action_map_all_events.triggered.connect(self._app.show_all_events_map)
 
         # Visa huvudperson
         self.action_show_main_person = QAction("Visa &huvudperson", self)
@@ -200,6 +225,22 @@ class MainWindow(QMainWindow):
         self.action_show_main_person.triggered.connect(
             self._app.show_main_person
         )
+
+        # Visa/dölj personlista
+        self.action_toggle_person_list = QAction("&Personlista", self)
+        self.action_toggle_person_list.setShortcut(QKeySequence("F9"))
+        self.action_toggle_person_list.setCheckable(True)
+        self.action_toggle_person_list.setChecked(True)
+        self.action_toggle_person_list.setToolTip("Visa eller dölj personlistan (F9)")
+        self.action_toggle_person_list.toggled.connect(self._toggle_person_list)
+
+        # Visa/dölj detaljerad vy
+        self.action_toggle_detail_panel = QAction("&Detaljerad vy", self)
+        self.action_toggle_detail_panel.setShortcut(QKeySequence("F10"))
+        self.action_toggle_detail_panel.setCheckable(True)
+        self.action_toggle_detail_panel.setChecked(False)
+        self.action_toggle_detail_panel.setToolTip("Visa eller dölj detaljerad vy (F10)")
+        self.action_toggle_detail_panel.toggled.connect(self._toggle_detail_panel)
 
         self.action_goto_selected_person = QAction("M&arkerad person", self)
         self.action_goto_selected_person.setShortcut(QKeySequence("A"))
@@ -244,6 +285,7 @@ class MainWindow(QMainWindow):
         # Person
         self.menu_person = menu_bar.addMenu("&Person")
         self.menu_person.addAction(self.action_add_person)
+        self.menu_person.addAction(self.action_edit_person)
         self.menu_person.addSeparator()
         self.menu_goto = self.menu_person.addMenu("Gå till")
         self.menu_goto.addAction(self.action_show_main_person)
@@ -251,6 +293,9 @@ class MainWindow(QMainWindow):
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
+        self.menu_view.addAction(self.action_toggle_person_list)
+        self.menu_view.addAction(self.action_toggle_detail_panel)
+        self.menu_view.addSeparator()
         self.menu_view.addAction(self.action_view_family)
         self.menu_view.addAction(self.action_view_ancestry)
         self.menu_view.addAction(self.action_view_descendants)
@@ -258,7 +303,12 @@ class MainWindow(QMainWindow):
         # Verktyg (Tools)
         self.menu_tools = menu_bar.addMenu("V&erktyg")
         self.menu_tools.addAction(self.action_relationship)
+        self.menu_tools.addAction(self.action_person_checks)
         self.menu_tools.addAction(self.action_settings)
+
+        # Karta (Map)
+        self.menu_map = menu_bar.addMenu("&Karta")
+        self.menu_map.addAction(self.action_map_all_events)
 
         # Rapporter (Reports)
         from slaktbusken.ui.report_menu import ReportMenuBuilder
@@ -267,6 +317,9 @@ class MainWindow(QMainWindow):
         self._report_menu_builder.build(menu_bar, self._app)
         self._report_menu_builder.action_ansedel.triggered.connect(
             self._generate_ansedel
+        )
+        self._report_menu_builder.action_kallrapport.triggered.connect(
+            self._generate_kallrapport
         )
         self._report_menu_builder.action_geographic.triggered.connect(
             self._generate_geographic
@@ -289,14 +342,21 @@ class MainWindow(QMainWindow):
         """Create toolbar with common actions."""
         self.toolbar = QToolBar("Huvudverktyg", self)
         self.toolbar.setObjectName("huvudverktyg")
+        self.toolbar.setStyleSheet("""
+            QToolButton:checked {
+                border: 1px solid palette(mid);
+                border-radius: 2px;
+            }
+        """)
         self.addToolBar(self.toolbar)
 
         self.toolbar.addAction(self.action_new)
         self.toolbar.addAction(self.action_open)
         self.toolbar.addAction(self.action_save)
         self.toolbar.addSeparator()
-        self.toolbar.addAction(self.action_import)
-        self.toolbar.addAction(self.action_export)
+        self.toolbar.addAction(self.action_view_family)
+        self.toolbar.addAction(self.action_view_ancestry)
+        self.toolbar.addAction(self.action_view_descendants)
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.action_show_main_person)
 
@@ -305,8 +365,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _setup_central_widget(self) -> None:
-        """Create left/right panel splitter with PersonListPanel and DiagramPanel."""
+        """Create left/center/right panel splitter with PersonListPanel, DiagramPanel, and DetailPanel."""
         from slaktbusken.ui.diagram_panel import DiagramPanel
+        from slaktbusken.ui.person_detail_panel import PersonDetailPanel
         from slaktbusken.ui.person_list_panel import PersonListPanel
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -316,36 +377,117 @@ class MainWindow(QMainWindow):
         self.person_list_panel.setMinimumWidth(250)
         self.left_panel = self.person_list_panel
 
-        # Right panel: DiagramPanel
+        # Center panel: DiagramPanel
         self.diagram_panel = DiagramPanel(self)
         self.diagram_panel.switch_view(ViewType.FAMILY)
-        self.right_panel = self.diagram_panel
+
+        # Right panel: PersonDetailPanel (hidden on startup)
+        self.detail_panel = PersonDetailPanel(self._app)
+        self.detail_panel.setMinimumWidth(250)
+        self.detail_panel.hide()
 
         self.splitter.addWidget(self.left_panel)
-        self.splitter.addWidget(self.right_panel)
+        self.splitter.addWidget(self.diagram_panel)
+        self.splitter.addWidget(self.detail_panel)
 
-        # Set initial sizes: ~40% for person list, 60% for diagram
+        # Set initial sizes: ~40% for person list, 60% for diagram, 0% for detail (hidden)
         total = max(self.width(), 800)
         left_width = int(total * 0.4)
-        self.splitter.setSizes([left_width, total - left_width])
+        self.splitter.setSizes([left_width, total - left_width, 0])
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 0)
 
         self.setCentralWidget(self.splitter)
+
+        # Store default panel widths for restore
+        self._person_list_saved_width = left_width
+        self._detail_panel_saved_width = 300
 
         # Connect diagram person activation to person list sync
         self.diagram_panel.person_activated.connect(
             self.person_list_panel.select_person_from_diagram
         )
 
+    def _toggle_person_list(self, visible: bool) -> None:
+        """Show or hide the person list panel by collapsing the splitter.
+
+        Args:
+            visible: True to show, False to hide.
+        """
+        if visible:
+            current_sizes = self.splitter.sizes()
+            total = sum(current_sizes)
+            left_width = self._person_list_saved_width
+            self.splitter.setSizes([left_width, total - left_width, current_sizes[2] if len(current_sizes) > 2 else 0])
+            self.left_panel.show()
+        else:
+            current_sizes = self.splitter.sizes()
+            if current_sizes[0] > 0:
+                self._person_list_saved_width = current_sizes[0]
+            self.left_panel.hide()
+
+    def _toggle_detail_panel(self, visible: bool) -> None:
+        """Show or hide the detail panel on the right side.
+
+        Args:
+            visible: True to show, False to hide.
+        """
+        if visible:
+            current_sizes = self.splitter.sizes()
+            total = sum(current_sizes)
+            detail_width = self._detail_panel_saved_width
+            # Shrink the center panel to make room
+            center_width = current_sizes[1] - detail_width
+            if center_width < 200:
+                center_width = 200
+                detail_width = total - current_sizes[0] - center_width
+            self.splitter.setSizes([current_sizes[0], center_width, detail_width])
+            self.detail_panel.show()
+            # Refresh detail panel with currently selected person from list
+            selected_id = self.person_list_panel.get_selected_person_id()
+            if selected_id:
+                self.detail_panel.set_person(selected_id)
+        else:
+            current_sizes = self.splitter.sizes()
+            if len(current_sizes) > 2 and current_sizes[2] > 0:
+                self._detail_panel_saved_width = current_sizes[2]
+            self.detail_panel.hide()
+
+    def _on_person_activated_for_detail(self, person_id: str) -> None:
+        """Update the detail panel when a person is selected.
+
+        Always updates the panel content regardless of visibility, so it's
+        ready when toggled on.
+
+        Args:
+            person_id: The ID of the selected person.
+        """
+        self.detail_panel.set_person(person_id)
+
     # ------------------------------------------------------------------
     # Status Bar
     # ------------------------------------------------------------------
 
     def _setup_status_bar(self) -> None:
-        """Create status bar with project status label."""
+        """Create status bar with person count and project status (both permanent)."""
+        self._person_count_label = QLabel("")
+        self.statusBar().addPermanentWidget(self._person_count_label, 1)
+
         self._status_label = QLabel("Inget projekt öppet")
-        self.statusBar().addPermanentWidget(self._status_label)
+        self.statusBar().addPermanentWidget(self._status_label, 0)
+
+    def update_person_count(self, total: int, filtered: int | None = None) -> None:
+        """Update the person count display in the status bar.
+
+        Args:
+            total: Total number of persons in the project.
+            filtered: Number of persons in the active filter, or None if not filtering.
+        """
+        if filtered is not None:
+            self._person_count_label.setText(f"Antal personer: {total} ({filtered})")
+        else:
+            self._person_count_label.setText(f"Antal personer: {total}")
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -393,6 +535,7 @@ class MainWindow(QMainWindow):
         self.action_export.setEnabled(project_open)
         self.action_close.setEnabled(project_open)
         self.action_relationship.setEnabled(project_open)
+        self.action_person_checks.setEnabled(project_open)
         self.action_source_editor.setEnabled(project_open)
         self.action_source_translation_editor.setEnabled(project_open)
         self.action_provider_editor.setEnabled(project_open)
@@ -404,6 +547,7 @@ class MainWindow(QMainWindow):
         self.action_view_descendants.setEnabled(project_open)
         self.action_show_main_person.setEnabled(project_open)
         self.action_goto_selected_person.setEnabled(project_open)
+        self.action_map_all_events.setEnabled(project_open)
 
         if hasattr(self, '_report_menu_builder'):
             self._report_menu_builder.update_project_state(project_open)
@@ -419,6 +563,16 @@ class MainWindow(QMainWindow):
             self.diagram_panel.person_activated.emit(selected_id)
             self.diagram_panel.set_active_person(selected_id)
 
+    def _edit_active_person(self) -> None:
+        """Open the person editor for the currently selected person."""
+        selected_id = (
+            self.diagram_panel._family_view.selected_person_id
+            or self.diagram_panel._ancestry_view.selected_person_id
+            or self.diagram_panel._descendants_view.selected_person_id
+        )
+        if selected_id:
+            self._app.open_person_editor(selected_id)
+
     def _switch_view(self, view_type: ViewType) -> None:
         """Switch the diagram panel view type.
 
@@ -427,6 +581,17 @@ class MainWindow(QMainWindow):
         """
         self._current_view = view_type
         self.diagram_panel.switch_view(view_type)
+
+        # Update checked state on view actions
+        action_map = {
+            ViewType.FAMILY: self.action_view_family,
+            ViewType.ANCESTRY: self.action_view_ancestry,
+            ViewType.DESCENDANTS: self.action_view_descendants,
+        }
+        target_action = action_map.get(view_type)
+        if target_action and not target_action.isChecked():
+            target_action.setChecked(True)
+
         view_names = {
             ViewType.FAMILY: "Familjevy",
             ViewType.ANCESTRY: "Antavla",
@@ -478,6 +643,23 @@ class MainWindow(QMainWindow):
         dlg = ReportPreviewDialog(content, settings, parent=self)
         dlg.exec()
 
+    def _generate_kallrapport(self) -> None:
+        """Generate and display the Källrapport (Source Report)."""
+        if self._app.project_service.project_path is None:
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        data = self._app.project_service.data
+
+        service = ReportGeneratorService()
+        content = service.generate_kallrapport(data)
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
     def _generate_media(self) -> None:
         """Generate and display the Media Consistency report."""
         if self._app.project_service.project_path is None:
@@ -501,7 +683,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "Om Släktbusken",
-            "<p>Släktbusken v0.1.0 (beta)</p>"
+            "<p>Släktbusken v0.2.0 (beta)</p>"
             "<p>Ett skrivbordsverktyg för svensk släktforskning.</p>"
             "<p>Byggt med Python och PySide6.</p>"
             "<p>Gjort av Linkan, med hjälp av Specdriven AI (KIRO)</p>"

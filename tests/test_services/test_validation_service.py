@@ -35,7 +35,7 @@ from slaktbusken.model.event import (
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Name, Person
-from slaktbusken.model.place import Place
+from slaktbusken.model.place import Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, RepositoryRef, Source
@@ -72,8 +72,13 @@ def populated_project() -> ProjectData:
             Event(id="e1", type="birth", participants=[Participant(person_id="p1", role="subject")]),
         ],
         places=[
-            Place(id="pl1", type="country", name="Sverige"),
-            Place(id="pl2", type="county", name="Stockholm", parent_place_id="pl1"),
+            Place(id="pl0", type="continent", name="Europa"),
+            Place(id="pl1", type="country", name="Sverige", parent_place_id="pl0",
+                  region_levels=[
+                      RegionLevel(key="lan", label="Län", order=1),
+                      RegionLevel(key="socken", label="Socken", order=2),
+                  ]),
+            Place(id="pl2", type="lan", name="Stockholms län", parent_place_id="pl1"),
         ],
         sources=[
             Source(id="s1", provider="ArkivDigital", source_type="church_book", title="Födelseboken"),
@@ -132,7 +137,7 @@ class TestValidEntityNoErrors:
 
     def test_valid_place(self, service: ValidationService, populated_project: ProjectData) -> None:
         """A place with valid parent_place_id returns no errors."""
-        county = populated_project.places[1]  # pl2 with parent pl1
+        county = populated_project.places[2]  # pl2 (lan) with parent pl1 (country)
         errors = service.validate_entity(county, populated_project)
         assert errors == []
 

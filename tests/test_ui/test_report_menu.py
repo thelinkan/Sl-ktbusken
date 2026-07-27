@@ -169,6 +169,7 @@ class TestSubmenuItems:
         submenus = _get_submenu_items(menu)
         assert submenus["Standardrapporter"] == [
             "Ansedel",
+            "Källrapport",
             "Antavla",
             "Ättlingarapport",
         ]

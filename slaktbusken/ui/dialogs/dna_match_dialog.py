@@ -6,6 +6,7 @@ All UI text is in Swedish.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
@@ -15,16 +16,27 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from slaktbusken.model.dna import DnaMatch, DnaProfile
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.dna_match_csv_parser import (
+    MatchCsvParseResult,
+    parse_match_csv,
+)
+from slaktbusken.services.match_segment_storage import save_match_segments
 
 
 def _profile_display_label(profile: DnaProfile, project_data: ProjectData) -> str:
@@ -49,6 +61,7 @@ class DnaMatchDialog(QDialog):
         project_data: The ProjectData containing DNA profiles.
         person_id: The ID of the current person.
         existing_match: Optional existing DnaMatch to edit.
+        project_path: Optional path to the project file or folder for segment storage.
         parent: Optional parent widget.
     """
 
@@ -57,6 +70,7 @@ class DnaMatchDialog(QDialog):
         project_data: ProjectData,
         person_id: str,
         existing_match: Optional[DnaMatch] = None,
+        project_path: Optional[Path] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -65,6 +79,16 @@ class DnaMatchDialog(QDialog):
         self._existing_match = existing_match
         self._created_match: Optional[DnaMatch] = None
         self._edited_match: Optional[DnaMatch] = None
+        self._parsed_result: Optional[MatchCsvParseResult] = None
+
+        # Resolve project path for segment storage
+        if project_path is not None:
+            if project_path.is_dir():
+                self._project_path = project_path
+            else:
+                self._project_path = project_path.parent
+        else:
+            self._project_path: Optional[Path] = None
 
         self.setWindowTitle("Ny DNA-matchning")
         self.setMinimumWidth(400)
@@ -148,6 +172,9 @@ class DnaMatchDialog(QDialog):
 
         layout.addLayout(form)
 
+        # --- Match data paste section (between Anteckningar and profile selection info) ---
+        self._setup_paste_section(layout)
+
         # Info label shown when no other profiles exist
         self._label_info = QLabel(
             "Inga andra DNA-profiler finns att matcha mot."
@@ -170,6 +197,52 @@ class DnaMatchDialog(QDialog):
         self._button_box.accepted.connect(self._on_accept)
         self._button_box.rejected.connect(self.reject)
         layout.addWidget(self._button_box)
+
+    def _setup_paste_section(self, parent_layout: QVBoxLayout) -> None:
+        """Set up the match data paste section."""
+        # Label
+        paste_label = QLabel("Klistra in matchdata:")
+        parent_layout.addWidget(paste_label)
+
+        # Text area for pasting CSV data
+        self._paste_text = QPlainTextEdit()
+        self._paste_text.setMaximumHeight(80)
+        self._paste_text.setPlaceholderText(
+            "Klistra in CSV-data från MyHeritage här..."
+        )
+        parent_layout.addWidget(self._paste_text)
+
+        # Parse button
+        btn_layout = QHBoxLayout()
+        self._btn_parse = QPushButton("Tolka data")
+        self._btn_parse.clicked.connect(self._on_parse_paste)
+        btn_layout.addWidget(self._btn_parse)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+
+        # Parse status/error label
+        self._label_parse_status = QLabel("")
+        self._label_parse_status.setWordWrap(True)
+        self._label_parse_status.setVisible(False)
+        parent_layout.addWidget(self._label_parse_status)
+
+        # Segment preview table
+        self._segment_table = QTableWidget()
+        self._segment_table.setColumnCount(4)
+        self._segment_table.setHorizontalHeaderLabels(
+            ["Kromosom", "Start", "Slut", "cM"]
+        )
+        self._segment_table.setMaximumHeight(120)
+        self._segment_table.setVisible(False)
+        header = self._segment_table.horizontalHeader()
+        if header is not None:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        parent_layout.addWidget(self._segment_table)
+
+        # Total shared cM label
+        self._label_total_cm = QLabel("")
+        self._label_total_cm.setVisible(False)
+        parent_layout.addWidget(self._label_total_cm)
 
     # ------------------------------------------------------------------
     # Field population
@@ -231,13 +304,42 @@ class DnaMatchDialog(QDialog):
 
         self.setWindowTitle("Redigera DNA-matchning")
 
-        # Select profile1
+        # In edit mode, profile1 might not belong to self._person_id
+        # (the match could have been created from the other person's side).
+        # Ensure both profiles are present in their dropdowns.
+
+        # If profile1_id is not already in the combo, add it
         idx1 = self._combo_profile1.findData(self._existing_match.profile1_id)
+        if idx1 == -1:
+            # Profile1 belongs to another person — add it to the dropdown
+            profile1 = next(
+                (p for p in self._project_data.dna_profiles
+                 if p.id == self._existing_match.profile1_id),
+                None,
+            )
+            if profile1:
+                label = _profile_display_label(profile1, self._project_data)
+                self._combo_profile1.addItem(label, profile1.id)
+            idx1 = self._combo_profile1.findData(self._existing_match.profile1_id)
+
         if idx1 != -1:
             self._combo_profile1.setCurrentIndex(idx1)
 
-        # Select profile2 (profile1 change triggers filtering of profile2 dropdown)
+        # After setting profile1, _on_profile1_changed fires and repopulates
+        # profile2. Now select profile2.
         idx2 = self._combo_profile2.findData(self._existing_match.profile2_id)
+        if idx2 == -1:
+            # Profile2 not found (different company or not included) — add it
+            profile2 = next(
+                (p for p in self._project_data.dna_profiles
+                 if p.id == self._existing_match.profile2_id),
+                None,
+            )
+            if profile2:
+                label = _profile_display_label(profile2, self._project_data)
+                self._combo_profile2.addItem(label, profile2.id)
+            idx2 = self._combo_profile2.findData(self._existing_match.profile2_id)
+
         if idx2 != -1:
             self._combo_profile2.setCurrentIndex(idx2)
 
@@ -312,6 +414,161 @@ class DnaMatchDialog(QDialog):
                 ok_button.setEnabled(True)
 
     # ------------------------------------------------------------------
+    # Paste parsing
+    # ------------------------------------------------------------------
+
+    def _on_parse_paste(self) -> None:
+        """Handle the 'Tolka data' button click: parse pasted CSV data."""
+        text = self._paste_text.toPlainText().strip()
+        if not text:
+            self._clear_parse_preview()
+            return
+
+        try:
+            result = parse_match_csv(text)
+        except ValueError as e:
+            self._show_parse_error(str(e))
+            return
+
+        self._parsed_result = result
+        self._show_parse_preview(result)
+
+        # Suggest profile 2 if not already set and match_name is available
+        if result.match_name and not self._combo_profile2.currentData():
+            self._suggest_profile2(result.match_name)
+
+    def _show_parse_error(self, message: str) -> None:
+        """Display a parse error message."""
+        self._label_parse_status.setText(message)
+        self._label_parse_status.setStyleSheet("color: red;")
+        self._label_parse_status.setVisible(True)
+        self._segment_table.setVisible(False)
+        self._label_total_cm.setVisible(False)
+        self._parsed_result = None
+
+    def _clear_parse_preview(self) -> None:
+        """Clear the parse preview area."""
+        self._label_parse_status.setVisible(False)
+        self._segment_table.setVisible(False)
+        self._label_total_cm.setVisible(False)
+        self._parsed_result = None
+
+    def _show_parse_preview(self, result: MatchCsvParseResult) -> None:
+        """Display parsed segment preview table and total cM."""
+        segments = result.segments
+
+        # Set up table
+        self._segment_table.setRowCount(len(segments))
+        for row_idx, seg in enumerate(segments):
+            self._segment_table.setItem(
+                row_idx, 0, QTableWidgetItem(seg.chromosome)
+            )
+            self._segment_table.setItem(
+                row_idx, 1, QTableWidgetItem(str(seg.start_position))
+            )
+            self._segment_table.setItem(
+                row_idx, 2, QTableWidgetItem(str(seg.end_position))
+            )
+            self._segment_table.setItem(
+                row_idx, 3, QTableWidgetItem(f"{seg.centimorgans:.2f}")
+            )
+        self._segment_table.setVisible(True)
+
+        # Calculate and display total shared cM
+        total_cm = sum(seg.centimorgans for seg in segments)
+        status_parts = [f"Totalt delad cM: {total_cm:.2f}"]
+        if result.skipped_rows > 0:
+            status_parts.append(
+                f"({result.skipped_rows} rader hoppades över)"
+            )
+        self._label_total_cm.setText(" ".join(status_parts))
+        self._label_total_cm.setVisible(True)
+
+        # Clear any previous error and show success
+        self._label_parse_status.setText(
+            f"{len(segments)} segment tolkade."
+        )
+        self._label_parse_status.setStyleSheet("color: green;")
+        self._label_parse_status.setVisible(True)
+
+    # ------------------------------------------------------------------
+    # Profile 2 suggestion
+    # ------------------------------------------------------------------
+
+    def _suggest_profile2(self, match_name: str) -> None:
+        """Search for a matching person and suggest their profile as Profile 2.
+
+        Performs case-insensitive substring match on given name and surname.
+        Excludes Profile 1's person from results.
+        """
+        match_name_lower = match_name.lower()
+        profile1_id = self._combo_profile1.currentData()
+
+        # Find profile1's person_id to exclude
+        profile1_person_id = None
+        if profile1_id:
+            for p in self._project_data.dna_profiles:
+                if p.id == profile1_id:
+                    profile1_person_id = p.person_id
+                    break
+
+        # Search persons whose name matches
+        matching_person_ids: list[str] = []
+        for person in self._project_data.persons:
+            if person.id == profile1_person_id:
+                continue
+            for name in person.names:
+                given_lower = name.given.lower() if name.given else ""
+                surname_lower = name.surname.lower() if name.surname else ""
+                if (
+                    match_name_lower in given_lower
+                    or match_name_lower in surname_lower
+                    or given_lower in match_name_lower
+                    or surname_lower in match_name_lower
+                ):
+                    matching_person_ids.append(person.id)
+                    break
+
+        if not matching_person_ids:
+            # No matching person found - show warning
+            reply = QMessageBox.question(
+                self,
+                "Ingen matchande person",
+                f"Ingen person hittades som matchar '{match_name}'.\n"
+                "Vill du skapa matchningen ändå utan Profil 2?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                self._clear_parse_preview()
+            return
+
+        # Find a DNA profile belonging to a matching person (same company as profile1)
+        profile1_company_id = None
+        if profile1_id:
+            for p in self._project_data.dna_profiles:
+                if p.id == profile1_id:
+                    profile1_company_id = p.company_id
+                    break
+
+        for person_id in matching_person_ids:
+            for profile in self._project_data.dna_profiles:
+                if (
+                    profile.person_id == person_id
+                    and profile.company_id == profile1_company_id
+                    and profile.id != profile1_id
+                ):
+                    # Found a matching profile - select it in combo
+                    idx = self._combo_profile2.findData(profile.id)
+                    if idx != -1:
+                        self._combo_profile2.setCurrentIndex(idx)
+                        return
+
+        # Matching person found but no matching profile in same company
+        # Still no profile to suggest, but person exists
+        return
+
+    # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
 
@@ -324,7 +581,7 @@ class DnaMatchDialog(QDialog):
         if not profile1_id:
             errors.append("Välj en profil 1.")
 
-        # Profile 2 required
+        # Profile 2 required (unless user confirmed no-match via paste)
         profile2_id = self._combo_profile2.currentData()
         if not profile2_id:
             errors.append("Välj en profil 2.")
@@ -365,6 +622,35 @@ class DnaMatchDialog(QDialog):
             else str(uuid4())
         )
 
+        # Check for existing segment data replacement
+        if (
+            self._parsed_result is not None
+            and self._existing_match is not None
+            and self._existing_match.segment_file
+        ):
+            reply = QMessageBox.question(
+                self,
+                "Ersätt segmentdata",
+                "Ersätt befintlig segmentdata?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return
+
+        # Determine segment_file value
+        segment_file = (
+            self._existing_match.segment_file
+            if self._existing_match is not None
+            else None
+        )
+
+        # Save parsed segments if available
+        if self._parsed_result is not None and self._project_path is not None:
+            segment_file = save_match_segments(
+                self._project_path, match_id, self._parsed_result.segments
+            )
+
         match = DnaMatch(
             id=match_id,
             profile1_id=self._combo_profile1.currentData(),
@@ -375,6 +661,7 @@ class DnaMatchDialog(QDialog):
             largest_segment_cm=self._spin_largest_segment.value(),
             match_source=self._edit_match_source.text().strip(),
             notes=self._edit_notes.toPlainText().strip(),
+            segment_file=segment_file,
         )
 
         if self._existing_match is not None:

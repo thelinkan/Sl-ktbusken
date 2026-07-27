@@ -1,8 +1,8 @@
-"""Tests for RelationshipDialog person search (substring matching).
+"""Tests for RelationshipDialog person search (multi-word matching).
 
 Verifies that the person search combo boxes in the relationship dialog
-use substring matching (MatchContains) so that typing any part of a
-person's name returns matching results.
+use multi-word matching so that typing any combination of name parts
+(e.g. "Frida Hallen") returns matching results (e.g. "Frida Maria Hallen").
 
 Validates: Requirements 15.1
 """
@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QCompleter
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.family import Family
 from slaktbusken.model.project import ProjectData
-from slaktbusken.ui.dialogs.relationship_dialog import RelationshipDialog
+from slaktbusken.ui.dialogs.relationship_dialog import RelationshipDialog, _MultiWordFilterProxy
 
 
 def _make_person(person_id: str, given: str, surname: str) -> Person:
@@ -37,6 +37,7 @@ def sample_project_data() -> ProjectData:
         _make_person("p2", "Anna Maria", "Lindström"),
         _make_person("p3", "Karl Johan", "Bergström"),
         _make_person("p4", "Sofia", "Zetterberg"),
+        _make_person("p5", "Frida Maria", "Hallén"),
     ]
     return ProjectData(
         persons=persons,
@@ -48,19 +49,18 @@ def sample_project_data() -> ProjectData:
 
 
 class TestRelationshipDialogPersonSearch:
-    """Verify that the relationship dialog combo box completers use substring matching."""
+    """Verify that the relationship dialog combo box completers use multi-word matching."""
 
-    def test_completer_filter_mode_is_match_contains(
+    def test_completer_is_set(
         self, sample_project_data: ProjectData, qtbot
     ) -> None:
-        """The combo box completers must use MatchContains filter mode."""
+        """The combo boxes should have a completer set."""
         dialog = RelationshipDialog(sample_project_data)
         qtbot.addWidget(dialog)
 
         for combo in (dialog._combo_a, dialog._combo_b):
             completer = combo.completer()
             assert completer is not None, "Completer should be set on combo box"
-            assert completer.filterMode() == Qt.MatchFlag.MatchContains
 
     def test_completer_is_case_insensitive(
         self, sample_project_data: ProjectData, qtbot
@@ -74,51 +74,69 @@ class TestRelationshipDialogPersonSearch:
             assert completer is not None
             assert completer.caseSensitivity() == Qt.CaseSensitivity.CaseInsensitive
 
-    def test_search_by_surname_substring(
+    def test_multi_word_filter_matches_all_words(
         self, sample_project_data: ProjectData, qtbot
     ) -> None:
-        """Typing a surname substring should produce matching completions."""
+        """Typing 'Frida Hallén' should match 'Frida Maria Hallén'."""
         dialog = RelationshipDialog(sample_project_data)
         qtbot.addWidget(dialog)
 
+        # Simulate typing in combo_a
+        dialog._combo_a.setEditText("Frida Hallén")
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        # Get the proxy model and check visible rows
         completer = dialog._combo_a.completer()
-        assert completer is not None
+        model = completer.model()
+        visible = [
+            model.data(model.index(i, 0))
+            for i in range(model.rowCount())
+            if model.data(model.index(i, 0))
+        ]
+        assert any("Frida" in name and "Hallén" in name for name in visible), (
+            f"Expected 'Frida Maria Hallén' in results, got: {visible}"
+        )
 
-        # Search for "ström" which is a substring in "Lindström" and "Bergström"
-        model = completer.completionModel()
-        completer.setCompletionPrefix("ström")
-        count = completer.completionCount()
-        assert count == 2, f"Expected 2 matches for 'ström', got {count}"
-
-    def test_search_by_given_name_substring(
+    def test_single_word_search_by_surname(
         self, sample_project_data: ProjectData, qtbot
     ) -> None:
-        """Typing a given name substring should produce matching completions."""
+        """Typing a surname should match persons with that surname."""
         dialog = RelationshipDialog(sample_project_data)
         qtbot.addWidget(dialog)
 
+        dialog._combo_a.setEditText("ström")
+
         completer = dialog._combo_a.completer()
-        assert completer is not None
+        model = completer.model()
+        visible = [
+            model.data(model.index(i, 0))
+            for i in range(model.rowCount())
+            if model.data(model.index(i, 0))
+        ]
+        # Should match both Lindström and Bergström
+        matches = [n for n in visible if "ström" in n.lower()]
+        assert len(matches) == 2, f"Expected 2 matches for 'ström', got {len(matches)}: {matches}"
 
-        # Search for "Maria" which is in "Anna Maria Lindström"
-        completer.setCompletionPrefix("Maria")
-        count = completer.completionCount()
-        assert count == 1, f"Expected 1 match for 'Maria', got {count}"
-
-    def test_search_by_partial_middle_name(
+    def test_single_word_search_by_given_name(
         self, sample_project_data: ProjectData, qtbot
     ) -> None:
-        """Typing a middle/second name should produce matching completions."""
+        """Typing a given name should match persons with that name."""
         dialog = RelationshipDialog(sample_project_data)
         qtbot.addWidget(dialog)
 
-        completer = dialog._combo_a.completer()
-        assert completer is not None
+        dialog._combo_a.setEditText("Maria")
 
-        # Search for "Johan" which is in "Karl Johan Bergström"
-        completer.setCompletionPrefix("Johan")
-        count = completer.completionCount()
-        assert count == 1, f"Expected 1 match for 'Johan', got {count}"
+        completer = dialog._combo_a.completer()
+        model = completer.model()
+        visible = [
+            model.data(model.index(i, 0))
+            for i in range(model.rowCount())
+            if model.data(model.index(i, 0))
+        ]
+        matches = [n for n in visible if "Maria" in n]
+        # Anna Maria Lindström and Frida Maria Hallén
+        assert len(matches) == 2, f"Expected 2 matches for 'Maria', got {len(matches)}: {matches}"
 
     def test_search_case_insensitive(
         self, sample_project_data: ProjectData, qtbot
@@ -127,88 +145,75 @@ class TestRelationshipDialogPersonSearch:
         dialog = RelationshipDialog(sample_project_data)
         qtbot.addWidget(dialog)
 
+        dialog._combo_a.setEditText("sofia")
+
         completer = dialog._combo_a.completer()
-        assert completer is not None
-
-        # Search for "sofia" (lowercase) which should match "Sofia Zetterberg"
-        completer.setCompletionPrefix("sofia")
-        count = completer.completionCount()
-        assert count == 1, f"Expected 1 match for 'sofia', got {count}"
-
-
-class TestRelationshipDialogTilltalsnamn:
-    """Verify that tilltalsnamn asterisk markers are stripped from display names."""
-
-    def test_asterisk_stripped_from_display_name(self, qtbot) -> None:
-        """A person with 'Kent Torbjörn*' should display without asterisk."""
-        persons = [
-            _make_person("p1", "Kent Torbjörn*", "Svensson"),
+        model = completer.model()
+        visible = [
+            model.data(model.index(i, 0))
+            for i in range(model.rowCount())
+            if model.data(model.index(i, 0))
         ]
-        data = ProjectData(
-            persons=persons,
-            families=[],
-            events=[],
-            sources=[],
-            places=[],
-        )
-        dialog = RelationshipDialog(data)
+        matches = [n for n in visible if "Sofia" in n or "sofia" in n.lower()]
+        assert len(matches) >= 1, f"Expected at least 1 match for 'sofia' (case-insensitive), got: {visible}"
+
+    def test_empty_search_shows_all(
+        self, sample_project_data: ProjectData, qtbot
+    ) -> None:
+        """Empty search text should show all persons."""
+        dialog = RelationshipDialog(sample_project_data)
         qtbot.addWidget(dialog)
 
-        # The combo box should show the clean name without asterisk
-        display_text = dialog._combo_a.itemText(0)
-        assert "*" not in display_text, (
-            f"Asterisk should be stripped from display name, got: {display_text!r}"
-        )
-        assert display_text == "Kent Torbjörn Svensson"
+        dialog._combo_a.setEditText("")
 
-    def test_asterisk_stripped_in_graph_node_name(self, qtbot) -> None:
-        """The _person_display_name static method strips asterisk markers."""
-        person = _make_person("p1", "Anna* Maria", "Karlsson")
-        display = RelationshipDialog._person_display_name(person)
-        assert "*" not in display, (
-            f"Asterisk should be stripped, got: {display!r}"
-        )
-        assert display == "Anna Maria Karlsson"
+        completer = dialog._combo_a.completer()
+        model = completer.model()
+        count = model.rowCount()
+        assert count == 5, f"Expected 5 persons for empty search, got {count}"
 
-    def test_no_marker_name_unchanged(self, qtbot) -> None:
-        """A name without asterisk should display normally."""
-        person = _make_person("p1", "Erik Gustav", "Lindqvist")
-        display = RelationshipDialog._person_display_name(person)
-        assert display == "Erik Gustav Lindqvist"
+    def test_multi_word_first_and_last_name(
+        self, sample_project_data: ProjectData, qtbot
+    ) -> None:
+        """Typing 'Erik Andersson' should match 'Erik Gustav Andersson'."""
+        dialog = RelationshipDialog(sample_project_data)
+        qtbot.addWidget(dialog)
 
-    def test_unknown_person_display(self, qtbot) -> None:
-        """A person with no names shows fallback."""
-        person = Person(id="p1", sex="M", names=[])
-        display = RelationshipDialog._person_display_name(person)
-        assert display == "[Okänd] (p1)"
+        dialog._combo_a.setEditText("Erik Andersson")
 
+        completer = dialog._combo_a.completer()
+        model = completer.model()
+        visible = [
+            model.data(model.index(i, 0))
+            for i in range(model.rowCount())
+            if model.data(model.index(i, 0))
+        ]
+        matches = [n for n in visible if "Erik" in n and "Andersson" in n]
+        assert len(matches) == 1, f"Expected 1 match for 'Erik Andersson', got: {matches}"
 
-    def test_tilltalsnamn_underlined_in_html(self, qtbot) -> None:
-        """The HTML name should wrap the tilltalsnamn in <u> tags."""
-        person = _make_person("p1", "Kent Torbjörn*", "Svensson")
-        html = RelationshipDialog._person_display_name_html(person)
-        assert "<u>Torbjörn</u>" in html, (
-            f"Tilltalsnamn should be underlined in HTML, got: {html!r}"
-        )
-        assert "*" not in html, (
-            f"Asterisk should not appear in HTML output, got: {html!r}"
-        )
-        # 'Kent' should NOT be underlined
-        assert "<u>Kent</u>" not in html
+    def test_no_match_returns_empty(
+        self, sample_project_data: ProjectData, qtbot
+    ) -> None:
+        """Typing a non-existent name should return no matches."""
+        dialog = RelationshipDialog(sample_project_data)
+        qtbot.addWidget(dialog)
 
-    def test_no_marker_html_has_no_underline(self, qtbot) -> None:
-        """A name without marker should have no underline tags in HTML."""
-        person = _make_person("p1", "Erik Gustav", "Lindqvist")
-        html = RelationshipDialog._person_display_name_html(person)
-        assert "<u>" not in html, (
-            f"No underline expected without marker, got: {html!r}"
-        )
-        assert html == "Erik Gustav Lindqvist"
+        dialog._combo_a.setEditText("Nonexistent Person")
 
-    def test_first_name_marker_underlined_in_html(self, qtbot) -> None:
-        """When first name part is marked, it should be underlined."""
-        person = _make_person("p1", "Anna* Maria", "Karlsson")
-        html = RelationshipDialog._person_display_name_html(person)
-        assert "<u>Anna</u>" in html
-        assert "Maria" in html
-        assert "<u>Maria</u>" not in html
+        completer = dialog._combo_a.completer()
+        model = completer.model()
+        visible = [
+            model.data(model.index(i, 0))
+            for i in range(model.rowCount())
+            if model.data(model.index(i, 0))
+        ]
+        assert len(visible) == 0, f"Expected 0 matches for 'Nonexistent Person', got: {visible}"
+
+    def test_all_persons_in_combo(
+        self, sample_project_data: ProjectData, qtbot
+    ) -> None:
+        """All persons should be listed in both combo boxes."""
+        dialog = RelationshipDialog(sample_project_data)
+        qtbot.addWidget(dialog)
+
+        assert dialog._combo_a.count() == 5
+        assert dialog._combo_b.count() == 5

@@ -135,23 +135,40 @@ class TestPreservationFullInitialImport:
         importer = GEDCOMImporter(empty_project, translation_dir)
         importer.import_file(fixtures_dir / "Test-1.ged")
 
-        # 6 places: 3 parishes + 3 counties
-        assert len(empty_project.places) == 6
+        # 8 places: 1 continent (Europa) + 1 country (Sverige) + 3 counties + 3 parishes
+        assert len(empty_project.places) == 8
 
-        parishes = [p for p in empty_project.places if p.type == "parish"]
-        counties = [p for p in empty_project.places if p.type == "county"]
-        assert len(parishes) == 3
-        assert len(counties) == 3
+        continents = [p for p in empty_project.places if p.type == "continent"]
+        socknar = [p for p in empty_project.places if p.type == "socken"]
+        lan = [p for p in empty_project.places if p.type == "lan"]
+        countries = [p for p in empty_project.places if p.type == "country"]
+        assert len(continents) == 1
+        assert continents[0].name == "Europa"
+        assert len(socknar) == 3
+        assert len(lan) == 3
+        assert len(countries) == 1
+        assert countries[0].name == "Sverige"
+        assert countries[0].parent_place_id == continents[0].id
 
-        # Each parish has a county as parent
-        for parish in parishes:
-            assert parish.parent_place_id is not None
+        # Each socken has a län as parent
+        for socken in socknar:
+            assert socken.parent_place_id is not None
             parent = next(
-                (p for p in empty_project.places if p.id == parish.parent_place_id),
+                (p for p in empty_project.places if p.id == socken.parent_place_id),
                 None,
             )
             assert parent is not None
-            assert parent.type == "county"
+            assert parent.type == "lan"
+
+        # Each län has the country as parent
+        for l in lan:
+            assert l.parent_place_id is not None
+            parent = next(
+                (p for p in empty_project.places if p.id == l.parent_place_id),
+                None,
+            )
+            assert parent is not None
+            assert parent.type == "country"
 
     @given(
         title=st.text(
@@ -177,7 +194,7 @@ class TestPreservationFullInitialImport:
         assert result.persons_added == 3
         assert result.events_added == 3
         assert result.families_added == 1
-        assert result.places_added == 6
+        assert result.places_added == 8
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +217,7 @@ class TestPreservationMultiWordPlaces:
     def test_two_level_place_creates_parish_and_county(
         self, empty_project: ProjectData, translation_dir: Path, fixtures_dir: Path
     ) -> None:
-        """Two-level PLAC like 'Falun, Kopparbergs län' creates parish under county."""
+        """Two-level PLAC like 'Falun, Kopparbergs län' creates socken under län."""
         importer = GEDCOMImporter(empty_project, translation_dir)
         importer.import_file(fixtures_dir / "Test-1.ged")
 
@@ -209,7 +226,7 @@ class TestPreservationMultiWordPlaces:
             (p for p in empty_project.places if p.name == "Falun"), None
         )
         assert falun is not None
-        assert falun.type == "parish"
+        assert falun.type == "socken"
         assert falun.parent_place_id is not None
 
         # Parent must be "Kopparbergs län"
@@ -219,7 +236,7 @@ class TestPreservationMultiWordPlaces:
         )
         assert parent is not None
         assert parent.name == "Kopparbergs län"
-        assert parent.type == "county"
+        assert parent.type == "lan"
 
     def test_three_level_place_creates_full_hierarchy(
         self, empty_project: ProjectData, translation_dir: Path, fixtures_dir: Path
@@ -234,17 +251,17 @@ class TestPreservationMultiWordPlaces:
             (p for p in empty_project.places if p.name == "Enköping"), None
         )
         assert enkoping is not None
-        assert enkoping.type == "parish"
+        assert enkoping.type == "socken"
         assert enkoping.parent_place_id is not None
 
-        # Parent is "Uppsala län" (county)
+        # Parent is "Uppsala län" (län)
         parent = next(
             (p for p in empty_project.places if p.id == enkoping.parent_place_id),
             None,
         )
         assert parent is not None
         assert parent.name == "Uppsala län"
-        assert parent.type == "county"
+        assert parent.type == "lan"
         assert parent.parent_place_id is not None
 
         # Grandparent is "Sverige" (country)
@@ -380,7 +397,7 @@ class TestPreservationUnchangedEvents:
                 "parent_place_id": p.parent_place_id,
             })
 
-        assert len(initial_place_data) == 6
+        assert len(initial_place_data) == 8
 
         # Update import
         importer2 = GEDCOMImporter(empty_project, translation_dir)

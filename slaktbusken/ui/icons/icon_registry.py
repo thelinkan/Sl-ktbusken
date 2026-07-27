@@ -107,6 +107,11 @@ class IconRegistry:
         path = _MISC_DIR / "multiple_names.svg"
         return self._load_pixmap_sized(path, 14)
 
+    def get_map_icon(self) -> QPixmap:
+        """Return a 14×14 QPixmap of the map marker icon."""
+        path = _MISC_DIR / "map_marker.svg"
+        return self._load_pixmap_sized(path, 14)
+
     def get_dna_company_logo(self, media_id: str, media_loader) -> QPixmap | None:
         """Return a 16×16 QPixmap for a DNA company logo.
 

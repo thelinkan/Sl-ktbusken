@@ -15,6 +15,24 @@ class ExternalId:
 
 
 @dataclass
+class CustomFieldDef:
+    """Definition of a custom metadata field on a region level."""
+
+    key: str  # 1-50 characters
+    label: str  # 1-100 characters
+
+
+@dataclass
+class RegionLevel:
+    """An administrative subdivision level defined by a country."""
+
+    key: str  # 1-50 characters, unique within country
+    label: str  # 1-100 characters, display name
+    order: int  # Positive integer, consecutive from 1
+    custom_fields: list[CustomFieldDef] = field(default_factory=list)
+
+
+@dataclass
 class Place:
     """A place, optionally nested within a parent place hierarchy."""
 
@@ -27,11 +45,13 @@ class Place:
     notes: str = ""
     external_ids: list[ExternalId] = field(default_factory=list)
     alternative_names: list[str] = field(default_factory=list)
+    region_levels: list[RegionLevel] = field(default_factory=list)
+    custom_field_values: dict[str, str] = field(default_factory=dict)
 
 
 def needs_red_dot(place: Place) -> bool:
     """Determine if a place should show the red dot indicator."""
-    return place.type != "country" and place.parent_place_id is None
+    return place.type != "continent" and place.parent_place_id is None
 
 
 def add_alternative_name(place: Place, name: str) -> list[str]:

@@ -29,7 +29,7 @@ from slaktbusken.model.event import (
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
 from slaktbusken.model.person import Name, Person
-from slaktbusken.model.place import Place
+from slaktbusken.model.place import CustomFieldDef, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, RepositoryRef, Source, StructuredReference
@@ -304,7 +304,41 @@ def event_strategy(draw: DrawFn) -> Event:
 # 3.4 – Place strategies
 # ---------------------------------------------------------------------------
 
-_PLACE_TYPES = ["country", "county", "parish", "church", "cemetery", "village", "farm", "school"]
+_PLACE_TYPES = ["continent", "country", "county", "parish", "church", "cemetery", "village", "farm", "school", "ort"]
+
+
+@st.composite
+def custom_field_def_strategy(draw: DrawFn) -> CustomFieldDef:
+    """Generate a valid CustomFieldDef instance."""
+    key = draw(st.text(
+        alphabet=st.characters(categories=("L", "N")),
+        min_size=1,
+        max_size=50,
+    ))
+    label = draw(st.text(
+        alphabet=st.characters(categories=("L", "N", "Z")),
+        min_size=1,
+        max_size=100,
+    ))
+    return CustomFieldDef(key=key, label=label)
+
+
+@st.composite
+def region_level_strategy(draw: DrawFn) -> RegionLevel:
+    """Generate a valid RegionLevel instance with order starting from 1."""
+    key = draw(st.text(
+        alphabet=st.characters(categories=("L", "N")),
+        min_size=1,
+        max_size=50,
+    ))
+    label = draw(st.text(
+        alphabet=st.characters(categories=("L", "N", "Z")),
+        min_size=1,
+        max_size=100,
+    ))
+    order = draw(st.integers(min_value=1, max_value=10))
+    custom_fields = draw(st.lists(custom_field_def_strategy(), min_size=0, max_size=3))
+    return RegionLevel(key=key, label=label, order=order, custom_fields=custom_fields)
 
 
 @st.composite
@@ -322,6 +356,47 @@ def place_strategy(draw: DrawFn) -> Place:
     longitude = draw(st.none() | st.floats(min_value=-180.0, max_value=180.0, allow_nan=False))
     notes = draw(_safe_text_or_empty)
 
+    # Conditionally generate region_levels for country-type places
+    # Must have consecutive orders from 1 and unique keys to pass validation
+    if place_type == "country":
+        count = draw(st.integers(min_value=0, max_value=3))
+        if count > 0:
+            keys = draw(st.lists(
+                st.text(alphabet=st.characters(categories=("L", "N")), min_size=1, max_size=50),
+                min_size=count, max_size=count, unique=True,
+            ))
+            region_levels = []
+            for i, key in enumerate(keys):
+                label = draw(st.text(
+                    alphabet=st.characters(categories=("L", "N", "Z")),
+                    min_size=1, max_size=100,
+                ))
+                custom_fields = draw(st.lists(custom_field_def_strategy(), min_size=0, max_size=2))
+                region_levels.append(RegionLevel(key=key, label=label, order=i + 1, custom_fields=custom_fields))
+        else:
+            region_levels = []
+    else:
+        region_levels = []
+
+    # Conditionally generate custom_field_values for non-country, non-continent places
+    if place_type not in ("country", "continent"):
+        custom_field_values = draw(st.dictionaries(
+            keys=st.text(
+                alphabet=st.characters(categories=("L", "N")),
+                min_size=1,
+                max_size=50,
+            ),
+            values=st.text(
+                alphabet=st.characters(categories=("L", "N", "Z")),
+                min_size=1,
+                max_size=20,
+            ),
+            min_size=0,
+            max_size=3,
+        ))
+    else:
+        custom_field_values = {}
+
     return Place(
         id=place_id,
         type=place_type,
@@ -330,6 +405,8 @@ def place_strategy(draw: DrawFn) -> Place:
         latitude=latitude,
         longitude=longitude,
         notes=notes,
+        region_levels=region_levels,
+        custom_field_values=custom_field_values,
     )
 
 
@@ -453,9 +530,12 @@ _MEDIA_TYPES = [
 ]
 _LINKED_ENTITY_TYPES = ["person", "event", "source", "place"]
 
-# File path segments using only safe characters and forward slashes
+# File path segments using NFC-stable characters (Latin letters, digits, Swedish chars)
 _PATH_SEGMENT = st.text(
-    alphabet=st.characters(categories=("L", "N")),
+    alphabet=st.characters(
+        whitelist_categories=("Ll", "Lu", "Nd"),
+        max_codepoint=0x024F,  # Basic Latin + Latin Extended-A/B (all NFC-stable)
+    ),
     min_size=1,
     max_size=15,
 )
@@ -524,6 +604,22 @@ def media_item_strategy(draw: DrawFn) -> MediaItem:
     mentioned_person_ids = draw(st.lists(_id_strategy("person"), min_size=0, max_size=3))
     mentioned_names = draw(st.lists(_safe_text, min_size=0, max_size=3))
     annotations = draw(st.lists(annotation_strategy(), min_size=0, max_size=5))
+
+    # photo_date: None or a dict with year + optional month/day
+    photo_date = draw(st.none() | st.builds(
+        lambda y, m, d: {"year": y, "month": m, "day": d},
+        y=st.integers(min_value=1, max_value=9999),
+        m=st.none() | st.integers(min_value=1, max_value=12),
+        d=st.none() | st.integers(min_value=1, max_value=28),
+    ))
+
+    # notes: empty or short text (max 2000 chars in the real app, keep short for tests)
+    notes = draw(st.text(
+        alphabet=st.characters(categories=("L", "N", "P", "Z")),
+        min_size=0,
+        max_size=100,
+    ))
+
     return MediaItem(
         id=media_id,
         type=media_type,
@@ -535,6 +631,8 @@ def media_item_strategy(draw: DrawFn) -> MediaItem:
         mentioned_person_ids=mentioned_person_ids,
         mentioned_names=mentioned_names,
         annotations=annotations,
+        photo_date=photo_date,
+        notes=notes,
     )
 
 
@@ -542,7 +640,7 @@ def media_item_strategy(draw: DrawFn) -> MediaItem:
 # 3.6 – DNA strategies
 # ---------------------------------------------------------------------------
 
-_DNA_TEST_TYPES = ["autosomal", "y-dna", "mtdna"]
+_DNA_TEST_TYPES = ["autosomal", "y-dna", "mtdna", "combined"]
 _DNA_MATCH_SOURCES = ["internal", "external"]
 _CHROMOSOMES = [str(i) for i in range(1, 23)] + ["X", "Y"]
 
@@ -558,11 +656,17 @@ def dna_company_strategy(draw: DrawFn) -> DnaCompany:
     ))
     logo_media_id = draw(st.none() | _id_strategy("media"))
     description = draw(_safe_text_or_empty)
+    url = draw(st.text(
+        alphabet=st.characters(categories=("L", "N", "P", "Z")),
+        min_size=0,
+        max_size=200,
+    ))
     return DnaCompany(
         id=company_id,
         name=name,
         logo_media_id=logo_media_id,
         description=description,
+        url=url,
     )
 
 
@@ -584,8 +688,22 @@ def dna_profile_strategy(draw: DrawFn) -> DnaProfile:
         max_size=100,
     ))
     admin_person_id = draw(st.none() | _id_strategy("person"))
-    admin_status = draw(_safe_text_or_empty)
     notes = draw(_safe_text_or_empty)
+    y_haplogroup = draw(st.text(
+        alphabet=st.characters(categories=("L", "N")),
+        min_size=0,
+        max_size=50,
+    ))
+    mt_haplogroup = draw(st.text(
+        alphabet=st.characters(categories=("L", "N")),
+        min_size=0,
+        max_size=50,
+    ))
+    raw_data_file = draw(st.none() | st.text(
+        alphabet=st.characters(categories=("L", "N", "P", "Z")),
+        min_size=1,
+        max_size=255,
+    ))
     return DnaProfile(
         id=profile_id,
         person_id=person_id,
@@ -594,8 +712,10 @@ def dna_profile_strategy(draw: DrawFn) -> DnaProfile:
         kit_name=kit_name,
         kit_id=kit_id,
         admin_person_id=admin_person_id,
-        admin_status=admin_status,
         notes=notes,
+        y_haplogroup=y_haplogroup,
+        mt_haplogroup=mt_haplogroup,
+        raw_data_file=raw_data_file,
     )
 
 
@@ -611,6 +731,11 @@ def dna_match_strategy(draw: DrawFn) -> DnaMatch:
     largest_segment_cm = draw(st.floats(min_value=0.0, max_value=300.0, allow_nan=False))
     match_source = draw(st.sampled_from(_DNA_MATCH_SOURCES))
     notes = draw(_safe_text_or_empty)
+    segment_file = draw(st.none() | st.text(
+        alphabet=st.characters(categories=("L", "N", "P", "Z")),
+        min_size=1,
+        max_size=255,
+    ))
     return DnaMatch(
         id=match_id,
         profile1_id=profile1_id,
@@ -621,6 +746,7 @@ def dna_match_strategy(draw: DrawFn) -> DnaMatch:
         largest_segment_cm=largest_segment_cm,
         match_source=match_source,
         notes=notes,
+        segment_file=segment_file,
     )
 
 

@@ -237,7 +237,15 @@ class PersonBoxItem(QGraphicsItem):
                 # Name line in bold — with optional tilltalsnamn underline
                 self._paint_name_line(painter, y, photo_offset)
             else:
-                painter.setPen(QPen(_LABEL_COLOR))
+                # Set text color — red for age over 100, otherwise label color
+                if (
+                    self._age_line_index is not None
+                    and i == self._age_line_index
+                    and self._age_over_100
+                ):
+                    painter.setPen(QPen(QColor(200, 0, 0)))
+                else:
+                    painter.setPen(QPen(_LABEL_COLOR))
                 # Check if this line has an associated event icon
                 event_type = (
                     self._line_event_types[i]
@@ -731,6 +739,17 @@ class PersonBoxItem(QGraphicsItem):
             place_value = self._display_data.get(place_field)
             if place_value:
                 self._lines.append(f"{place_prefix}{place_value}")
+                self._line_event_types.append(None)
+
+        # Age line (if enabled and calculable)
+        self._age_line_index: int | None = None
+        self._age_over_100: bool = False
+        if getattr(self._config, "age", False):
+            age_text = self._display_data.get("age_text")
+            if age_text:
+                self._age_line_index = len(self._lines)
+                self._age_over_100 = bool(self._display_data.get("age_over_100"))
+                self._lines.append(age_text)
                 self._line_event_types.append(None)
 
         # Ensure at least one line (fallback)

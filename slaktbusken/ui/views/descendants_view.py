@@ -1,7 +1,7 @@
 """Descendants view — renderar ättlingsdiagrammet.
 
 Visar den aktiva personens ättlingar upp till ett konfigurerbart djup
-(1-10, standard 4) i ett trädmönster. Aktiv person placeras till vänster
+(1-30, standard 4) i ett trädmönster. Aktiv person placeras till vänster
 (generation 0), barn förgrenar sig åt höger (generation 1), barnbarn
 längre åt höger (generation 2), osv.
 
@@ -47,7 +47,7 @@ class DescendantsView:
     """Renderar ättlingsdiagrammet i en QGraphicsScene.
 
     Visar den aktiva personens ättlingar i ett trädmönster med
-    konfigurerat djup (1-10). Aktiv person till vänster, ättlingar
+    konfigurerat djup (1-30). Aktiv person till vänster, ättlingar
     förgrenar sig åt höger med ökande generationer.
 
     Attributes:
@@ -77,7 +77,7 @@ class DescendantsView:
             project_data: Projektdata med personer, familjer och händelser.
             active_person_id: ID för den aktiva personen.
             config: Konfiguration för personrutornas innehåll.
-            depth: Antal generationer att visa (1-10, standard 4).
+            depth: Antal generationer att visa (1-30, standard 4).
             ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
             descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
             project_folder: Path to the project folder for resolving media files.
@@ -91,7 +91,7 @@ class DescendantsView:
             descendant_set = set()
 
         # Begränsa djup till giltigt intervall
-        depth = max(1, min(10, depth))
+        depth = max(1, min(30, depth))
 
         person = _find_person(project_data, active_person_id)
         if person is None:
@@ -414,12 +414,12 @@ def collect_descendants(
     Args:
         project_data: Projektdata med familjer och personer.
         person_id: ID för startpersonen.
-        depth: Antal generationer att samla in (1-10).
+        depth: Antal generationer att samla in (1-30).
 
     Returns:
         Dictionary med generationsnummer -> mängd av person-ID:n.
     """
-    depth = max(1, min(10, depth))
+    depth = max(1, min(30, depth))
 
     result: dict[int, set[str]] = {0: {person_id}}
     visited: set[str] = {person_id}
@@ -554,6 +554,8 @@ def _build_display_data(
         elif event.type == "death":
             if event.date:
                 data["death_date"] = event.date.value
+            else:
+                data["death_date"] = "Datum okänt"
             if event.place:
                 place = _find_place(project_data, event.place.place_id)
                 if place:
@@ -604,6 +606,17 @@ def _build_display_data(
             person_clusters.append({"name": cluster.name, "color": cluster.color})
     person_clusters.sort(key=lambda c: c["name"])
     data["clusters"] = person_clusters[:5]
+
+    # Calculate age text
+    data["age_text"] = None
+    data["age_over_100"] = False
+    birth_date_str = data.get("birth_date")
+    death_date_str = data.get("death_date")
+    if birth_date_str:
+        from slaktbusken.ui.views._age_helper import compute_age_display
+        age_text, over_100 = compute_age_display(birth_date_str, death_date_str)
+        data["age_text"] = age_text
+        data["age_over_100"] = over_100
 
     return data
 

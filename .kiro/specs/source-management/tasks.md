@@ -68,7 +68,7 @@ This plan implements the source management feature in incremental steps, startin
     - **Property 4: Källtyp filtering by Leverantör**
     - **Validates: Requirements 2.1**
 
-- [~] 3. Checkpoint - Ensure all tests pass
+- [ ] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 4. Reference parsing module
@@ -174,7 +174,7 @@ This plan implements the source management feature in incremental steps, startin
     - **Property 15: Event-type-specific aspect mapping**
     - **Validates: Requirements 9.1**
 
-- [~] 6. Checkpoint - Ensure all tests pass
+- [ ] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 7. Standard Leverantörer initialization
@@ -263,7 +263,7 @@ This plan implements the source management feature in incremental steps, startin
     - Enable only when a project is open, disable when no project is open
     - _Requirements: 11.1, 11.2, 11.3_
 
-- [~] 12. Checkpoint - Ensure all tests pass
+- [ ] 12. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 13. Final integration and wiring
@@ -285,7 +285,7 @@ This plan implements the source management feature in incremental steps, startin
     - Test QDesktopServices.openUrl called with correct URL (mocked)
     - _Requirements: 7.4, 10.2_
 
-- [~] 14. Final checkpoint - Ensure all tests pass
+- [ ] 14. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 15. Bugfix: SDB reference recognition in GEDCOM import
@@ -411,7 +411,7 @@ This plan implements the source management feature in incremental steps, startin
     - Test that SourceEditor receives a non-None project_folder when opened from the app with a project loaded
     - _Requirements: 17.1_
 
-- [~] 21. Checkpoint - Ensure all bugfix tests pass
+- [ ] 21. Checkpoint - Ensure all bugfix tests pass
   - Ensure all tests pass after bugfix tasks, ask the user if questions arise.
 
 ## Notes

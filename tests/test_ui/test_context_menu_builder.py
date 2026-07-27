@@ -39,13 +39,13 @@ def parent_widget() -> QWidget:
 class TestContextMenuBuilder:
     """Tests for the ContextMenuBuilder.build_person_menu method."""
 
-    def test_menu_has_seven_actions(
+    def test_menu_has_correct_action_count(
         self, builder: ContextMenuBuilder, parent_widget: QWidget
     ) -> None:
-        """The menu should contain exactly 9 entries (7 actions + separator + delete)."""
+        """The menu should contain exactly 11 entries (9 actions + separator + delete)."""
         menu = builder.build_person_menu("person_1", "main_1", parent_widget)
         actions = menu.actions()
-        assert len(actions) == 9
+        assert len(actions) == 11
 
     def test_action_order(
         self, builder: ContextMenuBuilder, parent_widget: QWidget
@@ -62,6 +62,8 @@ class TestContextMenuBuilder:
             "Ny mamma",
             "Nytt barn",
             "Visa släktskap med huvudpersonen",
+            "Filtrera på DNA-träffar",
+            "Visa på karta",
             "",  # separator
             "Ta bort person",
         ]
@@ -98,6 +100,8 @@ class TestContextMenuBuilder:
             "new_mother",
             "new_child",
             "show_relationship",
+            "filter_dna_matches",
+            "show_on_map",
             "delete_person",
         ]
         actual_types = [action.data()[0] for action in actions if not action.isSeparator()]
@@ -116,7 +120,7 @@ class TestContextMenuBuilder:
         """Menu should build correctly even when main_person_id is None."""
         menu = builder.build_person_menu("person_1", None, parent_widget)
         actions = menu.actions()
-        assert len(actions) == 9
+        assert len(actions) == 11
 
     @patch("slaktbusken.ui.context_menu_builder.QMessageBox.information")
     def test_show_relationship_same_as_main_shows_message(

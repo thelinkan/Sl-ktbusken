@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import QRect, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -34,9 +36,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+if TYPE_CHECKING:
+    from slaktbusken.services.photo_service import PhotoService
+
+from slaktbusken.data.country_presets import available_presets, get_preset
 from slaktbusken.model.place import (
+    CustomFieldDef,
     ExternalId,
     Place,
+    RegionLevel,
     add_alternative_name,
     add_external_id,
     edit_external_id,
@@ -46,34 +54,202 @@ from slaktbusken.model.place import (
 )
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.generated.ui_place_editor import Ui_PlaceEditor
+from slaktbusken.ui.icons.icon_registry import icon_registry
+from slaktbusken.ui.widgets.coordinate_spin_box import CoordinateSpinBox
 
 logger = logging.getLogger(__name__)
 
-# Mapping from Swedish UI labels to internal type strings
+# Mapping from Swedish UI labels to internal type strings (static types)
 _TYPE_LABEL_TO_INTERNAL: dict[str, str] = {
+    "Kontinent": "continent",
     "Land": "country",
-    "Län": "county",
-    "Socken": "parish",
     "Kyrka": "church",
     "Kyrkogård": "cemetery",
-    "By": "village",
     "Gård": "farm",
     "Skola": "school",
+    "Ort": "ort",
 }
 
 _TYPE_INTERNAL_TO_LABEL: dict[str, str] = {v: k for k, v in _TYPE_LABEL_TO_INTERNAL.items()}
 
-# Valid parent types for each place type
+# Valid parent types for each place type (legacy — kept for backward compat)
 _VALID_PARENT_TYPES: dict[str, Optional[str]] = {
-    "country": None,
-    "county": "country",
-    "parish": "county",
-    "church": "parish",
-    "cemetery": "parish",
-    "village": "parish",
-    "farm": "parish",
-    "school": "parish",
+    "continent": None,
+    "country": "continent",
+    "church": None,
+    "cemetery": None,
+    "farm": None,
+    "school": None,
+    "ort": None,
 }
+
+
+def build_type_options(project_data: ProjectData) -> list[str]:
+    """Build the list of available place type labels for the Type_Dropdown.
+
+    Always includes:
+    - "Kontinent" (first)
+    - "Land"
+    - Universal types: "Kyrka", "Kyrkogård", "Gård", "Skola", "Ort"
+
+    Additionally includes all unique region level labels from countries
+    in the project (from their region_levels field, or from presets if
+    no region_levels are set on the country).
+
+    Args:
+        project_data: The current project data containing all entities.
+
+    Returns:
+        Ordered list of type labels for the dropdown.
+    """
+    from slaktbusken.data.country_presets import available_presets, get_preset
+
+    # Fixed types always present
+    fixed_labels = ["Kontinent", "Land"]
+    universal_labels = ["Kyrka", "Kyrkogård", "Gård", "Skola", "Ort"]
+
+    # Collect unique region level labels from all countries in the project
+    region_labels: set[str] = set()
+    for place in project_data.places:
+        if place.type == "country":
+            if place.region_levels:
+                for rl in place.region_levels:
+                    region_labels.add(rl.label)
+            else:
+                # Country has no region_levels set — check presets
+                preset_name = _get_preset_name_for_country(place.name)
+                if preset_name:
+                    for rl in get_preset(preset_name):
+                        region_labels.add(rl.label)
+
+    # Build final list: Kontinent first, then Land, then region labels sorted,
+    # then universal types
+    sorted_region_labels = sorted(region_labels)
+    return fixed_labels + sorted_region_labels + universal_labels
+
+
+def _get_preset_name_for_country(country_name: str) -> Optional[str]:
+    """Get the preset name for a country by its display name.
+
+    Checks both the country_presets available list and common name variations.
+    """
+    from slaktbusken.data.country_presets import available_presets
+
+    # Direct match
+    if country_name in available_presets():
+        return country_name
+
+    # Try common name mappings
+    _NAME_TO_PRESET = {
+        "sverige": "Sverige",
+        "norway": "Norge",
+        "norge": "Norge",
+        "finland": "Finland",
+        "danmark": "Danmark",
+        "denmark": "Danmark",
+        "tyskland": "Tyskland",
+        "germany": "Tyskland",
+        "england": "England",
+        "usa": "USA",
+        "united states": "USA",
+        "kanada": "USA",
+        "canada": "USA",
+    }
+    return _NAME_TO_PRESET.get(country_name.lower())
+
+
+def _resolve_type_label_to_internal(label: str, project_data: ProjectData) -> str:
+    """Resolve a type dropdown label to its internal type string.
+
+    Checks static types first, then looks up region level labels in project
+    countries (both from their region_levels and from presets).
+
+    Args:
+        label: The Swedish UI label to resolve.
+        project_data: The project data for looking up dynamic region level labels.
+
+    Returns:
+        The internal type string corresponding to the label.
+    """
+    from slaktbusken.data.country_presets import get_preset
+
+    if label in _TYPE_LABEL_TO_INTERNAL:
+        return _TYPE_LABEL_TO_INTERNAL[label]
+    # Try to find among region level labels on countries
+    for place in project_data.places:
+        if place.type == "country":
+            if place.region_levels:
+                for rl in place.region_levels:
+                    if rl.label == label:
+                        return rl.key
+            else:
+                # Check preset for this country
+                preset_name = _get_preset_name_for_country(place.name)
+                if preset_name:
+                    for rl in get_preset(preset_name):
+                        if rl.label == label:
+                            return rl.key
+    return label.lower()  # Fallback
+
+
+def _migrate_legacy_place_types(project_data: ProjectData) -> None:
+    """Migrate legacy place types (county/parish/village) to region-level keys.
+
+    Old GEDCOM imports used fixed types like "county" and "parish". The new
+    system uses country-specific region-level keys (e.g., "lan", "socken" for
+    Sverige). This function:
+    1. Ensures all countries have their region_levels preset applied
+    2. Converts legacy types to the correct region-level keys based on the
+       country ancestor of each place
+    """
+    from slaktbusken.data.country_presets import get_preset
+
+    # Step 1: Ensure countries have presets applied
+    for place in project_data.places:
+        if place.type == "country" and not place.region_levels:
+            preset_name = _get_preset_name_for_country(place.name)
+            if preset_name:
+                place.region_levels = get_preset(preset_name)
+
+    # Step 2: Build a map of place_id -> place for parent lookups
+    place_map = {p.id: p for p in project_data.places}
+
+    # Legacy type mappings per preset
+    _LEGACY_TYPE_MAP: dict[str, dict[str, str]] = {
+        "Sverige": {"county": "lan", "parish": "socken", "village": "socken"},
+        "Norge": {"county": "fylke", "parish": "kommune"},
+        "Finland": {"county": "landskap", "parish": "kommun"},
+        "Danmark": {"county": "region", "parish": "kommune"},
+        "Tyskland": {"county": "forbundsland", "parish": "kreis"},
+        "England": {"county": "county", "parish": "parish"},
+        "USA": {"county": "delstat", "parish": "county"},
+    }
+
+    # Step 3: Convert legacy types by walking up to find the country
+    for place in project_data.places:
+        if place.type not in ("county", "parish", "village"):
+            continue
+
+        # Walk up the parent chain to find the country
+        country_name: Optional[str] = None
+        current = place
+        visited: set[str] = {place.id}
+        while current.parent_place_id and current.parent_place_id not in visited:
+            visited.add(current.parent_place_id)
+            parent = place_map.get(current.parent_place_id)
+            if parent is None:
+                break
+            if parent.type == "country":
+                country_name = parent.name
+                break
+            current = parent
+
+        if country_name:
+            preset_name = _get_preset_name_for_country(country_name)
+            if preset_name and preset_name in _LEGACY_TYPE_MAP:
+                type_map = _LEGACY_TYPE_MAP[preset_name]
+                if place.type in type_map:
+                    place.type = type_map[place.type]
 
 
 class PlaceListItemDelegate(QStyledItemDelegate):
@@ -172,6 +348,7 @@ class PlaceEditor(QWidget):
         project_data: ProjectData,
         place: Optional[Place] = None,
         parent: QWidget | None = None,
+        photo_service: "Optional[PhotoService]" = None,
     ) -> None:
         """Initialise the place editor.
 
@@ -179,17 +356,41 @@ class PlaceEditor(QWidget):
             project_data: The current project data containing all entities.
             place: Optional existing Place to select initially for editing.
             parent: Optional parent widget.
+            photo_service: Optional PhotoService for photo management operations.
         """
         super().__init__(parent)
 
         self._project_data = project_data
         self._place = place
+        self._photo_service = photo_service
         self._saved_place: Optional[Place] = None
         self._editing_place: Optional[Place] = None
+
+        # Migrate legacy place types and ensure country presets are applied
+        _migrate_legacy_place_types(project_data)
 
         # Set up UI from generated form
         self._ui = Ui_PlaceEditor()
         self._ui.setupUi(self)
+
+        # Replace latitude/longitude spin boxes with CoordinateSpinBox (paste support)
+        self._replace_spin_with_coordinate_spin("latitude_spin")
+        self._replace_spin_with_coordinate_spin("longitude_spin")
+
+        # Add "Visa på karta" button beside the coordinates checkbox
+        self._btn_show_on_map = QPushButton("Visa på karta")
+        self._btn_show_on_map.setEnabled(self._ui.coordinates_check.isChecked())
+        # Replace the checkbox cell in the form layout with an HBox containing both
+        coords_row_layout = QHBoxLayout()
+        coords_row_layout.setContentsMargins(0, 0, 0, 0)
+        # Remove the checkbox from form row 3 and re-add in a horizontal layout
+        self._ui.form_layout.removeWidget(self._ui.coordinates_check)
+        coords_row_layout.addWidget(self._ui.coordinates_check)
+        coords_row_layout.addWidget(self._btn_show_on_map)
+        coords_row_layout.addStretch()
+        self._ui.form_layout.setLayout(
+            3, QFormLayout.ItemRole.FieldRole, coords_row_layout
+        )
 
         # Wrap the right panel in a QScrollArea so all content is accessible
         self._right_scroll = QScrollArea()
@@ -204,16 +405,17 @@ class PlaceEditor(QWidget):
         # Add type filter combo box to left panel between filter_input and place_list
         self._type_filter_label = QLabel("Typ:", self._ui.left_panel)
         self._type_filter_combo = QComboBox(self._ui.left_panel)
-        self._type_filter_combo.addItems([
-            "Alla", "Land", "Län", "Socken", "Kyrka",
-            "Kyrkogård", "By", "Gård", "Skola",
-        ])
+        type_options = build_type_options(project_data)
+        self._type_filter_combo.addItems(["Alla"] + type_options)
         self._type_filter_combo.setCurrentIndex(0)
         # Insert at index 2 (after filter_input at index 1, before place_list)
         self._ui.left_layout.insertWidget(2, self._type_filter_label)
         self._ui.left_layout.insertWidget(3, self._type_filter_combo)
 
         self._setup_child_places_list()
+        self._setup_preset_section()
+        self._setup_custom_fields_section()
+        self._setup_photo_section()
         self._connect_signals()
 
         # Set up custom delegate for red dot indicator on places missing a parent
@@ -247,18 +449,48 @@ class PlaceEditor(QWidget):
     # Private: setup
     # ------------------------------------------------------------------
 
+    def _replace_spin_with_coordinate_spin(self, attr_name: str) -> None:
+        """Replace a QDoubleSpinBox in the form with a CoordinateSpinBox.
+
+        Copies the original widget's range, decimals, enabled state, and value,
+        then swaps it in the form layout at the same position.
+
+        Args:
+            attr_name: The attribute name on self._ui (e.g. "latitude_spin").
+        """
+        original = getattr(self._ui, attr_name)
+        new_spin = CoordinateSpinBox(self._ui.right_panel)
+        new_spin.setObjectName(original.objectName())
+        new_spin.setMinimum(original.minimum())
+        new_spin.setMaximum(original.maximum())
+        new_spin.setDecimals(original.decimals())
+        new_spin.setEnabled(original.isEnabled())
+        new_spin.setValue(original.value())
+
+        # Find the widget in the form layout and replace it
+        layout = self._ui.form_layout
+        for row in range(layout.rowCount()):
+            item = layout.itemAt(row, QFormLayout.ItemRole.FieldRole)
+            if item and item.widget() is original:
+                original.setParent(None)
+                layout.setWidget(row, QFormLayout.ItemRole.FieldRole, new_spin)
+                break
+
+        # Update the reference on the UI object so existing code keeps working
+        setattr(self._ui, attr_name, new_spin)
+
     def _setup_child_places_list(self) -> None:
         """Add a child places group box to the right panel.
 
         Shows all places that have this place as their parent, allowing
         the user to see the hierarchy below the selected place.
         """
-        # Add missing place types to the type combo (generated UI only has 5)
+        # Populate the type combo dynamically using build_type_options
         existing_labels = [
             self._ui.type_combo.itemText(i)
             for i in range(self._ui.type_combo.count())
         ]
-        for label in _TYPE_LABEL_TO_INTERNAL:
+        for label in build_type_options(self._project_data):
             if label not in existing_labels:
                 self._ui.type_combo.addItem(label)
 
@@ -340,6 +572,90 @@ class PlaceEditor(QWidget):
         else:
             right_layout.addWidget(self._alt_names_group)
 
+    def _setup_preset_section(self) -> None:
+        """Create the preset selection UI, shown only for country places.
+
+        Adds a group box with a combo listing available presets, an apply button,
+        and a list widget showing the current region levels.
+        """
+        self._preset_group = QGroupBox("Förinställning regionnivåer", self._ui.right_panel)
+        preset_layout = QVBoxLayout(self._preset_group)
+
+        # Preset combo + apply button row
+        preset_row = QHBoxLayout()
+        self._preset_combo = QComboBox(self._preset_group)
+        self._preset_combo.addItem("(Välj förinställning)")
+        for preset_name in available_presets():
+            self._preset_combo.addItem(preset_name)
+        preset_row.addWidget(self._preset_combo)
+
+        self._preset_apply_btn = QPushButton("Använd", self._preset_group)
+        preset_row.addWidget(self._preset_apply_btn)
+        preset_layout.addLayout(preset_row)
+
+        # Region levels display list
+        self._region_levels_list = QListWidget(self._preset_group)
+        self._region_levels_list.setMaximumHeight(120)
+        preset_layout.addWidget(self._region_levels_list)
+
+        # Insert before status label in the right layout
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._preset_group)
+        else:
+            right_layout.addWidget(self._preset_group)
+
+        # Hidden by default; shown only when editing a country place
+        self._preset_group.setVisible(False)
+
+    def _setup_custom_fields_section(self) -> None:
+        """Create the custom fields UI, shown when place type matches a region level with custom fields.
+
+        Adds a group box with dynamically created QLineEdit inputs for each custom field.
+        """
+        self._custom_fields_group = QGroupBox("Anpassade fält", self._ui.right_panel)
+        self._custom_fields_layout = QFormLayout(self._custom_fields_group)
+        self._custom_field_inputs: dict[str, QLineEdit] = {}
+
+        # Insert before status label in the right layout
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._custom_fields_group)
+        else:
+            right_layout.addWidget(self._custom_fields_group)
+
+        # Hidden by default; shown only when place type has custom fields
+        self._custom_fields_group.setVisible(False)
+
+    def _setup_photo_section(self) -> None:
+        """Create the photo section using PhotoSectionWidget.
+
+        Adds a "Foton" group box with the reusable PhotoSectionWidget
+        configured for place mode (buttons: Visa foto, Redigera foto, Lägg till foto).
+        The section is hidden until a place is selected.
+        """
+        from slaktbusken.ui.widgets.photo_section_widget import PhotoSectionWidget
+
+        self._photo_group = QGroupBox("Foton", self._ui.right_panel)
+        photo_layout = QVBoxLayout(self._photo_group)
+
+        # Create a placeholder PhotoSectionWidget (will be replaced on place selection)
+        self._photo_section: Optional[PhotoSectionWidget] = None
+        self._photo_section_layout = photo_layout
+
+        # Insert before status label in the right layout
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._photo_group)
+        else:
+            right_layout.addWidget(self._photo_group)
+
+        # Hidden until a place is selected
+        self._photo_group.setVisible(False)
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
         # Filter
@@ -355,6 +671,8 @@ class PlaceEditor(QWidget):
 
         # Coordinates checkbox
         self._ui.coordinates_check.toggled.connect(self._on_coordinates_toggled)
+        self._ui.coordinates_check.toggled.connect(self._btn_show_on_map.setEnabled)
+        self._btn_show_on_map.clicked.connect(self._on_show_place_on_map)
 
         # Type change updates parent combo
         self._ui.type_combo.currentIndexChanged.connect(self._on_type_changed)
@@ -367,6 +685,9 @@ class PlaceEditor(QWidget):
         # Alternative Names
         self._alt_name_add_btn.clicked.connect(self._on_alt_name_add)
         self._alt_name_remove_btn.clicked.connect(self._on_alt_name_remove)
+
+        # Preset apply
+        self._preset_apply_btn.clicked.connect(self._on_preset_apply)
 
         # Linked persons double-click
         self._persons_list.itemDoubleClicked.connect(self._on_person_double_clicked)
@@ -383,11 +704,12 @@ class PlaceEditor(QWidget):
         """Rebuild the place list from project_data, applying text and type filters."""
         filter_text = self._ui.filter_input.text().strip().lower()
         type_filter_label = self._type_filter_combo.currentText()
-        type_filter = (
-            _TYPE_LABEL_TO_INTERNAL[type_filter_label]
-            if type_filter_label in _TYPE_LABEL_TO_INTERNAL
-            else "all"
-        )
+        if type_filter_label == "Alla":
+            type_filter = "all"
+        else:
+            type_filter = _resolve_type_label_to_internal(
+                type_filter_label, self._project_data
+            )
 
         self._ui.place_list.blockSignals(True)
         self._ui.place_list.clear()
@@ -405,6 +727,10 @@ class PlaceEditor(QWidget):
         for display, place_id in entries:
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, place_id)
+            # Show map icon for places with coordinates
+            place = self._find_place_by_id(place_id)
+            if place and place.latitude is not None and place.longitude is not None:
+                item.setIcon(QIcon(icon_registry.get_map_icon()))
             self._ui.place_list.addItem(item)
 
         self._ui.place_list.blockSignals(False)
@@ -441,6 +767,17 @@ class PlaceEditor(QWidget):
             Display string with name and parent context.
         """
         type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, place.type)
+        # For dynamic region level types, look up the label from country definitions or presets
+        if place.type not in _TYPE_INTERNAL_TO_LABEL:
+            for p in self._project_data.places:
+                if p.type == "country":
+                    for rl in self._get_region_levels_for_country(p):
+                        if rl.key == place.type:
+                            type_label = rl.label.lower()
+                            break
+                    else:
+                        continue
+                    break
         display = f"{place.name} ({type_label})"
 
         # Show parent name for context
@@ -525,11 +862,39 @@ class PlaceEditor(QWidget):
         Args:
             place: The Place to load into the form.
         """
+        from slaktbusken.data.country_presets import get_preset
+
         # Type
-        type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, "Land")
+        type_label = _TYPE_INTERNAL_TO_LABEL.get(place.type, None)
+        # If not in static mapping, check dynamic region level labels
+        if type_label is None:
+            for p in self._project_data.places:
+                if p.type == "country":
+                    # Check region_levels on the country
+                    if p.region_levels:
+                        for rl in p.region_levels:
+                            if rl.key == place.type:
+                                type_label = rl.label
+                                break
+                    else:
+                        # Check preset for this country
+                        preset_name = _get_preset_name_for_country(p.name)
+                        if preset_name:
+                            for rl in get_preset(preset_name):
+                                if rl.key == place.type:
+                                    type_label = rl.label
+                                    break
+                    if type_label:
+                        break
+        if type_label is None:
+            type_label = place.type.capitalize()  # Better fallback than "Land"
         type_index = self._ui.type_combo.findText(type_label)
         if type_index >= 0:
             self._ui.type_combo.setCurrentIndex(type_index)
+        else:
+            # Type not in combo — add it dynamically
+            self._ui.type_combo.addItem(type_label)
+            self._ui.type_combo.setCurrentIndex(self._ui.type_combo.count() - 1)
 
         # Name
         self._ui.name_input.setText(place.name)
@@ -570,6 +935,18 @@ class PlaceEditor(QWidget):
         # Alternative Names
         self._refresh_alternative_names(place)
 
+        # Preset section (visible only for country places)
+        is_country = place.type == "country"
+        self._preset_group.setVisible(is_country)
+        if is_country:
+            self._refresh_region_levels_list(place)
+
+        # Custom fields (visible if type matches a region level with custom fields)
+        self._update_custom_fields_visibility(place.type)
+
+        # Photo section
+        self._refresh_photo_section(place)
+
         self._clear_status()
 
     def _clear_form(self) -> None:
@@ -587,6 +964,14 @@ class PlaceEditor(QWidget):
         self._persons_list.clear()
         self._ext_id_list.clear()
         self._alt_names_list.clear()
+        self._region_levels_list.clear()
+        self._preset_combo.setCurrentIndex(0)
+        self._preset_group.setVisible(False)
+        self._custom_fields_group.setVisible(False)
+        while self._custom_fields_layout.rowCount() > 0:
+            self._custom_fields_layout.removeRow(0)
+        self._custom_field_inputs.clear()
+        self._photo_group.setVisible(False)
         self._clear_status()
 
     def _refresh_child_places(self, place: Place) -> None:
@@ -611,6 +996,17 @@ class PlaceEditor(QWidget):
         self._child_group.setTitle(f"Underordnade platser ({len(children)})")
         for child in children:
             type_label = _TYPE_INTERNAL_TO_LABEL.get(child.type, child.type)
+            # For dynamic region level types, look up the label from country definitions
+            if child.type not in _TYPE_INTERNAL_TO_LABEL:
+                for p in self._project_data.places:
+                    if p.type == "country":
+                        for rl in p.region_levels:
+                            if rl.key == child.type:
+                                type_label = rl.label
+                                break
+                        else:
+                            continue
+                        break
             display = f"{child.name} ({type_label})"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, child.id)
@@ -940,21 +1336,72 @@ class PlaceEditor(QWidget):
     def _populate_parent_combo(self, place_type: str) -> None:
         """Populate parent combo with valid parent places based on type hierarchy.
 
+        For static types:
+        - continent: no parent allowed
+        - country: parent must be continent
+        - church/cemetery/farm/school: parent can be any region-level type or ort
+        - ort: parent can be any region-level type
+
+        For dynamic region-level types:
+        - order=1: parent must be country
+        - order>1: parent must be preceding region level
+
         Args:
             place_type: The internal type string of the current place.
         """
         self._ui.parent_combo.clear()
         self._ui.parent_combo.addItem("(Ingen)", "")
 
-        required_parent_type = _VALID_PARENT_TYPES.get(place_type)
-        if required_parent_type is None:
-            # country has no parent
+        # Continent has no parent
+        if place_type == "continent":
             return
+
+        # Determine which types are valid parents
+        valid_parent_types: set[str] = set()
+
+        if place_type == "country":
+            valid_parent_types = {"continent"}
+        elif place_type in ("church", "cemetery", "farm", "school"):
+            # Universal types can be children of any region level or ort
+            valid_parent_types = {"ort"}
+            # Add all region-level keys from countries in project
+            for p in self._project_data.places:
+                if p.type == "country":
+                    valid_parent_types.update(self._get_region_keys_for_country(p))
+        elif place_type == "ort":
+            # Locality can be child of any region level
+            for p in self._project_data.places:
+                if p.type == "country":
+                    valid_parent_types.update(self._get_region_keys_for_country(p))
+        else:
+            # Dynamic region-level type — find which country defines it
+            for p in self._project_data.places:
+                if p.type == "country":
+                    region_levels = self._get_region_levels_for_country(p)
+                    for rl in region_levels:
+                        if rl.key == place_type:
+                            if rl.order == 1:
+                                valid_parent_types = {"country"}
+                            else:
+                                # Find preceding region level
+                                for rl2 in region_levels:
+                                    if rl2.order == rl.order - 1:
+                                        valid_parent_types = {rl2.key}
+                                        break
+                            break
+                    if valid_parent_types:
+                        break
+            # If we couldn't determine valid parent types, allow any place as parent
+            if not valid_parent_types:
+                valid_parent_types = {"country", "continent"}
+                for p in self._project_data.places:
+                    if p.type == "country":
+                        valid_parent_types.update(self._get_region_keys_for_country(p))
 
         # Collect valid parent places with display text
         parent_entries: list[tuple[str, str]] = []
         for p in self._project_data.places:
-            if p.type == required_parent_type:
+            if p.type in valid_parent_types:
                 # Don't allow a place to be its own parent
                 if self._editing_place and p.id == self._editing_place.id:
                     continue
@@ -969,17 +1416,45 @@ class PlaceEditor(QWidget):
         # Sort alphabetically
         parent_entries.sort(key=lambda x: x[0].lower())
         for display, place_id in parent_entries:
-            self._ui.parent_combo.addItem(display, place_id)
+            # Show map icon for places with coordinates
+            p = self._find_place_by_id(place_id)
+            if p and p.latitude is not None and p.longitude is not None:
+                self._ui.parent_combo.addItem(QIcon(icon_registry.get_map_icon()), display, place_id)
+            else:
+                self._ui.parent_combo.addItem(display, place_id)
+
+    def _get_region_levels_for_country(self, country_place: Place) -> list:
+        """Get region levels for a country, checking presets if not set."""
+        from slaktbusken.data.country_presets import get_preset
+
+        if country_place.region_levels:
+            return country_place.region_levels
+        preset_name = _get_preset_name_for_country(country_place.name)
+        if preset_name:
+            return get_preset(preset_name)
+        return []
+
+    def _get_region_keys_for_country(self, country_place: Place) -> set[str]:
+        """Get all region level keys for a country, checking presets if not set."""
+        return {rl.key for rl in self._get_region_levels_for_country(country_place)}
 
     def _on_type_changed(self, index: int) -> None:
         """Handle type combo change to update parent combo options.
+
+        Also updates preset section visibility and custom fields visibility.
 
         Args:
             index: The new index in the type combo.
         """
         type_label = self._ui.type_combo.currentText()
-        internal_type = _TYPE_LABEL_TO_INTERNAL.get(type_label, "country")
+        internal_type = _resolve_type_label_to_internal(type_label, self._project_data)
         self._populate_parent_combo(internal_type)
+
+        # Show preset section only for country type
+        self._preset_group.setVisible(internal_type == "country")
+
+        # Update custom fields visibility based on new type
+        self._update_custom_fields_visibility(internal_type)
 
     # ------------------------------------------------------------------
     # Private: coordinates toggle
@@ -993,6 +1468,112 @@ class PlaceEditor(QWidget):
         """
         self._ui.latitude_spin.setEnabled(checked)
         self._ui.longitude_spin.setEnabled(checked)
+
+    # ------------------------------------------------------------------
+    # Private: preset and custom fields
+    # ------------------------------------------------------------------
+
+    def _on_preset_apply(self) -> None:
+        """Handle preset apply button click.
+
+        Populates the editing place's region_levels from the selected preset.
+        The user can still modify them before saving.
+        """
+        if self._editing_place is None:
+            self._update_status("Välj en plats först.")
+            return
+
+        preset_name = self._preset_combo.currentText()
+        if preset_name == "(Välj förinställning)":
+            self._update_status("Välj en förinställning att använda.")
+            return
+
+        levels = get_preset(preset_name)
+        if not levels:
+            self._update_status(f"Ingen förinställning hittades för '{preset_name}'.")
+            return
+
+        # Populate the editing place's region_levels
+        self._editing_place.region_levels = levels
+        self._refresh_region_levels_list(self._editing_place)
+        self._clear_status()
+
+    def _refresh_region_levels_list(self, place: Place) -> None:
+        """Refresh the region levels list widget from the place's region_levels.
+
+        Args:
+            place: The place whose region levels should be displayed.
+        """
+        self._region_levels_list.clear()
+        for rl in place.region_levels:
+            custom_info = ""
+            if rl.custom_fields:
+                field_labels = ", ".join(cf.label for cf in rl.custom_fields)
+                custom_info = f" [{field_labels}]"
+            display = f"{rl.order}. {rl.label} (nyckel: {rl.key}){custom_info}"
+            self._region_levels_list.addItem(display)
+
+    def _update_custom_fields_visibility(self, internal_type: str) -> None:
+        """Show or hide custom fields section based on place type.
+
+        If the type matches a region level that has custom_fields defined,
+        shows the custom fields group with appropriate input fields.
+
+        Args:
+            internal_type: The internal type string of the current place.
+        """
+        # Clear existing custom field inputs
+        while self._custom_fields_layout.rowCount() > 0:
+            self._custom_fields_layout.removeRow(0)
+        self._custom_field_inputs.clear()
+
+        # Find if any country defines this type as a region level with custom fields
+        custom_fields_found: list[CustomFieldDef] = []
+        for p in self._project_data.places:
+            if p.type == "country":
+                for rl in p.region_levels:
+                    if rl.key == internal_type and rl.custom_fields:
+                        custom_fields_found = rl.custom_fields
+                        break
+                if custom_fields_found:
+                    break
+
+        if not custom_fields_found:
+            self._custom_fields_group.setVisible(False)
+            return
+
+        # Create input fields for each custom field definition
+        for cf_def in custom_fields_found:
+            line_edit = QLineEdit(self._custom_fields_group)
+            line_edit.setMaxLength(20)
+            line_edit.setPlaceholderText(f"Max 20 tecken")
+            self._custom_fields_layout.addRow(f"{cf_def.label}:", line_edit)
+            self._custom_field_inputs[cf_def.key] = line_edit
+
+            # Pre-populate from editing place if available
+            if self._editing_place and cf_def.key in self._editing_place.custom_field_values:
+                line_edit.setText(self._editing_place.custom_field_values[cf_def.key])
+
+        self._custom_fields_group.setVisible(True)
+
+    def _on_show_place_on_map(self) -> None:
+        """Open a map dialog showing the current place's coordinates."""
+        from slaktbusken.services.map_data_service import MapMarker
+        from slaktbusken.ui.dialogs.map_dialog import MapDialog
+
+        lat = self._ui.latitude_spin.value()
+        lng = self._ui.longitude_spin.value()
+        name = self._ui.name_input.text() or "(namnlös plats)"
+
+        marker = MapMarker(
+            place_id="preview",
+            place_name=name,
+            latitude=lat,
+            longitude=lng,
+            events=[],
+        )
+        dialog = MapDialog([marker], f"Karta — {name}", parent=self)
+        dialog.exec()
 
     # ------------------------------------------------------------------
     # Private: add / delete
@@ -1082,7 +1663,7 @@ class PlaceEditor(QWidget):
         """
         # Get type
         type_label = self._ui.type_combo.currentText()
-        internal_type = _TYPE_LABEL_TO_INTERNAL.get(type_label, "country")
+        internal_type = _resolve_type_label_to_internal(type_label, self._project_data)
 
         # Validate name
         name = self._ui.name_input.text().strip()
@@ -1136,6 +1717,19 @@ class PlaceEditor(QWidget):
         # Alternative Names (collected from in-memory edits on the editing place)
         alternative_names = self._editing_place.alternative_names if self._editing_place else []
 
+        # Region levels (from in-memory edits on the editing place, only for countries)
+        region_levels = []
+        if internal_type == "country" and self._editing_place:
+            region_levels = self._editing_place.region_levels
+
+        # Custom field values (collected from UI inputs)
+        custom_field_values: dict[str, str] = {}
+        if self._custom_fields_group.isVisible():
+            for key, line_edit in self._custom_field_inputs.items():
+                value = line_edit.text().strip()
+                if value:
+                    custom_field_values[key] = value
+
         self._saved_place = Place(
             id=place_id,
             type=internal_type,
@@ -1146,22 +1740,233 @@ class PlaceEditor(QWidget):
             notes=notes,
             external_ids=external_ids,
             alternative_names=alternative_names,
+            region_levels=region_levels,
+            custom_field_values=custom_field_values,
         )
 
         self._clear_status()
         logger.info("Plats sparad: %s (%s)", name, place_id)
 
+        # Update the in-memory editing place reference
+        self._editing_place = self._saved_place
+
+        # Update the project data in-place
+        for i, p in enumerate(self._project_data.places):
+            if p.id == place_id:
+                self._project_data.places[i] = self._saved_place
+                break
+        else:
+            # New place — add to project
+            self._project_data.places.append(self._saved_place)
+
         # Refresh place list so red dot indicator reflects updated parent assignment
         self._refresh_place_list()
 
+        # Re-select the saved place in the list
+        self._select_place_in_list(place_id)
+
+        # Show confirmation in the status label instead of closing
+        self._update_status("✔ Platsen sparad.")
+        self._ui.status_label.setStyleSheet("color: green;")
+
         self.save_requested.emit()
-        self.close()
 
     def _on_cancel(self) -> None:
         """Close the editor without saving."""
         self._saved_place = None
         self.cancel_requested.emit()
         self.close()
+
+    # ------------------------------------------------------------------
+    # Private: photo section
+    # ------------------------------------------------------------------
+
+    def _refresh_photo_section(self, place: Place) -> None:
+        """Rebuild the PhotoSectionWidget for the given place.
+
+        Creates or replaces the PhotoSectionWidget inside the photo group box,
+        connecting its buttons to appropriate handlers.
+
+        Args:
+            place: The place whose photos should be displayed.
+        """
+        from slaktbusken.ui.widgets.photo_section_widget import PhotoSectionWidget
+
+        # Remove existing photo section widget if present
+        if self._photo_section is not None:
+            self._photo_section_layout.removeWidget(self._photo_section)
+            self._photo_section.setParent(None)
+            self._photo_section.deleteLater()
+            self._photo_section = None
+
+        if self._photo_service is None:
+            self._photo_group.setVisible(False)
+            return
+
+        # Create new PhotoSectionWidget for this place
+        self._photo_section = PhotoSectionWidget(
+            project_data=self._project_data,
+            photo_service=self._photo_service,
+            entity_type="place",
+            entity_id=place.id,
+            parent=self._photo_group,
+        )
+        self._photo_section_layout.addWidget(self._photo_section)
+
+        # Connect button signals
+        self._photo_section.add_button.clicked.connect(self._on_photo_add)
+        if self._photo_section.view_button:
+            self._photo_section.view_button.clicked.connect(self._on_photo_view)
+        self._photo_section.photo_edited.connect(self._on_photo_edit)
+
+        self._photo_group.setVisible(True)
+
+    def _on_photo_add(self) -> None:
+        """Handle 'Lägg till foto' button click in the photo section.
+
+        Opens a file dialog filtered to image formats. On file selection,
+        creates a new MediaItem with type 'photo' and a LinkedEntity
+        linking it to the current place.
+        """
+        if self._editing_place is None or self._photo_service is None:
+            return
+
+        file_filter = "Bildfiler (*.png *.jpg *.jpeg *.bmp *.gif *.tiff *.tif)"
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Välj bild",
+            "",
+            file_filter,
+        )
+
+        if not file_path:
+            # User cancelled — do nothing (Requirement 9.7)
+            return
+
+        from slaktbusken.model.media import LinkedEntity, MediaItem
+
+        # Create the new MediaItem
+        new_media = MediaItem(
+            id=str(uuid.uuid4()),
+            type="photo",
+            file=file_path,
+            title=Path(file_path).stem,
+            linked_entities=[
+                LinkedEntity(entity_type="place", entity_id=self._editing_place.id)
+            ],
+        )
+
+        # Add to project data
+        self._project_data.media.append(new_media)
+
+        # Refresh the photo section and emit signal
+        if self._photo_section is not None:
+            self._photo_section.refresh()
+            self._photo_section.emit_photo_added(new_media.id)
+
+    def _on_photo_view(self) -> None:
+        """Handle 'Visa foto' button click.
+
+        Opens a modal dialog showing the selected photo's image file.
+        """
+        if self._photo_section is None or self._photo_service is None:
+            return
+
+        photo_id = self._photo_section.get_selected_photo_id()
+        if photo_id is None:
+            return
+
+        # Find the MediaItem
+        media_item = self._find_media_item_by_id(photo_id)
+        if media_item is None:
+            return
+
+        # Resolve the file path
+        file_path = Path(media_item.file)
+        if not file_path.is_absolute():
+            file_path = self._photo_service._foto_mapp / file_path
+
+        if not file_path.exists():
+            QMessageBox.warning(
+                self,
+                "Fil saknas",
+                f"Bildfilen kunde inte hittas:\n{file_path}",
+            )
+            return
+
+        # Open a modal image viewer dialog
+        from PySide6.QtGui import QPixmap
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(media_item.title)
+        dialog.setModal(True)
+        layout = QVBoxLayout(dialog)
+
+        pixmap = QPixmap(str(file_path))
+        if pixmap.isNull():
+            QMessageBox.warning(
+                self,
+                "Kan inte visa",
+                f"Bildfilen kunde inte läsas:\n{file_path}",
+            )
+            return
+
+        # Scale to reasonable size while keeping aspect ratio
+        scaled = pixmap.scaled(800, 600, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        image_label = QLabel()
+        image_label.setPixmap(scaled)
+        layout.addWidget(image_label)
+
+        close_btn = QPushButton("Stäng")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+
+        dialog.exec()
+
+    def _on_photo_edit(self, media_item_id: str) -> None:
+        """Handle 'Redigera foto' button click.
+
+        Opens EditPhotoDialog with the selected MediaItem.
+
+        Args:
+            media_item_id: The ID of the MediaItem to edit.
+        """
+        if self._photo_service is None:
+            return
+
+        media_item = self._find_media_item_by_id(media_item_id)
+        if media_item is None:
+            return
+
+        from slaktbusken.ui.dialogs.edit_photo_dialog import EditPhotoDialog
+
+        dialog = EditPhotoDialog(
+            media_item=media_item,
+            project_data=self._project_data,
+            photo_service=self._photo_service,
+            parent=self,
+        )
+        dialog.exec()
+
+        # Refresh photo section after dialog closes (changes may have been saved)
+        if self._photo_section is not None:
+            self._photo_section.refresh()
+
+    def _find_media_item_by_id(self, media_id: str) -> "Optional[MediaItem]":
+        """Find a MediaItem by its ID in the project data.
+
+        Args:
+            media_id: The MediaItem ID to search for.
+
+        Returns:
+            The MediaItem if found, None otherwise.
+        """
+        from slaktbusken.model.media import MediaItem
+
+        for item in self._project_data.media:
+            if item.id == media_id:
+                return item
+        return None
 
     # ------------------------------------------------------------------
     # Private: helpers
@@ -1173,8 +1978,10 @@ class PlaceEditor(QWidget):
         Args:
             message: The status message to display.
         """
+        self._ui.status_label.setStyleSheet("color: red;")
         self._ui.status_label.setText(message)
 
     def _clear_status(self) -> None:
         """Clear the status label."""
         self._ui.status_label.setText("")
+        self._ui.status_label.setStyleSheet("")
