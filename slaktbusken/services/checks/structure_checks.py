@@ -20,11 +20,6 @@ from slaktbusken.services.person_check_engine import (
     format_person_display,
 )
 
-# Module-level cache for connectivity reachable set.
-# Computed once per engine run (first call to check_connected_to_main_person).
-_reachable_from_main: set[str] | None = None
-_reachable_main_person_id: str | None = None
-
 
 def _make_finding(person: Person, events: list[Event], message: str) -> CheckFinding:
     """Create a CheckFinding for the given person."""
@@ -219,7 +214,9 @@ def check_connected_to_main_person(
     """Check if person is reachable from the main person (Req 9.6).
 
     BFS from the main person through all family relationships. Persons
-    not in the reachable set are flagged.
+    not in the reachable set are flagged. The reachable set is computed
+    once and cached on the CheckContext instance for the duration of the
+    check run.
 
     Skips check entirely if no main person is defined (Req 9.7).
     """
@@ -230,23 +227,17 @@ def check_connected_to_main_person(
     if context.main_person_id is None:
         return []
 
-    global _reachable_from_main, _reachable_main_person_id
-
-    # Compute reachable set once and cache it
-    if (
-        _reachable_from_main is None
-        or _reachable_main_person_id != context.main_person_id
-    ):
-        _reachable_from_main = _compute_reachable_from_main(
+    # Compute reachable set once per run, cached on the context instance
+    if context.reachable_from_main is None:
+        context.reachable_from_main = _compute_reachable_from_main(
             context.main_person_id, context
         )
-        _reachable_main_person_id = context.main_person_id
 
     # Don't flag the main person themselves
     if person.id == context.main_person_id:
         return []
 
-    if person.id not in _reachable_from_main:
+    if person.id not in context.reachable_from_main:
         return [_make_finding(
             person, events,
             "Personen saknar koppling till huvudpersonen",
@@ -256,13 +247,13 @@ def check_connected_to_main_person(
 
 
 def reset_connectivity_cache() -> None:
-    """Reset the module-level connectivity cache.
+    """No-op kept for backward compatibility with existing tests.
 
-    Should be called before a new check run to ensure fresh computation.
+    The connectivity cache now lives on CheckContext instances (per-run),
+    so no global reset is needed. This function is retained so that tests
+    calling it don't break.
     """
-    global _reachable_from_main, _reachable_main_person_id
-    _reachable_from_main = None
-    _reachable_main_person_id = None
+    pass
 
 
 def check_structure(

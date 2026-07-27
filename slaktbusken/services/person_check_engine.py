@@ -42,6 +42,8 @@ class CheckContext:
     project_folder: Path | None = None
     main_person_id: str | None = None
     current_year: int = 0
+    # Computed lazily by structure_checks for connectivity check
+    reachable_from_main: set[str] | None = None
 
 
 def format_person_display(person: Person, events: list[Event]) -> str:

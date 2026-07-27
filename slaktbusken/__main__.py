@@ -29,7 +29,7 @@ def main() -> None:
     """Launch the Släktbusken genealogy application."""
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName("Släktbusken")
-    qt_app.setApplicationVersion("0.1.0")
+    qt_app.setApplicationVersion("0.2.0")
     qt_app.setOrganizationName("Släktbusken")
     qt_app.setWindowIcon(_get_app_icon())
 
