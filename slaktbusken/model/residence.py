@@ -230,3 +230,21 @@ def core_aggregate(
     lowest_from = f"{min(from_years):04d}" if from_years else None
     highest_to = f"{max(to_years):04d}" if to_years else None
     return (lowest_from, highest_to)
+
+
+def normalize_role_in_household(value: str) -> str:
+    """Normalize a ``role_in_household`` value for storage.
+
+    Trims leading and trailing whitespace and returns the result unchanged in
+    every other respect — letter case, internal whitespace, å/ä/ö, and Unicode
+    normalization form are all preserved exactly as entered. A whitespace-only
+    or empty input becomes ``""``.
+
+    The function accepts (does not raise for) a trimmed result of up to 100
+    Unicode code points. Enforcement of the >100 limit is the validator's
+    responsibility (Requirement 10.6).
+
+    Requirements: 10.1, 10.4, 10.5, 10.7.
+    """
+    trimmed = value.strip()
+    return trimmed

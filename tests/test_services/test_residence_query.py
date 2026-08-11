@@ -1,9 +1,10 @@
 """Unit tests for the residents query of the Residence_Query_Service.
 
 Covers Requirements 8.1 (one entry per fact, no merging, ordering), 8.2–8.4
-(labelling), 8.5 (entry fields), 8.6 (descendant walk, chains, cycles), 8.9
-(both-sides-unbounded spans) and 15.9 (no lifespan clamping), plus the worked
-examples of Requirements 14.8 and 15.5–15.6.
+(labelling), 8.5 (entry fields), 8.6 (descendant walk, chains, cycles), 8.7
+(residence timeline ordering), 8.8 (no household entity), 8.9
+(both-sides-unbounded spans), 8.10 (role grouping) and 15.9 (no lifespan
+clamping), plus the worked examples of Requirements 14.8 and 15.5–15.6.
 """
 
 from copy import deepcopy
@@ -15,8 +16,11 @@ from slaktbusken.model.residence import Endpoint, ResidenceFact
 from slaktbusken.services.residence_query import (
     LABEL_CERTAIN,
     LABEL_POSSIBLE,
+    LABEL_ROLE_MISSING,
     MAX_DESCENDANT_LEVELS,
     ResidentEntry,
+    residence_timeline,
+    residents_grouped_by_role,
     residents_of_place,
     swedish_sort_key,
 )
@@ -431,3 +435,291 @@ def test_place_without_residences_yields_no_entries():
     data = _project(persons=[_person("person_1")], places=[_place("place_1", "Åby")])
 
     assert residents_of_place(data, "place_1", 1843) == []
+
+
+# ===========================================================================
+# residence_timeline (Requirement 8.7)
+# ===========================================================================
+
+
+def test_timeline_sorts_by_start_earliest_ascending():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact("r2", start=Endpoint(earliest="1850"), end=Endpoint(latest="1860")),
+            _fact("r1", start=Endpoint(earliest="1840"), end=Endpoint(latest="1860")),
+        ],
+    )
+
+    result = residence_timeline(data, "person_1")
+
+    assert [f.id for f in result] == ["r1", "r2"]
+
+
+def test_timeline_absent_sorts_before_any_present_value():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact("r2", start=Endpoint(earliest="1840"), end=Endpoint(latest="1860")),
+            _fact("r1", start=Endpoint(), end=Endpoint(latest="1860")),
+        ],
+    )
+
+    result = residence_timeline(data, "person_1")
+
+    assert [f.id for f in result] == ["r1", "r2"]
+
+
+def test_timeline_breaks_ties_on_start_latest():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact("r2", start=Endpoint(earliest="1840", latest="1845")),
+            _fact("r1", start=Endpoint(earliest="1840", latest="1842")),
+        ],
+    )
+
+    result = residence_timeline(data, "person_1")
+
+    assert [f.id for f in result] == ["r1", "r2"]
+
+
+def test_timeline_breaks_ties_on_end_earliest_then_end_latest():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact(
+                "r2",
+                start=Endpoint(earliest="1840", latest="1840"),
+                end=Endpoint(earliest="1850", latest="1860"),
+            ),
+            _fact(
+                "r1",
+                start=Endpoint(earliest="1840", latest="1840"),
+                end=Endpoint(earliest="1848", latest="1860"),
+            ),
+        ],
+    )
+
+    result = residence_timeline(data, "person_1")
+
+    assert [f.id for f in result] == ["r1", "r2"]
+
+
+def test_timeline_breaks_ties_on_place_name_swedish_order():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[
+            _place("place_1", "Åby"),
+            _place("place_2", "Ed"),
+        ],
+        residences=[
+            _fact(
+                "r1",
+                place_id="place_1",
+                start=Endpoint(earliest="1840"),
+                end=Endpoint(latest="1860"),
+            ),
+            _fact(
+                "r2",
+                place_id="place_2",
+                start=Endpoint(earliest="1840"),
+                end=Endpoint(latest="1860"),
+            ),
+        ],
+    )
+
+    result = residence_timeline(data, "person_1")
+
+    # "Ed" < "Åby" in Swedish alphabetical order (å comes after z).
+    assert [f.id for f in result] == ["r2", "r1"]
+
+
+def test_timeline_final_tiebreak_is_ascending_id():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact("r3", start=Endpoint(earliest="1840"), end=Endpoint(latest="1860")),
+            _fact("r1", start=Endpoint(earliest="1840"), end=Endpoint(latest="1860")),
+            _fact("r2", start=Endpoint(earliest="1840"), end=Endpoint(latest="1860")),
+        ],
+    )
+
+    result = residence_timeline(data, "person_1")
+
+    assert [f.id for f in result] == ["r1", "r2", "r3"]
+
+
+def test_timeline_returns_only_facts_of_the_given_person():
+    data = _project(
+        persons=[_person("person_1"), _person("person_2", "Brita", "Persdotter")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact("r1", person_id="person_1", start=Endpoint(earliest="1840")),
+            _fact("r2", person_id="person_2", start=Endpoint(earliest="1830")),
+        ],
+    )
+
+    result = residence_timeline(data, "person_1")
+
+    assert [f.id for f in result] == ["r1"]
+
+
+def test_timeline_is_stable_across_runs():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact("r3", start=Endpoint(earliest="1840")),
+            _fact("r1", start=Endpoint(earliest="1840")),
+            _fact("r2", start=Endpoint(earliest="1850")),
+        ],
+    )
+
+    first_run = residence_timeline(data, "person_1")
+    second_run = residence_timeline(data, "person_1")
+
+    assert [f.id for f in first_run] == [f.id for f in second_run]
+
+
+def test_timeline_leaves_project_unchanged():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact("r1", start=Endpoint(earliest="1850")),
+            _fact("r2", start=Endpoint(earliest="1840")),
+        ],
+    )
+    before = deepcopy(data)
+
+    residence_timeline(data, "person_1")
+
+    assert data == before
+
+
+def test_timeline_empty_for_unknown_person():
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[_fact("r1")],
+    )
+
+    assert residence_timeline(data, "person_99") == []
+
+
+# ===========================================================================
+# residents_grouped_by_role (Requirement 8.10)
+# ===========================================================================
+
+
+def _entry(residence_id="r1", role="", person_id="person_1"):
+    """A minimal ResidentEntry for role grouping tests."""
+    return ResidentEntry(
+        person_id=person_id,
+        person_display="Test",
+        residence_id=residence_id,
+        place_id="place_1",
+        place_display="Åby",
+        interval_display="1840\u20131860",
+        label=LABEL_CERTAIN,
+        role_in_household=role,
+    )
+
+
+def test_role_grouping_groups_by_exact_text():
+    entries = [
+        _entry("r1", role="husbonde"),
+        _entry("r2", role="piga"),
+        _entry("r3", role="husbonde"),
+    ]
+
+    result = residents_grouped_by_role(entries)
+
+    assert [(role, [e.residence_id for e in members]) for role, members in result] == [
+        ("husbonde", ["r1", "r3"]),
+        ("piga", ["r2"]),
+    ]
+
+
+def test_role_grouping_empty_roles_in_final_group():
+    entries = [
+        _entry("r1", role=""),
+        _entry("r2", role="piga"),
+        _entry("r3", role=""),
+    ]
+
+    result = residents_grouped_by_role(entries)
+
+    assert [(role, [e.residence_id for e in members]) for role, members in result] == [
+        ("piga", ["r2"]),
+        (LABEL_ROLE_MISSING, ["r1", "r3"]),
+    ]
+
+
+def test_role_grouping_case_sensitive():
+    entries = [
+        _entry("r1", role="Piga"),
+        _entry("r2", role="piga"),
+    ]
+
+    result = residents_grouped_by_role(entries)
+
+    assert [(role, [e.residence_id for e in members]) for role, members in result] == [
+        ("Piga", ["r1"]),
+        ("piga", ["r2"]),
+    ]
+
+
+def test_role_grouping_whitespace_sensitive():
+    entries = [
+        _entry("r1", role="dräng på gården"),
+        _entry("r2", role="dräng  på gården"),
+    ]
+
+    result = residents_grouped_by_role(entries)
+
+    assert len(result) == 2
+    assert result[0][0] == "dräng på gården"
+    assert result[1][0] == "dräng  på gården"
+
+
+def test_role_grouping_preserves_first_occurrence_order():
+    entries = [
+        _entry("r1", role="inhyses"),
+        _entry("r2", role="piga"),
+        _entry("r3", role="husbonde"),
+        _entry("r4", role="piga"),
+    ]
+
+    result = residents_grouped_by_role(entries)
+
+    assert [role for role, _ in result] == ["inhyses", "piga", "husbonde"]
+
+
+def test_role_grouping_all_empty_yields_one_final_group():
+    entries = [_entry("r1"), _entry("r2"), _entry("r3")]
+
+    result = residents_grouped_by_role(entries)
+
+    assert len(result) == 1
+    assert result[0][0] == LABEL_ROLE_MISSING
+    assert len(result[0][1]) == 3
+
+
+def test_role_grouping_no_entries_yields_empty_list():
+    assert residents_grouped_by_role([]) == []
+
+
+def test_role_grouping_no_empty_roles_means_no_final_group():
+    entries = [_entry("r1", role="husbonde"), _entry("r2", role="piga")]
+
+    result = residents_grouped_by_role(entries)
+
+    assert all(role != LABEL_ROLE_MISSING for role, _ in result)
+    assert [role for role, _ in result] == ["husbonde", "piga"]

@@ -16,6 +16,7 @@ Pure module: no Qt, no I/O, no mutation of the Project.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -27,6 +28,11 @@ from slaktbusken.model.residence import (
     coverage_union,
     observation_span_years,
 )
+from slaktbusken.model.source import Source
+
+# Regex for parsing a Source ``years`` value: one four-digit year, or two
+# separated by a hyphen-minus or en dash (U+2013) with optional spaces.
+_YEARS_RE = re.compile(r"^\s*(\d{4})(?:\s*[-\u2013]\s*(\d{4}))?\s*$")
 
 
 @dataclass
@@ -121,6 +127,199 @@ def _is_splittable(fact: ResidenceFact, first_year: int, last_year: int) -> bool
     return ends_before and begins_after
 
 
+def _parse_source_years(years_value: Optional[str]) -> Optional[tuple[int, int]]:
+    """Parse a Source ``years`` field into (first_year, last_year) or ``None``.
+
+    Accepts a single four-digit year (both bounds equal) or two four-digit years
+    separated by a hyphen-minus or en dash with optional surrounding spaces.
+    Returns ``None`` for absent, empty, malformed or descending values.
+    """
+    if years_value is None:
+        return None
+    match = _YEARS_RE.match(years_value)
+    if match is None:
+        return None
+    first = int(match.group(1))
+    second_text = match.group(2)
+    last = int(second_text) if second_text is not None else first
+    if first > last:
+        return None
+    return (first, last)
+
+
+def _source_years_contain_any(source: Source, uncovered_years: set[int]) -> bool:
+    """Whether the Source ``years`` value covers at least one of *uncovered_years*."""
+    parsed = _parse_source_years(
+        source.structured_reference.fields.get("years")
+    )
+    if parsed is None:
+        return False
+    first, last = parsed
+    return any(y in uncovered_years for y in range(first, last + 1))
+
+
+def _source_first_year(source: Source) -> int:
+    """The first year of a Source ``years`` value; used as sort key."""
+    parsed = _parse_source_years(
+        source.structured_reference.fields.get("years")
+    )
+    # Caller guarantees this is called only on sources with parseable years.
+    assert parsed is not None
+    return parsed[0]
+
+
+def _find_preceding_observation(
+    fact: ResidenceFact, gap_first_year: int
+) -> Optional[Observation]:
+    """The Observation whose covered years end immediately before the gap.
+
+    "Immediately before" means the Observation's last covered year is
+    gap_first_year - 1. If multiple Observations match (overlapping spans), the
+    first in list order is used.
+    """
+    target_year = gap_first_year - 1
+    for observation in fact.observations:
+        span = observation_span_years(observation)
+        if span is None:
+            continue
+        _, span_last = span
+        if span_last == target_year:
+            return observation
+    return None
+
+
+def _get_source_church_book_fields(
+    source_id: str, data: ProjectData
+) -> tuple[Optional[str], Optional[str]]:
+    """Return (parish, series) from the church_book structured_reference of the source.
+
+    Returns (None, None) if the source is not found or not a church_book type.
+    A whitespace-only or empty field counts as absent.
+    """
+    for source in data.sources:
+        if source.id == source_id:
+            if source.source_type != "church_book":
+                return (None, None)
+            fields = source.structured_reference.fields
+            parish = fields.get("parish")
+            series = fields.get("series")
+            # Treat whitespace-only as absent
+            if parish is not None and isinstance(parish, str):
+                parish = parish.strip() or None
+            else:
+                parish = None
+            if series is not None and isinstance(series, str):
+                series = series.strip() or None
+            else:
+                series = None
+            return (parish, series)
+    return (None, None)
+
+
+def _find_candidate_sources(
+    parish: Optional[str],
+    series: Optional[str],
+    uncovered_years: set[int],
+    data: ProjectData,
+    max_candidates: int = 5,
+) -> list[Source]:
+    """Find Sources with matching parish/series whose years cover gap years.
+
+    Returns at most *max_candidates* Sources ordered by first year ascending.
+    Matching is case-sensitive on the stored parish/series values.
+    """
+    candidates: list[Source] = []
+    for source in data.sources:
+        if source.source_type != "church_book":
+            continue
+        fields = source.structured_reference.fields
+        src_parish = fields.get("parish")
+        src_series = fields.get("series")
+        # Normalize: strip and treat empty as None
+        if src_parish is not None and isinstance(src_parish, str):
+            src_parish = src_parish.strip() or None
+        else:
+            src_parish = None
+        if src_series is not None and isinstance(src_series, str):
+            src_series = src_series.strip() or None
+        else:
+            src_series = None
+        if src_parish != parish or src_series != series:
+            continue
+        if _source_years_contain_any(source, uncovered_years):
+            candidates.append(source)
+    # Sort by first year ascending
+    candidates.sort(key=_source_first_year)
+    return candidates[:max_candidates]
+
+
+def _format_candidate_label(source: Source) -> str:
+    """Format a candidate Source as "{series}:{volume}" for the suggestion.
+
+    Absent series or volume parts are omitted with their separating colon.
+    """
+    fields = source.structured_reference.fields
+    series_val = fields.get("series")
+    volume_val = fields.get("volume")
+    # Normalize to string
+    series_str = str(series_val).strip() if series_val is not None else ""
+    volume_str = str(volume_val).strip() if volume_val is not None else ""
+    if series_str and volume_str:
+        return f"{series_str}:{volume_str}"
+    if series_str:
+        return series_str
+    if volume_str:
+        return volume_str
+    return ""
+
+
+def _build_suggestion(
+    gap_first_year: int,
+    gap_last_year: int,
+    parish: Optional[str],
+    series: Optional[str],
+    candidates: list[Source],
+) -> str:
+    """Compose the full suggestion text for a coverage gap.
+
+    Multi-year form: "{parish} {series}: period 1876\u20131880 saknar källa"
+    Single-year form: "{parish} {series}: år 1876 saknar källa"
+    (Requirements 5.5, 5.14)
+
+    Absent parish or series is omitted together with its separating space.
+    Candidate volumes appended as " \u2013 kontrollera AI:18, AI:19" (Requirement 5.6).
+    """
+    # Build the prefix: parish and series with absent values omitted
+    parts: list[str] = []
+    if parish:
+        parts.append(parish)
+    if series:
+        parts.append(series)
+    prefix = " ".join(parts)
+
+    # Build the period/year clause
+    if gap_first_year == gap_last_year:
+        period_clause = f"år {gap_first_year} saknar källa"
+    else:
+        period_clause = f"period {gap_first_year}\u2013{gap_last_year} saknar källa"
+
+    # Combine prefix and clause
+    if prefix:
+        suggestion = f"{prefix}: {period_clause}"
+    else:
+        suggestion = period_clause
+
+    # Append candidate volumes
+    if candidates:
+        labels = [_format_candidate_label(c) for c in candidates]
+        # Filter out empty labels
+        labels = [label for label in labels if label]
+        if labels:
+            suggestion += f" \u2013 kontrollera {', '.join(labels)}"
+
+    return suggestion
+
+
 def coverage_gaps(fact: ResidenceFact, data: ProjectData) -> list[CoverageGap]:
     """The coverage gaps of *fact*, ordered by first uncovered year ascending.
 
@@ -131,11 +330,13 @@ def coverage_gaps(fact: ResidenceFact, data: ProjectData) -> list[CoverageGap]:
     yields no gap at all (Requirements 5.3, 16.13). `splittable` follows
     Requirement 5.10.
 
+    The `suggestion` text of each gap is phrased from the preceding Observation's
+    Source: parish and series from the `church_book` structured_reference, in
+    multi-year or single-year form (Requirements 5.5, 5.14), with at most five
+    matching candidate Sources appended (Requirement 5.6).
+
     *fact*, its Observations and *data* are only read; nothing is mutated
     (Requirement 5.4).
-
-    The `suggestion` text of each gap is phrased from the Project Sources in a
-    later step and is empty here.
     """
     if len(fact.observations) < 2:
         return []
@@ -150,13 +351,35 @@ def coverage_gaps(fact: ResidenceFact, data: ProjectData) -> list[CoverageGap]:
         year for year in range(lowest_from, highest_to + 1) if year not in covered
     ]
 
-    return [
-        CoverageGap(
-            residence_id=fact.id,
-            first_year=first_year,
-            last_year=last_year,
-            suggestion="",
-            splittable=_is_splittable(fact, first_year, last_year),
+    gaps: list[CoverageGap] = []
+    for first_year, last_year in _maximal_runs(uncovered):
+        # Find the Observation ending immediately before this gap
+        preceding_obs = _find_preceding_observation(fact, first_year)
+
+        # Extract parish and series from the preceding Observation's Source
+        parish: Optional[str] = None
+        series: Optional[str] = None
+        if preceding_obs is not None:
+            parish, series = _get_source_church_book_fields(
+                preceding_obs.source_ref.source_id, data
+            )
+
+        # Find candidate volumes
+        uncovered_years = set(range(first_year, last_year + 1))
+        candidates = _find_candidate_sources(parish, series, uncovered_years, data)
+
+        suggestion = _build_suggestion(
+            first_year, last_year, parish, series, candidates
         )
-        for first_year, last_year in _maximal_runs(uncovered)
-    ]
+
+        gaps.append(
+            CoverageGap(
+                residence_id=fact.id,
+                first_year=first_year,
+                last_year=last_year,
+                suggestion=suggestion,
+                splittable=_is_splittable(fact, first_year, last_year),
+            )
+        )
+
+    return gaps

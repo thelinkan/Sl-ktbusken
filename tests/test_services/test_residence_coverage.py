@@ -3,7 +3,8 @@
 Covers Requirements 5.1 and 5.2 (gaps as maximal runs between the lowest
 `observed_from` and the highest `observed_to`, ordered by first uncovered year),
 5.3 and 16.13 (zero gaps for zero or one Observation and for a complete union),
-5.4 (nothing mutated) and 5.10 (`splittable`).
+5.4 (nothing mutated), 5.5 and 5.14 (suggestion phrasing), 5.6 (candidate
+volumes) and 5.10 (`splittable`).
 """
 
 from copy import deepcopy
@@ -11,6 +12,7 @@ from copy import deepcopy
 from slaktbusken.model.event import SourceRef
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
+from slaktbusken.model.source import Source, StructuredReference
 from slaktbusken.services.residence_coverage import (
     CoverageGap,
     OpenEndpointSuggestion,
@@ -232,6 +234,302 @@ def test_computing_gaps_mutates_neither_the_fact_nor_the_project():
         notes="anteckning",
     )
     data = ProjectData()
+    fact_before = deepcopy(fact)
+    data_before = deepcopy(data)
+
+    coverage_gaps(fact, data)
+
+    assert fact == fact_before
+    assert data == data_before
+
+
+# --- helpers for suggestion tests ---
+
+
+def _church_book_source(
+    source_id: str,
+    parish: str = "Ljusdal",
+    series: str = "AI",
+    volume: str = "17",
+    years: str = "1866-1870",
+) -> Source:
+    return Source(
+        id=source_id,
+        provider="Arkiv Digital",
+        source_type="church_book",
+        title=f"{parish} {series}:{volume}",
+        structured_reference=StructuredReference(
+            fields={
+                "parish": parish,
+                "series": series,
+                "volume": volume,
+                "years": years,
+            }
+        ),
+    )
+
+
+# --- suggestion phrasing (Requirements 5.5, 5.14) ---
+
+
+def test_multi_year_gap_uses_period_form_with_en_dash():
+    """Requirement 5.5: multi-year form uses 'period 1876–1880 saknar källa'."""
+    source = _church_book_source("source_1", parish="Ljusdal", series="AI", years="1871-1875")
+    fact = _fact([
+        _observation("1871", "1875", source_id="source_1"),
+        _observation("1881", "1885", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert len(gaps) == 1
+    assert "Ljusdal AI: period 1876\u20131880 saknar källa" in gaps[0].suggestion
+
+
+def test_single_year_gap_uses_year_form():
+    """Requirement 5.14: single-year form uses 'år 1876 saknar källa'."""
+    source = _church_book_source("source_1", parish="Ljusdal", series="AI", years="1875")
+    fact = _fact([
+        _observation("1875", "1875", source_id="source_1"),
+        _observation("1877", "1880", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert len(gaps) == 1
+    assert gaps[0].suggestion.startswith("Ljusdal AI: år 1876 saknar källa")
+
+
+def test_parish_and_series_from_preceding_observation_source():
+    """Parish and series come from the Source of the Observation ending before the gap."""
+    source_before = _church_book_source(
+        "source_1", parish="Delsbo", series="AII", years="1860-1870"
+    )
+    source_after = _church_book_source(
+        "source_2", parish="Ljusdal", series="AI", years="1880-1885"
+    )
+    fact = _fact([
+        _observation("1860", "1870", source_id="source_1"),
+        _observation("1880", "1885", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source_before, source_after])
+
+    gaps = coverage_gaps(fact, data)
+
+    # Should use Delsbo AII (the source of the preceding observation)
+    assert gaps[0].suggestion.startswith("Delsbo AII: period 1871\u20131879 saknar källa")
+
+
+def test_absent_parish_is_omitted_with_its_space():
+    """An absent parish is omitted together with its separating space."""
+    source = _church_book_source("source_1", parish="", series="AI", years="1866-1870")
+    fact = _fact([
+        _observation("1866", "1870", source_id="source_1"),
+        _observation("1876", "1880", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert gaps[0].suggestion.startswith("AI: period 1871\u20131875 saknar källa")
+
+
+def test_absent_series_is_omitted_with_its_space():
+    """An absent series is omitted together with its separating space."""
+    source = _church_book_source("source_1", parish="Ljusdal", series="", years="1866-1870")
+    fact = _fact([
+        _observation("1866", "1870", source_id="source_1"),
+        _observation("1876", "1880", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert gaps[0].suggestion.startswith("Ljusdal: period 1871\u20131875 saknar källa")
+
+
+def test_both_parish_and_series_absent_yields_bare_period_clause():
+    """When both parish and series are absent, only the period clause remains."""
+    source = _church_book_source("source_1", parish="", series="", years="1866-1870")
+    fact = _fact([
+        _observation("1866", "1870", source_id="source_1"),
+        _observation("1876", "1880", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert gaps[0].suggestion.startswith("period 1871\u20131875 saknar källa")
+
+
+def test_non_church_book_source_yields_no_parish_series():
+    """A non-church_book Source yields no parish or series in the suggestion."""
+    source = Source(
+        id="source_1", provider="test", source_type="database", title="DB"
+    )
+    fact = _fact([
+        _observation("1866", "1870", source_id="source_1"),
+        _observation("1876", "1880", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source])
+
+    gaps = coverage_gaps(fact, data)
+
+    # No parish/series prefix
+    assert gaps[0].suggestion.startswith("period 1871\u20131875 saknar källa")
+
+
+def test_source_not_in_project_yields_no_parish_series():
+    """A Source not found in the Project yields no parish or series."""
+    fact = _fact([
+        _observation("1866", "1870", source_id="missing_source"),
+        _observation("1876", "1880", source_id="source_2"),
+    ])
+    data = ProjectData()
+
+    gaps = coverage_gaps(fact, data)
+
+    assert gaps[0].suggestion.startswith("period 1871\u20131875 saknar källa")
+
+
+# --- candidate volumes (Requirement 5.6) ---
+
+
+def test_candidates_appended_with_series_and_volume():
+    """Matching candidate Sources are appended as 'kontrollera AI:18'."""
+    source_before = _church_book_source(
+        "source_1", parish="Ljusdal", series="AI", volume="17", years="1871-1875"
+    )
+    candidate = _church_book_source(
+        "source_cand", parish="Ljusdal", series="AI", volume="18", years="1876-1880"
+    )
+    fact = _fact([
+        _observation("1871", "1875", source_id="source_1"),
+        _observation("1881", "1885", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source_before, candidate])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert "kontrollera AI:18" in gaps[0].suggestion
+
+
+def test_candidates_ordered_by_first_year_ascending():
+    """Candidate Sources are ordered by first year ascending."""
+    source_before = _church_book_source(
+        "source_1", parish="Ljusdal", series="AI", volume="15", years="1860-1870"
+    )
+    cand_later = _church_book_source(
+        "cand_2", parish="Ljusdal", series="AI", volume="18", years="1879-1885"
+    )
+    cand_earlier = _church_book_source(
+        "cand_1", parish="Ljusdal", series="AI", volume="17", years="1871-1878"
+    )
+    fact = _fact([
+        _observation("1860", "1870", source_id="source_1"),
+        _observation("1886", "1890", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source_before, cand_later, cand_earlier])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert "kontrollera AI:17, AI:18" in gaps[0].suggestion
+
+
+def test_at_most_five_candidates_are_appended():
+    """At most five matching candidate Sources are appended."""
+    source_before = _church_book_source(
+        "source_1", parish="Ljusdal", series="AI", volume="10", years="1850-1855"
+    )
+    candidates = [
+        _church_book_source(
+            f"cand_{i}", parish="Ljusdal", series="AI",
+            volume=str(11 + i), years=f"{1856 + i * 5}-{1860 + i * 5}"
+        )
+        for i in range(7)  # 7 candidates, only 5 should appear
+    ]
+    fact = _fact([
+        _observation("1850", "1855", source_id="source_1"),
+        _observation("1900", "1905", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source_before] + candidates)
+
+    gaps = coverage_gaps(fact, data)
+
+    # Count the number of candidates in the suggestion
+    suggestion = gaps[0].suggestion
+    assert "kontrollera" in suggestion
+    candidate_part = suggestion.split("kontrollera ")[1]
+    assert len(candidate_part.split(", ")) == 5
+
+
+def test_no_candidates_when_no_matching_sources():
+    """No candidates appended when no Sources match parish/series."""
+    source_before = _church_book_source(
+        "source_1", parish="Ljusdal", series="AI", volume="17", years="1871-1875"
+    )
+    non_matching = _church_book_source(
+        "other", parish="Delsbo", series="AI", volume="5", years="1876-1880"
+    )
+    fact = _fact([
+        _observation("1871", "1875", source_id="source_1"),
+        _observation("1881", "1885", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source_before, non_matching])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert "kontrollera" not in gaps[0].suggestion
+
+
+def test_candidate_must_cover_uncovered_year():
+    """A Source with same parish/series but no uncovered year is excluded."""
+    source_before = _church_book_source(
+        "source_1", parish="Ljusdal", series="AI", volume="17", years="1871-1875"
+    )
+    # This source covers 1860-1870, which does NOT overlap the gap 1876-1880
+    non_overlapping = _church_book_source(
+        "other", parish="Ljusdal", series="AI", volume="16", years="1860-1870"
+    )
+    fact = _fact([
+        _observation("1871", "1875", source_id="source_1"),
+        _observation("1881", "1885", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source_before, non_overlapping])
+
+    gaps = coverage_gaps(fact, data)
+
+    assert "kontrollera" not in gaps[0].suggestion
+
+
+def test_whitespace_only_parish_treated_as_absent():
+    """A whitespace-only parish value is treated as absent."""
+    source = _church_book_source("source_1", parish="   ", series="AI", years="1866-1870")
+    fact = _fact([
+        _observation("1866", "1870", source_id="source_1"),
+        _observation("1876", "1880", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source])
+
+    gaps = coverage_gaps(fact, data)
+
+    # Parish is absent, so only series appears in prefix
+    assert gaps[0].suggestion.startswith("AI: period 1871\u20131875 saknar källa")
+
+
+def test_purity_with_suggestion_computation():
+    """Computing gaps with sources mutates neither the fact nor the project."""
+    source = _church_book_source("source_1", parish="Ljusdal", series="AI", years="1866-1870")
+    candidate = _church_book_source(
+        "cand_1", parish="Ljusdal", series="AI", volume="18", years="1876-1880"
+    )
+    fact = _fact([
+        _observation("1866", "1870", source_id="source_1"),
+        _observation("1881", "1885", source_id="source_2"),
+    ])
+    data = ProjectData(sources=[source, candidate])
     fact_before = deepcopy(fact)
     data_before = deepcopy(data)
 

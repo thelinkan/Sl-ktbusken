@@ -423,3 +423,176 @@ class TestResidenceInJson:
         events_idx = keys.index("events")
         residences_idx = keys.index("residences")
         assert residences_idx == events_idx + 1
+
+
+class TestAbsentNullMalformedResidences:
+    """Handle absent, null and malformed residence sections on load (task 6.2).
+
+    Requirements 13.3, 13.6:
+    - Missing or null 'residences' yields zero elements with zero errors
+    - A present non-list raises CorruptedFileError with the specified message
+      before any state is replaced
+    """
+
+    def test_absent_residences_key_yields_empty_list(self) -> None:
+        """A project file with no 'residences' key loads with zero residences."""
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+        }
+        json_str = json.dumps(raw)
+
+        result = deserialize(json_str)
+
+        assert result.residences == []
+
+    def test_null_residences_yields_empty_list(self) -> None:
+        """A project file with 'residences': null loads with zero residences."""
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "residences": None,
+        }
+        json_str = json.dumps(raw)
+
+        result = deserialize(json_str)
+
+        assert result.residences == []
+
+    def test_null_residences_with_log_yields_no_errors(self) -> None:
+        """Loading null residences with a log list produces no log entries."""
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "residences": None,
+        }
+        json_str = json.dumps(raw)
+        log: list[str] = []
+
+        result = deserialize(json_str, log=log)
+
+        assert result.residences == []
+        assert log == []
+
+    def test_malformed_residences_string_raises_corrupted_file_error(self) -> None:
+        """A 'residences' value that is a string raises CorruptedFileError."""
+        from slaktbusken.persistence.file_io import CorruptedFileError
+        import pytest
+
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "residences": "not a list",
+        }
+        json_str = json.dumps(raw)
+
+        with pytest.raises(CorruptedFileError, match="boendeavsnitt.*ogiltigt format"):
+            deserialize(json_str)
+
+    def test_malformed_residences_dict_raises_corrupted_file_error(self) -> None:
+        """A 'residences' value that is a dict raises CorruptedFileError."""
+        from slaktbusken.persistence.file_io import CorruptedFileError
+        import pytest
+
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "residences": {"id": "r1", "person_id": "p1"},
+        }
+        json_str = json.dumps(raw)
+
+        with pytest.raises(CorruptedFileError, match="boendeavsnitt.*ogiltigt format"):
+            deserialize(json_str)
+
+    def test_malformed_residences_number_raises_corrupted_file_error(self) -> None:
+        """A 'residences' value that is a number raises CorruptedFileError."""
+        from slaktbusken.persistence.file_io import CorruptedFileError
+        import pytest
+
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "residences": 42,
+        }
+        json_str = json.dumps(raw)
+
+        with pytest.raises(CorruptedFileError, match="boendeavsnitt.*ogiltigt format"):
+            deserialize(json_str)
+
+    def test_malformed_residences_boolean_raises_corrupted_file_error(self) -> None:
+        """A 'residences' value that is a boolean raises CorruptedFileError."""
+        from slaktbusken.persistence.file_io import CorruptedFileError
+        import pytest
+
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "residences": True,
+        }
+        json_str = json.dumps(raw)
+
+        with pytest.raises(CorruptedFileError, match="boendeavsnitt.*ogiltigt format"):
+            deserialize(json_str)
+
+    def test_malformed_residences_does_not_replace_state(self) -> None:
+        """When residences is malformed, no entity state is replaced on the ProjectData.
+
+        This verifies 'before any state is replaced' — other entity collections
+        that appear before 'residences' in the file should NOT be deserialized.
+        """
+        from slaktbusken.persistence.file_io import CorruptedFileError
+        import pytest
+
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "persons": [{"id": "p1", "names": [{"first_name": "Test"}]}],
+            "events": [{"id": "e1", "type": "birth", "participants": []}],
+            "residences": "CORRUPT",
+        }
+        json_str = json.dumps(raw)
+
+        with pytest.raises(CorruptedFileError):
+            deserialize(json_str)
+
+    def test_exact_error_message_for_malformed_residences(self) -> None:
+        """The error message matches the requirement exactly."""
+        from slaktbusken.persistence.file_io import CorruptedFileError
+        import pytest
+
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "residences": {"bad": "data"},
+        }
+        json_str = json.dumps(raw)
+
+        with pytest.raises(CorruptedFileError) as exc_info:
+            deserialize(json_str)
+
+        assert str(exc_info.value) == (
+            "Filens boendeavsnitt har ett ogiltigt format och kunde inte läsas."
+        )
+
+    def test_empty_list_residences_loads_fine(self) -> None:
+        """An empty list for 'residences' is valid and yields zero elements."""
+        raw = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "project": {"title": "Test"},
+            "residences": [],
+        }
+        json_str = json.dumps(raw)
+
+        result = deserialize(json_str)
+
+        assert result.residences == []

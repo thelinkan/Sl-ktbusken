@@ -52,7 +52,7 @@ and the project's tag-comment/docstring form.
     - **Property 6: Project order is preserved and identifiers are unique and never reused**
     - **Validates: Requirements 1.2, 1.12**
 
-- [ ] 3. Validation: errors and warning findings
+- [x] 3. Validation: errors and warning findings
   - [x] 3.1 Implement `validate_residence` in `slaktbusken/model/validators.py`
     - Return `list[str]` of Swedish error messages exactly per the design table, in the documented multiplicity
     - Blank `person_id`/`place_id` suppresses the missing-reference message for that same field; place type, duplicate person+place combinations and unknown `precision` values yield no error
@@ -74,11 +74,11 @@ and the project's tag-comment/docstring form.
     - `ResidenceFinding` record with `severity`, `residence_findings` (start/end window overlap, duplicate source on one fact, evidence outside the recorded period), `overlap_findings` (same-person unordered pairs, strict core overlap at the coarser core precision, same-place and different-place messages, {plats A} ordering and finding order), `flytt_link_findings`
     - _Requirements: 2.17, 4.13, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 16.9, 18.10_
 
-  - [ ] 3.6 Write property test for single-fact warning findings
+  - [x] 3.6 Write property test for single-fact warning findings
     - **Property 5: Single-fact warning findings appear exactly when their condition holds**
     - **Validates: Requirements 2.17, 4.13, 6.9, 16.9**
 
-  - [ ] 3.7 Write property test for overlap findings
+  - [x] 3.7 Write property test for overlap findings
     - **Property 16: Overlap findings pair, message and order deterministically**
     - **Validates: Requirements 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8**
 
@@ -98,7 +98,7 @@ and the project's tag-comment/docstring form.
     - Aspect lists and labels, the `flytt` label, the `from_place` field shape, `ResidenceFact`/`Endpoint`/`Observation` defaults
     - _Requirements: 1.1, 4.14, 18.1, 18.2, 18.5_
 
-  - [ ] 5.4 Extend `slaktbusken/services/delete_service.py`
+  - [x] 5.4 Extend `slaktbusken/services/delete_service.py`
     - Person deletion removes that person's Residence_Facts with their Observations and leaves all others unchanged; Event deletion clears `event_id` on every referencing Endpoint while keeping bounds and deleting no fact; `find_residence_dependencies(place_id, data)` returns one blocking entry per referencing fact; a place referenced by a Flytt_Event `from_place` blocks as one referenced by `place`
     - _Requirements: 1.8, 1.9, 3.11, 18.17_
 
@@ -112,7 +112,7 @@ and the project's tag-comment/docstring form.
     - Optional load log: unknown fields ignored and logged with the fact `id`; unresolved `person_id`, `place_id`, `source_ref.source_id`, `event_id` kept, logged and left to the validator
     - _Requirements: 13.1, 13.2, 13.5, 13.7_
 
-  - [ ] 6.2 Handle absent, null and malformed residence sections on load
+  - [x] 6.2 Handle absent, null and malformed residence sections on load
     - Missing or `null` `residences` yields zero elements with zero errors; a present non-list raises `CorruptedFileError` with "Filens boendeavsnitt har ett ogiltigt format och kunde inte läsas." before any state is replaced
     - _Requirements: 13.3, 13.6_
 
@@ -144,7 +144,7 @@ and the project's tag-comment/docstring form.
     - **Property 12: Coverage union and coverage gaps are exact, maximal and non-mutating**
     - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 16.13**
 
-  - [ ] 8.3 Implement gap suggestion phrasing and candidate volumes
+  - [x] 8.3 Implement gap suggestion phrasing and candidate volumes
     - Multi-year and single-year forms, parish and series from the `church_book` fields of the Source cited by the Observation whose covered years end immediately before the gap, absent values omitted with their separating space, at most five matching candidate Sources appended in ascending first-year order
     - _Requirements: 5.5, 5.6, 5.14_
 
@@ -165,7 +165,7 @@ and the project's tag-comment/docstring form.
     - **Validates: Requirements 5.7, 5.8, 5.9, 5.15**
 
 - [ ] 9. Inferred tightening from neighbours
-  - [ ] 9.1 Create `slaktbusken/services/residence_inference.py`
+  - [x] 9.1 Create `slaktbusken/services/residence_inference.py`
     - `DerivedBound`, `InferenceResult`, `infer_bounds` computing neighbour, birth and death candidates in a single pass from stored values only, resolving competitors by widest-interval comparison, returning winners in their stored ISO form, dropping contradicting candidates with the finding "Härlett värde motsäger inmatat värde.", mutating and persisting nothing
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.10, 7.12_
 
@@ -178,7 +178,7 @@ and the project's tag-comment/docstring form.
     - `ResidentEntry` carrying person/place identifiers and displays, rendered interval, label, `role_in_household` as empty rather than omitted, `undated`, `place_chain`; one entry per matching fact with no merging; "säker"/"möjlig" labelling; both-sides-unbounded spans matching every year, labelled "möjlig" with "odaterat" and sorting last; no lifespan clamping; breadth-first descendant walk to 10 levels with a visited set; place and residence indexes built once per call
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.9, 8.11, 15.9_
 
-  - [ ] 10.2 Implement `residence_timeline` and `residents_grouped_by_role`
+  - [x] 10.2 Implement `residence_timeline` and `residents_grouped_by_role`
     - Total, stable ordering by `start.earliest`, `start.latest`, `end.earliest`, `end.latest` with absent sorting first, then place name, then `id`; role grouping on exact stored text with empty roles in a final "Roll saknas" group; household composition derived only through this module with no household entity
     - _Requirements: 8.7, 8.8, 8.10_
 
@@ -198,11 +198,11 @@ and the project's tag-comment/docstring form.
     - Accept a single four-digit year in 1500–2100 or two such years in ascending order separated by a hyphen or en dash with any surrounding spaces; return `None` otherwise; never write back to the Source `years` value
     - _Requirements: 4.1, 4.7, 4.8, 4.9, 4.10, 9.2_
 
-  - [ ] 12.2 Write property test for year prefill
+  - [x] 12.2 Write property test for year prefill
     - **Property 11: Year prefill parses the Source years value and never overwrites user input**
     - **Validates: Requirements 4.1, 4.7, 4.8, 4.9, 4.10, 9.2**
 
-  - [ ] 12.3 Implement `attach_observations` and `remove_observation`
+  - [x] 12.3 Implement `attach_observations` and `remove_observation`
     - Append in order; tighten `start.latest` to `min(observed_from)` and `end.earliest` to `max(observed_to)` only when absent or looser; never touch `start.earliest`/`end.latest`; removal keeps survivors byte-identical and in relative order and recomputes a core bound only when it equals the pre-removal aggregate
     - _Requirements: 4.3, 9.5, 16.3, 16.4, 16.7, 16.8_
 
@@ -270,11 +270,11 @@ and the project's tag-comment/docstring form.
     - `format_residence_endpoint`, `format_residence_interval`, `format_residence_line`, `format_observation_span`; the five endpoint wordings, "okänd period" for two unknown endpoints, a single unspaced en dash U+2013 rather than `format_date_range`, stored month/day forms without truncation, role appended as ", {role}" with no separator or trailing whitespace when empty
     - _Requirements: 10.8, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.11, 11.12, 11.13_
 
-  - [ ] 14.2 Write property test for interval rendering
+  - [x] 14.2 Write property test for interval rendering
     - **Property 23: The Residence_Formatter renders each classification pair distinguishably**
     - **Validates: Requirements 10.8, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.11, 11.12, 11.13**
 
-  - [ ] 14.3 Add `normalize_role_in_household` to `slaktbusken/model/residence.py`
+  - [x] 14.3 Add `normalize_role_in_household` to `slaktbusken/model/residence.py`
     - Trim leading and trailing whitespace and preserve every remaining character, internal whitespace, letter case and å/ä/ö with no capitalization, case folding, substitution or normalization; whitespace-only or empty becomes an empty value; accept exactly 100 code points after trimming
     - _Requirements: 10.1, 10.4, 10.5, 10.7_
 

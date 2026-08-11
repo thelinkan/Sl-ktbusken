@@ -265,13 +265,37 @@ def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any], *, log
     ``source_ref.source_id``, and ``event_id`` values are kept as stored and
     left for the validator to report.
 
+    A ``residences`` key that is absent or ``null`` yields zero elements with
+    no error (Requirement 13.3). A present non-list value raises
+    ``CorruptedFileError`` before any state is replaced (Requirement 13.6).
+
     Args:
         project_data: The ProjectData instance to populate.
         raw: The full parsed JSON dictionary.
         log: Optional list to receive diagnostic messages.
+
+    Raises:
+        CorruptedFileError: If the ``residences`` value is present and not a
+            list (Requirement 13.6).
     """
+    from slaktbusken.persistence.file_io import CorruptedFileError
+
+    # Pre-check: abort before any state changes if residences is malformed.
+    if "residences" in raw:
+        residences_value = raw["residences"]
+        if residences_value is not None and not isinstance(residences_value, list):
+            raise CorruptedFileError(
+                "Filens boendeavsnitt har ett ogiltigt format och kunde inte läsas."
+            )
+
     for field_name, cls in _ENTITY_MAP.items():
-        raw_items = raw.get(field_name, [])
+        raw_items = raw.get(field_name)
+        if raw_items is None:
+            # Key absent or value is null — leave the default empty collection.
+            continue
+        if not isinstance(raw_items, list):
+            # Non-list values for other entity fields are skipped silently.
+            continue
         if raw_items:
             if field_name == "residences" and log is not None:
                 deserialized = _deserialize_residences(raw_items, log)

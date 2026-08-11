@@ -90,6 +90,71 @@ def swedish_sort_key(text: str) -> str:
     return text.casefold().translate(_SWEDISH_LETTER_ORDER)
 
 
+#: The group label for entries whose ``role_in_household`` is empty
+#: (Requirement 8.10).
+LABEL_ROLE_MISSING = "Roll saknas"
+
+
+def residence_timeline(data: ProjectData, person_id: str) -> list[ResidenceFact]:
+    """The Residence_Facts of *person_id* in their total, stable timeline order.
+
+    Sort keys: ``start.earliest``, ``start.latest``, ``end.earliest``,
+    ``end.latest`` — each ascending, with an absent bound sorting *before* any
+    present bound — then place display name in Swedish alphabetical order, then
+    ascending Residence_Fact ``id``. Repeated runs over unchanged data therefore
+    return an identical order (Requirement 8.7).
+
+    *data* and every entity it holds are left unchanged.
+    """
+    places_by_id = {place.id: place for place in data.places}
+    facts = [fact for fact in data.residences if fact.person_id == person_id]
+
+    def _timeline_key(fact: ResidenceFact) -> tuple:
+        place_name = _place_display(places_by_id.get(fact.place_id), fact.place_id)
+        return (
+            _absent_first_key(fact.start.earliest),
+            _absent_first_key(fact.start.latest),
+            _absent_first_key(fact.end.earliest),
+            _absent_first_key(fact.end.latest),
+            swedish_sort_key(place_name),
+            fact.id,
+        )
+
+    facts.sort(key=_timeline_key)
+    return facts
+
+
+def residents_grouped_by_role(
+    entries: list[ResidentEntry],
+) -> list[tuple[str, list[ResidentEntry]]]:
+    """Group *entries* by the exact stored ``role_in_household`` text.
+
+    Groups are ordered by the position of their first entry in the input list.
+    Entries whose ``role_in_household`` is empty are placed in a final group
+    labelled :data:`LABEL_ROLE_MISSING`. Two texts that differ in letter case or
+    in internal whitespace belong to separate groups (Requirement 8.10).
+
+    The input list and its entries are left unchanged.
+    """
+    non_empty_groups: dict[str, list[ResidentEntry]] = {}
+    empty_group: list[ResidentEntry] = []
+
+    for entry in entries:
+        role = entry.role_in_household
+        if role == "":
+            empty_group.append(entry)
+        else:
+            non_empty_groups.setdefault(role, []).append(entry)
+
+    result: list[tuple[str, list[ResidentEntry]]] = [
+        (role, members) for role, members in non_empty_groups.items()
+    ]
+    if empty_group:
+        result.append((LABEL_ROLE_MISSING, empty_group))
+
+    return result
+
+
 def residents_of_place(
     data: ProjectData, place_id: str, year: int
 ) -> list[ResidentEntry]:
@@ -270,6 +335,19 @@ def _person_display(person: Optional[Person], person_id: str) -> str:
     name = person.names[0]
     display = f"{name.given} {name.surname}".strip()
     return display or person_id
+
+
+def _absent_first_key(value: Optional[str]) -> tuple[int, str]:
+    """A sort key that places absent (None/empty/whitespace-only) before present.
+
+    Absent sorts as ``(0, "")``; present sorts as ``(1, value)`` so that among
+    present values, lexicographic comparison decides. Since the stored ISO forms
+    ÅÅÅÅ, ÅÅÅÅ-MM and ÅÅÅÅ-MM-DD share a left-padded year, a plain string
+    comparison over the stored values gives the same order as a date comparison.
+    """
+    if value is None or not value.strip():
+        return (0, "")
+    return (1, value.strip())
 
 
 def _sort_key_factory():
