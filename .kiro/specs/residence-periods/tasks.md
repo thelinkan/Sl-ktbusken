@@ -106,7 +106,7 @@ and the project's tag-comment/docstring form.
     - **Property 7: Deletion cascades, clears and blocks as specified**
     - **Validates: Requirements 1.8, 1.9, 3.11, 18.17**
 
-- [ ] 6. Persistence and migration
+- [x] 6. Persistence and migration
   - [x] 6.1 Extend `slaktbusken/persistence/serialization.py` for residences
     - `"residences"` in `entity_fields` written in stored order; `_ENTITY_MAP`, `_NESTED_LIST_TYPES` and `_NESTED_OPTIONAL_TYPES` entries for `ResidenceFact`, `Observation`, `Endpoint`, `SourceRef` and `(Event, "from_place")`
     - Optional load log: unknown fields ignored and logged with the fact `id`; unresolved `person_id`, `place_id`, `source_ref.source_id`, `event_id` kept, logged and left to the validator
@@ -124,11 +124,11 @@ and the project's tag-comment/docstring form.
     - **Property 28: A Residence_Fact survives a serialization round trip**
     - **Validates: Requirements 13.1, 13.2**
 
-  - [ ] 6.5 Write property test for tolerant loading
+  - [x] 6.5 Write property test for tolerant loading
     - **Property 29: Loading tolerates every malformed or dangling residence section**
     - **Validates: Requirements 13.3, 13.5, 13.6, 13.7**
 
-  - [ ] 6.6 Write property test for migration idempotence
+  - [x] 6.6 Write property test for migration idempotence
     - **Property 30: The residences migration is idempotent**
     - **Validates: Requirements 13.4**
 
@@ -214,7 +214,7 @@ and the project's tag-comment/docstring form.
     - **Property 31: Observations tighten the documented core and never touch the outer bounds**
     - **Validates: Requirements 9.5, 16.3, 16.4, 16.5, 16.6, 16.9, 16.11**
 
-  - [ ] 12.6 Write property test for observation removal
+  - [x] 12.6 Write property test for observation removal
     - **Property 32: Removal preserves survivors and hand-entered bounds**
     - **Validates: Requirements 16.7, 16.8**
 
@@ -222,7 +222,7 @@ and the project's tag-comment/docstring form.
     - Set both start bounds to `observed_from` and both end bounds to `observed_to`; invoked only explicitly, never automatically
     - _Requirements: 16.10, 16.11_
 
-  - [ ] 12.8 Write property test for the exact-bound actions
+  - [x] 12.8 Write property test for the exact-bound actions
     - **Property 33: The exact-bound actions are the only route from an Observation to an outer bound**
     - **Validates: Requirements 16.10**
 
@@ -299,7 +299,7 @@ and the project's tag-comment/docstring form.
     - Exactly one Residence_Fact and no Event per RESI regardless of header version; FROM/TO sets the core bounds, BET/AND yields a start window with an unknown end, a plain DATE sets both core bounds, a missing or uninterpretable DATE yields two unknown Endpoints while keeping the place and SOUR-derived Observations and logging the required warning; `EVEN` with case-insensitive `TYPE Flytt` becomes a `flytt` Event with resolved `place` and absent `from_place`
     - _Requirements: 12.7, 12.8, 12.12, 12.13, 18.16_
 
-  - [ ] 15.5 Write property test for GEDCOM import
+  - [x] 15.5 Write property test for GEDCOM import
     - **Property 26: GEDCOM import maps every DATE line form to the specified Endpoints**
     - **Validates: Requirements 12.7, 12.8, 12.12, 12.13, 18.16**
 

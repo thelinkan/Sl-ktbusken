@@ -1140,19 +1140,21 @@ class TestAllIndiEventTags:
         assert len(custom_events) == 1
         assert custom_events[0].custom_type_name == "Militärtjänst"
 
-    def test_resi_tag_maps_to_census(
+    def test_resi_tag_creates_residence_fact(
         self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
     ) -> None:
-        """RESI tag is mapped to census event type."""
+        """RESI tag creates a ResidenceFact instead of a census event."""
         gedcom_file = tmp_path / "test.ged"
         gedcom_file.write_text(_GEDCOM_ALL_INDI_EVENTS, encoding="utf-8")
 
         importer = GEDCOMImporter(empty_project, translation_dir)
         importer.import_file(gedcom_file)
 
+        # RESI should create a ResidenceFact, not a census event
+        assert len(empty_project.residences) >= 1
+        # CENS still creates a census event
         census_events = [e for e in empty_project.events if e.type == "census"]
-        # Should have at least 2: one from CENS tag, one from RESI tag
-        assert len(census_events) >= 2
+        assert len(census_events) >= 1
 
 
 class TestAllFamEventTags:

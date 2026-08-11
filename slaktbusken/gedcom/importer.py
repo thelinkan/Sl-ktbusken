@@ -45,6 +45,7 @@ from slaktbusken.model.id_generator import IDGenerator
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
+from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import Repository, RepositoryRef, Source
 from slaktbusken.persistence.translation_io import (
     FamilyMapping,
@@ -174,7 +175,6 @@ _INDI_EVENT_TAGS: dict[str, str] = {
     "ADOP": "adoption",
     "BLES": "blessing",
     "FCOM": "first_communion",
-    "RESI": "census",
 }
 
 # Tags for family events
@@ -269,6 +269,162 @@ def parse_gedcom_date(raw_date: str) -> Optional[DateValue]:
         return DateValue(value=value, precision=precision)
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# GEDCOM RESI date range parsing
+# ---------------------------------------------------------------------------
+
+# Regex patterns for RESI date forms
+_FROM_TO_RE = re.compile(
+    r"^FROM\s+(.+?)\s+TO\s+(.+)$", re.IGNORECASE
+)
+_FROM_ONLY_RE = re.compile(r"^FROM\s+(.+)$", re.IGNORECASE)
+_TO_ONLY_RE = re.compile(r"^TO\s+(.+)$", re.IGNORECASE)
+_BET_AND_RE = re.compile(
+    r"^BET\s+(.+?)\s+AND\s+(.+)$", re.IGNORECASE
+)
+
+
+def _parse_single_gedcom_date(raw: str) -> tuple[Optional[str], Optional[str]]:
+    """Parse a single GEDCOM date component into (iso_value, precision).
+
+    Returns (None, None) if the date cannot be interpreted.
+    """
+    stripped = raw.strip()
+    if not stripped:
+        return None, None
+
+    # Check for approximate prefix
+    approx_match = re.match(r"^(ABT|BEF|AFT|EST|CAL)\s+(.+)$", stripped, re.IGNORECASE)
+    is_approximate = approx_match is not None
+    date_part = approx_match.group(2).strip() if approx_match else stripped
+
+    # Full date: "1 JAN 1900"
+    full_match = _DATE_FULL_RE.match(date_part)
+    if full_match:
+        day = int(full_match.group(1))
+        month_abbr = full_match.group(2).upper()
+        year = full_match.group(3)
+        month = _GEDCOM_MONTHS.get(month_abbr)
+        if month:
+            value = f"{year}-{month}-{day:02d}"
+            precision = "approximate" if is_approximate else "day"
+            return value, precision
+
+    # Month-year: "JAN 1900"
+    my_match = _DATE_MONTH_YEAR_RE.match(date_part)
+    if my_match:
+        month_abbr = my_match.group(1).upper()
+        year = my_match.group(2)
+        month = _GEDCOM_MONTHS.get(month_abbr)
+        if month:
+            value = f"{year}-{month}"
+            precision = "approximate" if is_approximate else "month"
+            return value, precision
+
+    # Year only: "1900"
+    year_match = _DATE_YEAR_RE.match(date_part)
+    if year_match:
+        value = year_match.group(1)
+        precision = "approximate" if is_approximate else "year"
+        return value, precision
+
+    return None, None
+
+
+@dataclass
+class _ResiDateResult:
+    """Result of parsing a RESI DATE line into endpoint data."""
+
+    start_earliest: Optional[str] = None
+    start_latest: Optional[str] = None
+    start_precision: Optional[str] = None
+    end_earliest: Optional[str] = None
+    end_latest: Optional[str] = None
+    end_precision: Optional[str] = None
+    interpretable: bool = False
+
+
+def _parse_resi_date(raw_date: Optional[str]) -> _ResiDateResult:
+    """Parse a RESI DATE line into endpoint data for a ResidenceFact.
+
+    Handles:
+    - "FROM x TO y" → start.latest = x, end.earliest = y (core bounds)
+    - "BET x AND y" → start.earliest = x, start.latest = y, end unknown
+    - Plain date → start.latest = date, end.earliest = date (both core bounds)
+    - Missing/uninterpretable → both endpoints unknown
+
+    Returns a _ResiDateResult with the parsed values.
+    """
+    result = _ResiDateResult()
+
+    if not raw_date or not raw_date.strip():
+        return result
+
+    stripped = raw_date.strip()
+
+    # FROM x TO y → sets start.latest and end.earliest (core bounds)
+    m = _FROM_TO_RE.match(stripped)
+    if m:
+        from_val, from_prec = _parse_single_gedcom_date(m.group(1))
+        to_val, to_prec = _parse_single_gedcom_date(m.group(2))
+        if from_val is not None and to_val is not None:
+            result.start_latest = from_val
+            result.start_precision = from_prec
+            result.end_earliest = to_val
+            result.end_precision = to_prec
+            result.interpretable = True
+            return result
+        # One side failed → fall through to uninterpretable
+        return result
+
+    # BET x AND y → start window (earliest=x, latest=y), end unknown
+    m = _BET_AND_RE.match(stripped)
+    if m:
+        bet_val, bet_prec = _parse_single_gedcom_date(m.group(1))
+        and_val, and_prec = _parse_single_gedcom_date(m.group(2))
+        if bet_val is not None and and_val is not None:
+            result.start_earliest = bet_val
+            result.start_latest = and_val
+            result.start_precision = and_prec
+            result.interpretable = True
+            return result
+        return result
+
+    # FROM x only (without TO) → start.latest = x, end unknown
+    m = _FROM_ONLY_RE.match(stripped)
+    if m:
+        val, prec = _parse_single_gedcom_date(m.group(1))
+        if val is not None:
+            result.start_latest = val
+            result.start_precision = prec
+            result.interpretable = True
+            return result
+        return result
+
+    # TO x only (without FROM) → end.earliest = x, start unknown
+    m = _TO_ONLY_RE.match(stripped)
+    if m:
+        val, prec = _parse_single_gedcom_date(m.group(1))
+        if val is not None:
+            result.end_earliest = val
+            result.end_precision = prec
+            result.interpretable = True
+            return result
+        return result
+
+    # Plain date → both core bounds set to the same value
+    val, prec = _parse_single_gedcom_date(stripped)
+    if val is not None:
+        result.start_latest = val
+        result.start_precision = prec
+        result.end_earliest = val
+        result.end_precision = prec
+        result.interpretable = True
+        return result
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +798,8 @@ class GEDCOMImporter:
             existing_ids.add(f.id)
         for e in project_data.events:
             existing_ids.add(e.id)
+        for r_fact in project_data.residences:
+            existing_ids.add(r_fact.id)
         for pl in project_data.places:
             existing_ids.add(pl.id)
         for s in project_data.sources:
@@ -1401,11 +1559,12 @@ class GEDCOMImporter:
             self._existing_event_keys = None
 
     def _create_person_events(self, person_id: str, record: GedcomLine) -> None:
-        """Create events for a person from GEDCOM event tags.
+        """Create events and residences for a person from GEDCOM event tags.
 
         Scans the INDI record's children for known event tags (BIRT, DEAT,
-        BURI, BAPM, CHR, etc.) and creates Event records for each. Also
-        handles the generic EVEN tag as a custom_individual_event.
+        BURI, BAPM, CHR, etc.) and creates Event records for each.
+        Handles RESI tags as ResidenceFact entities (not events).
+        Handles EVEN with TYPE Flytt as a flytt Event.
 
         Args:
             person_id: The App_JSON person ID to use as participant.
@@ -1413,7 +1572,10 @@ class GEDCOMImporter:
         """
         for child in record.children:
             tag = child.tag.upper()
-            if tag in _INDI_EVENT_TAGS:
+            if tag == "RESI":
+                # RESI → ResidenceFact (Requirement 12.7, 12.8, 12.12, 12.13)
+                self._create_residence(person_id, child)
+            elif tag in _INDI_EVENT_TAGS:
                 event_type = _INDI_EVENT_TAGS[tag]
                 self._create_event(
                     event_type=event_type,
@@ -1422,15 +1584,103 @@ class GEDCOMImporter:
                     participant_role="subject",
                 )
             elif tag == "EVEN":
-                # Generic individual event → custom_individual_event
+                # Check if it's a Flytt event (Requirement 18.16)
                 custom_type_name = _get_child_value(child, "TYPE")
-                self._create_event(
-                    event_type="custom_individual_event",
-                    event_record=child,
-                    participant_id=person_id,
-                    participant_role="subject",
-                    custom_type_name=custom_type_name,
-                )
+                if custom_type_name and custom_type_name.strip().lower() == "flytt":
+                    self._create_event(
+                        event_type="flytt",
+                        event_record=child,
+                        participant_id=person_id,
+                        participant_role="subject",
+                    )
+                else:
+                    # Generic individual event → custom_individual_event
+                    self._create_event(
+                        event_type="custom_individual_event",
+                        event_record=child,
+                        participant_id=person_id,
+                        participant_role="subject",
+                        custom_type_name=custom_type_name,
+                    )
+
+    def _create_residence(self, person_id: str, resi_record: GedcomLine) -> None:
+        """Create a ResidenceFact from a GEDCOM RESI structure.
+
+        Maps the DATE line according to the requirements:
+        - FROM x TO y → start.latest = x, end.earliest = y
+        - BET x AND y → start.earliest = x, start.latest = y, end unknown
+        - Plain DATE → start.latest = end.earliest = date
+        - Missing/uninterpretable DATE → both endpoints unknown + warning
+
+        Resolves the PLAC value and derives Observations from SOUR lines.
+
+        Args:
+            person_id: The App_JSON person ID for the residence.
+            resi_record: The RESI GedcomLine sub-record.
+        """
+        residence_id = self._id_gen.generate("residence")
+
+        # Parse the DATE line
+        date_str = _get_child_value(resi_record, "DATE")
+        date_result = _parse_resi_date(date_str)
+
+        # Log warning if date is present but uninterpretable
+        if date_str and date_str.strip() and not date_result.interpretable:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=None,
+                person_or_family_name=None,
+                raw_value=date_str,
+                reason="Kunde inte tolka datumraden för RESI – boendet importerades utan period.",
+                action_taken="Importerades utan period",
+            ))
+
+        # Build endpoints
+        start = Endpoint(
+            earliest=date_result.start_earliest,
+            latest=date_result.start_latest,
+            precision=date_result.start_precision,
+        )
+        end = Endpoint(
+            earliest=date_result.end_earliest,
+            latest=date_result.end_latest,
+            precision=date_result.end_precision,
+        )
+
+        # Resolve place from PLAC line
+        place_id = ""
+        plac_rec = _get_child(resi_record, "PLAC")
+        if plac_rec:
+            resolved_place_id = self._resolve_place_from_adpl(plac_rec)
+            if resolved_place_id is None:
+                place_str = plac_rec.value
+                if place_str:
+                    resolved_place_id = self._resolve_place(place_str)
+            if resolved_place_id:
+                place_id = resolved_place_id
+                self._apply_coordinates(resolved_place_id, plac_rec)
+
+        # Derive Observations from SOUR lines
+        observations: list[Observation] = []
+        for sour_child in _get_children(resi_record, "SOUR"):
+            if sour_child.value:
+                source_id = self._source_xref_map.get(sour_child.value)
+                if source_id:
+                    observations.append(
+                        Observation(
+                            source_ref=SourceRef(source_id=source_id, quality="secondary"),
+                        )
+                    )
+
+        residence = ResidenceFact(
+            id=residence_id,
+            person_id=person_id,
+            place_id=place_id,
+            start=start,
+            end=end,
+            observations=observations,
+        )
+        self._project_data.residences.append(residence)
 
     # ------------------------------------------------------------------
     # Family processing
