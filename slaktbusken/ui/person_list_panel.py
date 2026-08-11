@@ -38,10 +38,12 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.name_parser import parse_given_name
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
+from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.dna import DnaCluster, DnaCompany, DnaProfile
 from slaktbusken.model.media import MediaItem
 from slaktbusken.services.lineage_computer import LineageComputer
 from slaktbusken.ui.icons.icon_registry import icon_registry
+from slaktbusken.ui.swedish_locale import format_residence_interval
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,7 @@ class PersonDisplayInfo:
     birth_place: str = ""
     death_date: str = ""
     death_place: str = ""
+    residence_intervals: str = ""
 
 
 def extract_year(date_value_str: str) -> str:
@@ -428,6 +431,7 @@ def build_person_display_list(
     dna_companies: list[DnaCompany] | None = None,
     ancestor_ids: set[str] | None = None,
     descendant_ids: set[str] | None = None,
+    residences: list[ResidenceFact] | None = None,
 ) -> list[PersonDisplayInfo]:
     """Build a sorted list of person display info from project data.
 
@@ -443,6 +447,7 @@ def build_person_display_list(
         dna_companies: All DNA companies in the project (optional).
         ancestor_ids: Set of person IDs that are ancestors of the main person (optional).
         descendant_ids: Set of person IDs that are descendants of the main person (optional).
+        residences: All residence facts in the project (optional).
 
     Returns:
         Sorted list of PersonDisplayInfo items.
@@ -459,6 +464,8 @@ def build_person_display_list(
         ancestor_ids = set()
     if descendant_ids is None:
         descendant_ids = set()
+    if residences is None:
+        residences = []
 
     # Pre-build lookup: company_id -> company name for sorting
     company_name_by_id: dict[str, str] = {c.id: c.name for c in dna_companies}
@@ -470,6 +477,11 @@ def build_person_display_list(
 
     # Pre-build place lookup for birth/death place resolution
     place_by_id: dict[str, Place] = {p.id: p for p in places}
+
+    # Pre-build lookup: person_id -> list of ResidenceFacts for residence intervals
+    person_residences: dict[str, list[ResidenceFact]] = {}
+    for fact in residences:
+        person_residences.setdefault(fact.person_id, []).append(fact)
 
     display_list: list[PersonDisplayInfo] = []
     for person in persons:
@@ -523,6 +535,28 @@ def build_person_display_list(
         is_ancestor = person.id in ancestor_ids
         is_descendant = person.id in descendant_ids
 
+        # Residence intervals: render each fact's interval through the formatter
+        # ordered by start.earliest, start.latest (absent first), then place name.
+        facts = person_residences.get(person.id, [])
+        residence_intervals = ""
+        if facts:
+            def _absent_first(val: str | None) -> tuple[int, str]:
+                if val is None or val.strip() == "":
+                    return (0, "")
+                return (1, val)
+
+            sorted_facts = sorted(
+                facts,
+                key=lambda f: (
+                    _absent_first(f.start.earliest),
+                    _absent_first(f.start.latest),
+                    (place_by_id.get(f.place_id).name if place_by_id.get(f.place_id) else f.place_id),
+                ),
+            )
+            residence_intervals = "; ".join(
+                format_residence_interval(f.start, f.end) for f in sorted_facts
+            )
+
         display_list.append(
             PersonDisplayInfo(
                 person_id=person.id,
@@ -548,6 +582,7 @@ def build_person_display_list(
                 birth_place=birth_place,
                 death_date=death_date,
                 death_place=death_place,
+                residence_intervals=residence_intervals,
             )
         )
 
@@ -960,7 +995,7 @@ class PersonListPanel(QWidget):
         person_edit_requested: Emitted with person_id on double-click.
     """
 
-    _FULL_HEADERS = ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA"]
+    _FULL_HEADERS = ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende"]
 
     person_selected = Signal(str)
     person_edit_requested = Signal(str)
@@ -1018,10 +1053,10 @@ class PersonListPanel(QWidget):
 
         # Person list as QTreeWidget with columns
         # Columns: 0=Namn, 1=Födelsedatum, 2=Födelseort, 3=Dödsdatum, 4=Dödsort,
-        #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA
+        #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA, 9=Boende
         self._tree_widget = QTreeWidget()
         self._tree_widget.setHeaderLabels(
-            ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA"]
+            ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende"]
         )
         self._tree_widget.setIconSize(QSize(20, 20))
         self._tree_widget.setRootIsDecorated(False)
@@ -1055,6 +1090,7 @@ class PersonListPanel(QWidget):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(9, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(1, 90)
         header.resizeSection(2, 90)
         header.resizeSection(3, 90)
@@ -1063,6 +1099,7 @@ class PersonListPanel(QWidget):
         header.resizeSection(6, 70)
         header.resizeSection(7, 70)
         header.resizeSection(8, 70)
+        header.resizeSection(9, 120)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._show_column_visibility_menu)
 
@@ -1204,6 +1241,15 @@ class PersonListPanel(QWidget):
         )
         menu.addAction(action_dna)
 
+        # Boende (column 9)
+        action_boende = QAction("Boende", menu)
+        action_boende.setCheckable(True)
+        action_boende.setChecked(getattr(visibility, 'boende', True))
+        action_boende.toggled.connect(
+            lambda checked: self._on_column_visibility_changed("boende", checked)
+        )
+        menu.addAction(action_boende)
+
         global_pos = self._tree_widget.header().mapToGlobal(pos)
         menu.exec(global_pos)
 
@@ -1221,6 +1267,7 @@ class PersonListPanel(QWidget):
             "birth_date": 1, "birth_place": 2,
             "death_date": 3, "death_place": 4,
             "titel": 5, "yrke": 6, "kluster": 7, "dna_company": 8,
+            "boende": 9,
         }
         col_index = col_map.get(column)
         if col_index is not None:
@@ -1248,6 +1295,7 @@ class PersonListPanel(QWidget):
         self._tree_widget.setColumnHidden(6, not visibility.yrke)
         self._tree_widget.setColumnHidden(7, not visibility.kluster)
         self._tree_widget.setColumnHidden(8, not visibility.dna_company)
+        self._tree_widget.setColumnHidden(9, not getattr(visibility, 'boende', True))
 
     def _connect_signals(self) -> None:
         """Connect button signals and tree selection signals."""
@@ -1318,6 +1366,7 @@ class PersonListPanel(QWidget):
                 dna_companies=dna_companies,
                 ancestor_ids=self._ancestor_ids,
                 descendant_ids=self._descendant_ids,
+                residences=data.residences if hasattr(data, "residences") else [],
             )
             self._apply_current_view()
         finally:
@@ -1588,6 +1637,7 @@ class PersonListPanel(QWidget):
                     person_info.occupation,
                     person_info.cluster_names_display,
                     "",
+                    person_info.residence_intervals,
                 ])
 
                 # Store person_id in UserRole on column 0
@@ -1643,6 +1693,8 @@ class PersonListPanel(QWidget):
                     tree_item.setToolTip(7, person_info.cluster_names_display)
                 if dna_text:
                     tree_item.setToolTip(8, dna_text)
+                if person_info.residence_intervals:
+                    tree_item.setToolTip(9, person_info.residence_intervals)
                 if tooltip_parts:
                     tree_item.setToolTip(0, "\n".join(tooltip_parts))
 

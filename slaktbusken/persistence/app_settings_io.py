@@ -41,6 +41,7 @@ class ColumnVisibility:
     yrke: bool = True
     kluster: bool = True
     dna_company: bool = True
+    boende: bool = True
 
 
 @dataclass

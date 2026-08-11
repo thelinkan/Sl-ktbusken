@@ -2,11 +2,17 @@
 
 Checks place hierarchy relationships and coordinate data, reporting
 issues as structured ReportContent for the report preview system.
+
+Also provides :func:`residence_places_for_person`, which returns the
+residence places of a person in the timeline order defined by
+Requirement 11.10, each labelled with the interval string from the
+Residence_Formatter.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
@@ -16,6 +22,8 @@ from slaktbusken.reports.content import (
     ListBlock,
     ReportContent,
 )
+from slaktbusken.services.residence_query import residence_timeline
+from slaktbusken.ui.swedish_locale import format_residence_interval
 
 
 @dataclass
@@ -154,3 +162,57 @@ def generate_geographic_report(data: ProjectData) -> ReportContent:
             report.blocks.append(EmptyStateBlock(text="Inga problem hittades."))
 
     return report
+
+
+@dataclass
+class ResidencePlaceEntry:
+    """A residence place entry for geographic display.
+
+    Each entry carries the place, the interval string from the
+    Residence_Formatter, and identifiers for further navigation.
+    """
+
+    place_id: str
+    place_name: str
+    interval_display: str
+    residence_id: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+def residence_places_for_person(
+    data: ProjectData, person_id: str
+) -> list[ResidencePlaceEntry]:
+    """Return the residence places of *person_id* in timeline order.
+
+    Each entry is labelled with the interval string from the
+    Residence_Formatter. The ordering follows Requirement 11.10:
+    ``start.earliest`` ascending, ``start.latest`` ascending (absent
+    sorts earlier), then place display name in Swedish alphabetical order.
+
+    The timeline order is provided by :func:`residence_timeline` from the
+    residence query service (Requirement 8.7), which implements the same
+    sort keys.
+
+    *data* and every entity it holds are left unchanged.
+    """
+    places_by_id = {place.id: place for place in data.places}
+    facts = residence_timeline(data, person_id)
+
+    entries: list[ResidencePlaceEntry] = []
+    for fact in facts:
+        place = places_by_id.get(fact.place_id)
+        place_name = place.name if place else fact.place_id
+        interval_display = format_residence_interval(fact.start, fact.end)
+        entries.append(
+            ResidencePlaceEntry(
+                place_id=fact.place_id,
+                place_name=place_name,
+                interval_display=interval_display,
+                residence_id=fact.id,
+                latitude=place.latitude if place else None,
+                longitude=place.longitude if place else None,
+            )
+        )
+
+    return entries

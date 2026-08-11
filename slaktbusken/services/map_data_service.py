@@ -1,4 +1,9 @@
-"""Service for building map marker data from project events and places."""
+"""Service for building map marker data from project events and places.
+
+Also includes residence places, each labelled with the interval string
+from the Residence_Formatter and ordered by the timeline order defined in
+Requirement 11.10, via :func:`build_markers_for_person`.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 from slaktbusken.model.project import ProjectData
+from slaktbusken.reports.geographic import residence_places_for_person
 
 
 # --- Event type → Swedish display name mapping ---
@@ -110,10 +116,13 @@ def _sort_key_for_event(map_event: MapEvent):
 
 
 def build_markers_for_person(data: ProjectData, person_id: str) -> list[MapMarker]:
-    """Build map markers for all places where a person has events.
+    """Build map markers for all places where a person has events or residences.
 
     Filters events to those where person_id is a participant,
     then groups by place, resolving place coordinates and participant names.
+    Additionally includes residence places, each labelled with the interval
+    string from the Residence_Formatter, in the timeline order of
+    Requirement 11.10.
     Only includes places with non-null latitude and longitude.
 
     Args:
@@ -173,6 +182,39 @@ def build_markers_for_person(data: ProjectData, person_id: str) -> list[MapMarke
         )
 
         markers_by_place[place_id].events.append(map_event)
+
+    # Include residence places, labelled with the formatter's interval string,
+    # in the timeline order of Requirement 11.10.
+    residence_entries = residence_places_for_person(data, person_id)
+    person_display = _resolve_person_name(data, person_id)
+    for entry in residence_entries:
+        # Only include places with valid coordinates
+        if entry.latitude is None or entry.longitude is None:
+            continue
+
+        # Get or create marker for this place
+        if entry.place_id not in markers_by_place:
+            markers_by_place[entry.place_id] = MapMarker(
+                place_id=entry.place_id,
+                place_name=entry.place_name,
+                latitude=entry.latitude,
+                longitude=entry.longitude,
+            )
+
+        # Build a MapEvent entry for the residence
+        map_event = MapEvent(
+            event_id=entry.residence_id,
+            event_type="residence",
+            event_type_display="Boende",
+            date_display=entry.interval_display,
+            participants=[
+                MapParticipant(
+                    person_id=person_id,
+                    display_name=person_display,
+                )
+            ],
+        )
+        markers_by_place[entry.place_id].events.append(map_event)
 
     # Sort events within each marker chronologically
     for marker in markers_by_place.values():

@@ -140,7 +140,7 @@ and the project's tag-comment/docstring form.
     - `CoverageGap`, `OpenEndpointSuggestion`, `TimelineGap` records; `coverage_gaps` returning the maximal runs of years absent from the coverage union between the lowest `observed_from` and highest `observed_to`, ordered by first uncovered year, with `splittable`; zero gaps for zero/one Observation or a complete union; nothing mutated
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.10, 16.13_
 
-  - [ ] 8.2 Write property test for coverage union and gaps
+  - [x] 8.2 Write property test for coverage union and gaps
     - **Property 12: Coverage union and coverage gaps are exact, maximal and non-mutating**
     - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 16.13**
 
@@ -182,7 +182,7 @@ and the project's tag-comment/docstring form.
     - Total, stable ordering by `start.earliest`, `start.latest`, `end.earliest`, `end.latest` with absent sorting first, then place name, then `id`; role grouping on exact stored text with empty roles in a final "Roll saknas" group; household composition derived only through this module with no household entity
     - _Requirements: 8.7, 8.8, 8.10_
 
-  - [ ] 10.3 Write property test for the residents query
+  - [x] 10.3 Write property test for the residents query
     - **Property 19: The residents query returns, labels and orders entries correctly**
     - **Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.9, 8.10**
 
@@ -206,7 +206,7 @@ and the project's tag-comment/docstring form.
     - Append in order; tighten `start.latest` to `min(observed_from)` and `end.earliest` to `max(observed_to)` only when absent or looser; never touch `start.earliest`/`end.latest`; removal keeps survivors byte-identical and in relative order and recomputes a core bound only when it equals the pre-removal aggregate
     - _Requirements: 4.3, 9.5, 16.3, 16.4, 16.7, 16.8_
 
-  - [ ] 12.4 Write property test for observation order
+  - [x] 12.4 Write property test for observation order
     - **Property 10: Observation order is preserved through every list operation**
     - **Validates: Requirements 4.3, 16.12**
 
@@ -368,11 +368,11 @@ and the project's tag-comment/docstring form.
     - Each Observation under its fact with the source title and its own span rendered as "1866–1870" or "1866", ordered by `observed_from`, then `observed_to`, then list position
     - _Requirements: 11.7, 11.9_
 
-  - [ ] 18.3 Include residence places in the Geographic report and `map_data_service`
+  - [x] 18.3 Include residence places in the Geographic report and `map_data_service`
     - Each place labelled with the formatter's interval string, in the timeline order of criterion 11.10
     - _Requirements: 11.7, 11.10_
 
-  - [ ] 18.4 Render residence intervals in the person list
+  - [x] 18.4 Render residence intervals in the person list
     - Read the interval string from the formatter with no channel-local wording, abbreviation or truncation
     - _Requirements: 11.7_
 
