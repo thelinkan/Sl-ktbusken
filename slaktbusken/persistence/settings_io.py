@@ -186,6 +186,9 @@ class LogicCheckConfig:
     media_files_exist: bool = True
     valid_swedish_calendar: bool = True
     connected_to_main_person: bool = True
+    residence_coverage_gaps: bool = True
+    residence_open_endpoints: bool = True
+    residence_timeline_gaps: bool = True
 
 
 @dataclass
@@ -452,6 +455,15 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         ),
         connected_to_main_person=logic_data.get(
             "connected_to_main_person", logic_defaults.connected_to_main_person
+        ),
+        residence_coverage_gaps=logic_data.get(
+            "residence_coverage_gaps", logic_defaults.residence_coverage_gaps
+        ),
+        residence_open_endpoints=logic_data.get(
+            "residence_open_endpoints", logic_defaults.residence_open_endpoints
+        ),
+        residence_timeline_gaps=logic_data.get(
+            "residence_timeline_gaps", logic_defaults.residence_timeline_gaps
         ),
     )
 

@@ -125,6 +125,7 @@ class GEDCOMExporter:
         self._events: dict[str, Event] = {}
         self._exported_source_ids: set[str] = set()
         self._resi_has_sour: bool = False
+        self._flytt_from_place_loss: bool = False
 
     def export(self, data: ProjectData, output_path: Path) -> ExportResult:
         """Export ProjectData to a GEDCOM 5.5.1 file.
@@ -142,6 +143,7 @@ class GEDCOMExporter:
         self._events = {e.id: e for e in data.events}
         self._exported_source_ids = {s.id for s in data.sources}
         self._resi_has_sour = False
+        self._flytt_from_place_loss = False
 
         # Build residence-by-person index
         residences_by_person: dict[str, list[ResidenceFact]] = {}
@@ -180,6 +182,13 @@ class GEDCOMExporter:
         if self._resi_has_sour:
             warnings.append(
                 "Observationernas delperioder exporteras som anteckningar."
+            )
+
+        # Export log entry for Flytt from_place structure loss (Requirement 18.15)
+        if self._flytt_from_place_loss:
+            warnings.append(
+                "Flyttens ursprungsplats exporteras som anteckning"
+                " – GEDCOM 5.5.1 tillåter bara en PLAC per händelse."
             )
 
         return ExportResult(
@@ -319,9 +328,12 @@ class GEDCOMExporter:
         # Events for this person
         for event in data.events:
             if any(p.person_id == person.id for p in event.participants):
-                tag = _EVENT_TYPE_TO_TAG.get(event.type)
-                if tag:
-                    lines.extend(self._write_event_detail(tag, event))
+                if event.type == "flytt":
+                    lines.extend(self._write_flytt_event(event))
+                else:
+                    tag = _EVENT_TYPE_TO_TAG.get(event.type)
+                    if tag:
+                        lines.extend(self._write_event_detail(tag, event))
 
         # Residence facts (RESI structures) for this person
         if residences_by_person:
@@ -477,6 +489,49 @@ class GEDCOMExporter:
                 else:
                     lines.append("3 NOTE Observation:")
                 self._resi_has_sour = True
+
+        return lines
+
+    # ------------------------------------------------------------------
+    # Flytt event (EVEN TYPE Flytt) export — Requirements 18.14, 18.15
+    # ------------------------------------------------------------------
+
+    def _write_flytt_event(self, event: Event) -> list[str]:
+        """Write a GEDCOM EVEN structure for a Flytt event.
+
+        Emits ``1 EVEN`` / ``2 TYPE Flytt`` / ``2 DATE`` (when present) /
+        ``2 PLAC`` destination (when ``event.place`` is present) /
+        ``2 NOTE Från: {from_place}`` (when ``event.from_place`` is present).
+        Records the structure loss of ``from_place`` in the export log.
+
+        Args:
+            event: The flytt Event to export.
+
+        Returns:
+            List of GEDCOM lines for this flytt event.
+        """
+        lines: list[str] = ["1 EVEN", "2 TYPE Flytt"]
+
+        # DATE line when event has a date (Requirement 18.14)
+        if event.date:
+            formatted = self._format_date(event.date)
+            if formatted:
+                lines.append(f"2 DATE {formatted}")
+
+        # PLAC line — destination resolved from event.place (Requirement 18.14)
+        if event.place and event.place.place_id:
+            place_str = self._resolve_place_hierarchy(event.place.place_id)
+            if place_str:
+                lines.append(f"2 PLAC {place_str}")
+
+        # NOTE for from_place — origin as labelled note (Requirement 18.15)
+        if event.from_place and event.from_place.place_id:
+            from_place_str = self._resolve_place_hierarchy(
+                event.from_place.place_id
+            )
+            if from_place_str:
+                lines.append(f"2 NOTE Från: {from_place_str}")
+                self._flytt_from_place_loss = True
 
         return lines
 

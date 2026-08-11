@@ -120,7 +120,7 @@ and the project's tag-comment/docstring form.
     - `MigrationManager.CURRENT_VERSION` and `file_io.CURRENT_VERSION` become "0.2"; the migration adds `residences: []` when the key is missing, leaves an existing collection unchanged, and is a no-op on already-current data; `UnsupportedVersionError` begins with "Filen skapades med en nyare version av Släktbusken och kan inte öppnas."
     - _Requirements: 13.4, 13.8_
 
-  - [ ] 6.4 Write property test for the serialization round trip
+  - [x] 6.4 Write property test for the serialization round trip
     - **Property 28: A Residence_Fact survives a serialization round trip**
     - **Validates: Requirements 13.1, 13.2**
 
@@ -148,7 +148,7 @@ and the project's tag-comment/docstring form.
     - Multi-year and single-year forms, parish and series from the `church_book` fields of the Source cited by the Observation whose covered years end immediately before the gap, absent values omitted with their separating space, at most five matching candidate Sources appended in ascending first-year order
     - _Requirements: 5.5, 5.6, 5.14_
 
-  - [ ] 8.4 Write property test for gap suggestion phrasing
+  - [x] 8.4 Write property test for gap suggestion phrasing
     - **Property 13: Gap suggestions are phrased and sourced as specified**
     - **Validates: Requirements 5.5, 5.6, 5.14**
 
@@ -156,7 +156,7 @@ and the project's tag-comment/docstring form.
     - One suggestion per open bound naming "början"/"slutet", at most two per fact; timeline gaps as the maximal runs of years contained in no Possible_Span with unbounded directions covering everything and birth/death years excluded; prebuilt indexes passed in once per run
     - _Requirements: 5.7, 5.8, 5.15_
 
-  - [ ] 8.6 Create `slaktbusken/services/checks/residence_checks.py` and wire the check engine
+  - [x] 8.6 Create `slaktbusken/services/checks/residence_checks.py` and wire the check engine
     - `CheckFinding` records ordered by first uncovered year ascending with open-endpoint findings last; three new `LogicCheckConfig` flags `residence_coverage_gaps`, `residence_open_endpoints`, `residence_timeline_gaps` defaulting to `True`, registered in the Person_Check_Engine
     - _Requirements: 5.9_
 
@@ -173,7 +173,7 @@ and the project's tag-comment/docstring form.
     - **Property 17: Inference derives from stored data only, idempotently, and never contradicts**
     - **Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.10, 7.12**
 
-- [ ] 10. Residence query service
+- [x] 10. Residence query service
   - [x] 10.1 Create `slaktbusken/services/residence_query.py` with `residents_of_place`
     - `ResidentEntry` carrying person/place identifiers and displays, rendered interval, label, `role_in_household` as empty rather than omitted, `undated`, `place_chain`; one entry per matching fact with no merging; "säker"/"möjlig" labelling; both-sides-unbounded spans matching every year, labelled "möjlig" with "odaterat" and sorting last; no lifespan clamping; breadth-first descendant walk to 10 levels with a visited set; place and residence indexes built once per call
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.9, 8.11, 15.9_
@@ -186,7 +186,7 @@ and the project's tag-comment/docstring form.
     - **Property 19: The residents query returns, labels and orders entries correctly**
     - **Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.9, 8.10**
 
-  - [ ] 10.4 Write property test for the person residence timeline
+  - [x] 10.4 Write property test for the person residence timeline
     - **Property 20: The person residence timeline is a total, stable order**
     - **Validates: Requirements 8.7**
 
@@ -210,7 +210,7 @@ and the project's tag-comment/docstring form.
     - **Property 10: Observation order is preserved through every list operation**
     - **Validates: Requirements 4.3, 16.12**
 
-  - [ ] 12.5 Write property test for core tightening
+  - [x] 12.5 Write property test for core tightening
     - **Property 31: Observations tighten the documented core and never touch the outer bounds**
     - **Validates: Requirements 9.5, 16.3, 16.4, 16.5, 16.6, 16.9, 16.11**
 
@@ -226,7 +226,7 @@ and the project's tag-comment/docstring form.
     - **Property 33: The exact-bound actions are the only route from an Observation to an outer bound**
     - **Validates: Requirements 16.10**
 
-  - [ ] 12.9 Implement `split_at_gap` and `ResidenceSplitError`
+  - [x] 12.9 Implement `split_at_gap` and `ResidenceSplitError`
     - Partition Observations by the gap, assign new ids, copy `person_id`/`place_id`/`role_in_household`/`notes`, keep the original `start` on the first and `end` on the second, set the first `end.earliest` and the second `start.latest` from the assigned Observations, leave the first `end.latest` and second `start.earliest` absent, raise with the required message when one side has no Observation
     - _Requirements: 5.10, 5.11, 5.12, 5.13, 5.16_
 
@@ -265,7 +265,7 @@ and the project's tag-comment/docstring form.
 - [ ] 13. Checkpoint - edit operations
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 14. Swedish formatting and role storage
+- [x] 14. Swedish formatting and role storage
   - [x] 14.1 Add the Residence_Formatter to `slaktbusken/ui/swedish_locale.py`
     - `format_residence_endpoint`, `format_residence_interval`, `format_residence_line`, `format_observation_span`; the five endpoint wordings, "okänd period" for two unknown endpoints, a single unspaced en dash U+2013 rather than `format_date_range`, stored month/day forms without truncation, role appended as ", {role}" with no separator or trailing whitespace when empty
     - _Requirements: 10.8, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.11, 11.12, 11.13_
@@ -278,7 +278,7 @@ and the project's tag-comment/docstring form.
     - Trim leading and trailing whitespace and preserve every remaining character, internal whitespace, letter case and å/ä/ö with no capitalization, case folding, substitution or normalization; whitespace-only or empty becomes an empty value; accept exactly 100 code points after trimming
     - _Requirements: 10.1, 10.4, 10.5, 10.7_
 
-  - [ ] 14.4 Write property test for role storage
+  - [x] 14.4 Write property test for role storage
     - **Property 22: role_in_household is stored trimmed and otherwise byte-exact**
     - **Validates: Requirements 10.1, 10.4, 10.5, 10.7**
 
@@ -287,7 +287,7 @@ and the project's tag-comment/docstring form.
     - One level 1 RESI per fact under its person's INDI with at most one DATE line (FROM/TO, FROM, TO or none), a PLAC line from the existing `_resolve_place_hierarchy`, one labelled NOTE per `start.earliest`, `end.latest`, non-empty `role_in_household` and non-empty `notes`, one SOUR line per Observation whose Source resolves to an exported record each with an `observed_from`/`observed_to` NOTE, ISO→GEDCOM date conversion with the "ABT " prefix for approximate precision, and the single observation-notes log entry
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.10, 12.11_
 
-  - [ ] 15.2 Write Flytt events in the exporter
+  - [x] 15.2 Write Flytt events in the exporter
     - `EVEN` with `TYPE Flytt`, a `DATE` line when present, the destination `PLAC` when `place` is present, the origin as a labelled `NOTE` with the structure loss recorded in the export log
     - _Requirements: 18.14, 18.15_
 

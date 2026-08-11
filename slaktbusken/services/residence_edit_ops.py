@@ -19,7 +19,9 @@ from slaktbusken.model.residence import (
     Observation,
     ResidenceFact,
     core_aggregate,
+    observation_span_years,
 )
+from slaktbusken.services.residence_coverage import CoverageGap
 
 # An Observation year is a bare four-digit year (ÅÅÅÅ) in this range
 # (Requirements 4.1, 4.12).
@@ -315,6 +317,135 @@ def remove_observation(fact: ResidenceFact, index: int) -> ResidenceFact:
         observations=survivors,
         notes=fact.notes,
     )
+
+
+class ResidenceSplitError(Exception):
+    """Raised when a Residence_Fact cannot be split at a gap.
+
+    The split requires at least one Observation on each side of the gap
+    (Requirement 5.16). When one side has no Observation, the split is
+    impossible and this error is raised with a message indicating that the
+    boende cannot be split because observations exist on only one side of
+    the period.
+    """
+
+
+def split_at_gap(
+    fact: ResidenceFact,
+    gap: CoverageGap,
+    new_ids: tuple[str, str],
+) -> tuple[ResidenceFact, ResidenceFact]:
+    """Split *fact* at a coverage *gap*, yielding two new Residence_Facts.
+
+    Observations whose last covered year (``observed_to``) is earlier than the
+    gap's first uncovered year are assigned to the first fact; those whose first
+    covered year (``observed_from``) is later than the gap's last uncovered year
+    are assigned to the second fact (Requirement 5.11). Observations that cannot
+    be classified (both bounds absent or malformed) are dropped from the split
+    result — the requirement only defines assignment for those ending before and
+    beginning after the gap.
+
+    Both resulting facts get new ``id`` values from *new_ids*. Both receive
+    copies of ``person_id``, ``place_id``, ``role_in_household`` and ``notes``
+    from the original fact (Requirement 5.12).
+
+    The original ``start`` is kept on the first fact and the original ``end``
+    on the second (Requirement 5.12). The first fact's ``end.earliest`` is set
+    to its highest ``observed_to`` (from ``core_aggregate``), and the second
+    fact's ``start.latest`` is set to its lowest ``observed_from`` (from
+    ``core_aggregate``). The first fact's ``end.latest`` and the second fact's
+    ``start.earliest`` are left absent (Requirement 5.13).
+
+    Raises:
+        ResidenceSplitError: when one side of the gap has no Observation
+            (Requirement 5.16).
+
+    *fact* and *gap* are left unchanged. Two new :class:`ResidenceFact` values
+    are returned.
+
+    Requirements: 5.10, 5.11, 5.12, 5.13, 5.16.
+    """
+    # Partition Observations by the gap.
+    before_gap: list[Observation] = []
+    after_gap: list[Observation] = []
+
+    for obs in fact.observations:
+        span = observation_span_years(obs)
+        if span is None:
+            # Cannot classify — skip (no years to compare against the gap)
+            continue
+        span_first, span_last = span
+        if span_last < gap.first_year:
+            before_gap.append(copy.deepcopy(obs))
+        elif span_first > gap.last_year:
+            after_gap.append(copy.deepcopy(obs))
+        # Observations that overlap the gap boundary are not defined in the
+        # requirement to go to either side; skip them.
+
+    # Requirement 5.16: raise when one side has no Observation.
+    if not before_gap or not after_gap:
+        raise ResidenceSplitError(
+            "Boendet kan inte delas eftersom observationer "
+            "bara finns på en sida av perioden."
+        )
+
+    # Compute the core aggregates for each side.
+    _, first_highest_to = core_aggregate(before_gap)
+    second_lowest_from, _ = core_aggregate(after_gap)
+
+    # Build the first fact: keeps original start, new end with end.earliest
+    # from its observations and end.latest absent.
+    first_end = Endpoint(
+        earliest=first_highest_to,
+        latest=None,
+        precision=None,
+        event_id=None,
+        note=None,
+    )
+    first_fact = ResidenceFact(
+        id=new_ids[0],
+        person_id=fact.person_id,
+        place_id=fact.place_id,
+        start=Endpoint(
+            earliest=fact.start.earliest,
+            latest=fact.start.latest,
+            precision=fact.start.precision,
+            event_id=fact.start.event_id,
+            note=fact.start.note,
+        ),
+        end=first_end,
+        role_in_household=fact.role_in_household,
+        observations=before_gap,
+        notes=fact.notes,
+    )
+
+    # Build the second fact: keeps original end, new start with start.latest
+    # from its observations and start.earliest absent.
+    second_start = Endpoint(
+        earliest=None,
+        latest=second_lowest_from,
+        precision=None,
+        event_id=None,
+        note=None,
+    )
+    second_fact = ResidenceFact(
+        id=new_ids[1],
+        person_id=fact.person_id,
+        place_id=fact.place_id,
+        start=second_start,
+        end=Endpoint(
+            earliest=fact.end.earliest,
+            latest=fact.end.latest,
+            precision=fact.end.precision,
+            event_id=fact.end.event_id,
+            note=fact.end.note,
+        ),
+        role_in_household=fact.role_in_household,
+        observations=after_gap,
+        notes=fact.notes,
+    )
+
+    return (first_fact, second_fact)
 
 
 # ---------------------------------------------------------------------------

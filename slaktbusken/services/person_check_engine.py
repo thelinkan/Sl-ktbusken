@@ -44,6 +44,8 @@ class CheckContext:
     current_year: int = 0
     # Computed lazily by structure_checks for connectivity check
     reachable_from_main: set[str] | None = None
+    # Full ProjectData reference for checks that need the entire project
+    project_data: ProjectData | None = None
 
 
 def format_person_display(person: Person, events: list[Event]) -> str:
@@ -166,6 +168,9 @@ class PersonCheckEngine:
         # media_by_id
         ctx.media_by_id = {m.id: m for m in data.media}
 
+        # Full ProjectData for checks needing the entire project (e.g. residence)
+        ctx.project_data = data
+
         return ctx
 
     def run_checks(
@@ -212,6 +217,13 @@ class PersonCheckEngine:
             # Logic checks — calendar
             person_findings.extend(
                 self._run_calendar_checks(
+                    person, person_events, person_families, person_display
+                )
+            )
+
+            # Logic checks — residence coverage
+            person_findings.extend(
+                self._run_residence_checks(
                     person, person_events, person_families, person_display
                 )
             )
@@ -293,6 +305,25 @@ class PersonCheckEngine:
             )
 
             return check_calendar(
+                person, events, families, self._config, self._context
+            )
+        except ImportError:
+            return []
+
+    def _run_residence_checks(
+        self,
+        person: Person,
+        events: list[Event],
+        families: list[Family],
+        person_display: str,
+    ) -> list[CheckFinding]:
+        """Run residence coverage checks if the module is available."""
+        try:
+            from slaktbusken.services.checks.residence_checks import (
+                check_residence,
+            )
+
+            return check_residence(
                 person, events, families, self._config, self._context
             )
         except ImportError:
