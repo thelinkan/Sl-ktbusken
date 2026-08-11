@@ -17,6 +17,7 @@ def test_type_prefixed_format():
     assert gen.generate("repository") == "repo_1"
     assert gen.generate("research_note") == "note_1"
     assert gen.generate("dna_triangulation") == "dna_triangulation_1"
+    assert gen.generate("residence") == "residence_1"
 
 
 def test_monotonic_increment_per_type():

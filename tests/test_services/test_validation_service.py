@@ -38,6 +38,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
+from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import Repository, RepositoryRef, Source
 from slaktbusken.services.validation_service import ValidationError, ValidationService
 
@@ -742,3 +743,159 @@ class TestMissingReferenceEdgeCases:
         assert len(family_errors) >= 2  # invalid partner + invalid child
         assert len(event_errors) >= 2  # invalid participant + invalid place
         assert len(source_errors) >= 1  # invalid repository
+
+
+# ---------------------------------------------------------------------------
+# Residence_Fact ("Boende") validation wiring
+# ---------------------------------------------------------------------------
+
+
+class TestResidenceValidation:
+    """Tests that ValidationService wraps residence errors as "Boende" records.
+
+    Requirements: 1.3, 1.4, 1.10, 1.13, 16.1
+    """
+
+    def test_well_formed_residence_has_no_errors(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """A fact with known person and place and valid bounds validates clean.
+
+        Requirement: 1.13
+        """
+        residence = ResidenceFact(
+            id="residence_1",
+            person_id="p1",
+            place_id="pl2",
+            start=Endpoint(earliest="1840", latest="1845"),
+            end=Endpoint(earliest="1850", latest="1855"),
+            observations=[
+                Observation(
+                    source_ref=SourceRef(source_id="s1", quality="primary"),
+                    observed_from="1845",
+                    observed_to="1850",
+                ),
+            ],
+        )
+        assert service.validate_entity(residence, populated_project) == []
+
+    def test_period_without_observations_has_no_errors(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """A hand-entered period with zero Observations validates clean.
+
+        Requirement: 16.1
+        """
+        residence = ResidenceFact(
+            id="residence_1",
+            person_id="p1",
+            place_id="pl2",
+            start=Endpoint(latest="1845"),
+            end=Endpoint(earliest="1850"),
+        )
+        assert service.validate_entity(residence, populated_project) == []
+
+    def test_place_of_any_type_has_no_errors(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """A region-level place is as acceptable as a farm.
+
+        Requirement: 1.3
+        """
+        for place_id in ("pl0", "pl1", "pl2"):
+            residence = ResidenceFact(id="residence_1", person_id="p1", place_id=place_id)
+            assert service.validate_entity(residence, populated_project) == []
+
+    def test_duplicate_person_place_combination_has_no_errors(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """Two facts sharing person, place and interval both validate clean.
+
+        Requirement: 1.4
+        """
+        populated_project.residences = [
+            ResidenceFact(
+                id="residence_1", person_id="p1", place_id="pl2",
+                start=Endpoint(earliest="1840"), end=Endpoint(latest="1850"),
+            ),
+            ResidenceFact(
+                id="residence_2", person_id="p1", place_id="pl2",
+                start=Endpoint(earliest="1840"), end=Endpoint(latest="1850"),
+            ),
+        ]
+        errors = service.validate_project(populated_project)
+        assert [e for e in errors if e.entity_type == "Boende"] == []
+
+    def test_notes_up_to_5000_characters_accepted(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """5000 characters of notes are accepted, 5001 are not.
+
+        Requirement: 1.10
+        """
+        at_limit = ResidenceFact(
+            id="residence_1", person_id="p1", place_id="pl2", notes="a" * 5000
+        )
+        assert service.validate_entity(at_limit, populated_project) == []
+
+        over_limit = ResidenceFact(
+            id="residence_2", person_id="p1", place_id="pl2", notes="a" * 5001
+        )
+        errors = service.validate_entity(over_limit, populated_project)
+        assert errors == [
+            ValidationError("Boende", "residence_2", "Anteckningen får vara högst 5000 tecken.")
+        ]
+
+    def test_broken_references_reported_as_boende_records(
+        self, service: ValidationService, populated_project: ProjectData
+    ) -> None:
+        """Every message is wrapped with entity_type "Boende" and the fact's id."""
+        residence = ResidenceFact(
+            id="residence_bad",
+            person_id="ghost_person",
+            place_id="ghost_place",
+            start=Endpoint(event_id="ghost_event"),
+            observations=[
+                Observation(
+                    source_ref=SourceRef(source_id="ghost_source", quality="primary"),
+                    observed_from="1845",
+                    observed_to="1850",
+                ),
+            ],
+        )
+        errors = service.validate_entity(residence, populated_project)
+        assert all(e.entity_type == "Boende" for e in errors)
+        assert all(e.entity_id == "residence_bad" for e in errors)
+        messages = [e.message for e in errors]
+        assert messages == [
+            "Boendet refererar till en person som inte finns.",
+            "Boendet refererar till en plats som inte finns.",
+            "Endpunkten refererar till en händelse som inte finns.",
+            "Observationen refererar till en källa som inte finns.",
+        ]
+
+    def test_validate_project_iterates_residences(
+        self, service: ValidationService
+    ) -> None:
+        """validate_project walks project_data.residences in stored order."""
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            residences=[
+                ResidenceFact(id="residence_1", person_id="ghost_a", place_id=""),
+                ResidenceFact(id="residence_2", person_id="", place_id="ghost_b"),
+            ],
+        )
+        errors = service.validate_project(project)
+        assert [(e.entity_type, e.entity_id, e.message) for e in errors] == [
+            ("Boende", "residence_1", "Boendet måste ange både person och plats."),
+            ("Boende", "residence_1", "Boendet refererar till en person som inte finns."),
+            ("Boende", "residence_2", "Boendet måste ange både person och plats."),
+            ("Boende", "residence_2", "Boendet refererar till en plats som inte finns."),
+        ]
+
+    def test_empty_project_has_no_residence_errors(
+        self, service: ValidationService, empty_project: ProjectData
+    ) -> None:
+        """A new project holds zero residences and therefore zero residence errors."""
+        assert empty_project.residences == []
+        assert service.validate_project(empty_project) == []

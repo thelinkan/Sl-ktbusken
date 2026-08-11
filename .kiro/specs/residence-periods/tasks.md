@@ -16,61 +16,61 @@ and the project's tag-comment/docstring form.
 
 ## Tasks
 
-- [ ] 1. Day-interval algebra and residence data model
-  - [ ] 1.1 Create `slaktbusken/model/date_span.py`
+- [x] 1. Day-interval algebra and residence data model
+  - [x] 1.1 Create `slaktbusken/model/date_span.py`
     - `DaySpan` and `OpenSpan` frozen dataclasses, `is_valid_iso`, `expand_iso` (ÅÅÅÅ → 1 Jan–31 Dec, ÅÅÅÅ-MM → first–last day of month, ÅÅÅÅ-MM-DD → that day, `None` for absent/whitespace-only/malformed), `strictly_earlier`, `year_of`, `precision_of`, `overlaps`, `intersect`, `year_span`
     - `OpenSpan.contains_year`, `overlaps_year`, `is_unbounded_both`
     - Pure module: no Qt, no I/O, no model imports
     - _Requirements: 2.1, 2.15_
 
-  - [ ] 1.2 Create `slaktbusken/model/residence.py` with entity and pure derivations
+  - [x] 1.2 Create `slaktbusken/model/residence.py` with entity and pure derivations
     - `Endpoint`, `Observation`, `ResidenceFact` dataclasses exactly as in the design data model, with `Optional[str]` bounds and `role_in_household: str = ""`
     - `EndpointKind` and `classify_endpoint`, `certain_core`, `possible_span`, `coverage_union`, `observation_span_years`, `core_aggregate`
     - All derivations return new values and leave the fact unchanged; `precision` participates in nothing
     - _Requirements: 1.1, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.13, 2.16, 4.1, 4.6, 5.1, 10.1_
 
-  - [ ] 1.3 Create shared Hypothesis strategies in `tests/test_model/residence_strategies.py`
+  - [x] 1.3 Create shared Hypothesis strategies in `tests/test_model/residence_strategies.py`
     - `iso_values()`, `endpoints()`, `observations()`, `residence_facts()`, `consistent_projects()`
     - Deliberately include whitespace-only bounds, length boundaries at 100/1000/5000 characters, 100 Observations, inverted bounds, empty cores, unbounded spans, one-sided observation spans, years outside 1500–2100, circular place parents
     - _Requirements: 2.1, 4.1, 10.1_
 
-  - [ ] 1.4 Write property test for Endpoint classification
+  - [x] 1.4 Write property test for Endpoint classification
     - **Property 3: Endpoint classification is total, absence-driven and precision-independent**
     - **Validates: Requirements 2.1, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8**
 
-  - [ ] 1.5 Write property test for day-interval derivations
+  - [x] 1.5 Write property test for day-interval derivations
     - **Property 4: Day-interval derivations match their definitions and mutate nothing**
     - **Validates: Requirements 2.13, 2.15, 2.16**
 
-- [ ] 2. Project collection and identifiers
-  - [ ] 2.1 Add the `residences` collection and residence id prefix
+- [x] 2. Project collection and identifiers
+  - [x] 2.1 Add the `residences` collection and residence id prefix
     - `ProjectData.residences: list[ResidenceFact] = field(default_factory=list)` after `events`, empty for a new Project, preserving insertion order
     - `IDGenerator._PREFIXES["residence"] = "residence_"` so ids are unique project-wide and never reused
     - _Requirements: 1.2, 1.12_
 
-  - [ ] 2.2 Write property test for collection order and identifier uniqueness
+  - [x] 2.2 Write property test for collection order and identifier uniqueness
     - **Property 6: Project order is preserved and identifiers are unique and never reused**
     - **Validates: Requirements 1.2, 1.12**
 
 - [ ] 3. Validation: errors and warning findings
-  - [ ] 3.1 Implement `validate_residence` in `slaktbusken/model/validators.py`
+  - [x] 3.1 Implement `validate_residence` in `slaktbusken/model/validators.py`
     - Return `list[str]` of Swedish error messages exactly per the design table, in the documented multiplicity
     - Blank `person_id`/`place_id` suppresses the missing-reference message for that same field; place type, duplicate person+place combinations and unknown `precision` values yield no error
     - _Requirements: 1.5, 1.6, 1.7, 1.11, 2.9, 2.10, 2.11, 2.12, 2.14, 4.2, 4.4, 4.5, 4.12, 10.6_
 
-  - [ ] 3.2 Wire residence validation into `ValidationService`
+  - [x] 3.2 Wire residence validation into `ValidationService`
     - `_validate_residence` wrapping the message list into `ValidationError` records with `entity_type="Boende"`, iterated over `project_data.residences` in `validate_project`
     - _Requirements: 1.3, 1.4, 1.10, 1.13, 16.1_
 
-  - [ ] 3.3 Write property test for clean validation of well-formed facts
+  - [x] 3.3 Write property test for clean validation of well-formed facts
     - **Property 1: A well-formed Residence_Fact validates clean**
     - **Validates: Requirements 1.3, 1.4, 1.10, 1.13, 2.2, 2.8, 4.6, 4.11, 6.1, 10.2, 16.1, 18.3, 18.8, 18.13**
 
-  - [ ] 3.4 Write property test for error messages and multiplicity
+  - [x] 3.4 Write property test for error messages and multiplicity
     - **Property 2: Every violation yields its exact Swedish message with the required multiplicity**
     - **Validates: Requirements 1.5, 1.6, 1.7, 1.11, 2.9, 2.10, 2.11, 2.12, 2.14, 4.2, 4.4, 4.5, 4.12, 10.6**
 
-  - [ ] 3.5 Create `slaktbusken/services/residence_validation.py`
+  - [x] 3.5 Create `slaktbusken/services/residence_validation.py`
     - `ResidenceFinding` record with `severity`, `residence_findings` (start/end window overlap, duplicate source on one fact, evidence outside the recorded period), `overlap_findings` (same-person unordered pairs, strict core overlap at the coarser core precision, same-place and different-place messages, {plats A} ordering and finding order), `flytt_link_findings`
     - _Requirements: 2.17, 4.13, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 16.9, 18.10_
 
@@ -86,11 +86,11 @@ and the project's tag-comment/docstring form.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Flytt event type, aspects and deletion behaviour
-  - [ ] 5.1 Add the `flytt` event type and `Event.from_place`
+  - [x] 5.1 Add the `flytt` event type and `Event.from_place`
     - `INDIVIDUAL_EVENT_TYPE_LABELS["flytt"] = "Flytt"`; `from_place: Optional[PlaceRef] = None` following the `cause_of_death` pattern; absent `place`, absent `from_place` or both absent are error-free; event validator returns the same-place warning finding
     - _Requirements: 18.1, 18.2, 18.3, 18.7_
 
-  - [ ] 5.2 Register residence and flytt source aspects
+  - [x] 5.2 Register residence and flytt source aspects
     - `ENTITY_SOURCE_ASPECTS["residence"]` = place/period/household_role/household_members with labels Plats, Period, Hushållsroll, Hushållsmedlemmar; `EVENT_SOURCE_ASPECTS["flytt"]` = date/from_place/to_place with labels Datum, Från, Till
     - _Requirements: 4.14, 18.5_
 
@@ -107,7 +107,7 @@ and the project's tag-comment/docstring form.
     - **Validates: Requirements 1.8, 1.9, 3.11, 18.17**
 
 - [ ] 6. Persistence and migration
-  - [ ] 6.1 Extend `slaktbusken/persistence/serialization.py` for residences
+  - [x] 6.1 Extend `slaktbusken/persistence/serialization.py` for residences
     - `"residences"` in `entity_fields` written in stored order; `_ENTITY_MAP`, `_NESTED_LIST_TYPES` and `_NESTED_OPTIONAL_TYPES` entries for `ResidenceFact`, `Observation`, `Endpoint`, `SourceRef` and `(Event, "from_place")`
     - Optional load log: unknown fields ignored and logged with the fact `id`; unresolved `person_id`, `place_id`, `source_ref.source_id`, `event_id` kept, logged and left to the validator
     - _Requirements: 13.1, 13.2, 13.5, 13.7_
@@ -136,7 +136,7 @@ and the project's tag-comment/docstring form.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 8. Coverage analysis and person checks
-  - [ ] 8.1 Create `slaktbusken/services/residence_coverage.py` with gap computation
+  - [x] 8.1 Create `slaktbusken/services/residence_coverage.py` with gap computation
     - `CoverageGap`, `OpenEndpointSuggestion`, `TimelineGap` records; `coverage_gaps` returning the maximal runs of years absent from the coverage union between the lowest `observed_from` and highest `observed_to`, ordered by first uncovered year, with `splittable`; zero gaps for zero/one Observation or a complete union; nothing mutated
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.10, 16.13_
 
@@ -174,7 +174,7 @@ and the project's tag-comment/docstring form.
     - **Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.10, 7.12**
 
 - [ ] 10. Residence query service
-  - [ ] 10.1 Create `slaktbusken/services/residence_query.py` with `residents_of_place`
+  - [x] 10.1 Create `slaktbusken/services/residence_query.py` with `residents_of_place`
     - `ResidentEntry` carrying person/place identifiers and displays, rendered interval, label, `role_in_household` as empty rather than omitted, `undated`, `place_chain`; one entry per matching fact with no merging; "säker"/"möjlig" labelling; both-sides-unbounded spans matching every year, labelled "möjlig" with "odaterat" and sorting last; no lifespan clamping; breadth-first descendant walk to 10 levels with a visited set; place and residence indexes built once per call
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.9, 8.11, 15.9_
 
@@ -194,7 +194,7 @@ and the project's tag-comment/docstring form.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 12. Pure edit operations
-  - [ ] 12.1 Create `slaktbusken/services/residence_edit_ops.py` with `prefill_span_from_years`
+  - [x] 12.1 Create `slaktbusken/services/residence_edit_ops.py` with `prefill_span_from_years`
     - Accept a single four-digit year in 1500–2100 or two such years in ascending order separated by a hyphen or en dash with any surrounding spaces; return `None` otherwise; never write back to the Source `years` value
     - _Requirements: 4.1, 4.7, 4.8, 4.9, 4.10, 9.2_
 
@@ -266,7 +266,7 @@ and the project's tag-comment/docstring form.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 14. Swedish formatting and role storage
-  - [ ] 14.1 Add the Residence_Formatter to `slaktbusken/ui/swedish_locale.py`
+  - [x] 14.1 Add the Residence_Formatter to `slaktbusken/ui/swedish_locale.py`
     - `format_residence_endpoint`, `format_residence_interval`, `format_residence_line`, `format_observation_span`; the five endpoint wordings, "okänd period" for two unknown endpoints, a single unspaced en dash U+2013 rather than `format_date_range`, stored month/day forms without truncation, role appended as ", {role}" with no separator or trailing whitespace when empty
     - _Requirements: 10.8, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.11, 11.12, 11.13_
 

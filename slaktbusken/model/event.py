@@ -53,3 +53,6 @@ class Event:
     media_ids: list[str] = field(default_factory=list)
     custom_type_name: Optional[str] = None
     cause_of_death: Optional[str] = None
+    # Flytt origin; ``place`` is the destination of the move. Both are optional:
+    # an absent value means that side of the move is unknown.
+    from_place: Optional[PlaceRef] = None

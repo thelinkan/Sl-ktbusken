@@ -8,8 +8,10 @@ messages.  An empty list means the entity is valid.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Callable, Optional
 
+from slaktbusken.model.date_span import is_valid_iso, strictly_earlier
 from slaktbusken.model.dna import (
     DnaCluster,
     DnaMatch,
@@ -22,6 +24,7 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import ExternalId, Place, RegionLevel
+from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import Repository, Source
 
 
@@ -49,6 +52,11 @@ _VALID_DATE_PRECISIONS = {"day", "month", "year", "approximate"}
 _ISO_DATE_RE = re.compile(r"^\d{4}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?)?$")
 
 _CUSTOM_EVENT_TYPES = {"custom_individual_event", "custom_family_event"}
+
+# Requirement 18.7 — the exact wording of the Flytt same-place warning.
+_MSG_FLYTT_SAME_PLACE = (
+    "Flytten har samma plats som både från och till – kontrollera uppgifterna."
+)
 
 _VALID_PLACE_TYPES = {"continent", "country", "church", "cemetery", "farm", "school", "ort"}
 
@@ -250,7 +258,50 @@ def validate_event(event: Event) -> list[str]:
         elif len(event.custom_type_name) > 100:
             errors.append("custom_type_name överskrider 100 tecken.")
 
+    # A Flytt_Event never errors on its two places: an absent `from_place`, an
+    # absent `place` or both absent all mean an unknown side of the move, and a
+    # Flytt with the same place on both sides is a warning-level finding from
+    # ``event_findings`` (Requirements 18.3, 18.7).
+
     return errors
+
+
+@dataclass
+class EventFinding:
+    """A warning-level observation about an Event.
+
+    Kept apart from ``validate_event``, which returns hard errors only: the
+    residence-periods design keeps errors as Swedish strings from the
+    ``validate_*`` functions and gives severity-carrying findings their own
+    return type.
+
+    Attributes:
+        event_id: The id of the Event the finding concerns.
+        severity: Always ``"warning"`` today.
+        message: The exact Swedish message to display.
+    """
+
+    event_id: str
+    severity: str
+    message: str
+
+
+def event_findings(event: Event) -> list[EventFinding]:
+    """Return the warning-level findings for an Event.
+
+    A Flytt_Event whose ``from_place`` and ``place`` are both present and hold
+    the same ``place_id`` yields ``_MSG_FLYTT_SAME_PLACE`` (Requirement 18.7).
+    Everything else — an absent origin, an absent destination, both absent, or
+    two different places — yields nothing, and none of these are ever errors
+    (Requirement 18.3).
+    """
+    findings: list[EventFinding] = []
+
+    if event.type == "flytt" and event.from_place is not None and event.place is not None:
+        if event.from_place.place_id == event.place.place_id:
+            findings.append(EventFinding(event.id, "warning", _MSG_FLYTT_SAME_PLACE))
+
+    return findings
 
 
 # ---------------------------------------------------------------------------
@@ -850,5 +901,198 @@ def validate_dna_triangulation(triangulation: DnaTriangulation) -> list[str]:
 
     if len(triangulation.profile_ids) < 3:
         errors.append("DNA-triangulering måste ha minst 3 profile_ids.")
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# 3.7 – Residence validation
+# ---------------------------------------------------------------------------
+
+# Length limits (Requirements 1.10, 1.11, 2.1, 2.14, 4.1, 4.2, 10.6)
+_RESIDENCE_NOTES_MAX_LENGTH = 5000
+_RESIDENCE_ROLE_MAX_LENGTH = 100
+_ENDPOINT_NOTE_MAX_LENGTH = 1000
+_MAX_OBSERVATIONS = 100
+
+# The plausible year range an Observation bound must fall in (Requirement 4.12).
+_MIN_OBSERVATION_YEAR = 1500
+_MAX_OBSERVATION_YEAR = 2100
+
+# An Observation bound is a bare four-digit year (ÅÅÅÅ) — nothing else.
+_OBSERVATION_YEAR_RE = re.compile(r"^\d{4}$")
+
+# The exact Swedish error messages, one constant per acceptance criterion.
+_MSG_PERSON_AND_PLACE_REQUIRED = "Boendet måste ange både person och plats."
+_MSG_UNKNOWN_PERSON = "Boendet refererar till en person som inte finns."
+_MSG_UNKNOWN_PLACE = "Boendet refererar till en plats som inte finns."
+_MSG_NOTES_TOO_LONG = "Anteckningen får vara högst 5000 tecken."
+_MSG_ROLE_TOO_LONG = "Roll i hushållet får vara högst 100 tecken."
+_MSG_MALFORMED_ISO = (
+    "Datumvärdet är inte ett giltigt ISO 8601-datum "
+    "(förväntat ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD)."
+)
+_MSG_INVERTED_ENDPOINT = "Tidigaste datum får inte vara senare än senaste datum."
+_MSG_END_BEFORE_START = "Boendets slut kan inte ligga före dess början."
+_MSG_ENDPOINT_NOTE_TOO_LONG = "Endpunktens anteckning får vara högst 1000 tecken."
+_MSG_UNKNOWN_EVENT = "Endpunkten refererar till en händelse som inte finns."
+_MSG_TOO_MANY_OBSERVATIONS = "Ett boende får ha högst 100 observationer."
+_MSG_BAD_OBSERVATION_YEAR = (
+    "Observationens årtal måste anges som fyra siffror (ÅÅÅÅ) mellan 1500 och 2100."
+)
+_MSG_INVERTED_OBSERVATION = "Observationens startår får inte vara senare än dess slutår."
+_MSG_UNKNOWN_OBSERVATION_SOURCE = "Observationen refererar till en källa som inte finns."
+
+
+def _residence_value_present(value: Optional[str]) -> bool:
+    """Whether a residence value counts as present.
+
+    ``None``, empty and whitespace-only all count as absent, for Endpoint bounds
+    (Requirement 2.1) as well as for `person_id`/`place_id` (Requirement 1.7).
+    """
+    return value is not None and bool(value.strip())
+
+
+def _observation_year_value(value: Optional[str]) -> Optional[int]:
+    """The year an Observation bound holds, or ``None`` when it holds no year.
+
+    Only the bare four-digit form ÅÅÅÅ is a year; the 1500–2100 range check is
+    left to the caller so an out-of-range year can still be compared with its
+    counterpart.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not _OBSERVATION_YEAR_RE.match(trimmed):
+        return None
+    return int(trimmed)
+
+
+def _validate_residence_endpoint(
+    endpoint: Endpoint,
+    valid_event_ids: Optional[set[str]],
+    errors: list[str],
+) -> None:
+    """Collect the errors of one Endpoint into *errors*.
+
+    `precision` is descriptive only, so no value of it is ever an error
+    (Requirement 2.3).
+    """
+    # One message per offending value, so two malformed bounds yield two
+    # messages (Requirement 2.11).
+    for bound in (endpoint.earliest, endpoint.latest):
+        if _residence_value_present(bound) and not is_valid_iso(bound):
+            errors.append(_MSG_MALFORMED_ISO)
+
+    # Inverted bounds, compared as day intervals: "1840" together with
+    # "1840-06" is no error (Requirements 2.9, 2.15).
+    if strictly_earlier(endpoint.latest, endpoint.earliest):
+        errors.append(_MSG_INVERTED_ENDPOINT)
+
+    if endpoint.note is not None and len(endpoint.note) > _ENDPOINT_NOTE_MAX_LENGTH:
+        errors.append(_MSG_ENDPOINT_NOTE_TOO_LONG)
+
+    if valid_event_ids is not None and _residence_value_present(endpoint.event_id):
+        if endpoint.event_id not in valid_event_ids:
+            errors.append(_MSG_UNKNOWN_EVENT)
+
+
+def _validate_observation(
+    observation: Observation,
+    valid_source_ids: Optional[set[str]],
+    errors: list[str],
+) -> None:
+    """Collect the errors of one Observation into *errors*."""
+    # One message per offending bound: malformed, or a four-digit year outside
+    # 1500–2100 (Requirement 4.12).
+    for bound in (observation.observed_from, observation.observed_to):
+        if not _residence_value_present(bound):
+            continue
+        year = _observation_year_value(bound)
+        if year is None or not (_MIN_OBSERVATION_YEAR <= year <= _MAX_OBSERVATION_YEAR):
+            errors.append(_MSG_BAD_OBSERVATION_YEAR)
+
+    first = _observation_year_value(observation.observed_from)
+    last = _observation_year_value(observation.observed_to)
+    if first is not None and last is not None and first > last:
+        errors.append(_MSG_INVERTED_OBSERVATION)
+
+    if valid_source_ids is not None:
+        if observation.source_ref.source_id not in valid_source_ids:
+            errors.append(_MSG_UNKNOWN_OBSERVATION_SOURCE)
+
+
+def validate_residence(
+    residence: ResidenceFact,
+    valid_person_ids: Optional[set[str]] = None,
+    valid_place_ids: Optional[set[str]] = None,
+    valid_source_ids: Optional[set[str]] = None,
+    valid_event_ids: Optional[set[str]] = None,
+) -> list[str]:
+    """Validate a Residence_Fact ("Boende") and return its hard errors.
+
+    Returns the exact Swedish error messages of Requirements 1.5, 1.6, 1.7,
+    1.11, 2.9, 2.10, 2.11, 2.12, 2.14, 4.2, 4.4, 4.5, 4.12 and 10.6. An empty
+    list means the fact holds no hard error.
+
+    Each ``valid_*_ids`` set is optional: passing ``None`` skips that reference
+    check, following the convention of the other ``validate_*`` functions here.
+
+    Errors only. Warning-level findings — overlapping start/end windows (2.17),
+    a source cited twice on one fact (4.13), evidence outside the recorded period
+    (16.9) and every cross-fact comparison — live in
+    ``slaktbusken/services/residence_validation.py``.
+
+    Deliberately never an error: the type of the referenced place
+    (Requirement 1.3), two facts sharing a `person_id`+`place_id` combination
+    (Requirement 1.4), an Endpoint with both bounds absent (Requirement 2.8),
+    an Observation holding only one of its two bounds (Requirement 4.6), an
+    Observation span narrower than its Source's coverage period
+    (Requirement 4.10) and any `precision` value, known or unknown
+    (Requirement 2.3).
+    """
+    errors: list[str] = []
+
+    # --- Person and place references (Requirements 1.5, 1.6, 1.7) ----------
+    person_present = _residence_value_present(residence.person_id)
+    place_present = _residence_value_present(residence.place_id)
+
+    # One message however many of the two fields are blank (Requirement 1.7).
+    if not person_present or not place_present:
+        errors.append(_MSG_PERSON_AND_PLACE_REQUIRED)
+
+    # A blank field is reported as blank only, never also as missing.
+    if person_present and valid_person_ids is not None:
+        if residence.person_id not in valid_person_ids:
+            errors.append(_MSG_UNKNOWN_PERSON)
+
+    if place_present and valid_place_ids is not None:
+        if residence.place_id not in valid_place_ids:
+            errors.append(_MSG_UNKNOWN_PLACE)
+
+    # --- Text lengths (Requirements 1.11, 10.6) ---------------------------
+    if len(residence.notes) > _RESIDENCE_NOTES_MAX_LENGTH:
+        errors.append(_MSG_NOTES_TOO_LONG)
+
+    # The role is measured after trimming, which is how it is stored (10.4).
+    if len(residence.role_in_household.strip()) > _RESIDENCE_ROLE_MAX_LENGTH:
+        errors.append(_MSG_ROLE_TOO_LONG)
+
+    # --- Endpoints (Requirements 2.9, 2.11, 2.12, 2.14) -------------------
+    _validate_residence_endpoint(residence.start, valid_event_ids, errors)
+    _validate_residence_endpoint(residence.end, valid_event_ids, errors)
+
+    # --- Across the two Endpoints (Requirement 2.10) ----------------------
+    # An impossible Possible_Span is the only hard error defined across the two
+    # Endpoints; an overlap of the start and end windows is a warning (2.17).
+    if strictly_earlier(residence.end.latest, residence.start.earliest):
+        errors.append(_MSG_END_BEFORE_START)
+
+    # --- Observations (Requirements 4.2, 4.4, 4.5, 4.12) ------------------
+    if len(residence.observations) > _MAX_OBSERVATIONS:
+        errors.append(_MSG_TOO_MANY_OBSERVATIONS)
+
+    for observation in residence.observations:
+        _validate_observation(observation, valid_source_ids, errors)
 
     return errors

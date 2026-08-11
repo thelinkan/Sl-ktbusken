@@ -28,6 +28,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
+from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import (
     ArkivReferens,
     Repository,
@@ -86,6 +87,10 @@ __all__ = [
     "DnaTriangulation",
     # Research notes
     "ResearchNote",
+    # Residence
+    "Endpoint",
+    "Observation",
+    "ResidenceFact",
     # Project
     "ProjectData",
     "ProjectMetadata",

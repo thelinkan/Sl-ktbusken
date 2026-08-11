@@ -25,6 +25,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import CustomFieldDef, ExternalId, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
+from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import ArkivReferens, Kalltyp, Leverantor, Repository, RepositoryRef, Source, StructuredReference
 
 
@@ -52,7 +53,7 @@ def serialize(data: ProjectData) -> str:
 
     # All entity arrays.
     entity_fields = [
-        "persons", "families", "events", "places", "sources",
+        "persons", "families", "events", "residences", "places", "sources",
         "media", "repositories", "dna_companies", "dna_profiles",
         "dna_matches", "dna_segments", "dna_clusters",
         "dna_triangulations", "research_notes", "leverantorer", "kalltyper",
@@ -64,7 +65,7 @@ def serialize(data: ProjectData) -> str:
     return json.dumps(output, ensure_ascii=False, indent=2)
 
 
-def deserialize(json_str: str) -> ProjectData:
+def deserialize(json_str: str, log: list[str] | None = None) -> ProjectData:
     """Deserialize a JSON string into a ProjectData instance.
 
     Expects the JSON structure produced by serialize(), with
@@ -72,6 +73,8 @@ def deserialize(json_str: str) -> ProjectData:
 
     Args:
         json_str: The JSON string to deserialize.
+        log: Optional list to receive load-time diagnostic messages (unknown
+            fields, unresolved references). ``None`` disables logging.
 
     Returns:
         A ProjectData instance populated from the JSON data.
@@ -85,7 +88,7 @@ def deserialize(json_str: str) -> ProjectData:
     )
 
     # Deserialize entity arrays with proper nested type reconstruction.
-    _deserialize_entities(project_data, raw)
+    _deserialize_entities(project_data, raw, log=log)
 
     # Normalize Unicode in file paths to NFC for consistent handling of
     # Swedish characters (å, ä, ö). File systems on Windows use NFC but
@@ -201,6 +204,7 @@ _ENTITY_MAP: dict[str, type] = {
     "persons": Person,
     "families": Family,
     "events": Event,
+    "residences": ResidenceFact,
     "places": Place,
     "sources": Source,
     "repositories": Repository,
@@ -230,13 +234,18 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (ResearchNote, "linked_entities"): LinkedEntity,
     (Place, "external_ids"): ExternalId,
     (Place, "region_levels"): RegionLevel,
+    (ResidenceFact, "observations"): Observation,
 }
 
 # Mapping of (parent_class, field_name) -> type for optional nested dataclass fields.
 _NESTED_OPTIONAL_TYPES: dict[tuple[type, str], type] = {
     (Event, "date"): DateValue,
     (Event, "place"): PlaceRef,
+    (Event, "from_place"): PlaceRef,
     (Source, "structured_reference"): StructuredReference,
+    (ResidenceFact, "start"): Endpoint,
+    (ResidenceFact, "end"): Endpoint,
+    (Observation, "source_ref"): SourceRef,
 }
 
 # Mapping of nested list fields within nested types.
@@ -247,18 +256,67 @@ _DEEP_NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
 }
 
 
-def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any]) -> None:
+def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any], *, log: list[str] | None = None) -> None:
     """Deserialize entity arrays from raw JSON dict into ProjectData.
+
+    For the ``residences`` collection, unknown fields on a serialized
+    Residence_Fact are ignored (and logged with the fact ``id`` when *log* is
+    provided). Unresolved ``person_id``, ``place_id``,
+    ``source_ref.source_id``, and ``event_id`` values are kept as stored and
+    left for the validator to report.
 
     Args:
         project_data: The ProjectData instance to populate.
         raw: The full parsed JSON dictionary.
+        log: Optional list to receive diagnostic messages.
     """
     for field_name, cls in _ENTITY_MAP.items():
         raw_items = raw.get(field_name, [])
         if raw_items:
-            deserialized = [_deserialize_typed(cls, item) for item in raw_items]
+            if field_name == "residences" and log is not None:
+                deserialized = _deserialize_residences(raw_items, log)
+            else:
+                deserialized = [_deserialize_typed(cls, item) for item in raw_items]
             setattr(project_data, field_name, deserialized)
+
+
+def _deserialize_residences(raw_items: list[Any], log: list[str]) -> list[Any]:
+    """Deserialize residence items with tolerant-loading semantics.
+
+    Unknown fields are ignored and logged together with the fact ``id``.
+    Unresolved references are kept as stored and left for the validator.
+
+    Args:
+        raw_items: The raw JSON list of residence dicts.
+        log: List to receive diagnostic messages about unknown fields.
+
+    Returns:
+        A list of deserialized ResidenceFact instances.
+    """
+    from dataclasses import fields as dc_fields_fn
+
+    valid_field_names = {f.name for f in dc_fields_fn(ResidenceFact)}
+    results = []
+
+    for item in raw_items:
+        if not isinstance(item, dict):
+            results.append(_deserialize_typed(ResidenceFact, item))
+            continue
+
+        fact_id = item.get("id", "<unknown>")
+
+        # Log unknown fields (Requirement 13.5).
+        unknown_fields = set(item.keys()) - valid_field_names
+        for field_name in sorted(unknown_fields):
+            log.append(
+                f"Residence {fact_id}: ignored unknown field '{field_name}'"
+            )
+
+        # Deserialize normally — _deserialize_typed already skips unknown
+        # fields because it only reads fields present on the dataclass.
+        results.append(_deserialize_typed(ResidenceFact, item))
+
+    return results
 
 
 def _normalize_media_file_paths(project_data: ProjectData) -> None:

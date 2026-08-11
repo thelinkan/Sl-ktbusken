@@ -5,6 +5,8 @@ Provides:
        event types, relationship labels).
     2. Date formatting function (YYYY-MM-DD, Swedish convention).
     3. Number formatting function (comma decimal separator, space thousands separator).
+    4. The Residence_Formatter: the single source of the Swedish wording for open
+       and closed residence intervals, household roles and Observation spans.
 
 This module is the single source of truth for Swedish genealogical terminology
 used throughout the UI layer, ensuring consistency across editors, dialogs,
@@ -18,6 +20,8 @@ from __future__ import annotations
 import math
 from datetime import date, datetime
 from typing import Optional
+
+from slaktbusken.model.residence import Endpoint, EndpointKind, classify_endpoint
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +75,7 @@ INDIVIDUAL_EVENT_TYPE_LABELS: dict[str, str] = {
     "death": "Död",
     "emigration": "Emigration",
     "first_communion": "Första nattvarden",
+    "flytt": "Flytt",
     "gender_correction": "Könskorrigering",
     "graduation": "Examen",
     "immigration": "Immigration",
@@ -253,6 +258,174 @@ def format_date_range(start: Optional[str], end: Optional[str]) -> str:
     start_str = format_date(start) if start else "?"
     end_str = format_date(end) if end else "?"
     return f"{start_str} \u2013 {end_str}"
+
+
+# ---------------------------------------------------------------------------
+# Residence_Formatter — Swedish display of open and closed residence intervals
+# ---------------------------------------------------------------------------
+
+# The single separator between two rendered residence Endpoints: one en dash
+# with no space before it and no space after it (Requirement 11.11). This is
+# deliberately not format_date_range(), which spaces its dash and renders a
+# missing side as "?".
+RESIDENCE_INTERVAL_DASH = "\u2013"
+
+# The whole-interval wording for two unknown Endpoints (Requirement 11.12).
+RESIDENCE_UNKNOWN_PERIOD = "okänd period"
+
+# The wording for a single unknown Endpoint (Requirement 11.5).
+RESIDENCE_UNKNOWN_ENDPOINT = "okänt"
+
+
+def _residence_bound(value: Optional[str]) -> str:
+    """A stored Endpoint bound as displayed: trimmed, never truncated.
+
+    Month precision keeps its ÅÅÅÅ-MM form and day precision its ÅÅÅÅ-MM-DD
+    form (Requirement 11.13).
+    """
+    return "" if value is None else value.strip()
+
+
+def format_residence_endpoint(ep: Endpoint) -> str:
+    """Render one residence Endpoint in Swedish.
+
+    The wording marker is determined solely by the Endpoint's classification,
+    and the same wording is used at the start position and at the end position
+    alike (Requirement 11.6):
+
+    - exact date       → the bare stored value, e.g. "1840" (11.1)
+    - only ``latest``  → "senast 1840" (11.2)
+    - only ``earliest``→ "tidigast 1846" (11.3)
+    - transition window→ "mellan 1838 och 1840" (11.4)
+    - unknown          → "okänt" (11.5)
+
+    Args:
+        ep: The Endpoint to render.
+
+    Returns:
+        The rendered Endpoint string.
+
+    Examples:
+        >>> format_residence_endpoint(Endpoint(latest="1840"))
+        'senast 1840'
+        >>> format_residence_endpoint(Endpoint(earliest="1846"))
+        'tidigast 1846'
+        >>> format_residence_endpoint(Endpoint())
+        'okänt'
+    """
+    kind = classify_endpoint(ep)
+    earliest = _residence_bound(ep.earliest)
+    latest = _residence_bound(ep.latest)
+
+    if kind is EndpointKind.UNKNOWN:
+        return RESIDENCE_UNKNOWN_ENDPOINT
+    if kind is EndpointKind.EXACT:
+        # Both bounds denote the same day interval, so either stored form reads
+        # the same; the bare value carries no marker word (11.1, 11.6).
+        return earliest or latest
+    if kind is EndpointKind.OPEN_LATEST:
+        return f"senast {latest}"
+    if kind is EndpointKind.OPEN_EARLIEST:
+        return f"tidigast {earliest}"
+    return f"mellan {earliest} och {latest}"
+
+
+def format_residence_interval(start: Endpoint, end: Endpoint) -> str:
+    """Render a residence interval from its two Endpoints.
+
+    Two unknown Endpoints render as "okänd period" with no separator
+    (Requirement 11.12). Every other pair renders as the two Endpoint strings
+    joined by exactly one en dash U+2013 with no surrounding space
+    (Requirement 11.11). Because each position carries exactly the marker its
+    own classification requires, the rendered string determines the
+    classification pair, so all 16 ordered pairs are mutually distinguishable
+    (Requirement 11.6).
+
+    Args:
+        start: The start Endpoint.
+        end: The end Endpoint.
+
+    Returns:
+        The rendered interval string.
+
+    Examples:
+        >>> format_residence_interval(Endpoint("1840", "1840"), Endpoint("1846", "1846"))
+        '1840–1846'
+        >>> format_residence_interval(Endpoint(latest="1840"), Endpoint(earliest="1846"))
+        'senast 1840–tidigast 1846'
+        >>> format_residence_interval(Endpoint(), Endpoint())
+        'okänd period'
+    """
+    if (
+        classify_endpoint(start) is EndpointKind.UNKNOWN
+        and classify_endpoint(end) is EndpointKind.UNKNOWN
+    ):
+        return RESIDENCE_UNKNOWN_PERIOD
+    return (
+        f"{format_residence_endpoint(start)}"
+        f"{RESIDENCE_INTERVAL_DASH}"
+        f"{format_residence_endpoint(end)}"
+    )
+
+
+def format_residence_line(
+    place_display: str,
+    start: Endpoint,
+    end: Endpoint,
+    role: str,
+) -> str:
+    """Render one residence as place, interval and household role.
+
+    A non-empty *role* is appended after the interval as ", {role}" with the
+    stored text unchanged; an empty *role* adds no separator and no trailing
+    whitespace (Requirement 10.8).
+
+    Args:
+        place_display: The place display string, empty when unavailable.
+        start: The start Endpoint.
+        end: The end Endpoint.
+        role: The stored `role_in_household` value.
+
+    Returns:
+        The rendered residence line.
+
+    Examples:
+        >>> format_residence_line("Ekeby", Endpoint(latest="1840"), Endpoint(), "piga")
+        'Ekeby, senast 1840–okänt, piga'
+    """
+    parts = [part for part in (place_display, format_residence_interval(start, end)) if part]
+    if role:
+        parts.append(role)
+    return ", ".join(parts)
+
+
+def format_observation_span(observed_from: str, observed_to: str) -> str:
+    """Render the span an Observation attests.
+
+    Two differing years render as "1866–1870" and two equal years as "1866"
+    (Requirement 11.9). A single present bound renders as that year alone, and
+    two absent bounds render as an empty string.
+
+    Args:
+        observed_from: The Observation's `observed_from` value.
+        observed_to: The Observation's `observed_to` value.
+
+    Returns:
+        The rendered span string.
+
+    Examples:
+        >>> format_observation_span("1866", "1870")
+        '1866–1870'
+        >>> format_observation_span("1866", "1866")
+        '1866'
+    """
+    first = _residence_bound(observed_from)
+    last = _residence_bound(observed_to)
+    if not first:
+        return last
+    if not last or first == last:
+        return first
+    return f"{first}{RESIDENCE_INTERVAL_DASH}{last}"
 
 
 # ---------------------------------------------------------------------------

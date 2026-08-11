@@ -26,6 +26,7 @@ from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.research_note import ResearchNote
+from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.source import Repository, Source
 from slaktbusken.model.validators import (
     validate_dna_cluster,
@@ -39,6 +40,7 @@ from slaktbusken.model.validators import (
     validate_person,
     validate_place,
     validate_repository,
+    validate_residence,
     validate_source,
 )
 
@@ -126,6 +128,9 @@ class ValidationService:
         for event in project_data.events:
             errors.extend(self._validate_single(event, id_sets, project_data))
 
+        for residence in project_data.residences:
+            errors.extend(self._validate_single(residence, id_sets, project_data))
+
         for place in project_data.places:
             errors.extend(self._validate_single(place, id_sets, project_data))
 
@@ -186,6 +191,8 @@ class ValidationService:
             return self._validate_family(entity, id_sets)
         elif isinstance(entity, Event):
             return self._validate_event(entity, id_sets)
+        elif isinstance(entity, ResidenceFact):
+            return self._validate_residence(entity, id_sets)
         elif isinstance(entity, Place):
             return self._validate_place(entity, id_sets, project_data)
         elif isinstance(entity, Source):
@@ -292,6 +299,30 @@ class ValidationService:
                     "Event", event.id,
                     f"media_id '{media_id}' refererar inte till ett giltigt mediaobjekt."
                 ))
+
+        return errors
+
+    def _validate_residence(
+        self, residence: ResidenceFact, id_sets: _IdSets
+    ) -> list[ValidationError]:
+        """Validate a Residence_Fact ("Boende"): structural + all references.
+
+        ``validate_residence`` already covers every person, place, source and
+        event reference the fact holds, so nothing is checked again here — that
+        would duplicate the exact Swedish messages the requirements pin to a
+        single occurrence.
+        """
+        errors: list[ValidationError] = []
+
+        structural = validate_residence(
+            residence,
+            valid_person_ids=id_sets.person_ids,
+            valid_place_ids=id_sets.place_ids,
+            valid_source_ids=id_sets.source_ids,
+            valid_event_ids=id_sets.event_ids,
+        )
+        for msg in structural:
+            errors.append(ValidationError("Boende", residence.id, msg))
 
         return errors
 

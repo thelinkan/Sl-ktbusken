@@ -19,6 +19,7 @@ from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.research_note import ResearchNote
+from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.source import Kalltyp, Leverantor, Repository, Source
 
 
@@ -42,6 +43,7 @@ class ProjectData:
     persons: list[Person] = field(default_factory=list)
     families: list[Family] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
+    residences: list[ResidenceFact] = field(default_factory=list)
     places: list[Place] = field(default_factory=list)
     sources: list[Source] = field(default_factory=list)
     media: list[MediaItem] = field(default_factory=list)
