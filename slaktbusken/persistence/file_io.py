@@ -17,7 +17,7 @@ from typing import Any
 from slaktbusken.model.project import ProjectData
 
 # Current format version supported by this application.
-CURRENT_VERSION = "0.1"
+CURRENT_VERSION = "0.2"
 
 
 class CorruptedFileError(Exception):
@@ -114,9 +114,10 @@ class FilePersistence:
         # Step 3: Check if version is too new.
         if _is_newer_version(version):
             raise UnsupportedVersionError(
-                f"Filen skapades med en nyare version av Släktbusken "
-                f"(filversion {version}, appversion {CURRENT_VERSION}). "
-                f"Uppdatera Släktbusken för att kunna öppna denna fil."
+                f"Filen skapades med en nyare version av Släktbusken och kan "
+                f"inte öppnas. Filversion {version}, appversion "
+                f"{CURRENT_VERSION}. Uppdatera Släktbusken för att kunna "
+                f"öppna denna fil."
             )
 
         # Step 4: If version is older, attempt migration.

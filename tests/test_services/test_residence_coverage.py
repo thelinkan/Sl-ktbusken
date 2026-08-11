@@ -537,3 +537,444 @@ def test_purity_with_suggestion_computation():
 
     assert fact == fact_before
     assert data == data_before
+
+
+# ---------------------------------------------------------------------------
+# Tests for open_endpoint_suggestions (Requirement 5.7)
+# ---------------------------------------------------------------------------
+
+from slaktbusken.model.residence import EndpointKind, classify_endpoint
+from slaktbusken.services.residence_coverage import (
+    PersonCoverageResult,
+    analyze_person,
+    open_endpoint_suggestions,
+    timeline_gaps,
+)
+from slaktbusken.model.event import DateValue, Event, Participant
+
+
+def test_open_start_suggests_borjan():
+    """A start with absent earliest yields a suggestion naming 'början'."""
+    fact = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest=None, latest="1840"),
+        end=Endpoint(earliest="1885", latest="1890"),
+    )
+    suggestions = open_endpoint_suggestions(fact)
+    assert len(suggestions) == 1
+    assert suggestions[0].side == "start"
+    assert "början" in suggestions[0].suggestion
+    assert suggestions[0].residence_id == "r1"
+
+
+def test_open_end_suggests_slutet():
+    """An end with absent latest yields a suggestion naming 'slutet'."""
+    fact = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1835", latest="1840"),
+        end=Endpoint(earliest="1885", latest=None),
+    )
+    suggestions = open_endpoint_suggestions(fact)
+    assert len(suggestions) == 1
+    assert suggestions[0].side == "end"
+    assert "slutet" in suggestions[0].suggestion
+
+
+def test_both_open_yields_at_most_two_suggestions():
+    """A fact with both start.earliest and end.latest absent yields two suggestions."""
+    fact = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest=None, latest="1840"),
+        end=Endpoint(earliest="1885", latest=None),
+    )
+    suggestions = open_endpoint_suggestions(fact)
+    assert len(suggestions) == 2
+    sides = {s.side for s in suggestions}
+    assert sides == {"start", "end"}
+
+
+def test_completely_unknown_endpoints_yield_two_suggestions():
+    """Both endpoints unknown (earliest and latest both absent) yields two suggestions."""
+    fact = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(),
+        end=Endpoint(),
+    )
+    suggestions = open_endpoint_suggestions(fact)
+    assert len(suggestions) == 2
+
+
+def test_fully_specified_endpoints_yield_no_suggestions():
+    """A fact with both endpoints having their required bounds yields no suggestions."""
+    fact = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1835", latest="1840"),
+        end=Endpoint(earliest="1885", latest="1890"),
+    )
+    suggestions = open_endpoint_suggestions(fact)
+    assert suggestions == []
+
+
+def test_exact_endpoints_yield_no_suggestions():
+    """Exact endpoints (earliest == latest) yield no suggestions."""
+    fact = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1840", latest="1840"),
+        end=Endpoint(earliest="1890", latest="1890"),
+    )
+    suggestions = open_endpoint_suggestions(fact)
+    assert suggestions == []
+
+
+def test_open_start_with_only_earliest_no_latest_yields_no_start_suggestion():
+    """A start with earliest present and latest absent is OPEN_EARLIEST, not OPEN_LATEST."""
+    fact = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1835", latest=None),
+        end=Endpoint(earliest="1885", latest="1890"),
+    )
+    suggestions = open_endpoint_suggestions(fact)
+    # start is OPEN_EARLIEST (only earliest present) — this means we have the earliest
+    # but not the latest; start.earliest is present so we do NOT report "beginning is open"
+    assert suggestions == []
+
+
+# ---------------------------------------------------------------------------
+# Tests for timeline_gaps (Requirements 5.8, 5.15)
+# ---------------------------------------------------------------------------
+
+
+def test_single_fact_yields_no_timeline_gap():
+    """A person with one fact produces no timeline gap."""
+    fact = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1840"),
+        end=Endpoint(latest="1870"),
+    )
+    data = ProjectData(residences=[fact])
+    gaps = timeline_gaps("p1", data)
+    assert gaps == []
+
+
+def test_no_facts_yields_no_timeline_gap():
+    """A person with no facts produces no timeline gap."""
+    data = ProjectData()
+    gaps = timeline_gaps("p1", data)
+    assert gaps == []
+
+
+def test_two_facts_with_gap_between_possible_spans():
+    """Two facts with a year gap between their Possible_Spans yield one timeline gap."""
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1840"),
+        end=Endpoint(latest="1850"),
+    )
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest="1855"),
+        end=Endpoint(latest="1870"),
+    )
+    data = ProjectData(residences=[fact1, fact2])
+    gaps = timeline_gaps("p1", data)
+    assert len(gaps) == 1
+    assert gaps[0].first_year == 1851
+    assert gaps[0].last_year == 1854
+    assert gaps[0].person_id == "p1"
+
+
+def test_touching_possible_spans_leave_no_gap():
+    """Facts touching at a boundary year leave no gap (Requirement 14.3)."""
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1840"),
+        end=Endpoint(latest="1850"),
+    )
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest="1850"),
+        end=Endpoint(latest="1870"),
+    )
+    data = ProjectData(residences=[fact1, fact2])
+    gaps = timeline_gaps("p1", data)
+    # 1850 is covered by both spans (they overlap at 1850)
+    assert gaps == []
+
+
+def test_unbounded_span_covers_everything_in_that_direction():
+    """A span unbounded in a direction contains every year in that direction."""
+    # fact1 has no end.latest → unbounded right → covers every year after start
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1840"),
+        end=Endpoint(latest=None),
+    )
+    # fact2 has bounded end
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest="1870"),
+        end=Endpoint(latest="1880"),
+    )
+    data = ProjectData(residences=[fact1, fact2])
+    gaps = timeline_gaps("p1", data)
+    # fact1 is unbounded to the right so it covers everything from 1840 onwards,
+    # so there's no gap between the two facts
+    assert gaps == []
+
+
+def test_birth_year_excludes_years_before():
+    """Years before a dated birth are excluded from timeline gap reporting (5.15)."""
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1820"),
+        end=Endpoint(latest="1830"),
+    )
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest="1850"),
+        end=Endpoint(latest="1870"),
+    )
+    birth_event = Event(
+        id="e1",
+        type="birth",
+        participants=[Participant(person_id="p1", role="child")],
+        date=DateValue(value="1840", precision="year"),
+    )
+    data = ProjectData(residences=[fact1, fact2], events=[birth_event])
+    gaps = timeline_gaps("p1", data)
+    # Gap between 1831 and 1849, but years before 1840 (birth) are excluded
+    # So the gap should be 1840–1849
+    assert len(gaps) == 1
+    assert gaps[0].first_year == 1840
+    assert gaps[0].last_year == 1849
+
+
+def test_death_year_excludes_years_after():
+    """Years after a dated death are excluded from timeline gap reporting (5.15)."""
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1840"),
+        end=Endpoint(latest="1850"),
+    )
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest="1870"),
+        end=Endpoint(latest="1900"),
+    )
+    death_event = Event(
+        id="e1",
+        type="death",
+        participants=[Participant(person_id="p1", role="deceased")],
+        date=DateValue(value="1860", precision="year"),
+    )
+    data = ProjectData(residences=[fact1, fact2], events=[death_event])
+    gaps = timeline_gaps("p1", data)
+    # Gap between 1851 and 1869, but years after 1860 (death) are excluded
+    # So the gap should be 1851–1860
+    assert len(gaps) == 1
+    assert gaps[0].first_year == 1851
+    assert gaps[0].last_year == 1860
+
+
+def test_both_birth_and_death_exclude_years_outside():
+    """Both birth and death clamp the timeline gap range."""
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1800"),
+        end=Endpoint(latest="1820"),
+    )
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest="1880"),
+        end=Endpoint(latest="1920"),
+    )
+    birth_event = Event(
+        id="e_birth",
+        type="birth",
+        participants=[Participant(person_id="p1", role="child")],
+        date=DateValue(value="1840", precision="year"),
+    )
+    death_event = Event(
+        id="e_death",
+        type="death",
+        participants=[Participant(person_id="p1", role="deceased")],
+        date=DateValue(value="1900", precision="year"),
+    )
+    data = ProjectData(
+        residences=[fact1, fact2],
+        events=[birth_event, death_event],
+    )
+    gaps = timeline_gaps("p1", data)
+    # The full range is 1800–1920. With birth at 1840 and death at 1900,
+    # we only check 1840–1900. fact1 end at 1820 is before birth, so not relevant.
+    # fact2 start at 1880. Years 1840–1879 are not covered by any span.
+    # fact1's span is 1800–1820 (doesn't cover 1840+), fact2's span is 1880–1920
+    assert len(gaps) == 1
+    assert gaps[0].first_year == 1840
+    assert gaps[0].last_year == 1879
+
+
+def test_all_spans_unbounded_both_sides_yields_no_gap():
+    """If all spans are unbounded on both sides, no bounded years exist."""
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest=None),
+        end=Endpoint(latest=None),
+    )
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest=None),
+        end=Endpoint(latest=None),
+    )
+    data = ProjectData(residences=[fact1, fact2])
+    gaps = timeline_gaps("p1", data)
+    assert gaps == []
+
+
+def test_multiple_timeline_gaps_are_reported_separately():
+    """Multiple timeline gaps are reported as separate maximal runs."""
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1840"),
+        end=Endpoint(latest="1845"),
+    )
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest="1850"),
+        end=Endpoint(latest="1855"),
+    )
+    fact3 = ResidenceFact(
+        id="r3",
+        person_id="p1",
+        place_id="pl3",
+        start=Endpoint(earliest="1860"),
+        end=Endpoint(latest="1870"),
+    )
+    data = ProjectData(residences=[fact1, fact2, fact3])
+    gaps = timeline_gaps("p1", data)
+    assert len(gaps) == 2
+    assert (gaps[0].first_year, gaps[0].last_year) == (1846, 1849)
+    assert (gaps[1].first_year, gaps[1].last_year) == (1856, 1859)
+
+
+# ---------------------------------------------------------------------------
+# Tests for analyze_person
+# ---------------------------------------------------------------------------
+
+
+def test_analyze_person_combines_all_analyses():
+    """analyze_person returns coverage gaps, open suggestions, and timeline gaps."""
+    fact1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest=None, latest="1840"),
+        end=Endpoint(earliest="1850", latest="1855"),
+        observations=[
+            _observation("1840", "1845", source_id="s1"),
+            _observation("1848", "1850", source_id="s2"),
+        ],
+    )
+    fact2 = ResidenceFact(
+        id="r2",
+        person_id="p1",
+        place_id="pl2",
+        start=Endpoint(earliest="1860", latest="1865"),
+        end=Endpoint(earliest="1880", latest=None),
+        observations=[
+            _observation("1865", "1870", source_id="s3"),
+            _observation("1875", "1880", source_id="s4"),
+        ],
+    )
+    data = ProjectData(residences=[fact1, fact2])
+    result = analyze_person("p1", data)
+
+    assert isinstance(result, PersonCoverageResult)
+    # fact1 has a gap at 1846–1847, fact2 has a gap at 1871–1874
+    assert len(result.coverage_gaps) == 2
+    # fact1 has open start (no earliest), fact2 has open end (no latest)
+    assert len(result.open_endpoint_suggestions) == 2
+    # Timeline gap between 1856 and 1859 (between fact1 end.latest=1855 and fact2 start.earliest=1860)
+    assert len(result.timeline_gaps) == 1
+    assert result.timeline_gaps[0].first_year == 1856
+    assert result.timeline_gaps[0].last_year == 1859
+
+
+def test_analyze_person_no_facts():
+    """analyze_person for a person with no facts yields empty results."""
+    data = ProjectData()
+    result = analyze_person("p_unknown", data)
+    assert result.coverage_gaps == []
+    assert result.open_endpoint_suggestions == []
+    assert result.timeline_gaps == []
+
+
+def test_analyze_person_only_considers_that_person():
+    """analyze_person ignores facts belonging to other persons."""
+    fact_p1 = ResidenceFact(
+        id="r1",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(earliest="1840"),
+        end=Endpoint(latest="1870"),
+    )
+    fact_p2 = ResidenceFact(
+        id="r2",
+        person_id="p2",
+        place_id="pl2",
+        start=Endpoint(earliest="1840"),
+        end=Endpoint(latest="1870"),
+    )
+    data = ProjectData(residences=[fact_p1, fact_p2])
+    result = analyze_person("p1", data)
+    # Only one fact for p1 → no timeline gaps, no coverage gaps (needs 2+ obs)
+    assert result.timeline_gaps == []
+    assert result.coverage_gaps == []

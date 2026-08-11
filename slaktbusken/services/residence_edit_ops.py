@@ -146,6 +146,94 @@ def attach_observations(
     )
 
 
+def use_as_exact_start(fact: ResidenceFact, obs: Observation) -> ResidenceFact:
+    """Set the start Endpoint to an exact date from an Observation.
+
+    Sets both ``start.earliest`` and ``start.latest`` to ``obs.observed_from``,
+    making the start an exact date derived from the Observation. All other
+    fields of the Residence_Fact — including ``end.earliest``, ``end.latest``,
+    the start ``precision``, ``event_id``, ``note``, and the Observations
+    list — stay unchanged.
+
+    This is the only route by which an Observation value reaches an outer bound.
+    It is never invoked automatically; the user must explicitly choose
+    "Använd som exakt början" (Requirement 16.11).
+
+    *fact* and *obs* are left unchanged. A new :class:`ResidenceFact` is
+    returned.
+
+    Requirements: 16.10, 16.11.
+    """
+    new_start = Endpoint(
+        earliest=obs.observed_from,
+        latest=obs.observed_from,
+        precision=fact.start.precision,
+        event_id=fact.start.event_id,
+        note=fact.start.note,
+    )
+
+    return ResidenceFact(
+        id=fact.id,
+        person_id=fact.person_id,
+        place_id=fact.place_id,
+        start=new_start,
+        end=Endpoint(
+            earliest=fact.end.earliest,
+            latest=fact.end.latest,
+            precision=fact.end.precision,
+            event_id=fact.end.event_id,
+            note=fact.end.note,
+        ),
+        role_in_household=fact.role_in_household,
+        observations=list(fact.observations),
+        notes=fact.notes,
+    )
+
+
+def use_as_exact_end(fact: ResidenceFact, obs: Observation) -> ResidenceFact:
+    """Set the end Endpoint to an exact date from an Observation.
+
+    Sets both ``end.earliest`` and ``end.latest`` to ``obs.observed_to``,
+    making the end an exact date derived from the Observation. All other
+    fields of the Residence_Fact — including ``start.earliest``,
+    ``start.latest``, the end ``precision``, ``event_id``, ``note``, and the
+    Observations list — stay unchanged.
+
+    This is the only route by which an Observation value reaches an outer bound.
+    It is never invoked automatically; the user must explicitly choose
+    "Använd som exakt slut" (Requirement 16.11).
+
+    *fact* and *obs* are left unchanged. A new :class:`ResidenceFact` is
+    returned.
+
+    Requirements: 16.10, 16.11.
+    """
+    new_end = Endpoint(
+        earliest=obs.observed_to,
+        latest=obs.observed_to,
+        precision=fact.end.precision,
+        event_id=fact.end.event_id,
+        note=fact.end.note,
+    )
+
+    return ResidenceFact(
+        id=fact.id,
+        person_id=fact.person_id,
+        place_id=fact.place_id,
+        start=Endpoint(
+            earliest=fact.start.earliest,
+            latest=fact.start.latest,
+            precision=fact.start.precision,
+            event_id=fact.start.event_id,
+            note=fact.start.note,
+        ),
+        end=new_end,
+        role_in_household=fact.role_in_household,
+        observations=list(fact.observations),
+        notes=fact.notes,
+    )
+
+
 def remove_observation(fact: ResidenceFact, index: int) -> ResidenceFact:
     """Remove the Observation at *index* from *fact*.
 

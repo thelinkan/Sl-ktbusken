@@ -231,3 +231,117 @@ class TestVersionHandlingEdgeCases:
             assert backup == expected
             assert backup.exists()
             assert backup.read_bytes() == b"dummy content"
+
+
+# ---------------------------------------------------------------------------
+# Task 6.3: Tests for the 0.1 → 0.2 migration (residences)
+# ---------------------------------------------------------------------------
+
+
+class TestMigration01To02:
+    """Tests for the registered 0.1 → 0.2 migration.
+
+    **Validates: Requirements 13.4, 13.8**
+    """
+
+    def test_migration_adds_residences_when_missing(self) -> None:
+        """Migration adds residences: [] when the key is missing (Req 13.4)."""
+        data = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "format_version": "0.1",
+            "project": {"title": "Test"},
+            "persons": [],
+            "events": [],
+        }
+
+        result = MigrationManager.migrate(data, "0.1")
+
+        assert result["residences"] == []
+        assert result["format_version"] == "0.2"
+        assert result["version"] == "0.2"
+
+    def test_migration_leaves_existing_residences_unchanged(self) -> None:
+        """Migration leaves an existing residences collection unchanged (Req 13.4)."""
+        existing_residences = [
+            {"id": "r1", "person_id": "p1", "place_id": "pl1", "start": {}, "end": {}}
+        ]
+        data = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "format_version": "0.1",
+            "project": {"title": "Test"},
+            "residences": existing_residences,
+        }
+
+        result = MigrationManager.migrate(data, "0.1")
+
+        assert result["residences"] == existing_residences
+        assert result["format_version"] == "0.2"
+
+    def test_migration_is_idempotent(self) -> None:
+        """Applying the migration a second time (already at 0.2) is a no-op (Req 13.4)."""
+        data = {
+            "format": "släktbuske-file",
+            "version": "0.2",
+            "format_version": "0.2",
+            "project": {"title": "Test"},
+            "residences": [{"id": "r1", "person_id": "p1", "place_id": "pl1"}],
+        }
+
+        # migrate with from_version=0.2 should be a no-op (already current)
+        result = MigrationManager.migrate(data, "0.2")
+
+        assert result is data  # No change, same object
+        assert result["residences"] == [{"id": "r1", "person_id": "p1", "place_id": "pl1"}]
+
+    def test_migration_noop_on_current_version_data(self) -> None:
+        """Data at current version triggers no migration (Req 13.4)."""
+        assert MigrationManager.needs_migration("0.2") is False
+
+    def test_version_0_1_needs_migration(self) -> None:
+        """Version 0.1 is detected as needing migration."""
+        assert MigrationManager.needs_migration("0.1") is True
+
+    def test_full_load_migrates_0_1_file(self) -> None:
+        """Loading a version 0.1 file through FilePersistence triggers migration (Req 13.4)."""
+        raw_dict = {
+            "format": "släktbuske-file",
+            "version": "0.1",
+            "format_version": "0.1",
+            "project": {"title": "Migrated Project"},
+        }
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = Path(tmp_dir) / "old_project.json.gz"
+            _save_raw_json_gz(raw_dict, file_path)
+
+            result = FilePersistence.load(file_path)
+
+            assert result.version == "0.2"
+            assert result.residences == []
+            assert result.project.title == "Migrated Project"
+
+            # Backup created
+            backup_path = Path(tmp_dir) / "old_project_v0.1.json.gz"
+            assert backup_path.exists()
+
+    def test_unsupported_version_error_message_starts_correctly(self) -> None:
+        """UnsupportedVersionError starts with the required Swedish message (Req 13.8)."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = Path(tmp_dir) / "future.json.gz"
+            raw_dict = {
+                "format": "släktbuske-file",
+                "version": "9.9",
+                "format_version": "9.9",
+                "project": {"title": "Future"},
+            }
+            _save_raw_json_gz(raw_dict, file_path)
+
+            with pytest.raises(UnsupportedVersionError) as exc_info:
+                FilePersistence.load(file_path)
+
+            msg = str(exc_info.value)
+            assert msg.startswith(
+                "Filen skapades med en nyare version av Släktbusken och kan inte öppnas."
+            )

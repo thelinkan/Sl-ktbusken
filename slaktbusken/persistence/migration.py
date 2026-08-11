@@ -75,7 +75,7 @@ class MigrationManager:
             migrated_data = MigrationManager.migrate(old_data, "0.1")
     """
 
-    CURRENT_VERSION: str = "0.1"
+    CURRENT_VERSION: str = "0.2"
 
     # Registry: maps source version → (target version, migration function)
     _migrations: dict[str, tuple[str, Callable[[dict], dict]]] = {}
@@ -195,3 +195,24 @@ class MigrationManager:
         backup_path = path.parent / backup_name
         shutil.copy2(path, backup_path)
         return backup_path
+
+
+# ---------------------------------------------------------------------------
+# Registered migrations
+# ---------------------------------------------------------------------------
+
+
+@MigrationManager.register("0.1", "0.2")
+def _migrate_0_1_to_0_2(data: dict) -> dict:
+    """Add an empty residences collection when the key is missing.
+
+    This migration supports the new Residence_Fact entity introduced in
+    format version 0.2. It is idempotent: if the key already exists
+    (e.g., from a re-application), the existing collection is left
+    unchanged.
+    """
+    if "residences" not in data:
+        data["residences"] = []
+    data["format_version"] = "0.2"
+    data["version"] = "0.2"
+    return data

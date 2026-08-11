@@ -116,7 +116,7 @@ and the project's tag-comment/docstring form.
     - Missing or `null` `residences` yields zero elements with zero errors; a present non-list raises `CorruptedFileError` with "Filens boendeavsnitt har ett ogiltigt format och kunde inte läsas." before any state is replaced
     - _Requirements: 13.3, 13.6_
 
-  - [ ] 6.3 Bump the format version and register the 0.1 → 0.2 migration
+  - [x] 6.3 Bump the format version and register the 0.1 → 0.2 migration
     - `MigrationManager.CURRENT_VERSION` and `file_io.CURRENT_VERSION` become "0.2"; the migration adds `residences: []` when the key is missing, leaves an existing collection unchanged, and is a no-op on already-current data; `UnsupportedVersionError` begins with "Filen skapades med en nyare version av Släktbusken och kan inte öppnas."
     - _Requirements: 13.4, 13.8_
 
@@ -152,7 +152,7 @@ and the project's tag-comment/docstring form.
     - **Property 13: Gap suggestions are phrased and sourced as specified**
     - **Validates: Requirements 5.5, 5.6, 5.14**
 
-  - [ ] 8.5 Implement open-endpoint suggestions, timeline gaps and `analyze_person`
+  - [x] 8.5 Implement open-endpoint suggestions, timeline gaps and `analyze_person`
     - One suggestion per open bound naming "början"/"slutet", at most two per fact; timeline gaps as the maximal runs of years contained in no Possible_Span with unbounded directions covering everything and birth/death years excluded; prebuilt indexes passed in once per run
     - _Requirements: 5.7, 5.8, 5.15_
 
@@ -218,7 +218,7 @@ and the project's tag-comment/docstring form.
     - **Property 32: Removal preserves survivors and hand-entered bounds**
     - **Validates: Requirements 16.7, 16.8**
 
-  - [ ] 12.7 Implement `use_as_exact_start` and `use_as_exact_end`
+  - [x] 12.7 Implement `use_as_exact_start` and `use_as_exact_end`
     - Set both start bounds to `observed_from` and both end bounds to `observed_to`; invoked only explicitly, never automatically
     - _Requirements: 16.10, 16.11_
 
@@ -283,7 +283,7 @@ and the project's tag-comment/docstring form.
     - **Validates: Requirements 10.1, 10.4, 10.5, 10.7**
 
 - [ ] 15. GEDCOM export and import
-  - [ ] 15.1 Write RESI structures in `slaktbusken/gedcom/exporter.py`
+  - [x] 15.1 Write RESI structures in `slaktbusken/gedcom/exporter.py`
     - One level 1 RESI per fact under its person's INDI with at most one DATE line (FROM/TO, FROM, TO or none), a PLAC line from the existing `_resolve_place_hierarchy`, one labelled NOTE per `start.earliest`, `end.latest`, non-empty `role_in_household` and non-empty `notes`, one SOUR line per Observation whose Source resolves to an exported record each with an `observed_from`/`observed_to` NOTE, ISO→GEDCOM date conversion with the "ABT " prefix for approximate precision, and the single observation-notes log entry
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.10, 12.11_
 

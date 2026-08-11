@@ -891,7 +891,7 @@ def project_data_strategy(draw: DrawFn) -> ProjectData:
 
     return ProjectData(
         format="släktbuske-file",
-        version="0.1",
+        version="0.2",
         project=project,
         persons=persons,
         families=families,

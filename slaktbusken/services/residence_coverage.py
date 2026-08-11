@@ -20,13 +20,17 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from slaktbusken.model.date_span import OpenSpan, year_of
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import (
+    EndpointKind,
     Observation,
     ResidenceFact,
+    classify_endpoint,
     core_aggregate,
     coverage_union,
     observation_span_years,
+    possible_span,
 )
 from slaktbusken.model.source import Source
 
@@ -383,3 +387,197 @@ def coverage_gaps(fact: ResidenceFact, data: ProjectData) -> list[CoverageGap]:
         )
 
     return gaps
+
+
+@dataclass
+class PersonCoverageResult:
+    """Combined coverage analysis for one person.
+
+    Returned by :func:`analyze_person` to give the caller all coverage gaps,
+    open-endpoint suggestions and timeline gaps in a single pass.
+    """
+
+    coverage_gaps: list[CoverageGap]
+    open_endpoint_suggestions: list[OpenEndpointSuggestion]
+    timeline_gaps: list[TimelineGap]
+
+
+def open_endpoint_suggestions(fact: ResidenceFact) -> list[OpenEndpointSuggestion]:
+    """Research suggestions for open bounds of *fact*.
+
+    One suggestion per open bound: "början" for a start Endpoint whose
+    `earliest` is absent, "slutet" for an end Endpoint whose `latest` is
+    absent; at most two suggestions per fact (Requirement 5.7).
+
+    *fact* is only read; nothing is mutated.
+    """
+    suggestions: list[OpenEndpointSuggestion] = []
+
+    start_kind = classify_endpoint(fact.start)
+    if start_kind in (EndpointKind.OPEN_LATEST, EndpointKind.UNKNOWN):
+        # start.earliest is absent
+        suggestions.append(
+            OpenEndpointSuggestion(
+                residence_id=fact.id,
+                side="start",
+                suggestion="Boendets början är öppen \u2013 ange tidigaste startdatum.",
+            )
+        )
+
+    end_kind = classify_endpoint(fact.end)
+    if end_kind in (EndpointKind.OPEN_EARLIEST, EndpointKind.UNKNOWN):
+        # end.latest is absent
+        suggestions.append(
+            OpenEndpointSuggestion(
+                residence_id=fact.id,
+                side="end",
+                suggestion="Boendets slutet är öppet \u2013 ange senaste slutdatum.",
+            )
+        )
+
+    return suggestions
+
+
+def _get_birth_death_years(
+    person_id: str, data: ProjectData
+) -> tuple[Optional[int], Optional[int]]:
+    """Return (birth_year, death_year) for *person_id*, each ``None`` when undated.
+
+    Examines all events of type "birth" or "death" where *person_id* participates.
+    Uses the earliest birth date year and latest death date year (Requirement 5.15).
+    """
+    birth_year: Optional[int] = None
+    death_year: Optional[int] = None
+
+    for event in data.events:
+        is_participant = any(
+            p.person_id == person_id for p in event.participants
+        )
+        if not is_participant:
+            continue
+        if event.date is None:
+            continue
+
+        event_year = year_of(event.date.value)
+        if event_year is None:
+            continue
+
+        if event.type == "birth":
+            if birth_year is None or event_year < birth_year:
+                birth_year = event_year
+        elif event.type == "death":
+            if death_year is None or event_year > death_year:
+                death_year = event_year
+
+    return (birth_year, death_year)
+
+
+def timeline_gaps(person_id: str, data: ProjectData) -> list[TimelineGap]:
+    """Timeline gaps for *person_id*: years in no Possible_Span.
+
+    Returns the maximal runs of years, between the lowest and highest bounded
+    Possible_Span year of the person, contained in no Possible_Span of that
+    person's Residence_Facts (Requirement 5.8). A span unbounded in a direction
+    contains every year in that direction. Years before a dated birth and after
+    a dated death are excluded (Requirement 5.15). Facts touching at a boundary
+    year leave no gap (Requirement 14.3).
+
+    *data* is only read; nothing is mutated.
+    """
+    # Collect Possible_Spans for this person
+    person_facts = [f for f in data.residences if f.person_id == person_id]
+    if len(person_facts) < 2:
+        # A single fact or no facts yields no timeline gap
+        return []
+
+    spans: list[OpenSpan] = [possible_span(f) for f in person_facts]
+
+    # Find the lowest and highest bounded year across all Possible_Spans
+    bounded_years: list[int] = []
+    for span in spans:
+        if span.first is not None:
+            bounded_years.append(span.first.year)
+        if span.last is not None:
+            bounded_years.append(span.last.year)
+
+    if not bounded_years:
+        # All spans are unbounded on both sides — no gap can be defined
+        return []
+
+    lowest_year = min(bounded_years)
+    highest_year = max(bounded_years)
+
+    if lowest_year >= highest_year:
+        return []
+
+    # Exclude years before birth and after death (Requirement 5.15)
+    birth_year, death_year = _get_birth_death_years(person_id, data)
+
+    effective_start = lowest_year
+    effective_end = highest_year
+    if birth_year is not None:
+        effective_start = max(effective_start, birth_year)
+    if death_year is not None:
+        effective_end = min(effective_end, death_year)
+
+    if effective_start > effective_end:
+        return []
+
+    # Find years not contained in any Possible_Span
+    # A span unbounded in a direction contains every year in that direction
+    uncovered: list[int] = []
+    for year in range(effective_start, effective_end + 1):
+        # Exclude birth and death years themselves (5.15)
+        if birth_year is not None and year < birth_year:
+            continue
+        if death_year is not None and year > death_year:
+            continue
+        # Check if this year is contained in any span
+        covered = False
+        for span in spans:
+            if span.overlaps_year(year):
+                covered = True
+                break
+        if not covered:
+            uncovered.append(year)
+
+    # Build maximal runs
+    result: list[TimelineGap] = []
+    for first_year, last_year in _maximal_runs(uncovered):
+        result.append(
+            TimelineGap(
+                person_id=person_id,
+                first_year=first_year,
+                last_year=last_year,
+            )
+        )
+
+    return result
+
+
+def analyze_person(person_id: str, data: ProjectData) -> PersonCoverageResult:
+    """Combined coverage analysis for *person_id*.
+
+    A convenience function combining coverage gaps, open-endpoint suggestions
+    and timeline gaps. Receives the full ProjectData so that prebuilt indexes
+    can be passed through once per run for the 10 000-fact / 5-second budget
+    (Requirement 5.9).
+
+    *data* is only read; nothing is mutated.
+    """
+    person_facts = [f for f in data.residences if f.person_id == person_id]
+
+    all_coverage_gaps: list[CoverageGap] = []
+    all_open_suggestions: list[OpenEndpointSuggestion] = []
+
+    for fact in person_facts:
+        all_coverage_gaps.extend(coverage_gaps(fact, data))
+        all_open_suggestions.extend(open_endpoint_suggestions(fact))
+
+    all_timeline_gaps = timeline_gaps(person_id, data)
+
+    return PersonCoverageResult(
+        coverage_gaps=all_coverage_gaps,
+        open_endpoint_suggestions=all_open_suggestions,
+        timeline_gaps=all_timeline_gaps,
+    )

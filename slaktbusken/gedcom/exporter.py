@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from slaktbusken.gedcom.translation.citation_translation import build_citation_text
 from slaktbusken.model.event import DateValue, Event
@@ -20,6 +21,7 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
+from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.source import Source
 
 
@@ -121,6 +123,8 @@ class GEDCOMExporter:
         self._places: dict[str, Place] = {}
         self._sources: dict[str, Source] = {}
         self._events: dict[str, Event] = {}
+        self._exported_source_ids: set[str] = set()
+        self._resi_has_sour: bool = False
 
     def export(self, data: ProjectData, output_path: Path) -> ExportResult:
         """Export ProjectData to a GEDCOM 5.5.1 file.
@@ -136,6 +140,13 @@ class GEDCOMExporter:
         self._places = {p.id: p for p in data.places}
         self._sources = {s.id: s for s in data.sources}
         self._events = {e.id: e for e in data.events}
+        self._exported_source_ids = {s.id for s in data.sources}
+        self._resi_has_sour = False
+
+        # Build residence-by-person index
+        residences_by_person: dict[str, list[ResidenceFact]] = {}
+        for res in data.residences:
+            residences_by_person.setdefault(res.person_id, []).append(res)
 
         lines: list[str] = []
 
@@ -144,7 +155,7 @@ class GEDCOMExporter:
 
         # INDI records
         for person in data.persons:
-            lines.extend(self._write_person(person, data))
+            lines.extend(self._write_person(person, data, residences_by_person))
 
         # FAM records
         for family in data.families:
@@ -164,12 +175,19 @@ class GEDCOMExporter:
         # Collect omissions
         omitted = self._collect_omissions(data)
 
+        # Export log entry for observation notes (Requirement 12.10)
+        warnings: list[str] = []
+        if self._resi_has_sour:
+            warnings.append(
+                "Observationernas delperioder exporteras som anteckningar."
+            )
+
         return ExportResult(
             persons_exported=len(data.persons),
             families_exported=len(data.families),
             sources_exported=len(data.sources),
             omitted_elements=omitted,
-            warnings=[],
+            warnings=warnings,
         )
 
     # ------------------------------------------------------------------
@@ -269,12 +287,18 @@ class GEDCOMExporter:
     # INDI record
     # ------------------------------------------------------------------
 
-    def _write_person(self, person: Person, data: ProjectData) -> list[str]:
+    def _write_person(
+        self,
+        person: Person,
+        data: ProjectData,
+        residences_by_person: dict[str, list[ResidenceFact]] | None = None,
+    ) -> list[str]:
         """Write a GEDCOM INDI record for a person.
 
         Args:
             person: The person to export.
             data: Full project data for event lookups.
+            residences_by_person: Pre-built index of residences keyed by person_id.
 
         Returns:
             List of GEDCOM lines for this person record.
@@ -298,6 +322,161 @@ class GEDCOMExporter:
                 tag = _EVENT_TYPE_TO_TAG.get(event.type)
                 if tag:
                     lines.extend(self._write_event_detail(tag, event))
+
+        # Residence facts (RESI structures) for this person
+        if residences_by_person:
+            for residence in residences_by_person.get(person.id, []):
+                lines.extend(self._write_residence(residence))
+
+        return lines
+
+    # ------------------------------------------------------------------
+    # RESI record (Residence_Fact export)
+    # ------------------------------------------------------------------
+
+    def _iso_to_gedcom_date(
+        self, iso_value: Optional[str], precision: Optional[str] = None
+    ) -> str:
+        """Convert an ISO date string to GEDCOM date form.
+
+        YYYY-MM-DD → "DD MON YYYY", YYYY-MM → "MON YYYY", YYYY → "YYYY".
+        Approximate precision adds "ABT " prefix.
+
+        Args:
+            iso_value: The ISO date string (YYYY, YYYY-MM, or YYYY-MM-DD).
+            precision: The endpoint precision (adds "ABT " when "approximate").
+
+        Returns:
+            Formatted GEDCOM date string, or empty string if invalid/absent.
+        """
+        if not iso_value or not iso_value.strip():
+            return ""
+
+        value = iso_value.strip()
+        result = ""
+
+        # Try YYYY-MM-DD
+        full_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", value)
+        if full_match:
+            year = full_match.group(1)
+            month = full_match.group(2)
+            day = int(full_match.group(3))
+            month_name = _ISO_MONTH_TO_GEDCOM.get(month)
+            if month_name:
+                result = f"{day} {month_name} {year}"
+
+        # Try YYYY-MM
+        if not result:
+            month_match = re.match(r"^(\d{4})-(\d{2})$", value)
+            if month_match:
+                year = month_match.group(1)
+                month = month_match.group(2)
+                month_name = _ISO_MONTH_TO_GEDCOM.get(month)
+                if month_name:
+                    result = f"{month_name} {year}"
+
+        # Try YYYY
+        if not result:
+            year_match = re.match(r"^(\d{4})$", value)
+            if year_match:
+                result = value
+
+        if not result:
+            return ""
+
+        # Apply approximate prefix (Requirement 12.11)
+        if precision == "approximate":
+            result = f"ABT {result}"
+
+        return result
+
+    def _write_residence(self, residence: ResidenceFact) -> list[str]:
+        """Write a GEDCOM RESI structure for a Residence_Fact.
+
+        Produces one level 1 RESI tag with optional DATE, PLAC, NOTE lines,
+        and SOUR citations per Observation.
+
+        Args:
+            residence: The Residence_Fact to export.
+
+        Returns:
+            List of GEDCOM lines for the RESI structure.
+        """
+        lines: list[str] = ["1 RESI"]
+
+        # DATE line (Requirement 12.2, 12.3, 12.4)
+        # Use start.latest and end.earliest for the FROM/TO form
+        start_latest = residence.start.latest
+        end_earliest = residence.end.earliest
+        has_start = bool(start_latest and start_latest.strip())
+        has_end = bool(end_earliest and end_earliest.strip())
+
+        if has_start and has_end:
+            # FROM/TO form (non-empty Certain_Core)
+            from_date = self._iso_to_gedcom_date(
+                start_latest, residence.start.precision
+            )
+            to_date = self._iso_to_gedcom_date(
+                end_earliest, residence.end.precision
+            )
+            if from_date and to_date:
+                lines.append(f"2 DATE FROM {from_date} TO {to_date}")
+        elif has_start:
+            # FROM only
+            from_date = self._iso_to_gedcom_date(
+                start_latest, residence.start.precision
+            )
+            if from_date:
+                lines.append(f"2 DATE FROM {from_date}")
+        elif has_end:
+            # TO only
+            to_date = self._iso_to_gedcom_date(
+                end_earliest, residence.end.precision
+            )
+            if to_date:
+                lines.append(f"2 DATE TO {to_date}")
+        # else: omit DATE entirely
+
+        # PLAC line (Requirement 12.1)
+        if residence.place_id:
+            place_str = self._resolve_place_hierarchy(residence.place_id)
+            if place_str:
+                lines.append(f"2 PLAC {place_str}")
+
+        # Labelled NOTE lines (Requirement 12.5)
+        start_earliest = residence.start.earliest
+        if start_earliest and start_earliest.strip():
+            lines.append(f"2 NOTE Tidigast början: {start_earliest.strip()}")
+
+        end_latest = residence.end.latest
+        if end_latest and end_latest.strip():
+            lines.append(f"2 NOTE Senast slut: {end_latest.strip()}")
+
+        if residence.role_in_household:
+            lines.append(f"2 NOTE Roll: {residence.role_in_household}")
+
+        if residence.notes:
+            lines.append(f"2 NOTE {residence.notes}")
+
+        # SOUR lines (Requirement 12.6)
+        for obs in residence.observations:
+            source_id = obs.source_ref.source_id
+            if source_id in self._exported_source_ids:
+                source_gedcom_id = self._to_gedcom_id(source_id)
+                lines.append(f"2 SOUR {source_gedcom_id}")
+                # NOTE with observed_from/observed_to
+                obs_from = obs.observed_from or ""
+                obs_to = obs.observed_to or ""
+                if obs_from or obs_to:
+                    note_text = f"Observation: {obs_from}"
+                    if obs_to and obs_to != obs_from:
+                        note_text += f"-{obs_to}"
+                    elif not obs_from and obs_to:
+                        note_text = f"Observation: {obs_to}"
+                    lines.append(f"3 NOTE {note_text}")
+                else:
+                    lines.append("3 NOTE Observation:")
+                self._resi_has_sour = True
 
         return lines
 

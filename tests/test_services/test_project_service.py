@@ -81,7 +81,7 @@ class TestCreateProject:
         data = json.loads(raw)
 
         assert data["format"] == "släktbuske-file"
-        assert data["version"] == "0.1"
+        assert data["version"] == "0.2"
         assert data["project"]["title"] == "MittProjekt"
         assert data["project"]["created_by"] == "Släktbuske"
         assert data["project"]["language"] == "sv-SE"
