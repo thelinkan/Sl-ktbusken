@@ -359,7 +359,7 @@ and the project's tag-comment/docstring form.
     - Insert the `ResidenceEditor` programmatically following the `FotoTab` pattern, with the Boende list, creation of a new fact for the active person, and the residents dialog entry point
     - _Requirements: 1.1, 16.1, 16.2_
 
-- [ ] 18. Report and map channels
+- [x] 18. Report and map channels
   - [x] 18.1 List residences in the Ansedel report
     - Place, interval from the formatter and `role_in_household`, ordered by `start.earliest`, then `start.latest` with absent sorting earlier, then place display name
     - _Requirements: 11.7, 11.8_
@@ -376,7 +376,7 @@ and the project's tag-comment/docstring form.
     - Read the interval string from the formatter with no channel-local wording, abbreviation or truncation
     - _Requirements: 11.7_
 
-  - [ ] 18.5 Write property test for channel consistency
+  - [x] 18.5 Write property test for channel consistency
     - **Property 24: Every channel renders through the formatter and orders identically**
     - **Validates: Requirements 11.7, 11.8, 11.9, 11.10**
 
