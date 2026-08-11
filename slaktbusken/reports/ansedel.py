@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from slaktbusken.model.project import ProjectData
+from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.reports.content import (
     EmptyStateBlock,
     HeadingBlock,
@@ -20,6 +21,8 @@ from slaktbusken.reports.content import (
     ParagraphBlock,
     ReportContent,
 )
+from slaktbusken.services.residence_query import swedish_sort_key
+from slaktbusken.ui.swedish_locale import format_residence_line
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +241,10 @@ def generate_ansedel(
     report.blocks.append(HeadingBlock(text="Händelser", level=2))
     _add_events_section(report, person_id, data)
 
+    # --- Residences section ---
+    report.blocks.append(HeadingBlock(text="Boenden", level=2))
+    _add_residences_section(report, person_id, data)
+
     # --- Parents section ---
     report.blocks.append(HeadingBlock(text="Föräldrar", level=2))
     _add_parents_section(report, person_id, data, persons_by_id)
@@ -397,6 +404,55 @@ def _add_events_section(
     all_entries.sort(key=lambda e: e[0])
 
     report.blocks.append(ListBlock(items=[entry[1] for entry in all_entries]))
+
+
+def _absent_first_key(value: str | None) -> tuple[int, str]:
+    """Sort key placing absent (None/empty/whitespace-only) before present."""
+    if value is None or not value.strip():
+        return (0, "")
+    return (1, value.strip())
+
+
+def _add_residences_section(
+    report: ReportContent,
+    person_id: str,
+    data: ProjectData,
+) -> None:
+    """Add the person's residence facts, ordered per Requirement 11.8.
+
+    Ordering: start.earliest ascending, start.latest ascending, with absent
+    sorting earlier than any present value, then place display name in Swedish
+    alphabetical order.
+    """
+    places_by_id = {p.id: p for p in data.places}
+
+    facts = [fact for fact in data.residences if fact.person_id == person_id]
+
+    def _sort_key(fact: ResidenceFact) -> tuple:
+        place = places_by_id.get(fact.place_id)
+        place_name = place.name if place else fact.place_id
+        return (
+            _absent_first_key(fact.start.earliest),
+            _absent_first_key(fact.start.latest),
+            swedish_sort_key(place_name),
+        )
+
+    facts.sort(key=_sort_key)
+
+    if not facts:
+        report.blocks.append(
+            EmptyStateBlock(text="Inga boenden registrerade.")
+        )
+        return
+
+    entries: list[str] = []
+    for fact in facts:
+        place = places_by_id.get(fact.place_id)
+        place_name = place.name if place else fact.place_id
+        line = format_residence_line(place_name, fact.start, fact.end, fact.role_in_household)
+        entries.append(line)
+
+    report.blocks.append(ListBlock(items=entries))
 
 
 def _add_parents_section(

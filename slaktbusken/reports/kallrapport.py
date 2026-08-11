@@ -8,6 +8,7 @@ For each source entry, shows:
 - Whether an image/media is available
 - All persons linked to that source and what it's a source for
   (event type, date, place, etc.)
+- Residence observations citing that source with their attested spans
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from slaktbusken.reports.content import (
     ReportContent,
 )
 from slaktbusken.services.source_links import generate_direct_link
+from slaktbusken.ui.swedish_locale import format_observation_span
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +133,7 @@ def _get_page_or_image(source) -> str:
 
 
 def _collect_source_usage(data: ProjectData) -> dict[str, list[dict]]:
-    """Collect all usages of each source across events.
+    """Collect all usages of each source across events and residence observations.
 
     Returns a dict mapping source_id -> list of usage info dicts:
         {person_id, person_name, event_type, date, place, aspect}
@@ -205,6 +207,43 @@ def _collect_source_usage(data: ProjectData) -> dict[str, list[dict]]:
                     # Avoid duplicates if same source is on both date and place
                     if entry not in usage[sr.source_id]:
                         usage[sr.source_id].append(entry)
+
+    # Collect source usage from residence observations (Requirement 11.9)
+    for fact in data.residences:
+        person = persons_by_id.get(fact.person_id)
+        person_name = _format_person_name(person.names) if person else fact.person_id
+        given = ""
+        surname = ""
+        if person and person.names:
+            given = person.names[0].given or ""
+            surname = person.names[0].surname or ""
+
+        place = places_by_id.get(fact.place_id)
+        place_str = place.name if place else ""
+
+        # Sort observations by observed_from, observed_to, then list position
+        indexed_observations = list(enumerate(fact.observations))
+        indexed_observations.sort(
+            key=lambda item: (item[1].observed_from or "", item[1].observed_to or "", item[0])
+        )
+
+        for _pos, obs in indexed_observations:
+            source_id = obs.source_ref.source_id
+            if source_id not in usage:
+                usage[source_id] = []
+
+            span = format_observation_span(obs.observed_from, obs.observed_to)
+            entry: dict = {
+                "person_id": fact.person_id,
+                "person_name": person_name,
+                "person_given": given,
+                "person_surname": surname,
+                "event_type": "Boende",
+                "date": span,
+                "place": place_str,
+                "is_residence_observation": True,
+            }
+            usage[source_id].append(entry)
 
     return usage
 

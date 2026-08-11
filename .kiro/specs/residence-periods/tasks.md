@@ -85,7 +85,7 @@ and the project's tag-comment/docstring form.
 - [ ] 4. Checkpoint - model and validation
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Flytt event type, aspects and deletion behaviour
+- [x] 5. Flytt event type, aspects and deletion behaviour
   - [x] 5.1 Add the `flytt` event type and `Event.from_place`
     - `INDIVIDUAL_EVENT_TYPE_LABELS["flytt"] = "Flytt"`; `from_place: Optional[PlaceRef] = None` following the `cause_of_death` pattern; absent `place`, absent `from_place` or both absent are error-free; event validator returns the same-place warning finding
     - _Requirements: 18.1, 18.2, 18.3, 18.7_
@@ -94,7 +94,7 @@ and the project's tag-comment/docstring form.
     - `ENTITY_SOURCE_ASPECTS["residence"]` = place/period/household_role/household_members with labels Plats, Period, Hushållsroll, Hushållsmedlemmar; `EVENT_SOURCE_ASPECTS["flytt"]` = date/from_place/to_place with labels Datum, Från, Till
     - _Requirements: 4.14, 18.5_
 
-  - [ ] 5.3 Write unit tests for the constant registrations and dataclass defaults
+  - [x] 5.3 Write unit tests for the constant registrations and dataclass defaults
     - Aspect lists and labels, the `flytt` label, the `from_place` field shape, `ResidenceFact`/`Endpoint`/`Observation` defaults
     - _Requirements: 1.1, 4.14, 18.1, 18.2, 18.5_
 
@@ -102,7 +102,7 @@ and the project's tag-comment/docstring form.
     - Person deletion removes that person's Residence_Facts with their Observations and leaves all others unchanged; Event deletion clears `event_id` on every referencing Endpoint while keeping bounds and deleting no fact; `find_residence_dependencies(place_id, data)` returns one blocking entry per referencing fact; a place referenced by a Flytt_Event `from_place` blocks as one referenced by `place`
     - _Requirements: 1.8, 1.9, 3.11, 18.17_
 
-  - [ ] 5.5 Write property test for deletion cascade, clearing and blocking
+  - [x] 5.5 Write property test for deletion cascade, clearing and blocking
     - **Property 7: Deletion cascades, clears and blocks as specified**
     - **Validates: Requirements 1.8, 1.9, 3.11, 18.17**
 
@@ -164,12 +164,12 @@ and the project's tag-comment/docstring form.
     - **Property 14: Open-endpoint, timeline-gap and person-check reporting is complete and ordered**
     - **Validates: Requirements 5.7, 5.8, 5.9, 5.15**
 
-- [ ] 9. Inferred tightening from neighbours
+- [x] 9. Inferred tightening from neighbours
   - [x] 9.1 Create `slaktbusken/services/residence_inference.py`
     - `DerivedBound`, `InferenceResult`, `infer_bounds` computing neighbour, birth and death candidates in a single pass from stored values only, resolving competitors by widest-interval comparison, returning winners in their stored ISO form, dropping contradicting candidates with the finding "Härlett värde motsäger inmatat värde.", mutating and persisting nothing
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.10, 7.12_
 
-  - [ ] 9.2 Write property test for inference
+  - [x] 9.2 Write property test for inference
     - **Property 17: Inference derives from stored data only, idempotently, and never contradicts**
     - **Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.10, 7.12**
 
@@ -295,7 +295,7 @@ and the project's tag-comment/docstring form.
     - **Property 25: GEDCOM export writes the specified RESI and Flytt structures**
     - **Validates: Requirements 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.10, 12.11, 18.14, 18.15**
 
-  - [ ] 15.4 Read RESI and Flytt structures in `slaktbusken/gedcom/importer.py`
+  - [x] 15.4 Read RESI and Flytt structures in `slaktbusken/gedcom/importer.py`
     - Exactly one Residence_Fact and no Event per RESI regardless of header version; FROM/TO sets the core bounds, BET/AND yields a start window with an unknown end, a plain DATE sets both core bounds, a missing or uninterpretable DATE yields two unknown Endpoints while keeping the place and SOUR-derived Observations and logging the required warning; `EVEN` with case-insensitive `TYPE Flytt` becomes a `flytt` Event with resolved `place` and absent `from_place`
     - _Requirements: 12.7, 12.8, 12.12, 12.13, 18.16_
 
@@ -360,11 +360,11 @@ and the project's tag-comment/docstring form.
     - _Requirements: 1.1, 16.1, 16.2_
 
 - [ ] 18. Report and map channels
-  - [ ] 18.1 List residences in the Ansedel report
+  - [x] 18.1 List residences in the Ansedel report
     - Place, interval from the formatter and `role_in_household`, ordered by `start.earliest`, then `start.latest` with absent sorting earlier, then place display name
     - _Requirements: 11.7, 11.8_
 
-  - [ ] 18.2 List observations in the Källrapport report
+  - [x] 18.2 List observations in the Källrapport report
     - Each Observation under its fact with the source title and its own span rendered as "1866–1870" or "1866", ordered by `observed_from`, then `observed_to`, then list position
     - _Requirements: 11.7, 11.9_
 
