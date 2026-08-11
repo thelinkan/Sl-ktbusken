@@ -683,7 +683,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "Om Släktbusken",
-            "<p>Släktbusken v0.2.0 (beta)</p>"
+            "<p>Släktbusken v0.3.0 (beta)</p>"
             "<p>Ett skrivbordsverktyg för svensk släktforskning.</p>"
             "<p>Byggt med Python och PySide6.</p>"
             "<p>Gjort av Linkan, med hjälp av Specdriven AI (KIRO)</p>"
