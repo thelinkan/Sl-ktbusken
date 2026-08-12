@@ -53,6 +53,7 @@ from slaktbusken.model.place import (
     remove_external_id,
 )
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.delete_service import find_residence_dependencies
 from slaktbusken.ui.generated.ui_place_editor import Ui_PlaceEditor
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.widgets.coordinate_spin_box import CoordinateSpinBox
@@ -1596,6 +1597,37 @@ class PlaceEditor(QWidget):
         place_id = current.data(Qt.ItemDataRole.UserRole)
         place = self._find_place_by_id(place_id)
         if place is None:
+            return
+
+        # Check for residence dependencies first – these block deletion entirely
+        residence_deps = find_residence_dependencies(place_id, self._project_data)
+        if residence_deps:
+            dep_lines: list[str] = []
+            for dep in residence_deps:
+                # Resolve person display name
+                person_display = dep.person_id
+                for person in self._project_data.persons:
+                    if person.id == dep.person_id:
+                        if person.names:
+                            name = person.names[0]
+                            parts = []
+                            if name.surname:
+                                parts.append(name.surname)
+                            if name.given:
+                                parts.append(name.given)
+                            person_display = ", ".join(parts) if parts else person.id
+                        break
+                dep_lines.append(f"  • Boende: {person_display} ({dep.residence_id})")
+            dep_list = "\n".join(dep_lines)
+            QMessageBox.warning(
+                self,
+                "Kan inte ta bort",
+                f"Platsen kan inte tas bort eftersom den refereras av "
+                f"följande boenden:\n\n"
+                f"{dep_list}\n\n"
+                "Ta bort eller ändra boendena först.",
+                QMessageBox.StandardButton.Ok,
+            )
             return
 
         # Check for referencing events

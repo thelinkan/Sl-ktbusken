@@ -315,7 +315,7 @@ and the project's tag-comment/docstring form.
     - `ResidenceEditor(QWidget)` with the four bound fields labelled "Tidigast början", "Senast början", "Tidigast slut", "Senast slut" accepting the three ISO forms or being left empty; the free-text "Roll i hushållet" field with non-binding project suggestions and the over-100-character refusal keeping the entered text; the Observation table ordered by `observed_from` then `observed_to` showing source title, span and `page_note`, sized for at least 15 untruncated rows
     - _Requirements: 10.3, 10.6, 16.2, 16.12_
 
-  - [ ] 17.2 Add the per-Endpoint Event selectors
+  - [x] 17.2 Add the per-Endpoint Event selectors
     - Empty first choice followed by the person's Events ordered by date with undated last, labelled with the Swedish event type label plus the formatted date; dated selection writes `event_id`, `earliest`, `latest`, `precision`, undated selection writes only `event_id`, the empty choice clears only `event_id`; the date-mismatch, missing-event and wrong-side messages, with no wrong-side message for a Flytt_Event; bounds stay editable with `event_id` unchanged; "Från"/"Till" selectors for Flytt events
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 18.6, 18.9, 18.11_
 
@@ -335,7 +335,7 @@ and the project's tag-comment/docstring form.
     - **Property 37: Flytt places are cited independently, checked for consistency, and linkable in one action**
     - **Validates: Requirements 18.4, 18.7, 18.10, 18.12**
 
-  - [ ] 17.7 Create `slaktbusken/ui/dialogs/tighten_bounds_dialog.py` and the härlett display
+  - [x] 17.7 Create `slaktbusken/ui/dialogs/tighten_bounds_dialog.py` and the härlett display
     - One preselected, individually deselectable row per derived bound showing endpoint, bound name, the stored value or "okänt", the proposed value and its origin; nothing written until confirmation and only selected rows written, leaving `precision`, `event_id`, `note` and Observations alone; derived values for absent bounds shown read-only with the "härlett" suffix and never saved; "Inga härledda värden att föreslå." with no dialog for zero derived bounds
     - _Requirements: 7.7, 7.8, 7.9, 7.11_
 
@@ -343,7 +343,7 @@ and the project's tag-comment/docstring form.
     - **Property 18: Derived bounds reach storage only through confirmed, selected rows**
     - **Validates: Requirements 7.7, 7.8, 7.9**
 
-  - [ ] 17.9 Create `slaktbusken/ui/dialogs/residents_dialog.py`
+  - [x] 17.9 Create `slaktbusken/ui/dialogs/residents_dialog.py`
     - Place and year query over `residents_of_place` with the role grouping view and the place chain column
     - _Requirements: 8.1, 8.5, 8.6, 8.10_
 
@@ -351,7 +351,7 @@ and the project's tag-comment/docstring form.
     - Paste field, candidate list with prefilled spans and unselectable incomplete candidates, the "Kunde inte tolkas" section truncated at 200 characters, atomic application of the plan through deep copies with the all-or-nothing failure message, and the Swedish summary of the five counts
     - _Requirements: 9.1, 9.2, 9.3, 9.5, 9.6, 9.8, 9.9, 9.10_
 
-  - [ ] 17.11 Refuse place deletion with residence dependencies in the Place_Editor
+  - [x] 17.11 Refuse place deletion with residence dependencies in the Place_Editor
     - Call `find_residence_dependencies` before the existing event warning and refuse with one blocking entry per referencing fact, leaving the place and the `residences` collection unchanged
     - _Requirements: 1.9, 18.17_
 

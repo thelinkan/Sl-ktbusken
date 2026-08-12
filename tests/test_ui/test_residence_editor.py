@@ -16,6 +16,7 @@ from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import Source
 from slaktbusken.ui.editors.residence_editor import ResidenceEditor
+from slaktbusken.model.event import DateValue, Event, Participant
 
 
 @pytest.fixture(scope="session")
@@ -359,3 +360,311 @@ class TestObservationsTable:
         editor = ResidenceEditor(empty_project)
         triggers = editor._observations_table.editTriggers()
         assert triggers == QAbstractItemView.EditTrigger.NoEditTriggers
+
+
+# ============================================================================
+# Test: Per-Endpoint Event Selectors
+# ============================================================================
+
+
+@pytest.fixture()
+def project_with_events() -> ProjectData:
+    """Project with a person who has dated and undated events."""
+    return ProjectData(
+        project=ProjectMetadata(title="Test"),
+        events=[
+            Event(
+                id="evt_birth",
+                type="birth",
+                participants=[Participant(person_id="p1", role="subject")],
+                date=DateValue(value="1820-03-15", precision="day"),
+            ),
+            Event(
+                id="evt_death",
+                type="death",
+                participants=[Participant(person_id="p1", role="subject")],
+                date=DateValue(value="1890-11-02", precision="day"),
+            ),
+            Event(
+                id="evt_confirm",
+                type="confirmation",
+                participants=[Participant(person_id="p1", role="subject")],
+                date=DateValue(value="1835", precision="year"),
+            ),
+            Event(
+                id="evt_undated",
+                type="emigration",
+                participants=[Participant(person_id="p1", role="subject")],
+                date=None,
+            ),
+            Event(
+                id="evt_flytt",
+                type="flytt",
+                participants=[Participant(person_id="p1", role="subject")],
+                date=DateValue(value="1860-06", precision="month"),
+            ),
+            # Event for a different person — should not appear
+            Event(
+                id="evt_other",
+                type="birth",
+                participants=[Participant(person_id="p2", role="subject")],
+                date=DateValue(value="1825", precision="year"),
+            ),
+        ],
+    )
+
+
+@pytest.fixture()
+def residence_with_event() -> ResidenceFact:
+    """A residence with start linked to an event."""
+    return ResidenceFact(
+        id="res_linked",
+        person_id="p1",
+        place_id="pl1",
+        start=Endpoint(
+            earliest="1820-03-15",
+            latest="1820-03-15",
+            precision="day",
+            event_id="evt_birth",
+        ),
+        end=Endpoint(earliest="1890", latest="1890-11-02"),
+    )
+
+
+class TestEventSelectors:
+    """Tests for the per-Endpoint Event selector combo boxes."""
+
+    def test_has_start_event_combo(self, qapp, project_with_events):
+        """The editor has a start event combo box."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        assert editor._start_event_combo is not None
+        assert editor._start_event_combo.count() > 0
+
+    def test_has_end_event_combo(self, qapp, project_with_events):
+        """The editor has an end event combo box."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        assert editor._end_event_combo is not None
+        assert editor._end_event_combo.count() > 0
+
+    def test_first_item_is_empty_choice(self, qapp, project_with_events):
+        """Both selectors have an empty first choice (no linked event)."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        # First item text is empty, data is None
+        assert editor._start_event_combo.itemText(0) == ""
+        assert editor._start_event_combo.itemData(0) is None
+        assert editor._end_event_combo.itemText(0) == ""
+        assert editor._end_event_combo.itemData(0) is None
+
+    def test_only_person_events_shown(self, qapp, project_with_events):
+        """Only events for the person_id are listed, not other persons."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        combo = editor._start_event_combo
+        event_ids = [combo.itemData(i) for i in range(combo.count()) if combo.itemData(i)]
+        # p1 has 5 events; p2's event should not appear
+        assert "evt_other" not in event_ids
+        assert "evt_birth" in event_ids
+        assert "evt_death" in event_ids
+
+    def test_events_ordered_by_date_undated_last(self, qapp, project_with_events):
+        """Dated events are ordered by date ascending; undated events come last."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        combo = editor._start_event_combo
+        event_ids = [combo.itemData(i) for i in range(1, combo.count())]
+        # Expected order: birth(1820-03-15), confirm(1835), flytt(1860-06),
+        #                 death(1890-11-02), undated(emigration)
+        assert event_ids == [
+            "evt_birth", "evt_confirm", "evt_flytt", "evt_death", "evt_undated"
+        ]
+
+    def test_event_label_with_date(self, qapp, project_with_events):
+        """A dated event is labelled as 'Type (date)'."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        combo = editor._start_event_combo
+        # Find the birth event (index 1, first dated)
+        label = combo.itemText(1)
+        assert label == "Födelse (1820-03-15)"
+
+    def test_event_label_undated(self, qapp, project_with_events):
+        """An undated event is labelled with just its type label."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        combo = editor._start_event_combo
+        # Find the undated event (last)
+        last_idx = combo.count() - 1
+        label = combo.itemText(last_idx)
+        assert label == "Emigration"
+
+    def test_no_events_shows_only_empty_choice(self, qapp, project_with_events):
+        """If the person has no events, only the empty choice is shown."""
+        editor = ResidenceEditor(project_with_events, person_id="p_nobody")
+        assert editor._start_event_combo.count() == 1
+        assert editor._end_event_combo.count() == 1
+
+    def test_dated_selection_writes_bounds(self, qapp, project_with_events):
+        """Selecting a dated event writes event_id, earliest, latest, precision."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        # Select birth event (index 1)
+        editor._start_event_combo.setCurrentIndex(1)
+        assert editor.start_event_id == "evt_birth"
+        assert editor._start_earliest_edit.text() == "1820-03-15"
+        assert editor._start_latest_edit.text() == "1820-03-15"
+        assert editor.start_precision == "day"
+
+    def test_undated_selection_writes_only_event_id(self, qapp, project_with_events):
+        """Selecting an undated event writes only event_id, leaves bounds unchanged."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        # Set some initial bounds
+        editor._end_earliest_edit.setText("1880")
+        editor._end_latest_edit.setText("1885")
+        # Select the undated emigration event (last item)
+        last_idx = editor._end_event_combo.count() - 1
+        editor._end_event_combo.setCurrentIndex(last_idx)
+        assert editor.end_event_id == "evt_undated"
+        # Bounds should be unchanged
+        assert editor._end_earliest_edit.text() == "1880"
+        assert editor._end_latest_edit.text() == "1885"
+
+    def test_empty_choice_clears_only_event_id(self, qapp, project_with_events):
+        """Selecting the empty choice clears event_id, keeps bounds."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        # First select a dated event
+        editor._start_event_combo.setCurrentIndex(1)
+        assert editor.start_event_id == "evt_birth"
+        # Now clear by selecting empty
+        editor._start_event_combo.setCurrentIndex(0)
+        assert editor.start_event_id is None
+        # Bounds should remain from the dated selection
+        assert editor._start_earliest_edit.text() == "1820-03-15"
+        assert editor._start_latest_edit.text() == "1820-03-15"
+
+    def test_bounds_editable_with_event_id(self, qapp, project_with_events):
+        """Bounds fields stay editable after linking an event; event_id unchanged."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        editor._start_event_combo.setCurrentIndex(1)  # birth
+        assert editor.start_event_id == "evt_birth"
+        # User types new values
+        editor._start_earliest_edit.setText("1819")
+        editor._start_latest_edit.setText("1821")
+        # event_id should remain
+        assert editor.start_event_id == "evt_birth"
+        assert editor.get_start_earliest() == "1819"
+        assert editor.get_start_latest() == "1821"
+
+    def test_date_mismatch_message(self, qapp, project_with_events):
+        """Date mismatch message shown when bounds differ from event date."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        # Select birth event then change the earliest field
+        editor._start_event_combo.setCurrentIndex(1)
+        editor._start_earliest_edit.setText("1819")
+        # Trigger message re-evaluation
+        editor._update_event_messages()
+        assert not editor._start_event_label.isHidden()
+        assert "Kopplad händelse har ett annat datum" in editor._start_event_label.text()
+
+    def test_no_mismatch_when_bounds_match(self, qapp, project_with_events):
+        """No mismatch message when bounds match event date."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        editor._start_event_combo.setCurrentIndex(1)  # birth: 1820-03-15
+        # Bounds were set by the selection, should match
+        editor._update_event_messages()
+        # Should show the event label, not a warning
+        assert not editor._start_event_label.isHidden()
+        assert "Kopplad händelse har ett annat datum" not in editor._start_event_label.text()
+
+    def test_missing_event_message(self, qapp, project_with_events):
+        """Missing event message shown when event_id references a deleted event."""
+        # Create a residence with a non-existent event_id
+        residence = ResidenceFact(
+            id="res_missing",
+            person_id="p1",
+            place_id="pl1",
+            start=Endpoint(
+                earliest="1850", latest="1850", event_id="evt_gone"
+            ),
+            end=Endpoint(),
+        )
+        editor = ResidenceEditor(project_with_events, residence=residence)
+        assert not editor._start_event_label.isHidden()
+        assert "Händelsen saknas" in editor._start_event_label.text()
+
+    def test_wrong_side_death_on_start(self, qapp, project_with_events):
+        """Death event on start endpoint shows wrong-side warning."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        # Find death event index
+        combo = editor._start_event_combo
+        death_idx = None
+        for i in range(combo.count()):
+            if combo.itemData(i) == "evt_death":
+                death_idx = i
+                break
+        assert death_idx is not None
+        combo.setCurrentIndex(death_idx)
+        assert not editor._start_event_label.isHidden()
+        assert "boendets andra endpunkt" in editor._start_event_label.text()
+
+    def test_wrong_side_birth_on_end(self, qapp, project_with_events):
+        """Birth event on end endpoint shows wrong-side warning."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        combo = editor._end_event_combo
+        birth_idx = None
+        for i in range(combo.count()):
+            if combo.itemData(i) == "evt_birth":
+                birth_idx = i
+                break
+        assert birth_idx is not None
+        combo.setCurrentIndex(birth_idx)
+        assert not editor._end_event_label.isHidden()
+        assert "boendets andra endpunkt" in editor._end_event_label.text()
+
+    def test_no_wrong_side_for_flytt(self, qapp, project_with_events):
+        """Flytt event on either endpoint shows no wrong-side warning."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        # Flytt on start
+        combo = editor._start_event_combo
+        flytt_idx = None
+        for i in range(combo.count()):
+            if combo.itemData(i) == "evt_flytt":
+                flytt_idx = i
+                break
+        assert flytt_idx is not None
+        combo.setCurrentIndex(flytt_idx)
+        # Should not have the wrong-side message
+        label_text = editor._start_event_label.text()
+        assert "boendets andra endpunkt" not in label_text
+
+        # Flytt on end
+        editor2 = ResidenceEditor(project_with_events, person_id="p1")
+        combo2 = editor2._end_event_combo
+        flytt_idx2 = None
+        for i in range(combo2.count()):
+            if combo2.itemData(i) == "evt_flytt":
+                flytt_idx2 = i
+                break
+        combo2.setCurrentIndex(flytt_idx2)
+        label_text2 = editor2._end_event_label.text()
+        assert "boendets andra endpunkt" not in label_text2
+
+    def test_loads_event_link_from_residence(self, qapp, project_with_events, residence_with_event):
+        """Loading a residence with an event_id selects it in the combo."""
+        editor = ResidenceEditor(project_with_events, residence=residence_with_event)
+        assert editor.start_event_id == "evt_birth"
+        # The combo should be set to the birth event
+        selected_data = editor._start_event_combo.currentData()
+        assert selected_data == "evt_birth"
+
+    def test_event_label_shown_when_linked(self, qapp, project_with_events, residence_with_event):
+        """The linked event label is displayed when no warning applies."""
+        editor = ResidenceEditor(project_with_events, residence=residence_with_event)
+        # Start is linked to birth, and bounds match — should show the label
+        assert not editor._start_event_label.isHidden()
+        assert "Födelse (1820-03-15)" in editor._start_event_label.text()
+
+    def test_flytt_event_labelled_correctly(self, qapp, project_with_events):
+        """A Flytt event is labelled with 'Flytt (date)'."""
+        editor = ResidenceEditor(project_with_events, person_id="p1")
+        combo = editor._start_event_combo
+        for i in range(combo.count()):
+            if combo.itemData(i) == "evt_flytt":
+                assert combo.itemText(i) == "Flytt (1860-06)"
+                break
+        else:
+            pytest.fail("Flytt event not found in combo")
