@@ -5,11 +5,15 @@ fields, a free-text household role field with non-binding suggestions, an
 Observation table ordered by observed_from then observed_to, and per-Endpoint
 Event selectors that link an endpoint to one of the person's Events.
 
+Action buttons delegate to pure operations in ``residence_edit_ops.py``,
+each working on a staging copy and committing the result atomically.
+
 All UI text is in Swedish.
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Optional, Sequence
 
@@ -24,21 +28,40 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from slaktbusken.model.date_span import is_valid_iso
-from slaktbusken.model.event import Event
+from slaktbusken.model.date_span import is_valid_iso, expand_iso
+from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef
+from slaktbusken.model.id_generator import IDGenerator
 from slaktbusken.model.residence import (
     Endpoint,
     Observation,
     ResidenceFact,
     normalize_role_in_household,
+    possible_span,
 )
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.residence_coverage import CoverageGap, coverage_gaps
+from slaktbusken.services.residence_edit_ops import (
+    ResidenceMergeError,
+    ResidenceSplitError,
+    is_merge_suppressed,
+    merge,
+    should_offer_merge,
+    split_at_gap,
+    use_as_exact_end,
+    use_as_exact_start,
+)
+from slaktbusken.services.residence_validation import (
+    ResidenceFinding,
+    residence_findings,
+)
 from slaktbusken.ui.swedish_locale import (
     format_date,
     format_observation_span,
@@ -342,6 +365,60 @@ class ResidenceEditor(QWidget):
 
         obs_layout.addWidget(self._observations_table)
         main_layout.addWidget(obs_group)
+
+        # --- Action buttons ---
+        actions_group = QGroupBox("Åtgärder")
+        actions_layout = QVBoxLayout(actions_group)
+
+        obs_actions_row = QHBoxLayout()
+        self._btn_exact_start = QPushButton("Använd som exakt början")
+        self._btn_exact_start.setToolTip(
+            "Sätt periodstart till markerad observations startår"
+        )
+        self._btn_exact_start.clicked.connect(self._on_use_as_exact_start)
+        obs_actions_row.addWidget(self._btn_exact_start)
+
+        self._btn_exact_end = QPushButton("Använd som exakt slut")
+        self._btn_exact_end.setToolTip(
+            "Sätt periodslut till markerad observations slutår"
+        )
+        self._btn_exact_end.clicked.connect(self._on_use_as_exact_end)
+        obs_actions_row.addWidget(self._btn_exact_end)
+        actions_layout.addLayout(obs_actions_row)
+
+        split_merge_row = QHBoxLayout()
+        self._btn_split = QPushButton("Dela boendet här")
+        self._btn_split.setToolTip(
+            "Dela boendet vid en täckningslucka"
+        )
+        self._btn_split.clicked.connect(self._on_split)
+        split_merge_row.addWidget(self._btn_split)
+
+        self._btn_merge = QPushButton("Slå samman boenden")
+        self._btn_merge.setToolTip(
+            "Slå samman med ett annat boende på samma plats"
+        )
+        self._btn_merge.clicked.connect(self._on_merge)
+        split_merge_row.addWidget(self._btn_merge)
+        actions_layout.addLayout(split_merge_row)
+
+        flytt_row = QHBoxLayout()
+        self._btn_create_flytt = QPushButton("Skapa flytt mellan boendena")
+        self._btn_create_flytt.setToolTip(
+            "Skapa en flytt-händelse som länkar de två boendena"
+        )
+        self._btn_create_flytt.clicked.connect(self._on_create_flytt)
+        flytt_row.addWidget(self._btn_create_flytt)
+        actions_layout.addLayout(flytt_row)
+
+        # Warnings display label
+        self._warnings_label = QLabel()
+        self._warnings_label.setWordWrap(True)
+        self._warnings_label.setStyleSheet("color: #b36b00;")
+        self._warnings_label.setVisible(False)
+        actions_layout.addWidget(self._warnings_label)
+
+        main_layout.addWidget(actions_group)
 
         # Let the observations table take remaining vertical space
         main_layout.setStretch(2, 1)
@@ -668,3 +745,601 @@ class ResidenceEditor(QWidget):
     def end_precision(self) -> Optional[str]:
         """The precision for the end endpoint, set by event selection."""
         return self._end_precision
+
+    # ------------------------------------------------------------------
+    # Public: action methods (thin wrappers over pure edit ops)
+    # ------------------------------------------------------------------
+
+    def build_fact_from_fields(self) -> ResidenceFact:
+        """Build a ResidenceFact from the current field state.
+
+        This is a snapshot of the editor's state assembled into a fresh
+        ResidenceFact that can be used as a staging copy.
+        """
+        start = Endpoint(
+            earliest=self.get_start_earliest(),
+            latest=self.get_start_latest(),
+            precision=self._start_precision,
+            event_id=self._start_event_id,
+            note=(
+                self._residence.start.note
+                if self._residence and self._residence.start
+                else None
+            ),
+        )
+        end = Endpoint(
+            earliest=self.get_end_earliest(),
+            latest=self.get_end_latest(),
+            precision=self._end_precision,
+            event_id=self._end_event_id,
+            note=(
+                self._residence.end.note
+                if self._residence and self._residence.end
+                else None
+            ),
+        )
+        return ResidenceFact(
+            id=self._residence.id if self._residence else "",
+            person_id=self._person_id or "",
+            place_id=(
+                self._residence.place_id if self._residence else ""
+            ),
+            start=start,
+            end=end,
+            role_in_household=self.get_role_in_household(),
+            observations=(
+                list(self._residence.observations) if self._residence else []
+            ),
+            notes=self._residence.notes if self._residence else "",
+        )
+
+    def save_with_warnings(self) -> bool:
+        """Save the current fact, displaying any warning-level findings.
+
+        Requirement 6.9: a fact whose findings are all warning-level is saved;
+        every entered value is retained; each warning is displayed.
+
+        Returns True if the fact was saved (possibly with warnings), False if
+        saving was blocked (e.g. hard validation errors from the caller).
+        """
+        fact = self.build_fact_from_fields()
+        findings = residence_findings(fact, self._project_data)
+
+        if findings:
+            messages = [f.message for f in findings]
+            self._warnings_label.setText("\n".join(messages))
+            self._warnings_label.setVisible(True)
+        else:
+            self._warnings_label.setVisible(False)
+
+        # Commit the staging copy into the project collection atomically.
+        self._commit_fact(fact)
+        return True
+
+    def offer_merge_after_attach(
+        self, fact: ResidenceFact, other: ResidenceFact, new_obs: Observation
+    ) -> bool:
+        """Offer a merge after attaching an observation that bridges two facts.
+
+        Requirement 17.13: offer the merge when the Observation covers every
+        separating year. Returns True if the user accepts the merge, False
+        otherwise.
+        """
+        if not should_offer_merge(fact, other, new_obs, self._project_data):
+            return False
+
+        # Check for suppression warning (Requirement 17.15)
+        suppressed = is_merge_suppressed(fact, other, self._project_data)
+        if suppressed:
+            reply = QMessageBox.question(
+                self,
+                "Slå samman boenden",
+                "En flytt eller ett annat boende förklarar mellanrummet "
+                "– kontrollera att perioderna hör ihop.\n\n"
+                "Vill du slå samman boendena ändå?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return False
+        else:
+            reply = QMessageBox.question(
+                self,
+                "Slå samman boenden",
+                "Den nya observationen överbryggar mellanrummet till ett "
+                "annat boende på samma plats.\n\n"
+                "Vill du slå samman boendena?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return False
+
+        # Perform the merge
+        self._perform_merge(fact, other)
+        return True
+
+    # ------------------------------------------------------------------
+    # Private: action handlers
+    # ------------------------------------------------------------------
+
+    def _on_use_as_exact_start(self) -> None:
+        """Handle 'Använd som exakt början' button click.
+
+        Sets both start bounds to the selected Observation's observed_from.
+        Requirement 16.10, 16.11: explicit user invocation only.
+        """
+        obs = self._get_selected_observation()
+        if obs is None:
+            return
+        if self._residence is None:
+            return
+
+        # Work on a staging copy, swap atomically.
+        staging = copy.deepcopy(self._residence)
+        result = use_as_exact_start(staging, obs)
+        self._commit_fact(result)
+        self._residence = result
+        self._load_residence()
+
+    def _on_use_as_exact_end(self) -> None:
+        """Handle 'Använd som exakt slut' button click.
+
+        Sets both end bounds to the selected Observation's observed_to.
+        Requirement 16.10, 16.11: explicit user invocation only.
+        """
+        obs = self._get_selected_observation()
+        if obs is None:
+            return
+        if self._residence is None:
+            return
+
+        # Work on a staging copy, swap atomically.
+        staging = copy.deepcopy(self._residence)
+        result = use_as_exact_end(staging, obs)
+        self._commit_fact(result)
+        self._residence = result
+        self._load_residence()
+
+    def _on_split(self) -> None:
+        """Handle 'Dela boendet här' button click.
+
+        Requirement 5.10: split at a coverage gap that has observations on
+        both sides.
+        """
+        if self._residence is None:
+            return
+
+        # Compute coverage gaps and find those that are splittable.
+        gaps = coverage_gaps(self._residence, self._project_data)
+        splittable_gaps = [g for g in gaps if g.splittable]
+
+        if not splittable_gaps:
+            QMessageBox.information(
+                self,
+                "Dela boendet",
+                "Inga täckningsluckor med observationer på båda sidor "
+                "finns att dela vid.",
+            )
+            return
+
+        # If multiple gaps, pick the first one (user can split iteratively).
+        # In a more complete UI this could present a choice.
+        gap = splittable_gaps[0]
+
+        # Generate two new IDs.
+        id_gen = self._make_id_generator()
+        new_id_1 = id_gen.generate("residence")
+        new_id_2 = id_gen.generate("residence")
+
+        try:
+            staging = copy.deepcopy(self._residence)
+            first_fact, second_fact = split_at_gap(
+                staging, gap, (new_id_1, new_id_2)
+            )
+        except ResidenceSplitError as exc:
+            QMessageBox.warning(self, "Kan inte dela", str(exc))
+            return
+
+        # Atomic commit: remove the original, add the two new facts.
+        self._remove_fact_from_project(self._residence.id)
+        self._project_data.residences.append(first_fact)
+        self._project_data.residences.append(second_fact)
+
+        # Load the first resulting fact into the editor.
+        self._residence = first_fact
+        self._load_residence()
+        self.save_requested.emit()
+
+    def _on_merge(self) -> None:
+        """Handle 'Slå samman boenden' button click.
+
+        Requirement 17.1: merges two facts with same person_id and place_id.
+        The user must have a second fact selected (or we pick the best candidate).
+        """
+        if self._residence is None:
+            return
+
+        other = self._find_merge_candidate()
+        if other is None:
+            QMessageBox.information(
+                self,
+                "Slå samman boenden",
+                "Inget annat boende på samma plats för samma person "
+                "hittades att slå samman med.",
+            )
+            return
+
+        self._perform_merge(self._residence, other)
+
+    def _on_create_flytt(self) -> None:
+        """Handle 'Skapa flytt mellan boendena' button click.
+
+        Requirement 18.12: create a Flytt event linking two residences at
+        different places whose periods meet or are separated by at most one year.
+        """
+        if self._residence is None:
+            return
+
+        other = self._find_flytt_candidate()
+        if other is None:
+            QMessageBox.information(
+                self,
+                "Skapa flytt",
+                "Inget annat boende för samma person på en annan plats "
+                "som angränsar hittades.",
+            )
+            return
+
+        # Determine which is earlier in the timeline.
+        earlier, later = self._timeline_order_pair(self._residence, other)
+
+        # Generate the new event ID.
+        id_gen = self._make_id_generator()
+        flytt_id = id_gen.generate("event")
+
+        # Prefill date from the boundary between the two periods.
+        flytt_date = self._compute_flytt_date(earlier, later)
+
+        # Create the Flytt event.
+        flytt_event = Event(
+            id=flytt_id,
+            type="flytt",
+            participants=[
+                Participant(person_id=self._person_id or "", role="subject")
+            ],
+            date=flytt_date,
+            place=PlaceRef(place_id=later.place_id) if later.place_id else None,
+            from_place=(
+                PlaceRef(place_id=earlier.place_id)
+                if earlier.place_id
+                else None
+            ),
+        )
+
+        # Add the event to the project.
+        self._project_data.events.append(flytt_event)
+
+        # Link the flytt to both residences' endpoints atomically.
+        # Earlier fact: end endpoint linked to the flytt.
+        earlier_staging = copy.deepcopy(earlier)
+        new_earlier_end = Endpoint(
+            earliest=earlier_staging.end.earliest,
+            latest=earlier_staging.end.latest,
+            precision=(
+                flytt_date.precision if flytt_date else earlier_staging.end.precision
+            ),
+            event_id=flytt_id,
+            note=earlier_staging.end.note,
+        )
+        if flytt_date and flytt_date.value:
+            new_earlier_end = Endpoint(
+                earliest=flytt_date.value,
+                latest=flytt_date.value,
+                precision=flytt_date.precision,
+                event_id=flytt_id,
+                note=earlier_staging.end.note,
+            )
+        updated_earlier = ResidenceFact(
+            id=earlier_staging.id,
+            person_id=earlier_staging.person_id,
+            place_id=earlier_staging.place_id,
+            start=earlier_staging.start,
+            end=new_earlier_end,
+            role_in_household=earlier_staging.role_in_household,
+            observations=list(earlier_staging.observations),
+            notes=earlier_staging.notes,
+        )
+
+        # Later fact: start endpoint linked to the flytt.
+        later_staging = copy.deepcopy(later)
+        new_later_start = Endpoint(
+            earliest=later_staging.start.earliest,
+            latest=later_staging.start.latest,
+            precision=(
+                flytt_date.precision if flytt_date else later_staging.start.precision
+            ),
+            event_id=flytt_id,
+            note=later_staging.start.note,
+        )
+        if flytt_date and flytt_date.value:
+            new_later_start = Endpoint(
+                earliest=flytt_date.value,
+                latest=flytt_date.value,
+                precision=flytt_date.precision,
+                event_id=flytt_id,
+                note=later_staging.start.note,
+            )
+        updated_later = ResidenceFact(
+            id=later_staging.id,
+            person_id=later_staging.person_id,
+            place_id=later_staging.place_id,
+            start=new_later_start,
+            end=later_staging.end,
+            role_in_household=later_staging.role_in_household,
+            observations=list(later_staging.observations),
+            notes=later_staging.notes,
+        )
+
+        # Swap both into the project atomically.
+        self._replace_fact_in_project(updated_earlier)
+        self._replace_fact_in_project(updated_later)
+
+        # Reload the current one into the editor.
+        if self._residence.id == earlier.id:
+            self._residence = updated_earlier
+        else:
+            self._residence = updated_later
+        self._load_residence()
+        self._populate_event_selectors()
+        self._update_event_messages()
+        self.save_requested.emit()
+
+    def _perform_merge(
+        self, fact_a: ResidenceFact, fact_b: ResidenceFact
+    ) -> None:
+        """Perform the merge of two facts, handling confirmations and warnings.
+
+        Requirements 17.10 (separation confirmation) and 17.15 (suppression
+        warning) are handled here.
+        """
+        # Check for >10-year separation warning (Requirement 17.10).
+        id_gen = self._make_id_generator()
+        new_id = id_gen.generate("residence")
+
+        try:
+            merged_fact, warning = merge(fact_a, fact_b, new_id)
+        except ResidenceMergeError as exc:
+            QMessageBox.warning(self, "Kan inte slå samman", str(exc))
+            return
+
+        # If there's a separation warning, confirm before proceeding.
+        if warning:
+            reply = QMessageBox.question(
+                self,
+                "Slå samman boenden",
+                f"{warning}\n\nVill du slå samman boendena ändå?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        # Check suppression (Requirement 17.15).
+        if is_merge_suppressed(fact_a, fact_b, self._project_data):
+            reply = QMessageBox.question(
+                self,
+                "Slå samman boenden",
+                "En flytt eller ett annat boende förklarar mellanrummet "
+                "– kontrollera att perioderna hör ihop.\n\n"
+                "Vill du slå samman boendena ändå?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        # Atomic commit: remove both originals, add the merged fact.
+        self._remove_fact_from_project(fact_a.id)
+        self._remove_fact_from_project(fact_b.id)
+        self._project_data.residences.append(merged_fact)
+
+        # Load the merged fact into the editor.
+        self._residence = merged_fact
+        self._load_residence()
+        self.save_requested.emit()
+
+    # ------------------------------------------------------------------
+    # Private: action helpers
+    # ------------------------------------------------------------------
+
+    def _get_selected_observation(self) -> Optional[Observation]:
+        """Return the Observation corresponding to the selected table row.
+
+        Observations in the table are ordered by observed_from then observed_to,
+        matching how set_observations sorts them.
+        """
+        if self._residence is None:
+            return None
+        row = self._observations_table.currentRow()
+        if row < 0:
+            return None
+
+        sorted_obs = sorted(
+            self._residence.observations,
+            key=lambda o: (o.observed_from, o.observed_to),
+        )
+        if row >= len(sorted_obs):
+            return None
+        return sorted_obs[row]
+
+    def _find_merge_candidate(self) -> Optional[ResidenceFact]:
+        """Find another Residence_Fact eligible for merging with the current one.
+
+        Looks for same person_id and same place_id (Requirement 17.1).
+        Returns the first match in collection order, or None.
+        """
+        if self._residence is None:
+            return None
+        for fact in self._project_data.residences:
+            if fact.id == self._residence.id:
+                continue
+            if (
+                fact.person_id == self._residence.person_id
+                and fact.place_id == self._residence.place_id
+            ):
+                return fact
+        return None
+
+    def _find_flytt_candidate(self) -> Optional[ResidenceFact]:
+        """Find another Residence_Fact eligible for creating a Flytt between.
+
+        Requirement 18.12: same person, different place, periods meet or are
+        separated by at most one whole year.
+        """
+        if self._residence is None:
+            return None
+
+        for fact in self._project_data.residences:
+            if fact.id == self._residence.id:
+                continue
+            if fact.person_id != self._residence.person_id:
+                continue
+            if fact.place_id == self._residence.place_id:
+                continue
+            # Check that the periods meet or are separated by at most one year.
+            if self._periods_adjacent(self._residence, fact):
+                return fact
+        return None
+
+    def _periods_adjacent(
+        self, fact_a: ResidenceFact, fact_b: ResidenceFact
+    ) -> bool:
+        """Whether two facts' Possible_Spans meet or are ≤1 year apart."""
+        span_a = possible_span(fact_a)
+        span_b = possible_span(fact_b)
+
+        # If either is unbounded in the direction of the other, consider them
+        # adjacent (they could be touching).
+        if span_a.last is None or span_b.first is None:
+            return True
+        if span_b.last is None or span_a.first is None:
+            return True
+
+        # Check both directions: a before b, or b before a.
+        a_end_year = span_a.last.year
+        b_start_year = span_b.first.year
+        b_end_year = span_b.last.year
+        a_start_year = span_a.first.year
+
+        # Direction a → b
+        if b_start_year - a_end_year <= 1:
+            return True
+        # Direction b → a
+        if a_start_year - b_end_year <= 1:
+            return True
+
+        return False
+
+    def _timeline_order_pair(
+        self, a: ResidenceFact, b: ResidenceFact
+    ) -> tuple[ResidenceFact, ResidenceFact]:
+        """Return (earlier, later) in the residence timeline order."""
+
+        def _key(fact: ResidenceFact) -> tuple:
+            def _absent_first(val: Optional[str]) -> tuple[int, str]:
+                if val is None or not val.strip():
+                    return (0, "")
+                return (1, val.strip())
+
+            return (
+                _absent_first(fact.start.earliest),
+                _absent_first(fact.start.latest),
+                _absent_first(fact.end.earliest),
+                _absent_first(fact.end.latest),
+                fact.id,
+            )
+
+        if _key(a) <= _key(b):
+            return (a, b)
+        return (b, a)
+
+    def _compute_flytt_date(
+        self, earlier: ResidenceFact, later: ResidenceFact
+    ) -> Optional[DateValue]:
+        """Compute the prefilled date for a Flytt event from the boundary.
+
+        Uses the end of the earlier fact or the start of the later fact as the
+        date, preferring a more precise value.
+        """
+        # Prefer end.latest of the earlier fact, then start.earliest of the
+        # later fact. Use whichever is available and more precise.
+        candidates: list[str] = []
+        if earlier.end.latest:
+            candidates.append(earlier.end.latest)
+        if earlier.end.earliest:
+            candidates.append(earlier.end.earliest)
+        if later.start.earliest:
+            candidates.append(later.start.earliest)
+        if later.start.latest:
+            candidates.append(later.start.latest)
+
+        if not candidates:
+            return None
+
+        # Pick the most precise value (longest string → ÅÅÅÅ-MM-DD > ÅÅÅÅ-MM > ÅÅÅÅ).
+        best = max(candidates, key=len)
+        # Determine precision from the value form.
+        if len(best) == 10:
+            precision = "day"
+        elif len(best) == 7:
+            precision = "month"
+        else:
+            precision = "year"
+
+        return DateValue(value=best, precision=precision)
+
+    def _make_id_generator(self) -> IDGenerator:
+        """Create an IDGenerator initialized with all existing project IDs."""
+        existing_ids: set[str] = set()
+        for person in self._project_data.persons:
+            existing_ids.add(person.id)
+        for event in self._project_data.events:
+            existing_ids.add(event.id)
+        for place in self._project_data.places:
+            existing_ids.add(place.id)
+        for source in self._project_data.sources:
+            existing_ids.add(source.id)
+        for residence in self._project_data.residences:
+            existing_ids.add(residence.id)
+        return IDGenerator(existing_ids)
+
+    def _commit_fact(self, fact: ResidenceFact) -> None:
+        """Write a fact into the project, replacing any existing fact with the same id.
+
+        This is the single point at which changes reach ProjectData, giving
+        atomicity: the caller builds the full result in a staging copy and calls
+        this once.
+        """
+        # Replace in-place if the fact already exists in the collection.
+        for i, existing in enumerate(self._project_data.residences):
+            if existing.id == fact.id:
+                self._project_data.residences[i] = fact
+                return
+        # New fact — append.
+        self._project_data.residences.append(fact)
+
+    def _replace_fact_in_project(self, fact: ResidenceFact) -> None:
+        """Replace a fact in the project's residences list by its id."""
+        for i, existing in enumerate(self._project_data.residences):
+            if existing.id == fact.id:
+                self._project_data.residences[i] = fact
+                return
+        # Not found — append (shouldn't happen normally).
+        self._project_data.residences.append(fact)
+
+    def _remove_fact_from_project(self, fact_id: str) -> None:
+        """Remove a fact from the project's residences list by id."""
+        self._project_data.residences = [
+            r for r in self._project_data.residences if r.id != fact_id
+        ]

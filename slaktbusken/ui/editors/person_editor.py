@@ -53,6 +53,7 @@ from slaktbusken.services.name_event_service import (
 from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import get_event_type_label
+from slaktbusken.ui.widgets.boenden_tab import BoendenTab
 from slaktbusken.ui.widgets.foto_tab import FotoTab
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,7 @@ class PersonEditor(QWidget):
         foto_mapp = (project_folder / "media" / "photos") if project_folder else Path("media/photos")
         self._photo_service = PhotoService(project_data, foto_mapp)
         self._foto_tab: FotoTab | None = None
+        self._boenden_tab: BoendenTab | None = None
 
         self._setup_table()
         self._setup_edit_event_button()
@@ -221,6 +223,7 @@ class PersonEditor(QWidget):
         self._setup_triangulation_section()
         self._setup_parents_section()
         self._setup_foto_tab()
+        self._setup_boenden_tab()
         self._connect_signals()
 
         if self._person is not None:
@@ -515,6 +518,29 @@ class PersonEditor(QWidget):
 
         # Add FotoTab to the photos tab layout
         self._ui.photos_tab_layout.addWidget(self._foto_tab)
+
+    def _setup_boenden_tab(self) -> None:
+        """Set up the Boenden tab programmatically.
+
+        Inserts a new "Boenden" tab after the Foton tab, following the
+        FotoTab pattern of programmatic insertion. The tab shows the
+        person's residence facts in a list, allows creating a new fact,
+        and provides an entry point to the ResidentsDialog.
+        """
+        if self._person is None:
+            return
+
+        self._boenden_tab = BoendenTab(
+            project_data=self._project_data,
+            person=self._person,
+            parent=None,
+        )
+
+        # Insert the Boenden tab after the Foton (photos) tab
+        photos_index = self._ui.tab_widget.indexOf(self._ui.photos_tab)
+        self._ui.tab_widget.insertTab(
+            photos_index + 1, self._boenden_tab, "Boenden"
+        )
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""

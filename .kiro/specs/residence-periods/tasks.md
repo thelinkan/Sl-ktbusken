@@ -319,15 +319,15 @@ and the project's tag-comment/docstring form.
     - Empty first choice followed by the person's Events ordered by date with undated last, labelled with the Swedish event type label plus the formatted date; dated selection writes `event_id`, `earliest`, `latest`, `precision`, undated selection writes only `event_id`, the empty choice clears only `event_id`; the date-mismatch, missing-event and wrong-side messages, with no wrong-side message for a Flytt_Event; bounds stay editable with `event_id` unchanged; "Från"/"Till" selectors for Flytt events
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 18.6, 18.9, 18.11_
 
-  - [ ] 17.3 Write property test for Endpoint event linking
+  - [x] 17.3 Write property test for Endpoint event linking
     - **Property 8: Linking an Endpoint to an Event writes exactly the specified fields**
     - **Validates: Requirements 3.3, 3.4, 3.6, 3.8, 18.9, 18.11**
 
-  - [ ] 17.4 Write property test for the Endpoint event selector
+  - [x] 17.4 Write property test for the Endpoint event selector
     - **Property 9: The Endpoint Event selector lists, labels and advises correctly**
     - **Validates: Requirements 3.1, 3.2, 3.7, 3.9**
 
-  - [ ] 17.5 Wire the edit operations and warning behaviour into the editor
+  - [x] 17.5 Wire the edit operations and warning behaviour into the editor
     - "Dela boendet här", "Slå samman boenden", "Använd som exakt början", "Använd som exakt slut", "Skapa flytt mellan boendena" as thin wrappers over the pure operations applied to staging copies swapped in as one step; save a warning-only fact retaining every entered value and display each warning; the merge-offer and separation confirmations
     - _Requirements: 5.10, 6.9, 16.5, 16.6, 16.9, 17.1, 17.10, 17.13, 17.15, 18.12_
 
@@ -339,7 +339,7 @@ and the project's tag-comment/docstring form.
     - One preselected, individually deselectable row per derived bound showing endpoint, bound name, the stored value or "okänt", the proposed value and its origin; nothing written until confirmation and only selected rows written, leaving `precision`, `event_id`, `note` and Observations alone; derived values for absent bounds shown read-only with the "härlett" suffix and never saved; "Inga härledda värden att föreslå." with no dialog for zero derived bounds
     - _Requirements: 7.7, 7.8, 7.9, 7.11_
 
-  - [ ] 17.8 Write property test for confirmed derived-bound writes
+  - [x] 17.8 Write property test for confirmed derived-bound writes
     - **Property 18: Derived bounds reach storage only through confirmed, selected rows**
     - **Validates: Requirements 7.7, 7.8, 7.9**
 
@@ -355,7 +355,7 @@ and the project's tag-comment/docstring form.
     - Call `find_residence_dependencies` before the existing event warning and refuse with one blocking entry per referencing fact, leaving the place and the `residences` collection unchanged
     - _Requirements: 1.9, 18.17_
 
-  - [ ] 17.12 Add the "Boenden" tab to the Person editor
+  - [-] 17.12 Add the "Boenden" tab to the Person editor
     - Insert the `ResidenceEditor` programmatically following the `FotoTab` pattern, with the Boende list, creation of a new fact for the active person, and the residents dialog entry point
     - _Requirements: 1.1, 16.1, 16.2_
 
