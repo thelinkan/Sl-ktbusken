@@ -135,7 +135,7 @@ and the project's tag-comment/docstring form.
 - [ ] 7. Checkpoint - persistence
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. Coverage analysis and person checks
+- [x] 8. Coverage analysis and person checks
   - [x] 8.1 Create `slaktbusken/services/residence_coverage.py` with gap computation
     - `CoverageGap`, `OpenEndpointSuggestion`, `TimelineGap` records; `coverage_gaps` returning the maximal runs of years absent from the coverage union between the lowest `observed_from` and highest `observed_to`, ordered by first uncovered year, with `splittable`; zero gaps for zero/one Observation or a complete union; nothing mutated
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.10, 16.13_
@@ -160,7 +160,7 @@ and the project's tag-comment/docstring form.
     - `CheckFinding` records ordered by first uncovered year ascending with open-endpoint findings last; three new `LogicCheckConfig` flags `residence_coverage_gaps`, `residence_open_endpoints`, `residence_timeline_gaps` defaulting to `True`, registered in the Person_Check_Engine
     - _Requirements: 5.9_
 
-  - [ ] 8.7 Write property test for suggestion completeness and ordering
+  - [x] 8.7 Write property test for suggestion completeness and ordering
     - **Property 14: Open-endpoint, timeline-gap and person-check reporting is complete and ordered**
     - **Validates: Requirements 5.7, 5.8, 5.9, 5.15**
 
@@ -230,11 +230,11 @@ and the project's tag-comment/docstring form.
     - Partition Observations by the gap, assign new ids, copy `person_id`/`place_id`/`role_in_household`/`notes`, keep the original `start` on the first and `end` on the second, set the first `end.earliest` and the second `start.latest` from the assigned Observations, leave the first `end.latest` and second `start.earliest` absent, raise with the required message when one side has no Observation
     - _Requirements: 5.10, 5.11, 5.12, 5.13, 5.16_
 
-  - [ ] 12.10 Write property test for splitting
+  - [x] 12.10 Write property test for splitting
     - **Property 15: Splitting partitions, re-bounds and conserves**
     - **Validates: Requirements 5.10, 5.11, 5.12, 5.13, 5.16**
 
-  - [ ] 12.11 Implement `merge` and `ResidenceMergeError`
+  - [x] 12.11 Implement `merge` and `ResidenceMergeError`
     - Take the `start` of the timeline-earlier fact and the `end` of the other with all five Endpoint fields unchanged, union the Observations ordered by `observed_from` with none discarded, keep the earlier `role_in_household` and append the other to `notes` with the required prefix, retain both notes texts, assign a new id, remove both originals, re-derive only the core bounds, refuse on differing place or person with the required messages, and report the >10-year separation warning
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.10, 17.11, 17.15_
 
@@ -282,7 +282,7 @@ and the project's tag-comment/docstring form.
     - **Property 22: role_in_household is stored trimmed and otherwise byte-exact**
     - **Validates: Requirements 10.1, 10.4, 10.5, 10.7**
 
-- [ ] 15. GEDCOM export and import
+- [x] 15. GEDCOM export and import
   - [x] 15.1 Write RESI structures in `slaktbusken/gedcom/exporter.py`
     - One level 1 RESI per fact under its person's INDI with at most one DATE line (FROM/TO, FROM, TO or none), a PLAC line from the existing `_resolve_place_hierarchy`, one labelled NOTE per `start.earliest`, `end.latest`, non-empty `role_in_household` and non-empty `notes`, one SOUR line per Observation whose Source resolves to an exported record each with an `observed_from`/`observed_to` NOTE, ISO→GEDCOM date conversion with the "ABT " prefix for approximate precision, and the single observation-notes log entry
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.10, 12.11_
@@ -291,7 +291,7 @@ and the project's tag-comment/docstring form.
     - `EVEN` with `TYPE Flytt`, a `DATE` line when present, the destination `PLAC` when `place` is present, the origin as a labelled `NOTE` with the structure loss recorded in the export log
     - _Requirements: 18.14, 18.15_
 
-  - [ ] 15.3 Write property test for GEDCOM export
+  - [x] 15.3 Write property test for GEDCOM export
     - **Property 25: GEDCOM export writes the specified RESI and Flytt structures**
     - **Validates: Requirements 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.10, 12.11, 18.14, 18.15**
 
@@ -303,7 +303,7 @@ and the project's tag-comment/docstring form.
     - **Property 26: GEDCOM import maps every DATE line form to the specified Endpoints**
     - **Validates: Requirements 12.7, 12.8, 12.12, 12.13, 18.16**
 
-  - [ ] 15.6 Write property test for the GEDCOM round trip
+  - [x] 15.6 Write property test for the GEDCOM round trip
     - **Property 27: A Residence_Fact survives a GEDCOM round trip**
     - **Validates: Requirements 12.9**
 

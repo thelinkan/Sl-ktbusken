@@ -330,6 +330,15 @@ class ResidenceSplitError(Exception):
     """
 
 
+class ResidenceMergeError(Exception):
+    """Raised when two Residence_Facts cannot be merged.
+
+    The merge requires equal ``person_id`` and equal ``place_id``
+    (Requirements 17.7, 17.8). When they differ, this error is raised with
+    the appropriate Swedish message.
+    """
+
+
 def split_at_gap(
     fact: ResidenceFact,
     gap: CoverageGap,
@@ -446,6 +455,226 @@ def split_at_gap(
     )
 
     return (first_fact, second_fact)
+
+
+def merge(
+    first: ResidenceFact,
+    second: ResidenceFact,
+    new_id: str,
+) -> tuple[ResidenceFact, str | None]:
+    """Merge two Residence_Facts into one, returning the merged fact and an optional warning.
+
+    The two facts must share the same ``person_id`` and ``place_id``; otherwise
+    :exc:`ResidenceMergeError` is raised (Requirements 17.7, 17.8).
+
+    The fact that sorts first under the same total order as
+    :func:`~slaktbusken.services.residence_query.residence_timeline` — that is,
+    by ``start.earliest``, ``start.latest``, ``end.earliest``, ``end.latest``
+    with absent sorting before any present value, then place name, then ``id``
+    — provides the merged fact's ``start`` Endpoint; the other provides the
+    ``end`` Endpoint. All five Endpoint fields (``earliest``, ``latest``,
+    ``precision``, ``event_id``, ``note``) carry over unchanged
+    (Requirement 17.2).
+
+    Observations from both facts are unioned and sorted by ``observed_from``
+    ascending, with none discarded (Requirement 17.3).
+
+    The earlier fact's ``role_in_household`` becomes the merged fact's role. If
+    the other fact's role is non-empty and differs, the text
+    "Tidigare roll i hushållet vid sammanslagning: {other_role}" is appended to
+    the merged fact's ``notes`` (Requirement 17.4).
+
+    Both facts' ``notes`` texts are retained: the earlier fact's notes come
+    first, the other's is appended separated by a newline when non-empty
+    (Requirement 17.5).
+
+    The merged fact receives *new_id* as its ``id`` (Requirement 17.6).
+
+    ``start.latest`` and ``end.earliest`` are re-derived via
+    :func:`~slaktbusken.model.residence.core_aggregate` over the combined
+    observations (Requirement 17.11); ``start.earliest`` and ``end.latest``
+    stay as carried over from the respective Endpoints.
+
+    A warning string is returned when the gap between the earlier fact's last
+    ``observed_to`` and the later fact's first ``observed_from`` exceeds 10
+    whole years (Requirement 17.10); otherwise ``None``.
+
+    *first*, *second* and their contents are left unchanged. A new
+    :class:`ResidenceFact` is returned together with the optional warning.
+
+    Returns:
+        ``(merged_fact, warning)`` where *warning* is either a Swedish string
+        or ``None``.
+
+    Raises:
+        ResidenceMergeError: when ``person_id`` or ``place_id`` differ.
+
+    Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.10, 17.11, 17.15.
+    """
+    # --- Refuse on different person or place (17.7, 17.8) ---
+    if first.person_id != second.person_id:
+        raise ResidenceMergeError(
+            "Endast boenden för samma person kan slås samman."
+        )
+    if first.place_id != second.place_id:
+        raise ResidenceMergeError(
+            "Endast boenden på samma plats kan slås samman."
+        )
+
+    # --- Determine timeline order (17.2) ---
+    # Use the same sort key as residence_timeline: absent sorts before present.
+    earlier, later = _timeline_order(first, second)
+
+    # --- Union observations ordered by observed_from ascending (17.3) ---
+    combined_obs = sorted(
+        [copy.deepcopy(obs) for obs in earlier.observations]
+        + [copy.deepcopy(obs) for obs in later.observations],
+        key=lambda obs: _absent_first_obs_key(obs.observed_from),
+    )
+
+    # --- Role handling (17.4) ---
+    merged_role = earlier.role_in_household
+    role_note_addition = ""
+    if (
+        later.role_in_household
+        and later.role_in_household != earlier.role_in_household
+    ):
+        role_note_addition = (
+            f"Tidigare roll i hushållet vid sammanslagning: "
+            f"{later.role_in_household}"
+        )
+
+    # --- Notes handling (17.5) ---
+    notes_parts: list[str] = []
+    if earlier.notes:
+        notes_parts.append(earlier.notes)
+    if later.notes:
+        notes_parts.append(later.notes)
+    if role_note_addition:
+        notes_parts.append(role_note_addition)
+    merged_notes = "\n".join(notes_parts)
+
+    # --- Re-derive core bounds from combined observations (17.11) ---
+    agg_from, agg_to = core_aggregate(combined_obs)
+
+    # Build Endpoints: start from earlier, end from later, but with
+    # start.latest and end.earliest re-derived from the observations.
+    merged_start = Endpoint(
+        earliest=earlier.start.earliest,
+        latest=agg_from if agg_from is not None else earlier.start.latest,
+        precision=earlier.start.precision,
+        event_id=earlier.start.event_id,
+        note=earlier.start.note,
+    )
+    merged_end = Endpoint(
+        earliest=agg_to if agg_to is not None else later.end.earliest,
+        latest=later.end.latest,
+        precision=later.end.precision,
+        event_id=later.end.event_id,
+        note=later.end.note,
+    )
+
+    # --- Build merged fact (17.6) ---
+    merged_fact = ResidenceFact(
+        id=new_id,
+        person_id=earlier.person_id,
+        place_id=earlier.place_id,
+        start=merged_start,
+        end=merged_end,
+        role_in_household=merged_role,
+        observations=combined_obs,
+        notes=merged_notes,
+    )
+
+    # --- Compute >10-year separation warning (17.10) ---
+    warning = _separation_warning(earlier, later)
+
+    return (merged_fact, warning)
+
+
+def _timeline_order(
+    a: ResidenceFact, b: ResidenceFact
+) -> tuple[ResidenceFact, ResidenceFact]:
+    """Return (earlier, later) under the residence_timeline sort order.
+
+    The sort key mirrors residence_timeline: start.earliest, start.latest,
+    end.earliest, end.latest — each with absent sorting before present — then
+    id as the final tiebreaker (place name is not applicable here since both
+    facts share the same place_id for a valid merge).
+    """
+    def _key(fact: ResidenceFact) -> tuple:
+        return (
+            _absent_first_key(fact.start.earliest),
+            _absent_first_key(fact.start.latest),
+            _absent_first_key(fact.end.earliest),
+            _absent_first_key(fact.end.latest),
+            fact.id,
+        )
+
+    if _key(a) <= _key(b):
+        return (a, b)
+    return (b, a)
+
+
+def _absent_first_key(value: str | None) -> tuple[int, str]:
+    """A sort key placing absent (None/empty/whitespace) before present."""
+    if value is None or not value.strip():
+        return (0, "")
+    return (1, value.strip())
+
+
+def _absent_first_obs_key(value: str) -> tuple[int, str]:
+    """A sort key for observation years, with empty sorting first."""
+    if not value or not value.strip():
+        return (0, "")
+    return (1, value.strip())
+
+
+def _separation_warning(
+    earlier: ResidenceFact, later: ResidenceFact
+) -> str | None:
+    """Return a warning when the gap between the two facts exceeds 10 years.
+
+    The gap is measured from the earlier fact's highest ``observed_to`` to the
+    later fact's lowest ``observed_from``. If both are present as valid years
+    and the difference exceeds 10, a warning is returned.
+    """
+    # Find the earlier fact's last observed_to
+    earlier_last_to: int | None = None
+    for obs in earlier.observations:
+        year = _obs_year(obs.observed_to)
+        if year is not None:
+            if earlier_last_to is None or year > earlier_last_to:
+                earlier_last_to = year
+
+    # Find the later fact's first observed_from
+    later_first_from: int | None = None
+    for obs in later.observations:
+        year = _obs_year(obs.observed_from)
+        if year is not None:
+            if later_first_from is None or year < later_first_from:
+                later_first_from = year
+
+    if earlier_last_to is None or later_first_from is None:
+        return None
+
+    separation = later_first_from - earlier_last_to
+    if separation > 10:
+        return (
+            "Perioderna ligger långt ifrån varandra "
+            "– kontrollera att det är samma boende."
+        )
+    return None
+
+
+def _obs_year(value: str) -> int | None:
+    """Parse an observation year string to an int, or None if invalid/empty."""
+    if not value or not value.strip():
+        return None
+    stripped = value.strip()
+    if len(stripped) == 4 and stripped.isdigit():
+        return int(stripped)
+    return None
 
 
 # ---------------------------------------------------------------------------
