@@ -193,7 +193,7 @@ and the project's tag-comment/docstring form.
 - [ ] 11. Checkpoint - analysis services
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 12. Pure edit operations
+- [x] 12. Pure edit operations
   - [x] 12.1 Create `slaktbusken/services/residence_edit_ops.py` with `prefill_span_from_years`
     - Accept a single four-digit year in 1500–2100 or two such years in ascending order separated by a hyphen or en dash with any surrounding spaces; return `None` otherwise; never write back to the Source `years` value
     - _Requirements: 4.1, 4.7, 4.8, 4.9, 4.10, 9.2_
@@ -258,7 +258,7 @@ and the project's tag-comment/docstring form.
     - `BulkRequest`/`BulkPlan`; parse with `parse_multi_line` in line order, enforce the 50-line / 20 000-character / 20-person limits before doing anything with the exceeded limit named, match existing Sources on `source_type` plus the six trimmed case-insensitive `structured_reference` values with absent equal to empty, preselect per person the best-overlapping existing fact with the collection-order tie-break, collect unparsed lines and the five summary counts
     - _Requirements: 9.1, 9.3, 9.4, 9.6, 9.7, 9.8, 9.10_
 
-  - [ ] 12.17 Write property test for bulk entry
+  - [x] 12.17 Write property test for bulk entry
     - **Property 21: Bulk entry applies wholly or not at all**
     - **Validates: Requirements 9.1, 9.3, 9.4, 9.6, 9.7, 9.8, 9.9, 9.10**
 
@@ -311,7 +311,7 @@ and the project's tag-comment/docstring form.
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 17. Residence editor, dialogs and place deletion refusal
-  - [ ] 17.1 Create `slaktbusken/ui/editors/residence_editor.py`
+  - [x] 17.1 Create `slaktbusken/ui/editors/residence_editor.py`
     - `ResidenceEditor(QWidget)` with the four bound fields labelled "Tidigast början", "Senast början", "Tidigast slut", "Senast slut" accepting the three ISO forms or being left empty; the free-text "Roll i hushållet" field with non-binding project suggestions and the over-100-character refusal keeping the entered text; the Observation table ordered by `observed_from` then `observed_to` showing source title, span and `page_note`, sized for at least 15 untruncated rows
     - _Requirements: 10.3, 10.6, 16.2, 16.12_
 
