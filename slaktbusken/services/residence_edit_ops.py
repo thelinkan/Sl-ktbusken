@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import copy
 import re
-from typing import Sequence
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Sequence
+
+if TYPE_CHECKING:
+    from slaktbusken.model.project import ProjectData
 
 from slaktbusken.model.residence import (
     Endpoint,
@@ -20,7 +24,9 @@ from slaktbusken.model.residence import (
     ResidenceFact,
     core_aggregate,
     observation_span_years,
+    possible_span,
 )
+from slaktbusken.model.date_span import expand_iso, year_of
 from slaktbusken.services.residence_coverage import CoverageGap
 
 # An Observation year is a bare four-digit year (ÅÅÅÅ) in this range
@@ -592,6 +598,170 @@ def merge(
     return (merged_fact, warning)
 
 
+def _separating_years(
+    fact_a: ResidenceFact, fact_b: ResidenceFact
+) -> set[int]:
+    """Compute the set of whole years separating two Possible_Spans.
+
+    Separating years are those that fall strictly between the end of the earlier
+    span and the start of the later span. A span unbounded on one side means
+    there is no separation in that direction; if either span is unbounded toward
+    the other, the separation is empty.
+
+    Returns an empty set when the spans overlap, touch, or when either span is
+    unbounded in the direction of the other.
+    """
+    span_a = possible_span(fact_a)
+    span_b = possible_span(fact_b)
+
+    # Determine which ends earlier and which starts later.
+    # We need: end of the earlier (last day of earlier span)
+    #          start of the later (first day of later span)
+    # If either is unbounded in the relevant direction, no separation exists.
+    if span_a.last is None and span_b.last is None:
+        return set()
+
+    # Try both orderings: a ends before b starts, or b ends before a starts.
+    separation_years: set[int] = set()
+
+    # Case 1: span_a ends before span_b starts
+    if span_a.last is not None and span_b.first is not None:
+        # The last year fully inside span_a
+        a_end_year = span_a.last.year
+        # The first year fully inside span_b
+        b_start_year = span_b.first.year
+        if b_start_year > a_end_year + 1:
+            # There are years in between
+            for y in range(a_end_year + 1, b_start_year):
+                separation_years.add(y)
+
+    # Case 2: span_b ends before span_a starts
+    if span_b.last is not None and span_a.first is not None:
+        b_end_year = span_b.last.year
+        a_start_year = span_a.first.year
+        if a_start_year > b_end_year + 1:
+            for y in range(b_end_year + 1, a_start_year):
+                separation_years.add(y)
+
+    return separation_years
+
+
+def should_offer_merge(
+    fact_a: ResidenceFact,
+    fact_b: ResidenceFact,
+    new_obs: Observation,
+    data: ProjectData,
+) -> bool:
+    """Whether a merge should be offered after attaching *new_obs* to *fact_a*.
+
+    The merge is offered when:
+    1. *fact_b* belongs to the same person at the same place as *fact_a*.
+    2. The new Observation's span covers every year separating the two
+       Possible_Spans.
+    3. The merge is not suppressed by a Flytt_Event or an intervening
+       Residence_Fact at a different place.
+
+    This implements Requirement 17.13: the offer appears when an attached
+    Observation covers every separating year, and Requirement 17.14: the offer
+    is withheld when a documented absence explains the separation.
+
+    *fact_a*, *fact_b*, *new_obs* and *data* are left unchanged.
+
+    Requirements: 17.13, 17.14.
+    """
+    # Must be same person and same place.
+    if fact_a.person_id != fact_b.person_id:
+        return False
+    if fact_a.place_id != fact_b.place_id:
+        return False
+
+    # Compute the separating years between the two facts.
+    sep_years = _separating_years(fact_a, fact_b)
+    if not sep_years:
+        # No separation — nothing to bridge.
+        return False
+
+    # Check whether the new observation covers every separating year.
+    obs_span = observation_span_years(new_obs)
+    if obs_span is None:
+        return False
+    obs_first, obs_last = obs_span
+    obs_years = set(range(obs_first, obs_last + 1))
+    if not sep_years.issubset(obs_years):
+        return False
+
+    # Check suppression conditions (Requirement 17.14).
+    if is_merge_suppressed(fact_a, fact_b, data):
+        return False
+
+    return True
+
+
+def is_merge_suppressed(
+    fact_a: ResidenceFact,
+    fact_b: ResidenceFact,
+    data: ProjectData,
+) -> bool:
+    """Whether the merge offer for the pair is suppressed by documented absence.
+
+    The merge is suppressed when:
+    1. A Flytt_Event of the same person has a date falling inside the years
+       separating the Possible_Spans of the two facts, OR
+    2. Another Residence_Fact of the same person at a **different** place has a
+       Possible_Span overlapping those separating years.
+
+    When suppressed, the Coverage_Analyzer reports no gap for those separating
+    years — the separation is documented as a genuine absence rather than as
+    missing evidence.
+
+    *fact_a*, *fact_b* and *data* are left unchanged.
+
+    Requirements: 17.14.
+    """
+    sep_years = _separating_years(fact_a, fact_b)
+    if not sep_years:
+        # No separation — nothing to suppress.
+        return False
+
+    person_id = fact_a.person_id
+    place_id = fact_a.place_id
+
+    # --- Condition 1: Flytt_Event of the same person dated inside the sep ---
+    for event in data.events:
+        if event.type != "flytt":
+            continue
+        # Check that this Flytt belongs to the same person.
+        person_participates = any(
+            p.person_id == person_id for p in event.participants
+        )
+        if not person_participates:
+            continue
+        # Check that the event has a date falling inside the separating years.
+        if event.date is None:
+            continue
+        event_year = year_of(event.date.value)
+        if event_year is not None and event_year in sep_years:
+            return True
+
+    # --- Condition 2: Another Residence_Fact at a different place overlaps ---
+    fact_ids = {fact_a.id, fact_b.id}
+    for res in data.residences:
+        if res.id in fact_ids:
+            continue
+        if res.person_id != person_id:
+            continue
+        if res.place_id == place_id:
+            continue
+        # Different place, same person. Check if its Possible_Span overlaps
+        # any of the separating years.
+        other_span = possible_span(res)
+        for y in sep_years:
+            if other_span.overlaps_year(y):
+                return True
+
+    return False
+
+
 def _timeline_order(
     a: ResidenceFact, b: ResidenceFact
 ) -> tuple[ResidenceFact, ResidenceFact]:
@@ -773,3 +943,371 @@ def _values_equal(stored: str | None, aggregate: str | None) -> bool:
     if stored is None or aggregate is None:
         return False
     return stored.strip() == aggregate.strip()
+
+
+# ---------------------------------------------------------------------------
+# Bulk entry from pasted references (Requirement 9)
+# ---------------------------------------------------------------------------
+
+# Limits enforced before any work happens (Requirement 9.8).
+_BULK_MAX_LINES = 50
+_BULK_MAX_CHARS = 20_000
+_BULK_MAX_PERSONS = 20
+
+# The six structured_reference fields used for Source matching (Req 9.7).
+_MATCH_FIELDS = ("parish", "series", "volume", "years", "image", "page")
+
+
+class BulkLimitError(Exception):
+    """Raised when pasted text or selection exceeds a bulk entry limit.
+
+    The ``limit_name`` attribute names which limit was exceeded in Swedish.
+    """
+
+    def __init__(self, message: str, limit_name: str) -> None:
+        super().__init__(message)
+        self.limit_name = limit_name
+
+
+@dataclass
+class BulkCandidate:
+    """One successfully parsed line ready to become an Observation.
+
+    Attributes:
+        line_index: The zero-based position in the pasted text.
+        parsed: The parsed reference from the Reference_Parser.
+        source_id: The id of an existing matched Source, or ``None`` when a new
+            Source must be created.
+        observed_from: Prefilled start year (empty when prefill failed).
+        observed_to: Prefilled end year (empty when prefill failed).
+    """
+
+    line_index: int
+    parsed: object  # ParsedReference (avoid import cycle at runtime)
+    source_id: str | None
+    observed_from: str
+    observed_to: str
+
+
+@dataclass
+class BulkPersonPlan:
+    """Per-person plan within a bulk operation.
+
+    Attributes:
+        person_id: The person receiving the Observations.
+        existing_fact_id: The id of a preselected existing Residence_Fact, or
+            ``None`` when a new fact should be created.
+    """
+
+    person_id: str
+    existing_fact_id: str | None = None
+
+
+@dataclass
+class BulkRequest:
+    """Input to :func:`plan_bulk_attach`.
+
+    Attributes:
+        text: The pasted multi-line reference text.
+        person_ids: The selected persons (1–20).
+        place_id: The selected place.
+        role_in_household: The single role entered in the bulk field.
+    """
+
+    text: str
+    person_ids: list[str]
+    place_id: str
+    role_in_household: str = ""
+
+
+@dataclass
+class BulkPlan:
+    """The result of :func:`plan_bulk_attach`.
+
+    The plan is a pure data structure describing what the Residence_Editor should
+    apply. Nothing is mutated until the editor confirms.
+
+    Attributes:
+        candidates: Successfully parsed lines as candidate Observations, in line
+            order.
+        unparsed_lines: Lines that could not be parsed, each truncated at 200
+            characters.
+        person_plans: Per-person matching plans.
+        sources_reused: Number of existing Sources matched.
+        sources_to_create: Number of new Sources that would be created.
+        facts_to_create: Number of new Residence_Facts that would be created.
+        facts_to_extend: Number of existing Residence_Facts that would be
+            extended.
+        observations_to_attach: Total Observations that would be attached.
+    """
+
+    candidates: list[BulkCandidate] = field(default_factory=list)
+    unparsed_lines: list[str] = field(default_factory=list)
+    person_plans: list[BulkPersonPlan] = field(default_factory=list)
+    sources_reused: int = 0
+    sources_to_create: int = 0
+    facts_to_create: int = 0
+    facts_to_extend: int = 0
+    observations_to_attach: int = 0
+
+
+def _normalize_for_match(value: str | int | None) -> str:
+    """Normalize a structured reference field value for case-insensitive matching.
+
+    Absent (``None``) and empty are treated as equal (Requirement 9.7).
+    """
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def _source_matches_parsed(
+    source: object,
+    parsed_source_type: str,
+    parsed_fields: dict,
+) -> bool:
+    """Whether *source* matches the parsed reference on type and the six fields.
+
+    Requirements 9.7: match on ``source_type`` plus the six ``structured_reference``
+    values, each compared after trimming and case-insensitive, with absent equal
+    to empty.
+    """
+    from slaktbusken.model.source import Source
+
+    if not isinstance(source, Source):
+        return False
+    if source.source_type != parsed_source_type:
+        return False
+    for field_name in _MATCH_FIELDS:
+        source_val = _normalize_for_match(
+            source.structured_reference.fields.get(field_name)
+        )
+        parsed_val = _normalize_for_match(parsed_fields.get(field_name))
+        if source_val != parsed_val:
+            return False
+    return True
+
+
+def _map_kalltyp_to_source_type(kalltyp_name: str) -> str:
+    """Map a ParsedReference kalltyp_name to the internal source_type key.
+
+    Mirrors the UI source editor logic but as a pure function.
+    """
+    church_book_types = {
+        "Husförhörslängd",
+        "Församlingsbok",
+        "Födelse- och dopbok",
+        "Lysnings- och vigselbok",
+        "Död- och begravningsbok",
+        "Inflyttningslängd",
+        "Utflyttningslängd",
+        "In- och Utflyttningslängd",
+        "Konfirmationsbok",
+        "Mantalslängd",
+    }
+    if kalltyp_name in church_book_types:
+        return "church_book"
+    if kalltyp_name == "Folkräkning":
+        return "census"
+    if kalltyp_name in ("Sveriges Dödbok Webb",):
+        return "database"
+    return "other"
+
+
+def _overlap_years(span: "OpenSpan", obs_from: str, obs_to: str) -> int:
+    """Count how many whole years of overlap exist between a Possible_Span and
+    an observation range [obs_from, obs_to].
+
+    Used for preselecting the best-matching existing Residence_Fact.
+    """
+    try:
+        from_year = int(obs_from)
+        to_year = int(obs_to)
+    except (ValueError, TypeError):
+        return 0
+
+    count = 0
+    for year in range(from_year, to_year + 1):
+        if span.overlaps_year(year):
+            count += 1
+    return count
+
+
+def _best_overlap_within_one_year(span: "OpenSpan", obs_from: str, obs_to: str) -> bool:
+    """Whether the Possible_Span overlaps the observation span or lies within
+    one whole year of it (Requirement 9.4)."""
+    try:
+        from_year = int(obs_from)
+        to_year = int(obs_to)
+    except (ValueError, TypeError):
+        return False
+
+    # Check overlap with the observation span itself
+    for year in range(from_year, to_year + 1):
+        if span.overlaps_year(year):
+            return True
+
+    # Check within one year on either side
+    if from_year > 0 and span.overlaps_year(from_year - 1):
+        return True
+    if span.overlaps_year(to_year + 1):
+        return True
+
+    return False
+
+
+def plan_bulk_attach(request: BulkRequest, data: "ProjectData") -> BulkPlan:
+    """Plan a bulk attach operation from pasted reference text.
+
+    This is a pure function: it reads the Project and returns a plan, mutating
+    nothing. The Residence_Editor applies the plan by working on deep copies and
+    swapping them in atomically.
+
+    Raises:
+        BulkLimitError: When the text or selection exceeds the defined limits
+            (Requirement 9.8).
+    """
+    from slaktbusken.parsing.reference_parser import parse_reference
+
+    text = request.text
+    person_ids = request.person_ids
+    place_id = request.place_id
+
+    # --- Enforce limits BEFORE doing anything (Requirement 9.8) ---
+    if len(text) > _BULK_MAX_CHARS:
+        raise BulkLimitError(
+            f"Texten överskrider gränsen på {_BULK_MAX_CHARS} tecken "
+            f"(aktuellt: {len(text)} tecken).",
+            limit_name="tecken",
+        )
+
+    # Count non-empty lines
+    all_lines = text.splitlines()
+    non_empty_lines = [line for line in all_lines if line.strip()]
+
+    if len(non_empty_lines) > _BULK_MAX_LINES:
+        raise BulkLimitError(
+            f"Texten överskrider gränsen på {_BULK_MAX_LINES} icke-tomma rader "
+            f"(aktuellt: {len(non_empty_lines)} rader).",
+            limit_name="rader",
+        )
+
+    if len(person_ids) > _BULK_MAX_PERSONS:
+        raise BulkLimitError(
+            f"Antalet valda personer överskrider gränsen på {_BULK_MAX_PERSONS} "
+            f"(aktuellt: {len(person_ids)} personer).",
+            limit_name="personer",
+        )
+
+    # --- Parse each non-empty line in order (Requirement 9.1) ---
+    candidates: list[BulkCandidate] = []
+    unparsed_lines: list[str] = []
+    sources_reused = 0
+    sources_to_create = 0
+
+    for line_index, line in enumerate(non_empty_lines):
+        parsed = parse_reference(line)
+        if parsed is None:
+            # Requirement 9.6: list unparsed lines truncated at 200 chars
+            truncated = line[:200] if len(line) > 200 else line
+            unparsed_lines.append(truncated)
+            continue
+
+        # Determine the source_type from the parsed kalltyp_name
+        parsed_source_type = _map_kalltyp_to_source_type(parsed.kalltyp_name)
+
+        # Match against existing Sources (Requirement 9.7)
+        matched_source_id: str | None = None
+        for source in data.sources:
+            if _source_matches_parsed(
+                source, parsed_source_type, parsed.structured_fields
+            ):
+                matched_source_id = source.id
+                break  # Reuse the first matching Source (collection order)
+
+        if matched_source_id is not None:
+            sources_reused += 1
+        else:
+            sources_to_create += 1
+
+        # Prefill span from years (Requirement 9.2 via 4.7–4.9)
+        years_value = parsed.structured_fields.get("years")
+        span_result = prefill_span_from_years(
+            str(years_value) if years_value is not None else None
+        )
+        obs_from = span_result[0] if span_result else ""
+        obs_to = span_result[1] if span_result else ""
+
+        candidates.append(
+            BulkCandidate(
+                line_index=line_index,
+                parsed=parsed,
+                source_id=matched_source_id,
+                observed_from=obs_from,
+                observed_to=obs_to,
+            )
+        )
+
+    # --- Preselect per person the best-overlapping existing fact (Req 9.4) ---
+    person_plans: list[BulkPersonPlan] = []
+    facts_to_create = 0
+    facts_to_extend = 0
+
+    # Compute the overall observation span from all candidates
+    # (used to determine overlap with existing facts)
+    all_from_years = [c.observed_from for c in candidates if c.observed_from]
+    all_to_years = [c.observed_to for c in candidates if c.observed_to]
+
+    for person_id in person_ids:
+        best_fact_id: str | None = None
+        best_overlap = -1  # -1 so that even 0-overlap candidates beat "none"
+
+        if all_from_years and all_to_years:
+            # Determine the observation span of the bulk set
+            min_from = min(all_from_years)
+            max_to = max(all_to_years)
+
+            # Find matching existing facts for this person at the place
+            for idx, fact in enumerate(data.residences):
+                if fact.person_id != person_id or fact.place_id != place_id:
+                    continue
+
+                span = possible_span(fact)
+
+                # Check if the fact's Possible_Span overlaps or lies within
+                # one whole year of the observation span (Requirement 9.4)
+                if not _best_overlap_within_one_year(span, min_from, max_to):
+                    continue
+
+                overlap = _overlap_years(span, min_from, max_to)
+
+                # Preselect the best overlapping, with collection-order tie-break
+                # (collection-order means the first one in data.residences wins
+                # on a tie, which is automatic since we iterate in order and
+                # use strict > so the first one with a given overlap wins)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_fact_id = fact.id
+
+        if best_fact_id is not None:
+            facts_to_extend += 1
+        else:
+            facts_to_create += 1
+
+        person_plans.append(
+            BulkPersonPlan(person_id=person_id, existing_fact_id=best_fact_id)
+        )
+
+    # Total observations: one per candidate per person
+    observations_to_attach = len(candidates) * len(person_ids)
+
+    return BulkPlan(
+        candidates=candidates,
+        unparsed_lines=unparsed_lines,
+        person_plans=person_plans,
+        sources_reused=sources_reused,
+        sources_to_create=sources_to_create,
+        facts_to_create=facts_to_create,
+        facts_to_extend=facts_to_extend,
+        observations_to_attach=observations_to_attach,
+    )

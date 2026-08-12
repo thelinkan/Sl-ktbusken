@@ -238,23 +238,23 @@ and the project's tag-comment/docstring form.
     - Take the `start` of the timeline-earlier fact and the `end` of the other with all five Endpoint fields unchanged, union the Observations ordered by `observed_from` with none discarded, keep the earlier `role_in_household` and append the other to `notes` with the required prefix, retain both notes texts, assign a new id, remove both originals, re-derive only the core bounds, refuse on differing place or person with the required messages, and report the >10-year separation warning
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.10, 17.11, 17.15_
 
-  - [ ] 12.12 Write property test for merging
+  - [x] 12.12 Write property test for merging
     - **Property 34: Merging composes two facts and refuses or warns as specified**
     - **Validates: Requirements 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.10, 17.11, 17.15**
 
-  - [ ] 12.13 Write property test for the split/merge inverse relation
+  - [x] 12.13 Write property test for the split/merge inverse relation
     - **Property 35: Splitting inverts merging**
     - **Validates: Requirements 17.9, 17.12**
 
-  - [ ] 12.14 Implement merge-offer detection and its suppression
+  - [x] 12.14 Implement merge-offer detection and its suppression
     - Offer the merge when an attached Observation covers every separating year; withhold the offer and report no gap when a Flytt_Event of that person is dated inside the separation or another fact of that person at a different place overlaps it; declining leaves both facts unchanged apart from the new Observation
     - _Requirements: 17.13, 17.14_
 
-  - [ ] 12.15 Write property test for merge offers and suppression
+  - [x] 12.15 Write property test for merge offers and suppression
     - **Property 36: Merge offers appear and are suppressed by documented absence**
     - **Validates: Requirements 17.13, 17.14**
 
-  - [ ] 12.16 Implement `plan_bulk_attach`
+  - [x] 12.16 Implement `plan_bulk_attach`
     - `BulkRequest`/`BulkPlan`; parse with `parse_multi_line` in line order, enforce the 50-line / 20 000-character / 20-person limits before doing anything with the exceeded limit named, match existing Sources on `source_type` plus the six trimmed case-insensitive `structured_reference` values with absent equal to empty, preselect per person the best-overlapping existing fact with the collection-order tie-break, collect unparsed lines and the five summary counts
     - _Requirements: 9.1, 9.3, 9.4, 9.6, 9.7, 9.8, 9.10_
 
