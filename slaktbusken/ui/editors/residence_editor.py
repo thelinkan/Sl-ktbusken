@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QCompleter,
+    QDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -29,7 +30,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -37,7 +37,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from slaktbusken.model.date_span import is_valid_iso, expand_iso
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
 from slaktbusken.model.id_generator import IDGenerator
 from slaktbusken.model.residence import (
@@ -48,18 +47,14 @@ from slaktbusken.model.residence import (
     possible_span,
 )
 from slaktbusken.model.project import ProjectData
-from slaktbusken.model.source import Source, StructuredReference
+from slaktbusken.model.source import Source
 from slaktbusken.services.residence_coverage import CoverageGap, coverage_gaps
 from slaktbusken.services.residence_edit_ops import (
-    BulkLimitError,
-    BulkPlan,
-    BulkRequest,
     ResidenceMergeError,
     ResidenceSplitError,
     attach_observations,
     is_merge_suppressed,
     merge,
-    plan_bulk_attach,
     should_offer_merge,
     split_at_gap,
     use_as_exact_end,
@@ -324,6 +319,33 @@ class ResidenceEditor(QWidget):
             self._on_end_event_changed
         )
 
+        # --- Place group ---
+        place_group = QGroupBox("Plats")
+        place_layout = QVBoxLayout(place_group)
+
+        self._place_combo = QComboBox()
+        self._place_combo.setEditable(True)
+        self._place_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._place_combo.setMinimumHeight(28)
+        self._place_combo.addItem("(ingen plats)", "")
+        places_with_display: list[tuple[str, str]] = []
+        for place in self._project_data.places:
+            display = place.name or place.id
+            places_with_display.append((display, place.id))
+        places_with_display.sort(key=lambda x: x[0].lower())
+        place_names: list[str] = []
+        for display, place_id in places_with_display:
+            self._place_combo.addItem(display, place_id)
+            place_names.append(display)
+        # Substring completer for searching
+        place_completer = QCompleter(place_names, self._place_combo)
+        place_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        place_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self._place_combo.setCompleter(place_completer)
+        place_layout.addWidget(self._place_combo)
+
+        main_layout.addWidget(place_group)
+
         # --- Role in household ---
         role_group = QGroupBox("Hushållsroll")
         role_layout = QVBoxLayout(role_group)
@@ -343,8 +365,8 @@ class ResidenceEditor(QWidget):
 
         main_layout.addWidget(role_group)
 
-        # --- Observations table ---
-        obs_group = QGroupBox("Observationer")
+        # --- Observations table (source references) ---
+        obs_group = QGroupBox("Källhänvisningar")
         obs_layout = QVBoxLayout(obs_group)
 
         self._observations_table = QTableWidget()
@@ -362,11 +384,11 @@ class ResidenceEditor(QWidget):
             QAbstractItemView.SelectionMode.SingleSelection
         )
 
-        # Size for at least 5 visible rows (scrolls for more)
+        # Size for at least 15 visible rows (scrolls for more)
         row_height = self._observations_table.verticalHeader().defaultSectionSize()
         header_height = self._observations_table.horizontalHeader().height()
         self._observations_table.setMinimumHeight(
-            row_height * 5 + header_height + 4
+            row_height * _OBSERVATION_MIN_ROWS + header_height + 4
         )
 
         # Stretch source title column, reasonable widths for others
@@ -382,6 +404,107 @@ class ResidenceEditor(QWidget):
         )
 
         obs_layout.addWidget(self._observations_table)
+
+        # --- Source form row: Källa + Kvalitet ---
+        source_form_row = QHBoxLayout()
+        source_label = QLabel("Källa:")
+        self._source_combo = QComboBox()
+        self._source_combo.setEditable(True)
+        self._source_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._source_combo.setMinimumHeight(28)
+        self._source_combo.addItem("", "")
+        sources_sorted = sorted(
+            self._project_data.sources,
+            key=lambda s: (s.title or "").lower(),
+        )
+        source_titles: list[str] = []
+        for source in sources_sorted:
+            display = self._format_source_display(source)
+            self._source_combo.addItem(display, source.id)
+            source_titles.append(display)
+        # Substring completer for searching sources
+        source_completer = QCompleter(source_titles, self._source_combo)
+        source_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        source_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self._source_combo.setCompleter(source_completer)
+
+        quality_label = QLabel("Kvalitet:")
+        self._quality_combo = QComboBox()
+        self._quality_combo.setMinimumHeight(28)
+        self._quality_combo.addItem("Primär", "primary")
+        self._quality_combo.addItem("Sekundär", "secondary")
+        self._quality_combo.addItem("Tertiär", "tertiary")
+
+        source_form_row.addWidget(source_label)
+        source_form_row.addWidget(self._source_combo, 1)
+        source_form_row.addWidget(quality_label)
+        source_form_row.addWidget(self._quality_combo)
+        obs_layout.addLayout(source_form_row)
+
+        # --- Reference paste row: Referens + Sök ---
+        ref_row = QHBoxLayout()
+        ref_label = QLabel("Referens:")
+        self._ref_paste_input = QLineEdit()
+        self._ref_paste_input.setPlaceholderText(
+            "Klistra in referenstext för att söka efter källa"
+        )
+        self._ref_paste_input.setMinimumHeight(28)
+        self._ref_lookup_button = QPushButton("Sök")
+        self._ref_lookup_button.clicked.connect(self._on_lookup_reference)
+        self._ref_paste_input.returnPressed.connect(self._on_lookup_reference)
+
+        ref_row.addWidget(ref_label)
+        ref_row.addWidget(self._ref_paste_input, 1)
+        ref_row.addWidget(self._ref_lookup_button)
+        obs_layout.addLayout(ref_row)
+
+        # --- Note row: Anteckning ---
+        note_row = QHBoxLayout()
+        note_label = QLabel("Anteckning:")
+        self._source_note_input = QLineEdit()
+        self._source_note_input.setPlaceholderText(
+            "Valfri anteckning om källan"
+        )
+        self._source_note_input.setMinimumHeight(28)
+        note_row.addWidget(note_label)
+        note_row.addWidget(self._source_note_input, 1)
+        obs_layout.addLayout(note_row)
+
+        # --- Period row: Period från / Period till ---
+        period_row = QHBoxLayout()
+        period_from_label = QLabel("Period från:")
+        self._obs_from_edit = QLineEdit()
+        self._obs_from_edit.setPlaceholderText("ÅÅÅÅ")
+        self._obs_from_edit.setMinimumHeight(28)
+        self._obs_from_edit.setMaximumWidth(80)
+        period_to_label = QLabel("Period till:")
+        self._obs_to_edit = QLineEdit()
+        self._obs_to_edit.setPlaceholderText("ÅÅÅÅ")
+        self._obs_to_edit.setMinimumHeight(28)
+        self._obs_to_edit.setMaximumWidth(80)
+
+        period_row.addWidget(period_from_label)
+        period_row.addWidget(self._obs_from_edit)
+        period_row.addWidget(period_to_label)
+        period_row.addWidget(self._obs_to_edit)
+        period_row.addStretch()
+        obs_layout.addLayout(period_row)
+
+        # --- Source action buttons ---
+        source_buttons_row = QHBoxLayout()
+        self._btn_add_source = QPushButton("Lägg till källa")
+        self._btn_add_source.clicked.connect(self._on_add_source)
+        self._btn_remove_source = QPushButton("Ta bort källa")
+        self._btn_remove_source.clicked.connect(self._on_remove_source)
+        self._btn_open_source = QPushButton("Öppna källa")
+        self._btn_open_source.clicked.connect(self._on_open_source)
+
+        source_buttons_row.addWidget(self._btn_add_source)
+        source_buttons_row.addWidget(self._btn_remove_source)
+        source_buttons_row.addWidget(self._btn_open_source)
+        source_buttons_row.addStretch()
+        obs_layout.addLayout(source_buttons_row)
+
         main_layout.addWidget(obs_group)
 
         # --- Action buttons ---
@@ -438,14 +561,12 @@ class ResidenceEditor(QWidget):
 
         main_layout.addWidget(actions_group)
 
-        # --- Bulk paste panel (collapsible) ---
-        self._setup_bulk_panel(main_layout)
-
-        # Give the observations table more vertical space but don't starve the period section
+        # Give the observations table more vertical space but don't starve other sections
         main_layout.setStretch(0, 0)  # Period: fixed size (no stretch)
-        main_layout.setStretch(1, 0)  # Role: fixed size
-        main_layout.setStretch(2, 1)  # Observations: takes remaining space
-        main_layout.setStretch(3, 0)  # Actions: fixed size
+        main_layout.setStretch(1, 0)  # Place: fixed size
+        main_layout.setStretch(2, 0)  # Role: fixed size
+        main_layout.setStretch(3, 1)  # Observations/Sources: takes remaining space
+        main_layout.setStretch(4, 0)  # Actions: fixed size
 
     def _setup_role_completer(self) -> None:
         """Set up non-binding autocomplete suggestions for role_in_household.
@@ -465,120 +586,6 @@ class ResidenceEditor(QWidget):
             completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
             completer.setFilterMode(Qt.MatchFlag.MatchContains)
             self._role_edit.setCompleter(completer)
-
-    def _setup_bulk_panel(self, main_layout: QVBoxLayout) -> None:
-        """Build the collapsible 'Klistra in referenser' bulk paste panel.
-
-        The panel contains:
-        - A multi-line text field for pasting reference lines.
-        - A "Planera" button that parses lines and displays the plan.
-        - A candidate list with prefilled spans (unselectable when incomplete).
-        - An "Kunde inte tolkas" section (lines truncated at 200 chars).
-        - A Swedish summary of the five counts.
-        - An "Utför" button that applies the plan atomically via deep copies.
-
-        Requirements: 9.1, 9.2, 9.3, 9.5, 9.6, 9.8, 9.9, 9.10.
-        """
-        self._bulk_group = QGroupBox("Klistra in referenser")
-        self._bulk_group.setCheckable(True)
-        self._bulk_group.setChecked(False)
-        bulk_layout = QVBoxLayout(self._bulk_group)
-
-        # Multi-line paste field
-        paste_label = QLabel("Klistra in källreferenser (en per rad):")
-        bulk_layout.addWidget(paste_label)
-
-        self._bulk_paste_edit = QPlainTextEdit()
-        self._bulk_paste_edit.setPlaceholderText(
-            "Klistra in referensrader här, t.ex.:\n"
-            "Ljusdal AI:15 1866-1870 bild 25 sid 10\n"
-            "Ljusdal AI:16 1871-1875 bild 30 sid 12"
-        )
-        self._bulk_paste_edit.setMaximumHeight(100)
-        bulk_layout.addWidget(self._bulk_paste_edit)
-
-        # "Planera" button
-        plan_row = QHBoxLayout()
-        self._btn_bulk_plan = QPushButton("Planera")
-        self._btn_bulk_plan.setToolTip(
-            "Analysera de inklistrade referenserna och visa en plan"
-        )
-        self._btn_bulk_plan.clicked.connect(self._on_bulk_plan)
-        plan_row.addWidget(self._btn_bulk_plan)
-        plan_row.addStretch()
-        bulk_layout.addLayout(plan_row)
-
-        # Plan results area (initially hidden)
-        self._bulk_results_widget = QWidget()
-        results_layout = QVBoxLayout(self._bulk_results_widget)
-        results_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Candidate table showing parsed references with spans
-        self._bulk_candidates_label = QLabel("Tolkade kandidater:")
-        results_layout.addWidget(self._bulk_candidates_label)
-
-        self._bulk_candidates_table = QTableWidget()
-        self._bulk_candidates_table.setColumnCount(3)
-        self._bulk_candidates_table.setHorizontalHeaderLabels(
-            ["Referens", "Från", "Till"]
-        )
-        self._bulk_candidates_table.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers
-        )
-        self._bulk_candidates_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        self._bulk_candidates_table.setSelectionMode(
-            QAbstractItemView.SelectionMode.MultiSelection
-        )
-        self._bulk_candidates_table.setMaximumHeight(150)
-        header = self._bulk_candidates_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
-        header.setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
-        )
-        results_layout.addWidget(self._bulk_candidates_table)
-
-        # "Kunde inte tolkas" section
-        self._bulk_unparsed_label = QLabel()
-        self._bulk_unparsed_label.setWordWrap(True)
-        self._bulk_unparsed_label.setStyleSheet("color: #b36b00;")
-        self._bulk_unparsed_label.setVisible(False)
-        results_layout.addWidget(self._bulk_unparsed_label)
-
-        # Summary label (five counts)
-        self._bulk_summary_label = QLabel()
-        self._bulk_summary_label.setWordWrap(True)
-        results_layout.addWidget(self._bulk_summary_label)
-
-        # "Utför" button
-        execute_row = QHBoxLayout()
-        self._btn_bulk_execute = QPushButton("Utför")
-        self._btn_bulk_execute.setToolTip(
-            "Tillämpa planen – skapar/utökar boenden atomiskt"
-        )
-        self._btn_bulk_execute.clicked.connect(self._on_bulk_execute)
-        execute_row.addWidget(self._btn_bulk_execute)
-        execute_row.addStretch()
-        results_layout.addLayout(execute_row)
-
-        self._bulk_results_widget.setVisible(False)
-        bulk_layout.addWidget(self._bulk_results_widget)
-
-        # Error label for the bulk panel
-        self._bulk_error_label = QLabel()
-        self._bulk_error_label.setWordWrap(True)
-        self._bulk_error_label.setStyleSheet("color: red;")
-        self._bulk_error_label.setVisible(False)
-        bulk_layout.addWidget(self._bulk_error_label)
-
-        main_layout.addWidget(self._bulk_group)
-
-        # State for the current bulk plan
-        self._bulk_plan: BulkPlan | None = None
 
     # ------------------------------------------------------------------
     # Private: loading data
@@ -613,6 +620,14 @@ class ResidenceEditor(QWidget):
             self._select_event_in_combo(
                 self._end_event_combo, self._end_event_id
             )
+
+            # Place
+            place_id = self._residence.place_id or ""
+            idx = self._place_combo.findData(place_id)
+            if idx >= 0:
+                self._place_combo.setCurrentIndex(idx)
+            else:
+                self._place_combo.setCurrentIndex(0)
 
             # Role
             self._role_edit.setText(self._residence.role_in_household)
@@ -916,12 +931,12 @@ class ResidenceEditor(QWidget):
                 else None
             ),
         )
+        # Read place_id from the place combo
+        place_id = self._place_combo.currentData() or ""
         return ResidenceFact(
             id=self._residence.id if self._residence else "",
             person_id=self._person_id or "",
-            place_id=(
-                self._residence.place_id if self._residence else ""
-            ),
+            place_id=place_id,
             start=start,
             end=end,
             role_in_household=self.get_role_in_household(),
@@ -1483,359 +1498,228 @@ class ResidenceEditor(QWidget):
         ]
 
     # ------------------------------------------------------------------
-    # Private: bulk paste panel handlers
+    # Private: source reference handlers
     # ------------------------------------------------------------------
 
-    def _on_bulk_plan(self) -> None:
-        """Handle 'Planera' button click in the bulk paste panel.
+    def _on_add_source(self) -> None:
+        """Handle 'Lägg till källa' button click.
 
-        Parses the pasted text via plan_bulk_attach and displays the plan:
-        candidates with prefilled spans, unparsed lines truncated at 200 chars,
-        and a Swedish summary of the five counts.
-
-        Requirements: 9.1, 9.2, 9.6, 9.8, 9.10.
+        Reads the selected source (from combo or found via Sök), quality,
+        note, observed_from, observed_to from the form. Creates an Observation,
+        calls attach_observations on the residence, and refreshes the table.
         """
-        self._bulk_error_label.setVisible(False)
-        self._bulk_results_widget.setVisible(False)
-        self._bulk_plan = None
-
-        text = self._bulk_paste_edit.toPlainText()
-        if not text.strip():
-            self._bulk_error_label.setText("Klistra in minst en referensrad.")
-            self._bulk_error_label.setVisible(True)
-            return
-
-        # Determine person_ids and place_id from the current residence context.
-        person_ids = [self._person_id] if self._person_id else []
-        place_id = self._residence.place_id if self._residence else ""
-
-        if not person_ids:
-            self._bulk_error_label.setText(
-                "Ingen person vald – kan inte skapa plan."
+        source_id = self._source_combo.currentData()
+        if not source_id:
+            QMessageBox.information(
+                self, "Lägg till källa", "Välj en källa först."
             )
-            self._bulk_error_label.setVisible(True)
             return
 
-        if not place_id:
-            self._bulk_error_label.setText(
-                "Ingen plats vald – kan inte skapa plan."
-            )
-            self._bulk_error_label.setVisible(True)
-            return
+        quality = self._quality_combo.currentData() or "primary"
+        note = self._source_note_input.text().strip()
+        observed_from = self._obs_from_edit.text().strip()
+        observed_to = self._obs_to_edit.text().strip()
 
-        role = self.get_role_in_household()
-
-        request = BulkRequest(
-            text=text,
-            person_ids=person_ids,
-            place_id=place_id,
-            role_in_household=role,
+        obs = Observation(
+            source_ref=SourceRef(source_id=source_id, quality=quality, note=note),
+            observed_from=observed_from,
+            observed_to=observed_to,
+            page_note=note,
         )
 
-        try:
-            plan = plan_bulk_attach(request, self._project_data)
-        except BulkLimitError as exc:
-            # Requirement 9.8: refuse and display which limit was exceeded.
-            self._bulk_error_label.setText(str(exc))
-            self._bulk_error_label.setVisible(True)
+        if self._residence is None:
+            # New residence — just track the observation for later
             return
 
-        self._bulk_plan = plan
-        self._display_bulk_plan(plan)
+        # Use attach_observations to add and tighten core
+        staging = copy.deepcopy(self._residence)
+        result = attach_observations(staging, [obs])
+        self._commit_fact(result)
+        self._residence = result
+        self._load_residence()
 
-    def _display_bulk_plan(self, plan: BulkPlan) -> None:
-        """Populate the plan results area from the computed BulkPlan.
+        # Clear the form fields
+        self._source_combo.setCurrentIndex(0)
+        self._quality_combo.setCurrentIndex(0)
+        self._source_note_input.clear()
+        self._obs_from_edit.clear()
+        self._obs_to_edit.clear()
+        self._ref_paste_input.clear()
 
-        Shows candidates with prefilled spans (unselectable when incomplete),
-        unparsed lines truncated at 200 chars, and the five summary counts.
+    def _on_remove_source(self) -> None:
+        """Handle 'Ta bort källa' button click.
+
+        Removes the selected observation from the residence.
         """
-        # --- Candidates table ---
-        candidates = plan.candidates
-        self._bulk_candidates_table.setRowCount(len(candidates))
+        if self._residence is None:
+            return
 
-        for row, candidate in enumerate(candidates):
-            # Reference title from parsed data
-            ref_text = (
-                candidate.parsed.title
-                if hasattr(candidate.parsed, "title")
-                else str(candidate.parsed)
+        row = self._observations_table.currentRow()
+        if row < 0:
+            QMessageBox.information(
+                self, "Ta bort källa", "Välj en källhänvisning i tabellen."
             )
-            ref_item = QTableWidgetItem(ref_text)
-            ref_item.setFlags(ref_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            return
 
-            from_item = QTableWidgetItem(candidate.observed_from)
-            from_item.setFlags(from_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        sorted_obs = sorted(
+            self._residence.observations,
+            key=lambda o: (o.observed_from, o.observed_to),
+        )
+        if row >= len(sorted_obs):
+            return
 
-            to_item = QTableWidgetItem(candidate.observed_to)
-            to_item.setFlags(to_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        obs_to_remove = sorted_obs[row]
 
-            self._bulk_candidates_table.setItem(row, 0, ref_item)
-            self._bulk_candidates_table.setItem(row, 1, from_item)
-            self._bulk_candidates_table.setItem(row, 2, to_item)
-
-            # Requirement 9.2: candidates with incomplete spans are unselectable
-            is_complete = bool(candidate.observed_from and candidate.observed_to)
-            if is_complete:
-                # Selectable — preselect it
-                self._bulk_candidates_table.selectRow(row)
-            else:
-                # Unselectable: disable selection for this row
-                for col in range(3):
-                    item = self._bulk_candidates_table.item(row, col)
-                    if item:
-                        item.setFlags(
-                            item.flags() & ~Qt.ItemFlag.ItemIsSelectable
-                        )
-
-        # --- Unparsed lines (Requirement 9.6) ---
-        if plan.unparsed_lines:
-            truncated_lines = plan.unparsed_lines  # already truncated at 200
-            unparsed_text = "Kunde inte tolkas:\n" + "\n".join(
-                line[:200] for line in truncated_lines
-            )
-            self._bulk_unparsed_label.setText(unparsed_text)
-            self._bulk_unparsed_label.setVisible(True)
-        else:
-            self._bulk_unparsed_label.setVisible(False)
-
-        # --- Summary of five counts (Requirement 9.10) ---
-        summary_parts = [
-            f"Boenden att skapa: {plan.facts_to_create}",
-            f"Boenden att utöka: {plan.facts_to_extend}",
-            f"Observationer att bifoga: {plan.observations_to_attach}",
-            f"Källor återanvända: {plan.sources_reused}",
-            f"Rader ej tolkade: {len(plan.unparsed_lines)}",
+        # Build a new observations list without the removed one
+        new_observations = [
+            o for o in self._residence.observations if o is not obs_to_remove
         ]
-        self._bulk_summary_label.setText("\n".join(summary_parts))
 
-        self._bulk_results_widget.setVisible(True)
+        # Create an updated fact
+        updated = ResidenceFact(
+            id=self._residence.id,
+            person_id=self._residence.person_id,
+            place_id=self._residence.place_id,
+            start=self._residence.start,
+            end=self._residence.end,
+            role_in_household=self._residence.role_in_household,
+            observations=new_observations,
+            notes=self._residence.notes,
+        )
+        self._commit_fact(updated)
+        self._residence = updated
+        self._load_residence()
 
-    def _on_bulk_execute(self) -> None:
-        """Handle 'Utför' button click — apply the bulk plan atomically.
+    def _on_open_source(self) -> None:
+        """Handle 'Öppna källa' button click.
 
-        Creates/extends Residence_Facts with deep copies so that a failure at
-        any point leaves the Project in its prior state (all-or-nothing).
-
-        Requirements: 9.3, 9.5, 9.9, 9.10.
+        Opens the SourceEditor with the source from the selected observation.
         """
-        if self._bulk_plan is None:
+        if self._residence is None:
             return
 
-        plan = self._bulk_plan
-
-        # Collect selected candidate indices from the table
-        selected_rows = set()
-        for index in self._bulk_candidates_table.selectedIndexes():
-            selected_rows.add(index.row())
-
-        # Filter to only complete (selectable) candidates
-        selected_candidates = []
-        for row in sorted(selected_rows):
-            if row < len(plan.candidates):
-                candidate = plan.candidates[row]
-                # Only include candidates that have both observed_from and
-                # observed_to (the complete ones).
-                if candidate.observed_from and candidate.observed_to:
-                    selected_candidates.append(candidate)
-
-        if not selected_candidates:
-            self._bulk_error_label.setText(
-                "Inga giltiga kandidater valda att tillämpa."
+        row = self._observations_table.currentRow()
+        if row < 0:
+            QMessageBox.information(
+                self, "Öppna källa", "Välj en källhänvisning i tabellen."
             )
-            self._bulk_error_label.setVisible(True)
             return
 
-        # Deep-copy the project state for atomic rollback on failure.
-        backup_residences = copy.deepcopy(self._project_data.residences)
-        backup_sources = copy.deepcopy(self._project_data.sources)
+        sorted_obs = sorted(
+            self._residence.observations,
+            key=lambda o: (o.observed_from, o.observed_to),
+        )
+        if row >= len(sorted_obs):
+            return
 
-        try:
-            self._apply_bulk_plan(plan, selected_candidates)
-        except Exception as exc:
-            # Requirement 9.9: all-or-nothing — restore the project state.
-            self._project_data.residences = backup_residences
-            self._project_data.sources = backup_sources
-            logger.exception("Bulk operation failed, rolled back.")
+        obs = sorted_obs[row]
+        source_id = obs.source_ref.source_id
+
+        # Find the Source object
+        source: Optional[Source] = None
+        for s in self._project_data.sources:
+            if s.id == source_id:
+                source = s
+                break
+
+        if source is None:
             QMessageBox.warning(
-                self,
-                "Massåtgärd misslyckades",
-                "Ingen del av massåtgärden tillämpades. "
-                "Projektet är oförändrat.\n\n"
-                f"Fel: {exc}",
+                self, "Öppna källa", "Kunde inte hitta källan."
             )
             return
 
-        # Success — show summary (Requirement 9.10).
-        facts_created = plan.facts_to_create
-        facts_extended = plan.facts_to_extend
-        obs_attached = len(selected_candidates) * len(plan.person_plans)
-        sources_reused = plan.sources_reused
-        unparsed_count = len(plan.unparsed_lines)
+        from slaktbusken.ui.editors.source_editor import SourceEditor
 
-        summary = (
-            f"Massåtgärd klar.\n"
-            f"Boenden skapade: {facts_created}\n"
-            f"Boenden utökade: {facts_extended}\n"
-            f"Observationer bifogade: {obs_attached}\n"
-            f"Källor återanvända: {sources_reused}\n"
-            f"Rader ej tolkade: {unparsed_count}\n\n"
-            f"Avvikande perioder per person justeras genom att "
-            f"redigera varje boende efteråt."
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Källredigerare")
+        dialog.setMinimumSize(800, 600)
+        layout = QVBoxLayout(dialog)
+
+        editor = SourceEditor(
+            project_data=self._project_data,
+            source=source,
+            parent=dialog,
         )
+        layout.addWidget(editor)
 
-        QMessageBox.information(
-            self,
-            "Massåtgärd slutförd",
-            summary,
-        )
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
 
-        # Clear the bulk panel state.
-        self._bulk_plan = None
-        self._bulk_paste_edit.clear()
-        self._bulk_results_widget.setVisible(False)
-        self._bulk_error_label.setVisible(False)
+        dialog.exec()
 
-        # Reload the current residence if it was extended.
-        if self._residence:
-            for fact in self._project_data.residences:
-                if fact.id == self._residence.id:
-                    self._residence = fact
-                    self._load_residence()
+        # If source was saved, update in project data
+        if editor.saved_source is not None:
+            saved = editor.saved_source
+            for i, existing in enumerate(self._project_data.sources):
+                if existing.id == saved.id:
+                    self._project_data.sources[i] = saved
+                    break
+            # Refresh the table to show updated title
+            self.set_observations(self._residence.observations)
+
+    def _on_lookup_reference(self) -> None:
+        """Handle 'Sök' button click.
+
+        Searches existing sources for a match on reference_text or title.
+        If found, selects it in the source combo.
+        """
+        ref_text = self._ref_paste_input.text().strip()
+        if not ref_text:
+            return
+
+        ref_lower = ref_text.lower()
+
+        # Try exact match on reference_text first
+        best_match: Optional[Source] = None
+        for source in self._project_data.sources:
+            if source.reference_text and source.reference_text.lower() == ref_lower:
+                best_match = source
+                break
+
+        # If no exact match, try substring matching
+        if best_match is None:
+            for source in self._project_data.sources:
+                if source.reference_text and ref_lower in source.reference_text.lower():
+                    best_match = source
+                    break
+                if source.title and ref_lower in source.title.lower():
+                    best_match = source
                     break
 
-        self.save_requested.emit()
-
-    def _apply_bulk_plan(
-        self, plan: BulkPlan, selected_candidates: list
-    ) -> None:
-        """Apply the bulk plan by creating/extending facts for each person.
-
-        Works on deep copies and commits atomically. If any step fails,
-        the exception propagates and the caller restores the backup.
-
-        Requirements: 9.3, 9.5, 9.9.
-        """
-        id_gen = self._make_id_generator()
-        role = self.get_role_in_household()
-        place_id = self._residence.place_id if self._residence else ""
-
-        for person_plan in plan.person_plans:
-            person_id = person_plan.person_id
-
-            # Build the Observations for this person from selected candidates.
-            new_observations: list[Observation] = []
-            for candidate in selected_candidates:
-                # Determine or create the source for this candidate.
-                source_id = candidate.source_id
-                if source_id is None:
-                    # Create a new Source from the parsed reference.
-                    source_id = self._create_source_from_candidate(
-                        candidate, id_gen
-                    )
-
-                obs = Observation(
-                    source_ref=SourceRef(
-                        source_id=source_id, quality="primary"
-                    ),
-                    observed_from=candidate.observed_from,
-                    observed_to=candidate.observed_to,
-                    page_note="",
-                )
-                new_observations.append(obs)
-
-            if person_plan.existing_fact_id:
-                # Extend existing fact (Requirement 9.5: adjust core per Req 16).
-                existing_fact = None
-                for fact in self._project_data.residences:
-                    if fact.id == person_plan.existing_fact_id:
-                        existing_fact = fact
-                        break
-                if existing_fact is None:
-                    raise RuntimeError(
-                        f"Boende {person_plan.existing_fact_id} saknas."
-                    )
-
-                updated = attach_observations(existing_fact, new_observations)
-                # Apply role if the existing fact has no role set.
-                if role and not updated.role_in_household:
-                    updated = ResidenceFact(
-                        id=updated.id,
-                        person_id=updated.person_id,
-                        place_id=updated.place_id,
-                        start=updated.start,
-                        end=updated.end,
-                        role_in_household=role,
-                        observations=updated.observations,
-                        notes=updated.notes,
-                    )
-                self._replace_fact_in_project(updated)
-            else:
-                # Create a new Residence_Fact.
-                new_id = id_gen.generate("residence")
-                new_fact = ResidenceFact(
-                    id=new_id,
-                    person_id=person_id,
-                    place_id=place_id,
-                    start=Endpoint(),
-                    end=Endpoint(),
-                    role_in_household=role,
-                    observations=[],
-                )
-                # Attach observations (which also tightens the core).
-                new_fact = attach_observations(new_fact, new_observations)
-                self._project_data.residences.append(new_fact)
-
-    def _create_source_from_candidate(
-        self, candidate, id_gen: IDGenerator
-    ) -> str:
-        """Create a new Source from a parsed reference candidate.
-
-        Adds the Source to the project and returns its id.
-        """
-        parsed = candidate.parsed
-        new_id = id_gen.generate("source")
-
-        # Build structured reference fields from the parsed data.
-        fields: dict = {}
-        if hasattr(parsed, "structured_fields"):
-            for key, value in parsed.structured_fields.items():
-                fields[key] = value
-
-        source = Source(
-            id=new_id,
-            provider=getattr(parsed, "leverantor_name", ""),
-            source_type=self._map_kalltyp_to_source_type(
-                getattr(parsed, "kalltyp_name", "")
-            ),
-            title=getattr(parsed, "title", ""),
-            reference_text=getattr(parsed, "reference_text", ""),
-            structured_reference=StructuredReference(fields=fields),
-        )
-        self._project_data.sources.append(source)
-        return new_id
+        if best_match is not None:
+            # Select in combo
+            idx = self._source_combo.findData(best_match.id)
+            if idx >= 0:
+                self._source_combo.setCurrentIndex(idx)
+            self._ref_paste_input.clear()
+        else:
+            QMessageBox.information(
+                self,
+                "Sök källa",
+                "Ingen källa hittades som matchar referenstexten.",
+            )
 
     @staticmethod
-    def _map_kalltyp_to_source_type(kalltyp_name: str) -> str:
-        """Map a kalltyp name to a source_type string.
+    def _format_source_display(source: Source) -> str:
+        """Format a source for display in combo boxes and tables.
 
-        This mirrors the mapping in residence_edit_ops._map_kalltyp_to_source_type.
+        Shows title combined with reference_text to distinguish sources
+        that share the same title.
+
+        Args:
+            source: The source to format.
+
+        Returns:
+            A formatted display string.
         """
-        church_book_types = {
-            "Husförhörslängd",
-            "Församlingsbok",
-            "Födelse- och dopbok",
-            "Lysnings- och vigselbok",
-            "Död- och begravningsbok",
-            "Inflyttningslängd",
-            "Utflyttningslängd",
-            "In- och Utflyttningslängd",
-            "Konfirmationsbok",
-            "Mantalslängd",
-        }
-        if kalltyp_name in church_book_types:
-            return "church_book"
-        if kalltyp_name == "Folkräkning":
-            return "census"
-        if kalltyp_name in ("Sveriges Dödbok Webb",):
-            return "database"
-        return "other"
+        title = source.title or ""
+        ref = source.reference_text or ""
+
+        if title and ref:
+            return f"{title} — {ref}"
+        if title:
+            return title
+        if ref:
+            return ref
+        return source.id
+
