@@ -1460,18 +1460,26 @@ class PersonEditor(QWidget):
             return
 
         # Build a modal dialog wrapping the ResidenceEditor
+        from PySide6.QtWidgets import QScrollArea
+
         dialog = QDialog(self)
         dialog.setWindowTitle("Redigera boende")
         dialog.setMinimumSize(750, 850)
-        dialog.resize(750, 900)
+        dialog.resize(750, 950)
         layout = QVBoxLayout(dialog)
+
+        # Wrap the editor in a scroll area so it never gets cramped
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
 
         editor = ResidenceEditor(
             project_data=self._project_data,
             residence=fact,
             person_id=self._person.id if self._person else None,
         )
-        layout.addWidget(editor)
+        scroll.setWidget(editor)
+        layout.addWidget(scroll)
 
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
