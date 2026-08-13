@@ -207,6 +207,10 @@ class MainWindow(QMainWindow):
         self.action_person_checks.setToolTip("Kontrollera personuppgifter i projektet")
         self.action_person_checks.triggered.connect(self._app.show_person_checks)
 
+        self.action_residents_at_place = QAction("&Boende på plats\u2026", self)
+        self.action_residents_at_place.setToolTip("Visa vilka som bodde på en plats ett visst år")
+        self.action_residents_at_place.triggered.connect(self._on_residents_at_place)
+
         self.action_settings = QAction("&Inställningar...", self)
         self.action_settings.setToolTip("Öppna inställningar")
         self.action_settings.triggered.connect(self._app.show_settings)
@@ -304,6 +308,7 @@ class MainWindow(QMainWindow):
         self.menu_tools = menu_bar.addMenu("V&erktyg")
         self.menu_tools.addAction(self.action_relationship)
         self.menu_tools.addAction(self.action_person_checks)
+        self.menu_tools.addAction(self.action_residents_at_place)
         self.menu_tools.addAction(self.action_settings)
 
         # Karta (Map)
@@ -677,6 +682,17 @@ class MainWindow(QMainWindow):
         settings = self._app.project_service.settings
         dlg = ReportPreviewDialog(content, settings, parent=self)
         dlg.exec()
+
+    def _on_residents_at_place(self) -> None:
+        """Open the 'Boende på plats' query dialog from the Verktyg menu."""
+        from slaktbusken.ui.dialogs.residents_dialog import ResidentsDialog
+
+        data = self._app.project_service.data if self._app.project_service else None
+        if data is None:
+            QMessageBox.information(self, "Boende på plats", "Inget projekt är öppet.")
+            return
+        dialog = ResidentsDialog(parent=self, project_data=data)
+        dialog.exec()
 
     def _show_about(self) -> None:
         """Show the About dialog."""

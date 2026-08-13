@@ -53,7 +53,6 @@ class BoendenTab(QWidget):
 
     create_requested = Signal()
     edit_requested = Signal(str)
-    residents_dialog_requested = Signal()
 
     def __init__(
         self,
@@ -132,19 +131,12 @@ class BoendenTab(QWidget):
         self._edit_button.setEnabled(False)
         buttons_layout.addWidget(self._edit_button)
 
-        self._residents_button = QPushButton("Boende på plats\u2026")
-        self._residents_button.setToolTip(
-            "Visa vilka som bodde på en plats ett visst år"
-        )
-        buttons_layout.addWidget(self._residents_button)
-
         buttons_layout.addStretch()
         layout.addLayout(buttons_layout)
 
         # Connect internal signals
         self._add_button.clicked.connect(self._on_create)
         self._edit_button.clicked.connect(self._on_edit)
-        self._residents_button.clicked.connect(self._on_residents_dialog)
         self._list.itemSelectionChanged.connect(self._update_button_states)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
 
@@ -169,10 +161,6 @@ class BoendenTab(QWidget):
         residence_id = item.data(Qt.ItemDataRole.UserRole)
         if residence_id:
             self.edit_requested.emit(residence_id)
-
-    def _on_residents_dialog(self) -> None:
-        """Handle the 'Boende på plats' button click."""
-        self.residents_dialog_requested.emit()
 
     # ------------------------------------------------------------------
     # Test helpers

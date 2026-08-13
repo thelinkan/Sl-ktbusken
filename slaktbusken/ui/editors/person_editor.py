@@ -545,9 +545,6 @@ class PersonEditor(QWidget):
 
         # Connect Boenden tab signals
         self._boenden_tab.create_requested.connect(self._on_create_residence)
-        self._boenden_tab.residents_dialog_requested.connect(
-            self._on_open_residents_dialog
-        )
         self._boenden_tab.edit_requested.connect(self._on_edit_residence)
 
     def _connect_signals(self) -> None:
