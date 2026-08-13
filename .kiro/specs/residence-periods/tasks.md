@@ -82,7 +82,7 @@ and the project's tag-comment/docstring form.
     - **Property 16: Overlap findings pair, message and order deterministically**
     - **Validates: Requirements 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8**
 
-- [ ] 4. Checkpoint - model and validation
+- [x] 4. Checkpoint - model and validation
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 5. Flytt event type, aspects and deletion behaviour
@@ -132,7 +132,7 @@ and the project's tag-comment/docstring form.
     - **Property 30: The residences migration is idempotent**
     - **Validates: Requirements 13.4**
 
-- [ ] 7. Checkpoint - persistence
+- [x] 7. Checkpoint - persistence
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 8. Coverage analysis and person checks
@@ -190,7 +190,7 @@ and the project's tag-comment/docstring form.
     - **Property 20: The person residence timeline is a total, stable order**
     - **Validates: Requirements 8.7**
 
-- [ ] 11. Checkpoint - analysis services
+- [x] 11. Checkpoint - analysis services
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 12. Pure edit operations
@@ -262,7 +262,7 @@ and the project's tag-comment/docstring form.
     - **Property 21: Bulk entry applies wholly or not at all**
     - **Validates: Requirements 9.1, 9.3, 9.4, 9.6, 9.7, 9.8, 9.9, 9.10**
 
-- [ ] 13. Checkpoint - edit operations
+- [x] 13. Checkpoint - edit operations
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 14. Swedish formatting and role storage
@@ -307,10 +307,10 @@ and the project's tag-comment/docstring form.
     - **Property 27: A Residence_Fact survives a GEDCOM round trip**
     - **Validates: Requirements 12.9**
 
-- [ ] 16. Checkpoint - formatting and GEDCOM
+- [x] 16. Checkpoint - formatting and GEDCOM
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 17. Residence editor, dialogs and place deletion refusal
+- [x] 17. Residence editor, dialogs and place deletion refusal
   - [x] 17.1 Create `slaktbusken/ui/editors/residence_editor.py`
     - `ResidenceEditor(QWidget)` with the four bound fields labelled "Tidigast början", "Senast början", "Tidigast slut", "Senast slut" accepting the three ISO forms or being left empty; the free-text "Roll i hushållet" field with non-binding project suggestions and the over-100-character refusal keeping the entered text; the Observation table ordered by `observed_from` then `observed_to` showing source title, span and `page_note`, sized for at least 15 untruncated rows
     - _Requirements: 10.3, 10.6, 16.2, 16.12_
@@ -331,7 +331,7 @@ and the project's tag-comment/docstring form.
     - "Dela boendet här", "Slå samman boenden", "Använd som exakt början", "Använd som exakt slut", "Skapa flytt mellan boendena" as thin wrappers over the pure operations applied to staging copies swapped in as one step; save a warning-only fact retaining every entered value and display each warning; the merge-offer and separation confirmations
     - _Requirements: 5.10, 6.9, 16.5, 16.6, 16.9, 17.1, 17.10, 17.13, 17.15, 18.12_
 
-  - [ ] 17.6 Write property test for Flytt place citation, consistency and linking
+  - [x] 17.6 Write property test for Flytt place citation, consistency and linking
     - **Property 37: Flytt places are cited independently, checked for consistency, and linkable in one action**
     - **Validates: Requirements 18.4, 18.7, 18.10, 18.12**
 
@@ -347,7 +347,7 @@ and the project's tag-comment/docstring form.
     - Place and year query over `residents_of_place` with the role grouping view and the place chain column
     - _Requirements: 8.1, 8.5, 8.6, 8.10_
 
-  - [ ] 17.10 Add the bulk paste panel to the residence editor
+  - [x] 17.10 Add the bulk paste panel to the residence editor
     - Paste field, candidate list with prefilled spans and unselectable incomplete candidates, the "Kunde inte tolkas" section truncated at 200 characters, atomic application of the plan through deep copies with the all-or-nothing failure message, and the Swedish summary of the five counts
     - _Requirements: 9.1, 9.2, 9.3, 9.5, 9.6, 9.8, 9.9, 9.10_
 
@@ -355,7 +355,7 @@ and the project's tag-comment/docstring form.
     - Call `find_residence_dependencies` before the existing event warning and refuse with one blocking entry per referencing fact, leaving the place and the `residences` collection unchanged
     - _Requirements: 1.9, 18.17_
 
-  - [-] 17.12 Add the "Boenden" tab to the Person editor
+  - [x] 17.12 Add the "Boenden" tab to the Person editor
     - Insert the `ResidenceEditor` programmatically following the `FotoTab` pattern, with the Boende list, creation of a new fact for the active person, and the residents dialog entry point
     - _Requirements: 1.1, 16.1, 16.2_
 
@@ -380,20 +380,20 @@ and the project's tag-comment/docstring form.
     - **Property 24: Every channel renders through the formatter and orders identically**
     - **Validates: Requirements 11.7, 11.8, 11.9, 11.10**
 
-- [ ] 19. Worked examples and performance budgets
-  - [ ] 19.1 Write unit tests for the fully accounted sequence
+- [x] 19. Worked examples and performance budgets
+  - [x] 19.1 Write unit tests for the fully accounted sequence
     - Anders at Place A and Place B with the stated derivations, zero overlap and timeline findings, the single open-endpoint suggestion, the rendered strings, the empty 1850 query and the timeline order
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8, 14.9_
 
-  - [ ] 19.2 Write unit tests for the both-endpoints-open example
+  - [x] 19.2 Write unit tests for the both-endpoints-open example
     - Brita at Place C with zero errors and findings, two open-endpoint suggestions, the rendered "senast 1840–tidigast 1846" string, the "säker"/"möjlig" query answers, the derived core and unbounded span, and zero coverage gaps
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9_
 
-  - [ ] 19.3 Write timed tests for the three performance budgets
+  - [x] 19.3 Write timed tests for the three performance budgets
     - A check run over 10 000 Residence_Facts within 5 seconds, inference for a person with 200 facts within 1 second, and a residents query over 50 000 facts / 20 000 persons / 5 000 places within 1 second
     - _Requirements: 5.9, 7.1, 8.11_
 
-- [ ] 20. Final checkpoint
+- [x] 20. Final checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
