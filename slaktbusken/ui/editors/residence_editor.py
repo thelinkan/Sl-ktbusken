@@ -257,17 +257,25 @@ class ResidenceEditor(QWidget):
         # --- Endpoint bounds group ---
         bounds_group = QGroupBox("Period")
         bounds_form = QFormLayout(bounds_group)
+        bounds_form.setVerticalSpacing(10)
+        bounds_form.setContentsMargins(12, 20, 12, 12)
+        bounds_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
 
         self._start_earliest_edit = QLineEdit()
         self._start_earliest_edit.setPlaceholderText("ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD")
+        self._start_earliest_edit.setMinimumHeight(28)
         bounds_form.addRow("Tidigast början:", self._start_earliest_edit)
 
         self._start_latest_edit = QLineEdit()
         self._start_latest_edit.setPlaceholderText("ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD")
+        self._start_latest_edit.setMinimumHeight(28)
         bounds_form.addRow("Senast början:", self._start_latest_edit)
 
         # Start Endpoint Event selector
         self._start_event_combo = QComboBox()
+        self._start_event_combo.setMinimumHeight(28)
         self._start_event_combo.setToolTip(
             "Koppla startpunkten till en händelse"
         )
@@ -281,14 +289,17 @@ class ResidenceEditor(QWidget):
 
         self._end_earliest_edit = QLineEdit()
         self._end_earliest_edit.setPlaceholderText("ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD")
+        self._end_earliest_edit.setMinimumHeight(28)
         bounds_form.addRow("Tidigast slut:", self._end_earliest_edit)
 
         self._end_latest_edit = QLineEdit()
         self._end_latest_edit.setPlaceholderText("ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD")
+        self._end_latest_edit.setMinimumHeight(28)
         bounds_form.addRow("Senast slut:", self._end_latest_edit)
 
         # End Endpoint Event selector
         self._end_event_combo = QComboBox()
+        self._end_event_combo.setMinimumHeight(28)
         self._end_event_combo.setToolTip(
             "Koppla slutpunkten till en händelse"
         )
@@ -351,11 +362,11 @@ class ResidenceEditor(QWidget):
             QAbstractItemView.SelectionMode.SingleSelection
         )
 
-        # Size for at least 15 visible rows
+        # Size for at least 5 visible rows (scrolls for more)
         row_height = self._observations_table.verticalHeader().defaultSectionSize()
         header_height = self._observations_table.horizontalHeader().height()
         self._observations_table.setMinimumHeight(
-            row_height * _OBSERVATION_MIN_ROWS + header_height + 4
+            row_height * 5 + header_height + 4
         )
 
         # Stretch source title column, reasonable widths for others
@@ -430,8 +441,11 @@ class ResidenceEditor(QWidget):
         # --- Bulk paste panel (collapsible) ---
         self._setup_bulk_panel(main_layout)
 
-        # Let the observations table take remaining vertical space
-        main_layout.setStretch(2, 1)
+        # Give the observations table more vertical space but don't starve the period section
+        main_layout.setStretch(0, 0)  # Period: fixed size (no stretch)
+        main_layout.setStretch(1, 0)  # Role: fixed size
+        main_layout.setStretch(2, 1)  # Observations: takes remaining space
+        main_layout.setStretch(3, 0)  # Actions: fixed size
 
     def _setup_role_completer(self) -> None:
         """Set up non-binding autocomplete suggestions for role_in_household.

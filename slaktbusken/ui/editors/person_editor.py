@@ -54,6 +54,7 @@ from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import get_event_type_label
 from slaktbusken.ui.widgets.boenden_tab import BoendenTab
+from slaktbusken.model.residence import Endpoint, ResidenceFact
 from slaktbusken.ui.widgets.foto_tab import FotoTab
 
 logger = logging.getLogger(__name__)
@@ -536,11 +537,18 @@ class PersonEditor(QWidget):
             parent=None,
         )
 
-        # Insert the Boenden tab after the Foton (photos) tab
+        # Insert the Boenden tab before the Foton (photos) tab
         photos_index = self._ui.tab_widget.indexOf(self._ui.photos_tab)
         self._ui.tab_widget.insertTab(
-            photos_index + 1, self._boenden_tab, "Boenden"
+            photos_index, self._boenden_tab, "Boenden"
         )
+
+        # Connect Boenden tab signals
+        self._boenden_tab.create_requested.connect(self._on_create_residence)
+        self._boenden_tab.residents_dialog_requested.connect(
+            self._on_open_residents_dialog
+        )
+        self._boenden_tab.edit_requested.connect(self._on_edit_residence)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
@@ -1405,6 +1413,117 @@ class PersonEditor(QWidget):
             Qt.TransformationMode.SmoothTransformation,
         )
         self._ui.profile_photo_display.setPixmap(scaled)
+
+    # ------------------------------------------------------------------
+    # Private: Boenden tab handlers
+    # ------------------------------------------------------------------
+
+    def _on_create_residence(self) -> None:
+        """Handle 'Nytt boende' — create a new Residence_Fact and open the editor."""
+        from slaktbusken.model.id_generator import IDGenerator
+
+        if self._person is None:
+            return
+
+        existing_ids: set[str] = set()
+        for r in self._project_data.residences:
+            existing_ids.add(r.id)
+
+        id_gen = IDGenerator(existing_ids)
+        new_id = id_gen.generate("residence")
+
+        new_fact = ResidenceFact(
+            id=new_id,
+            person_id=self._person.id,
+            place_id="",
+            start=Endpoint(),
+            end=Endpoint(),
+        )
+        self._project_data.residences.append(new_fact)
+
+        if self._boenden_tab:
+            self._boenden_tab.refresh()
+
+        self._dirty = True
+
+        # Open the editor immediately so the user can fill in details
+        self._on_edit_residence(new_id)
+
+    def _on_edit_residence(self, residence_id: str) -> None:
+        """Handle edit request — open the ResidenceEditor in a dialog."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout
+
+        from slaktbusken.ui.editors.residence_editor import ResidenceEditor
+
+        fact = next(
+            (r for r in self._project_data.residences if r.id == residence_id),
+            None,
+        )
+        if fact is None:
+            return
+
+        # Build a modal dialog wrapping the ResidenceEditor
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Redigera boende")
+        dialog.setMinimumSize(750, 850)
+        dialog.resize(750, 900)
+        layout = QVBoxLayout(dialog)
+
+        editor = ResidenceEditor(
+            project_data=self._project_data,
+            residence=fact,
+            person_id=self._person.id if self._person else None,
+        )
+        layout.addWidget(editor)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.button(QDialogButtonBox.StandardButton.Save).setText("Spara")
+        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText("Avbryt")
+        layout.addWidget(button_box)
+
+        def on_save():
+            # Validate role length
+            if not editor.validate_role():
+                return
+            # Build the updated fact from the editor fields
+            updated = editor.build_fact_from_fields()
+            # Preserve the place_id — the editor doesn't have a place selector yet,
+            # so keep the original or allow the user to type it.
+            if not updated.place_id and fact.place_id:
+                updated = ResidenceFact(
+                    id=updated.id,
+                    person_id=updated.person_id,
+                    place_id=fact.place_id,
+                    start=updated.start,
+                    end=updated.end,
+                    role_in_household=updated.role_in_household,
+                    observations=updated.observations,
+                    notes=updated.notes,
+                )
+            # Replace in project
+            for i, r in enumerate(self._project_data.residences):
+                if r.id == residence_id:
+                    self._project_data.residences[i] = updated
+                    break
+            self._dirty = True
+            if self._boenden_tab:
+                self._boenden_tab.refresh()
+            dialog.accept()
+
+        button_box.accepted.connect(on_save)
+        button_box.rejected.connect(dialog.reject)
+
+        dialog.exec()
+
+    def _on_open_residents_dialog(self) -> None:
+        """Handle 'Boende på plats' — open the ResidentsDialog."""
+        from slaktbusken.ui.dialogs.residents_dialog import ResidentsDialog
+
+        dialog = ResidentsDialog(parent=self, project_data=self._project_data)
+        dialog.exec()
 
     # ------------------------------------------------------------------
     # Private: DNA
