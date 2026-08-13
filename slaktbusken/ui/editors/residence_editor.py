@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -39,6 +40,7 @@ from PySide6.QtWidgets import (
 
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
 from slaktbusken.model.id_generator import IDGenerator
+from slaktbusken.model.place import Place
 from slaktbusken.model.residence import (
     Endpoint,
     Observation,
@@ -55,6 +57,7 @@ from slaktbusken.services.residence_edit_ops import (
     attach_observations,
     is_merge_suppressed,
     merge,
+    prefill_span_from_years,
     should_offer_merge,
     split_at_gap,
     use_as_exact_end,
@@ -330,7 +333,7 @@ class ResidenceEditor(QWidget):
         self._place_combo.addItem("(ingen plats)", "")
         places_with_display: list[tuple[str, str]] = []
         for place in self._project_data.places:
-            display = place.name or place.id
+            display = self._build_place_hierarchy(place.id)
             places_with_display.append((display, place.id))
         places_with_display.sort(key=lambda x: x[0].lower())
         place_names: list[str] = []
@@ -342,7 +345,15 @@ class ResidenceEditor(QWidget):
         place_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         place_completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self._place_combo.setCompleter(place_completer)
-        place_layout.addWidget(self._place_combo)
+
+        # "Ny plats…" button next to the place combo
+        place_row = QHBoxLayout()
+        place_row.addWidget(self._place_combo, 1)
+        self._btn_new_place = QPushButton("Ny plats\u2026")
+        self._btn_new_place.setMinimumHeight(28)
+        self._btn_new_place.clicked.connect(self._on_new_place)
+        place_row.addWidget(self._btn_new_place)
+        place_layout.addLayout(place_row)
 
         main_layout.addWidget(place_group)
 
@@ -384,12 +395,9 @@ class ResidenceEditor(QWidget):
             QAbstractItemView.SelectionMode.SingleSelection
         )
 
-        # Size for at least 15 visible rows (scrolls for more)
-        row_height = self._observations_table.verticalHeader().defaultSectionSize()
-        header_height = self._observations_table.horizontalHeader().height()
-        self._observations_table.setMinimumHeight(
-            row_height * _OBSERVATION_MIN_ROWS + header_height + 4
-        )
+        # Fixed height for the table — shows ~4 rows, scrolls for more
+        self._observations_table.setMinimumHeight(120)
+        self._observations_table.setMaximumHeight(180)
 
         # Stretch source title column, reasonable widths for others
         header = self._observations_table.horizontalHeader()
@@ -427,6 +435,11 @@ class ResidenceEditor(QWidget):
         source_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         source_completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self._source_combo.setCompleter(source_completer)
+
+        # Auto-fill period from source years when source selection changes
+        self._source_combo.currentIndexChanged.connect(
+            self._on_source_combo_changed
+        )
 
         quality_label = QLabel("Kvalitet:")
         self._quality_combo = QComboBox()
@@ -1024,6 +1037,7 @@ class ResidenceEditor(QWidget):
         """
         obs = self._get_selected_observation()
         if obs is None:
+            self._flash_status("Välj en källhänvisning i tabellen först.")
             return
         if self._residence is None:
             return
@@ -1034,6 +1048,9 @@ class ResidenceEditor(QWidget):
         self._commit_fact(result)
         self._residence = result
         self._load_residence()
+        self._flash_field(self._start_earliest_edit)
+        self._flash_field(self._start_latest_edit)
+        self._flash_status(f"Början satt till {obs.observed_from}.")
 
     def _on_use_as_exact_end(self) -> None:
         """Handle 'Använd som exakt slut' button click.
@@ -1043,6 +1060,7 @@ class ResidenceEditor(QWidget):
         """
         obs = self._get_selected_observation()
         if obs is None:
+            self._flash_status("Välj en källhänvisning i tabellen först.")
             return
         if self._residence is None:
             return
@@ -1053,6 +1071,9 @@ class ResidenceEditor(QWidget):
         self._commit_fact(result)
         self._residence = result
         self._load_residence()
+        self._flash_field(self._end_earliest_edit)
+        self._flash_field(self._end_latest_edit)
+        self._flash_status(f"Slut satt till {obs.observed_to}.")
 
     def _on_split(self) -> None:
         """Handle 'Dela boendet här' button click.
@@ -1722,4 +1743,135 @@ class ResidenceEditor(QWidget):
         if ref:
             return ref
         return source.id
+
+    # ------------------------------------------------------------------
+    # Private: place hierarchy helpers
+    # ------------------------------------------------------------------
+
+    def _build_place_hierarchy(self, place_id: str) -> str:
+        """Build the full hierarchy string for a place.
+
+        Walks up the parent_place_id chain and joins names with ", ".
+        Uses a visited set to handle circular parent references.
+        Example: "Tallåsens skola, Ljusdal, Gävleborgs län, Sverige, Europa"
+        """
+        places_by_id = {p.id: p for p in self._project_data.places}
+        parts: list[str] = []
+        visited: set[str] = set()
+        current_id: Optional[str] = place_id
+
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            place = places_by_id.get(current_id)
+            if place is None:
+                break
+            parts.append(place.name or place.id)
+            current_id = place.parent_place_id
+
+        return ", ".join(parts) if parts else place_id
+
+    # ------------------------------------------------------------------
+    # Private: "Ny plats…" handler
+    # ------------------------------------------------------------------
+
+    def _on_new_place(self) -> None:
+        """Handle 'Ny plats…' button click.
+
+        Shows a QInputDialog asking for the place name, creates a new Place
+        with a generated id and type "ort", adds it to the project, and
+        selects it in the combo.
+        """
+        name, ok = QInputDialog.getText(
+            self, "Ny plats", "Platsnamn:"
+        )
+        if not ok or not name or not name.strip():
+            return
+
+        name = name.strip()
+
+        # Generate a unique ID
+        id_gen = self._make_id_generator()
+        new_id = id_gen.generate("place")
+
+        # Create the new Place
+        new_place = Place(id=new_id, type="ort", name=name)
+        self._project_data.places.append(new_place)
+
+        # Add to the combo and select it
+        display = self._build_place_hierarchy(new_id)
+        self._place_combo.addItem(display, new_id)
+        idx = self._place_combo.findData(new_id)
+        if idx >= 0:
+            self._place_combo.setCurrentIndex(idx)
+
+    # ------------------------------------------------------------------
+    # Private: source combo auto-fill
+    # ------------------------------------------------------------------
+
+    def _on_source_combo_changed(self, index: int) -> None:
+        """Auto-fill period fields from the source's structured_reference.years.
+
+        When a source is selected and the period fields are both empty,
+        uses prefill_span_from_years to suggest the period.
+        """
+        if self._updating:
+            return
+
+        source_id = self._source_combo.currentData()
+        if not source_id:
+            return
+
+        # Only auto-fill when both period fields are empty
+        if self._obs_from_edit.text().strip() or self._obs_to_edit.text().strip():
+            return
+
+        # Find the source
+        source: Optional[Source] = None
+        for s in self._project_data.sources:
+            if s.id == source_id:
+                source = s
+                break
+
+        if source is None:
+            return
+
+        # Try to read the years value
+        years = source.structured_reference.fields.get("years")
+        result = prefill_span_from_years(years)
+
+        if result is not None:
+            obs_from, obs_to = result
+            self._obs_from_edit.setText(obs_from)
+            self._obs_to_edit.setText(obs_to)
+
+    # ------------------------------------------------------------------
+    # Private: visual feedback helpers
+    # ------------------------------------------------------------------
+
+    def _flash_status(self, message: str) -> None:
+        """Show a brief status message in the warnings label area."""
+        self._warnings_label.setText(message)
+        self._warnings_label.setStyleSheet("color: #006600;")
+        self._warnings_label.setVisible(True)
+
+        # Auto-hide after 3 seconds
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(3000, self._clear_flash_status)
+
+    def _clear_flash_status(self) -> None:
+        """Clear the flash status message."""
+        # Only clear if it's still a status message (green color)
+        if "color: #006600" in (self._warnings_label.styleSheet() or ""):
+            self._warnings_label.setVisible(False)
+            self._warnings_label.setStyleSheet("color: #b36b00;")
+
+    def _flash_field(self, field: QLineEdit) -> None:
+        """Briefly highlight a field to show it was updated."""
+        original_style = field.styleSheet()
+        field.setStyleSheet("background-color: #d4edda;")
+
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(1500, lambda: field.setStyleSheet(original_style))
 

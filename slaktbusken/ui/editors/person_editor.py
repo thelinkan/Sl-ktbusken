@@ -1513,6 +1513,10 @@ class PersonEditor(QWidget):
                 self._boenden_tab.refresh()
             dialog.accept()
 
+        # When the residence editor emits save_requested (e.g. after creating
+        # a flytt event), refresh the events list so it appears immediately.
+        editor.save_requested.connect(self._refresh_events_list)
+
         button_box.accepted.connect(on_save)
         button_box.rejected.connect(dialog.reject)
 

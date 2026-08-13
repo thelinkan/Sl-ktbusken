@@ -40,6 +40,7 @@ _EVENT_TYPE_MAP: dict[str, str] = {
     "engagement": "engagement.svg",
     "emigration": "emigration.svg",
     "immigration": "immigration.svg",
+    "flytt": "emigration.svg",
     "census": "census.svg",
     "confirmation": "confirmation.svg",
     "first_communion": "first_communion.svg",
