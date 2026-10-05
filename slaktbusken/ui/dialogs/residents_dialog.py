@@ -175,9 +175,20 @@ class ResidentsDialog(QDialog):
         self._place_combo.setCompleter(completer)
 
     def _format_place_display(self, place_id: str) -> str:
-        """Format a place name with its parent hierarchy for display."""
-        places_by_id = {p.id: p for p in self._project_data.places}
-        place = places_by_id.get(place_id)
+        """Format a place name with its parent hierarchy for display.
+
+        Resolves each id by taking the FIRST matching record in
+        project_data.places to stay consistent with the event/residence
+        editors and to guard against duplicate place ids (a lossy
+        {id: place} dict would keep the LAST duplicate, which can point at
+        a different parent chain).
+        """
+        def _find(pid: str):
+            return next(
+                (p for p in self._project_data.places if p.id == pid), None
+            )
+
+        place = _find(place_id)
         if place is None:
             return place_id
 
@@ -185,7 +196,7 @@ class ResidentsDialog(QDialog):
         current = place
         visited: set[str] = {place.id}
         while current.parent_place_id and current.parent_place_id not in visited:
-            parent = places_by_id.get(current.parent_place_id)
+            parent = _find(current.parent_place_id)
             if parent is None:
                 break
             visited.add(parent.id)

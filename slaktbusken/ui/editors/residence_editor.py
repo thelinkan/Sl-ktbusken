@@ -1683,6 +1683,7 @@ class ResidenceEditor(QWidget):
 
         Searches existing sources for a match on reference_text or title.
         If found, selects it in the source combo.
+        If not found, opens the SourceEditor with the reference text pre-filled.
         """
         ref_text = self._ref_paste_input.text().strip()
         if not ref_text:
@@ -1694,6 +1695,9 @@ class ResidenceEditor(QWidget):
         best_match: Optional[Source] = None
         for source in self._project_data.sources:
             if source.reference_text and source.reference_text.lower() == ref_lower:
+                best_match = source
+                break
+            if source.provider_ref and source.provider_ref.lower() == ref_lower:
                 best_match = source
                 break
 
@@ -1714,11 +1718,64 @@ class ResidenceEditor(QWidget):
                 self._source_combo.setCurrentIndex(idx)
             self._ref_paste_input.clear()
         else:
-            QMessageBox.information(
-                self,
-                "Sök källa",
-                "Ingen källa hittades som matchar referenstexten.",
-            )
+            # Not found — open the source editor with reference text pre-filled
+            self._create_source_from_reference(ref_text)
+
+    def _create_source_from_reference(self, reference_text: str) -> None:
+        """Open the source editor to create a new source pre-filled with reference text.
+
+        Sets the reference text in the editor, which triggers auto-parsing
+        to populate title, provider, source type, and structured reference fields.
+
+        After the source is created, adds it to the source combo and selects it.
+
+        Args:
+            reference_text: The reference text to pre-fill in the new source.
+        """
+        from slaktbusken.ui.editors.source_editor import SourceEditor
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Skapa ny källa")
+        dialog.setMinimumSize(800, 600)
+        layout = QVBoxLayout(dialog)
+
+        editor = SourceEditor(
+            project_data=self._project_data,
+            source=None,
+            parent=dialog,
+        )
+        layout.addWidget(editor)
+
+        # Connect editor signals to dialog accept/reject
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        # Strip "ArkivDigital:" prefix if present
+        clean_ref = reference_text
+        if clean_ref.lower().startswith("arkivdigital:"):
+            clean_ref = clean_ref[len("arkivdigital:"):].strip()
+
+        # Pre-fill reference text — this triggers _on_reference_text_changed
+        # which auto-populates title, provider, structured fields via parse_reference()
+        if hasattr(editor, '_ui') and hasattr(editor._ui, 'reference_text_input'):
+            editor._ui.reference_text_input.setText(clean_ref)
+
+        # Show modal
+        dialog.exec()
+
+        # Check if a source was saved
+        saved_source = editor.saved_source
+        if saved_source is not None:
+            # Source already added to project data by SourceEditor._on_save
+
+            # Add to combo and select it
+            display = self._format_source_display(saved_source)
+            self._source_combo.addItem(display, saved_source.id)
+            idx = self._source_combo.findData(saved_source.id)
+            if idx >= 0:
+                self._source_combo.setCurrentIndex(idx)
+
+            self._ref_paste_input.clear()
 
     @staticmethod
     def _format_source_display(source: Source) -> str:
@@ -1754,15 +1811,22 @@ class ResidenceEditor(QWidget):
         Walks up the parent_place_id chain and joins names with ", ".
         Uses a visited set to handle circular parent references.
         Example: "Tallåsens skola, Ljusdal, Gävleborgs län, Sverige, Europa"
+
+        Resolves each id by taking the FIRST matching record in
+        project_data.places. This mirrors the event editor and guards
+        against duplicate place ids: a lossy {id: place} dict would keep
+        the LAST duplicate, which can point at a different parent chain.
         """
-        places_by_id = {p.id: p for p in self._project_data.places}
         parts: list[str] = []
         visited: set[str] = set()
         current_id: Optional[str] = place_id
 
         while current_id and current_id not in visited:
             visited.add(current_id)
-            place = places_by_id.get(current_id)
+            place = next(
+                (p for p in self._project_data.places if p.id == current_id),
+                None,
+            )
             if place is None:
                 break
             parts.append(place.name or place.id)
@@ -1775,34 +1839,42 @@ class ResidenceEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _on_new_place(self) -> None:
-        """Handle 'Ny plats…' button click.
+        """Handle 'Ny plats...' button click.
 
-        Shows a QInputDialog asking for the place name, creates a new Place
-        with a generated id and type "ort", adds it to the project, and
-        selects it in the combo.
+        Opens the full PlaceEditor in a dialog (same editor used from
+        'Redigera haendelse'). After the place is created, adds it to the
+        place combo and selects it.
         """
-        name, ok = QInputDialog.getText(
-            self, "Ny plats", "Platsnamn:"
+        from slaktbusken.ui.editors.place_editor import PlaceEditor
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Skapa ny plats")
+        dialog.setMinimumSize(900, 750)
+        layout = QVBoxLayout(dialog)
+
+        editor = PlaceEditor(
+            project_data=self._project_data,
+            place=None,
+            parent=dialog,
         )
-        if not ok or not name or not name.strip():
-            return
+        layout.addWidget(editor)
 
-        name = name.strip()
+        # PlaceEditor signals
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
 
-        # Generate a unique ID
-        id_gen = self._make_id_generator()
-        new_id = id_gen.generate("place")
+        dialog.exec()
 
-        # Create the new Place
-        new_place = Place(id=new_id, type="ort", name=name)
-        self._project_data.places.append(new_place)
+        saved_place = editor.saved_place
+        if saved_place is not None:
+            # Place already added to project data by PlaceEditor._on_save
 
-        # Add to the combo and select it
-        display = self._build_place_hierarchy(new_id)
-        self._place_combo.addItem(display, new_id)
-        idx = self._place_combo.findData(new_id)
-        if idx >= 0:
-            self._place_combo.setCurrentIndex(idx)
+            # Add to combo and select it
+            display = self._build_place_hierarchy(saved_place.id)
+            self._place_combo.addItem(display, saved_place.id)
+            idx = self._place_combo.findData(saved_place.id)
+            if idx >= 0:
+                self._place_combo.setCurrentIndex(idx)
 
     # ------------------------------------------------------------------
     # Private: source combo auto-fill

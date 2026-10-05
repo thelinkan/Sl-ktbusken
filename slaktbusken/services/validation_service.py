@@ -119,6 +119,8 @@ class ValidationService:
         errors: list[ValidationError] = []
         id_sets = self._build_id_sets(project_data)
 
+        errors.extend(self._validate_place_id_uniqueness(project_data))
+
         for person in project_data.persons:
             errors.extend(self._validate_single(person, id_sets, project_data))
 
@@ -163,6 +165,29 @@ class ValidationService:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _validate_place_id_uniqueness(
+        self, project_data: ProjectData
+    ) -> list[ValidationError]:
+        """Report any place id that appears on more than one Place record.
+
+        Place ids are assumed unique throughout the app; duplicates make the
+        same id resolve to different records (and different parent chains) in
+        different views. Loading and saving de-duplicate automatically, so this
+        check is defense in depth for data assembled in memory.
+        """
+        errors: list[ValidationError] = []
+        seen: set[str] = set()
+        reported: set[str] = set()
+        for place in project_data.places:
+            if place.id in seen and place.id not in reported:
+                reported.add(place.id)
+                errors.append(ValidationError(
+                    "Place", place.id,
+                    "Plats-id förekommer på flera platsposter (dubblett)."
+                ))
+            seen.add(place.id)
+        return errors
 
     def _build_id_sets(self, project_data: ProjectData) -> _IdSets:
         """Build lookup sets of all entity IDs in the project."""

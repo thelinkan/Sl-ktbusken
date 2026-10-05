@@ -60,6 +60,12 @@ def serialize(data: ProjectData) -> str:
     ]
     for field_name in entity_fields:
         items = getattr(data, field_name, [])
+        if field_name == "places":
+            # Never persist duplicate place ids. Dedupe a local copy so
+            # serialize() stays a pure read of the passed-in ProjectData.
+            from slaktbusken.services.place_dedupe import deduplicate_places
+
+            items, _ = deduplicate_places(list(items))
         output[field_name] = [_serialize_dataclass(item) for item in items]
 
     return json.dumps(output, ensure_ascii=False, indent=2)
@@ -94,6 +100,14 @@ def deserialize(json_str: str, log: list[str] | None = None) -> ProjectData:
     # Swedish characters (å, ä, ö). File systems on Windows use NFC but
     # data may arrive in NFD form from macOS or GEDCOM imports.
     _normalize_media_file_paths(project_data)
+
+    # Guard against duplicate place ids that older data / GEDCOM re-imports
+    # could introduce. Duplicates make different code resolve the same id to
+    # different parent chains (e.g. one hierarchy ending at "Sverige, Europa"
+    # and another at "Stockholm"). Keep the most complete record per id.
+    from slaktbusken.services.place_dedupe import deduplicate_project_places
+
+    deduplicate_project_places(project_data, log=log)
 
     return project_data
 

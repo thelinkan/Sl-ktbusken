@@ -877,7 +877,11 @@ def project_data_strategy(draw: DrawFn) -> ProjectData:
     persons = draw(st.lists(person_strategy(), min_size=0, max_size=3))
     families = draw(st.lists(family_strategy(), min_size=0, max_size=2))
     events = draw(st.lists(event_strategy(), min_size=0, max_size=3))
-    places = draw(st.lists(place_strategy(), min_size=0, max_size=3))
+    # Place ids are a uniqueness invariant (duplicates are cleaned on load/save),
+    # so generate the list with unique ids to keep round-trip data stable.
+    places = draw(st.lists(
+        place_strategy(), min_size=0, max_size=3, unique_by=lambda p: p.id
+    ))
     sources = draw(st.lists(source_strategy(), min_size=0, max_size=2))
     media = draw(st.lists(media_item_strategy(), min_size=0, max_size=2))
     repositories = draw(st.lists(repository_strategy(), min_size=0, max_size=2))
