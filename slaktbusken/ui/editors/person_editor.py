@@ -546,6 +546,7 @@ class PersonEditor(QWidget):
         # Connect Boenden tab signals
         self._boenden_tab.create_requested.connect(self._on_create_residence)
         self._boenden_tab.edit_requested.connect(self._on_edit_residence)
+        self._boenden_tab.delete_requested.connect(self._on_delete_residence)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
@@ -1448,7 +1449,7 @@ class PersonEditor(QWidget):
 
     def _on_edit_residence(self, residence_id: str) -> None:
         """Handle edit request — open the ResidenceEditor in a dialog."""
-        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QScrollArea, QVBoxLayout
 
         from slaktbusken.ui.editors.residence_editor import ResidenceEditor
 
@@ -1472,12 +1473,14 @@ class PersonEditor(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         editor = ResidenceEditor(
             project_data=self._project_data,
             residence=fact,
             person_id=self._person.id if self._person else None,
         )
+        editor.setMaximumWidth(720)
         scroll.setWidget(editor)
         layout.addWidget(scroll)
 
@@ -1526,6 +1529,33 @@ class PersonEditor(QWidget):
         button_box.rejected.connect(dialog.reject)
 
         dialog.exec()
+
+    def _on_delete_residence(self, residence_id: str) -> None:
+        """Handle delete request — confirm and remove the residence fact."""
+        fact = next(
+            (r for r in self._project_data.residences if r.id == residence_id),
+            None,
+        )
+        if fact is None:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Radera boende",
+            "Är du säker på att du vill radera detta boende?\n\n"
+            "Åtgärden kan inte ångras.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._project_data.residences = [
+            r for r in self._project_data.residences if r.id != residence_id
+        ]
+        self._dirty = True
+        if self._boenden_tab:
+            self._boenden_tab.refresh()
 
     def _on_open_residents_dialog(self) -> None:
         """Handle 'Boende på plats' — open the ResidentsDialog."""

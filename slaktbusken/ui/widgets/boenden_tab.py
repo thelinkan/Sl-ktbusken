@@ -53,6 +53,7 @@ class BoendenTab(QWidget):
 
     create_requested = Signal()
     edit_requested = Signal(str)
+    delete_requested = Signal(str)
 
     def __init__(
         self,
@@ -131,19 +132,26 @@ class BoendenTab(QWidget):
         self._edit_button.setEnabled(False)
         buttons_layout.addWidget(self._edit_button)
 
+        self._delete_button = QPushButton("Radera boende")
+        self._delete_button.setToolTip("Radera valt boende")
+        self._delete_button.setEnabled(False)
+        buttons_layout.addWidget(self._delete_button)
+
         buttons_layout.addStretch()
         layout.addLayout(buttons_layout)
 
         # Connect internal signals
         self._add_button.clicked.connect(self._on_create)
         self._edit_button.clicked.connect(self._on_edit)
+        self._delete_button.clicked.connect(self._on_delete)
         self._list.itemSelectionChanged.connect(self._update_button_states)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
 
     def _update_button_states(self) -> None:
-        """Enable/disable edit button based on selection."""
+        """Enable/disable edit and delete buttons based on selection."""
         has_selection = len(self._list.selectedItems()) > 0
         self._edit_button.setEnabled(has_selection)
+        self._delete_button.setEnabled(has_selection)
 
     def _on_create(self) -> None:
         """Handle the 'Nytt boende' button click."""
@@ -161,6 +169,13 @@ class BoendenTab(QWidget):
         residence_id = item.data(Qt.ItemDataRole.UserRole)
         if residence_id:
             self.edit_requested.emit(residence_id)
+
+    def _on_delete(self) -> None:
+        """Handle the 'Radera boende' button click."""
+        items = self._list.selectedItems()
+        if items:
+            residence_id = items[0].data(Qt.ItemDataRole.UserRole)
+            self.delete_requested.emit(residence_id)
 
     # ------------------------------------------------------------------
     # Test helpers
