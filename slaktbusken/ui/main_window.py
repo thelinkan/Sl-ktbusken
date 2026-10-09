@@ -107,6 +107,13 @@ class MainWindow(QMainWindow):
         self.action_close.setToolTip("Stäng aktuellt projekt")
         self.action_close.triggered.connect(self._app.close_project)
 
+        self.action_print_view = QAction("Skriv &ut vy...", self)
+        self.action_print_view.setShortcut(QKeySequence("Ctrl+P"))
+        self.action_print_view.setToolTip(
+            "Förhandsgranska, skriv ut eller exportera den aktuella vyn till PDF"
+        )
+        self.action_print_view.triggered.connect(self._print_current_view)
+
         self.action_exit = QAction("A&vsluta", self)
         self.action_exit.setShortcut(QKeySequence("Ctrl+Q"))
         self.action_exit.setToolTip("Avsluta Släktbusken")
@@ -273,6 +280,8 @@ class MainWindow(QMainWindow):
         self.menu_file.addAction(self.action_import)
         self.menu_file.addAction(self.action_export)
         self.menu_file.addSeparator()
+        self.menu_file.addAction(self.action_print_view)
+        self.menu_file.addSeparator()
         self.menu_file.addAction(self.action_close)
         self.menu_file.addAction(self.action_exit)
 
@@ -364,6 +373,8 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(self.action_view_descendants)
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.action_show_main_person)
+        self.toolbar.addSeparator()
+        self.toolbar.addAction(self.action_print_view)
 
     # ------------------------------------------------------------------
     # Central Widget
@@ -553,6 +564,7 @@ class MainWindow(QMainWindow):
         self.action_show_main_person.setEnabled(project_open)
         self.action_goto_selected_person.setEnabled(project_open)
         self.action_map_all_events.setEnabled(project_open)
+        self.action_print_view.setEnabled(project_open)
 
         if hasattr(self, '_report_menu_builder'):
             self._report_menu_builder.update_project_state(project_open)
@@ -577,6 +589,10 @@ class MainWindow(QMainWindow):
         )
         if selected_id:
             self._app.open_person_editor(selected_id)
+
+    def _print_current_view(self) -> None:
+        """Öppna utskrifts-/förhandsgranskningsdialogen för den aktuella vyn."""
+        self.diagram_panel.print_diagram()
 
     def _switch_view(self, view_type: ViewType) -> None:
         """Switch the diagram panel view type.
