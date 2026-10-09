@@ -1649,8 +1649,10 @@ class GEDCOMImporter:
 
         # Resolve place from PLAC line
         place_id = ""
+        raw_place_value: Optional[str] = None
         plac_rec = _get_child(resi_record, "PLAC")
         if plac_rec:
+            raw_place_value = plac_rec.value
             resolved_place_id = self._resolve_place_from_adpl(plac_rec)
             if resolved_place_id is None:
                 place_str = plac_rec.value
@@ -1659,6 +1661,38 @@ class GEDCOMImporter:
             if resolved_place_id:
                 place_id = resolved_place_id
                 self._apply_coordinates(resolved_place_id, plac_rec)
+
+        # Warn specifically when the residence has no usable place, so the
+        # user can locate the offending RESI record. The generic validation
+        # warning ("Boendet måste ange både person och plats") does not say
+        # which field is missing nor which GEDCOM record it came from.
+        if not place_id:
+            person_xref = self._xref_for_person_id(person_id)
+            person_name = self._display_name_for_person_id(person_id)
+            if raw_place_value and raw_place_value.strip():
+                reason = (
+                    "RESI-platsen kunde inte matchas mot eller skapas som en "
+                    "plats – boendet importerades utan plats."
+                )
+            elif plac_rec is not None:
+                reason = (
+                    "RESI-raden har en tom PLAC-tagg – boendet importerades "
+                    "utan plats."
+                )
+            else:
+                reason = (
+                    "RESI-raden saknar PLAC-tagg – boendet importerades utan "
+                    "plats."
+                )
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=person_xref,
+                person_or_family_name=person_name,
+                event_type="RESI (Boende)",
+                raw_value=raw_place_value if raw_place_value else None,
+                reason=reason,
+                action_taken="Importerades utan plats",
+            ))
 
         # Derive Observations from SOUR lines
         observations: list[Observation] = []
@@ -1681,6 +1715,36 @@ class GEDCOMImporter:
             observations=observations,
         )
         self._project_data.residences.append(residence)
+
+    def _xref_for_person_id(self, person_id: str) -> Optional[str]:
+        """Return the GEDCOM xref that maps to this App_JSON person id.
+
+        Reverse lookup over ``_person_xref_map`` (xref → app id). Used only
+        for diagnostics, so a missing entry simply yields ``None``.
+        """
+        for xref, app_id in self._person_xref_map.items():
+            if app_id == person_id:
+                return xref
+        return None
+
+    def _display_name_for_person_id(self, person_id: str) -> Optional[str]:
+        """Return a human-readable name for a person, for warning messages.
+
+        Uses the person's first name entry ("Efternamn, Förnamn"). Returns
+        ``None`` when the person or a usable name cannot be found.
+        """
+        for person in self._project_data.persons:
+            if person.id != person_id:
+                continue
+            if not person.names:
+                return None
+            name = person.names[0]
+            surname = (name.surname or "").strip()
+            given = (name.given or "").strip()
+            if surname and given:
+                return f"{surname}, {given}"
+            return surname or given or None
+        return None
 
     # ------------------------------------------------------------------
     # Family processing

@@ -583,13 +583,24 @@ def _find_country_for_place(
 def _get_region_level_for_type(
     type_key: str,
     place_lookup: dict[str, Place] | Callable[[str], Optional[Place]],
+    owning_country: Optional[Place] = None,
 ) -> Optional[tuple[Place, "RegionLevel"]]:
     """Find the country and RegionLevel that defines the given type key.
 
     Returns (country_place, region_level) or None if not found.
     Only works with dict lookups (can iterate all places).
+
+    A region-level key such as "kommune" can be defined by several countries
+    with different hierarchies (e.g. Norge: fylke→kommune, Danmark:
+    region→kommune). When *owning_country* is given, the key is resolved
+    against that country first so the correct hierarchy level is returned.
+    Only if the key is absent there (or no owning country is supplied) do we
+    fall back to scanning every country.
     """
-    from slaktbusken.model.place import RegionLevel as RL
+    if owning_country is not None:
+        for rl in owning_country.region_levels:
+            if rl.key == type_key:
+                return (owning_country, rl)
 
     if callable(place_lookup):
         return None
@@ -598,6 +609,32 @@ def _get_region_level_for_type(
             for rl in p.region_levels:
                 if rl.key == type_key:
                     return (p, rl)
+    return None
+
+
+def _find_owning_country(
+    place: Place,
+    place_lookup: dict[str, Place] | Callable[[str], Optional[Place]],
+) -> Optional[Place]:
+    """Walk up a place's parent chain to find the country it belongs to.
+
+    Used to disambiguate region-level keys shared by several countries (e.g.
+    "kommune"), so a place's hierarchy is validated against its own country's
+    region levels rather than an arbitrary country that happens to define the
+    same key.
+
+    Returns the ancestor Place of type "country", or None if none is found
+    (e.g. a broken parent chain or a place with no country ancestor).
+    """
+    current: Optional[Place] = place
+    visited: set[str] = set()
+    while current is not None and current.id not in visited:
+        visited.add(current.id)
+        if current.type == "country":
+            return current
+        if not current.parent_place_id:
+            return None
+        current = _resolve_place(current.parent_place_id, place_lookup)
     return None
 
 
@@ -703,8 +740,13 @@ def _validate_place_hierarchy(
             )
             return
         if place_lookup is not None and not callable(place_lookup):
-            # Try to find the region level definition for this type
-            rl_info = _get_region_level_for_type(place.type, place_lookup)
+            # Resolve the region level against the country this place actually
+            # belongs to, so a shared key like "kommune" is validated with the
+            # right hierarchy (Norge: fylke→kommune, not Danmark: region→kommune).
+            owning_country = _find_owning_country(place, place_lookup)
+            rl_info = _get_region_level_for_type(
+                place.type, place_lookup, owning_country
+            )
             if rl_info is not None:
                 country, region_level = rl_info
                 parent = _resolve_place(place.parent_place_id, place_lookup)

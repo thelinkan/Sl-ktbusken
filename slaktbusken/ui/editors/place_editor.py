@@ -1375,23 +1375,39 @@ class PlaceEditor(QWidget):
                 if p.type == "country":
                     valid_parent_types.update(self._get_region_keys_for_country(p))
         else:
-            # Dynamic region-level type — find which country defines it
-            for p in self._project_data.places:
-                if p.type == "country":
-                    region_levels = self._get_region_levels_for_country(p)
-                    for rl in region_levels:
-                        if rl.key == place_type:
-                            if rl.order == 1:
-                                valid_parent_types = {"country"}
-                            else:
-                                # Find preceding region level
-                                for rl2 in region_levels:
-                                    if rl2.order == rl.order - 1:
-                                        valid_parent_types = {rl2.key}
-                                        break
-                            break
-                    if valid_parent_types:
+            # Dynamic region-level type — find which country defines it.
+            #
+            # A region-level key such as "kommune" can be defined by more than
+            # one country (e.g. Norge: fylke→kommune, Danmark: region→kommune).
+            # We must therefore resolve the key against the country the place
+            # actually belongs to, found by walking up its parent chain, so a
+            # Norwegian kommune gets "fylke" as its valid parent rather than
+            # Danmark's "region". Only if the owning country cannot be
+            # determined do we fall back to scanning all countries.
+            countries_to_check = []
+            owning_country = self._find_owning_country(self._editing_place)
+            if owning_country is not None:
+                countries_to_check.append(owning_country)
+            else:
+                countries_to_check = [
+                    p for p in self._project_data.places if p.type == "country"
+                ]
+
+            for p in countries_to_check:
+                region_levels = self._get_region_levels_for_country(p)
+                for rl in region_levels:
+                    if rl.key == place_type:
+                        if rl.order == 1:
+                            valid_parent_types = {"country"}
+                        else:
+                            # Find preceding region level
+                            for rl2 in region_levels:
+                                if rl2.order == rl.order - 1:
+                                    valid_parent_types = {rl2.key}
+                                    break
                         break
+                if valid_parent_types:
+                    break
             # If we couldn't determine valid parent types, allow any place as parent
             if not valid_parent_types:
                 valid_parent_types = {"country", "continent"}
@@ -1438,6 +1454,34 @@ class PlaceEditor(QWidget):
     def _get_region_keys_for_country(self, country_place: Place) -> set[str]:
         """Get all region level keys for a country, checking presets if not set."""
         return {rl.key for rl in self._get_region_levels_for_country(country_place)}
+
+    def _find_owning_country(self, place: Optional[Place]) -> Optional[Place]:
+        """Walk up a place's parent chain to find the country it belongs to.
+
+        Used to disambiguate region-level keys that several countries share
+        (e.g. "kommune"), so a place's valid parent type is resolved against
+        its own country's region levels rather than an arbitrary country.
+
+        Args:
+            place: The place to resolve the owning country for. May be None
+                (e.g. when adding a brand-new place with no parent yet).
+
+        Returns:
+            The ancestor Place of type "country", or None if none is found
+            (which includes the new-place case and broken parent chains).
+        """
+        if place is None:
+            return None
+        current: Optional[Place] = place
+        visited: set[str] = set()
+        while current is not None and current.id not in visited:
+            visited.add(current.id)
+            if current.type == "country":
+                return current
+            if not current.parent_place_id:
+                return None
+            current = self._find_place_by_id(current.parent_place_id)
+        return None
 
     def _on_type_changed(self, index: int) -> None:
         """Handle type combo change to update parent combo options.
