@@ -120,7 +120,7 @@ class TestCheckGeographicConsistency:
         assert not any(i.check_type == "missing_coords" for i in issues)
 
     def test_sub_types_without_parish_reports_issue(self) -> None:
-        for sub_type in ("church", "cemetery", "village", "farm", "school"):
+        for sub_type in ("church", "cemetery", "farm", "school"):
             places = [
                 Place(id="p1", type=sub_type, name=f"Test {sub_type}"),
             ]

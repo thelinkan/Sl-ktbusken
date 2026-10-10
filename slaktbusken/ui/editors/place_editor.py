@@ -393,15 +393,17 @@ class PlaceEditor(QWidget):
             3, QFormLayout.ItemRole.FieldRole, coords_row_layout
         )
 
-        # Wrap the right panel in a QScrollArea so all content is accessible
+        # Wrap the right panel in a QScrollArea so all form content is
+        # accessible. The status label and Spara/Avbryt buttons are moved out
+        # of the scroll area afterwards (see _pin_actions_below_scroll) so they
+        # stay fixed at the bottom of the panel instead of scrolling away.
+        # Capture the splitter slot of right_panel before setWidget reparents
+        # it into the scroll area (after which indexOf would no longer find it).
+        self._right_splitter_index = self._ui.splitter.indexOf(self._ui.right_panel)
+
         self._right_scroll = QScrollArea()
         self._right_scroll.setWidgetResizable(True)
         self._right_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        # Replace right_panel in the splitter with the scroll area containing it
-        self._ui.splitter.replaceWidget(
-            self._ui.splitter.indexOf(self._ui.right_panel),
-            self._right_scroll,
-        )
         self._right_scroll.setWidget(self._ui.right_panel)
         # Add type filter combo box to left panel between filter_input and place_list
         self._type_filter_label = QLabel("Typ:", self._ui.left_panel)
@@ -417,6 +419,12 @@ class PlaceEditor(QWidget):
         self._setup_preset_section()
         self._setup_custom_fields_section()
         self._setup_photo_section()
+
+        # Now that all scrollable sections have been inserted (they anchor on
+        # status_label's position), pin the status label and action buttons
+        # below the scroll area so they stay fixed at the bottom.
+        self._pin_actions_below_scroll()
+
         self._connect_signals()
 
         # Set up custom delegate for red dot indicator on places missing a parent
@@ -479,6 +487,30 @@ class PlaceEditor(QWidget):
 
         # Update the reference on the UI object so existing code keeps working
         setattr(self._ui, attr_name, new_spin)
+
+    def _pin_actions_below_scroll(self) -> None:
+        """Pin the status label and Spara/Avbryt buttons below the scroll area.
+
+        Moves the status label and the button row out of the scrollable
+        right_layout and into a container that stacks the scroll area above
+        them, then installs that container in the splitter where right_panel
+        used to be. This keeps the action buttons fixed at the bottom-right of
+        the window rather than scrolling with the form content.
+        """
+        self._ui.right_layout.removeWidget(self._ui.status_label)
+        self._ui.right_layout.removeItem(self._ui.buttons_layout)
+
+        self._right_container = QWidget()
+        container_layout = QVBoxLayout(self._right_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.addWidget(self._right_scroll, 1)
+        container_layout.addWidget(self._ui.status_label)
+        container_layout.addLayout(self._ui.buttons_layout)
+
+        self._ui.splitter.insertWidget(
+            self._right_splitter_index,
+            self._right_container,
+        )
 
     def _setup_child_places_list(self) -> None:
         """Add a child places group box to the right panel.
@@ -1493,7 +1525,22 @@ class PlaceEditor(QWidget):
         """
         type_label = self._ui.type_combo.currentText()
         internal_type = _resolve_type_label_to_internal(type_label, self._project_data)
+
+        # Remember the currently selected parent so it can be preserved across
+        # the type change. Many types share the same set of valid parents
+        # (e.g. "ort" and the universal types church/cemetery/farm/school all
+        # accept region-level types), so switching between them should keep the
+        # chosen parent rather than resetting it to "(Ingen)".
+        previous_parent_id = self._ui.parent_combo.currentData()
+
         self._populate_parent_combo(internal_type)
+
+        # Restore the previous parent if it is still a valid choice for the new
+        # type (i.e. it is still present in the repopulated combo).
+        if previous_parent_id:
+            index = self._ui.parent_combo.findData(previous_parent_id)
+            if index >= 0:
+                self._ui.parent_combo.setCurrentIndex(index)
 
         # Show preset section only for country type
         self._preset_group.setVisible(internal_type == "country")

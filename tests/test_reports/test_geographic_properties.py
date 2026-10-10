@@ -20,8 +20,8 @@ from slaktbusken.reports.geographic import (
 from tests.conftest import place_strategy
 
 
-_PLACE_TYPES = ["country", "county", "parish", "church", "cemetery", "village", "farm", "school"]
-_SUB_PARISH_TYPES = frozenset({"church", "cemetery", "village", "farm", "school"})
+_PLACE_TYPES = ["country", "county", "parish", "church", "cemetery", "farm", "school"]
+_SUB_PARISH_TYPES = frozenset({"church", "cemetery", "farm", "school"})
 
 
 # ---------------------------------------------------------------------------
