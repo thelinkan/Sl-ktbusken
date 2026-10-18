@@ -154,6 +154,66 @@ The editor turns the orphan error into a one-click fix (Req 2A.5): creating an e
 matching start offers to create a dateless start of the matching type with the same child and parents
 in the same step, then pairs the end to it.
 
+### Participant picker: disambiguation and plausibility filtering (Requirement 1B)
+
+Two editor-display refinements make the participant combos usable on a large file. Both live in
+`ui/editors/event_editor.py` and both are **display concerns only**: they touch neither the model, the
+event validator, nor the Parentage_Sync_Service.
+
+**Birth–death disambiguation.** `_get_person_display` today returns only "Given Surname", so a father
+and his same-named son are indistinguishable. It is extended to append the person's life years in
+parentheses: "Janne Karlsson (1914–1978)". The years come from the same source the Ansedel report
+already uses — the person's birth and death events, looked up by
+`_find_event_by_type(person_id, "birth"/"death", data)` — taking the year portion (first four
+characters) of the event's `date.value`. A small helper, e.g.
+`_life_year_suffix(person_id) -> str`, derives the two years and formats the suffix with the degradation
+rules: both years known → `" (1914–1978)"`; birth only → `" (1914–)"`; death only → `" (–1978)"`; neither
+known → `""` (no parentheses at all). The separator is the en dash `–` (U+2013), matching the
+project's existing date-range formatting (`format_date_range` / `RESIDENCE_INTERVAL_DASH` in
+`ui/swedish_locale.py`). Because both `_populate_combos` and the participant table build their labels
+through `_get_person_display`, the suffix appears everywhere a person is shown in the editor with no
+further change.
+
+**Plausibility filter on the parent-candidate list.** A pure, Qt-free predicate decides whether a
+candidate may be a parent of a given child:
+
+```
+def is_plausible_parent(candidate_birth_year: int | None,
+                        candidate_death_year: int | None,
+                        child_birth_year: int | None) -> bool:
+    """False only when KNOWN dates prove the candidate cannot be the child's parent.
+
+    Excludes a candidate when its known birth year is not strictly earlier than the
+    child's birth year (the parent must be strictly older — any positive gap), or when
+    its known death year is earlier than the child's birth year (died before the child
+    was born). Unknown/partial dates never exclude: missing data keeps the candidate.
+    When the child's birth year is unknown, no judgement is possible, so every candidate
+    is plausible.
+    """
+    if child_birth_year is None:
+        return True
+    if candidate_birth_year is not None and candidate_birth_year >= child_birth_year:
+        return False
+    if candidate_death_year is not None and candidate_death_year < child_birth_year:
+        return False
+    return True
+```
+
+Factoring the predicate as a module-level function over three optional ints (not over `Person`/`Event`
+objects) keeps it unit-testable without a Qt event loop or a full project; the editor supplies the
+years via the same year-derivation helper used for the display suffix.
+
+**Rebuilding the Parent_Role list.** The editor already knows the current event type and the
+participants added so far. When the current type is a placement type (`foster_home`,
+`foster_home_ended`, `adoption`, `adoption_ended`) and a Child_Role participant is present
+(`"fosterbarn"`/`"adopterad"`), the editor resolves the child's birth year and rebuilds the person
+combo used for adding a Parent_Role participant to include only candidates for which
+`is_plausible_parent(...)` is true. If no child is chosen yet, or the child's birth year is unknown, or
+the current type is not a placement type, the combo is populated from the full person list exactly as
+today. The Child_Role picker is never filtered. In practice this means the parent combo is repopulated
+whenever the event type changes or the Child_Role participant set changes, reusing the existing
+`_populate_combos` path with an optional candidate-filter argument.
+
 ## Parentage Sync Service (Requirement 2)
 
 New module `slaktbusken/services/foster_sync.py`.

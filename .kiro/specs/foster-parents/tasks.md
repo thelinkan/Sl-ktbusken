@@ -19,23 +19,23 @@ Qt event loop.
 
 ## Tasks
 
-- [ ] 1. Project model and event-type registration
-  - [ ] 1.1 Add `connection_overrides` to the project model
+- [x] 1. Project model and event-type registration
+  - [x] 1.1 Add `connection_overrides` to the project model
     - `ProjectData.connection_overrides: dict[str, str] = field(default_factory=dict)` mapping child id → `"biological"`/`"foster"`/`"adoptive"`, empty for new projects
     - _Requirements: 5.1, 5.5, 13.2_
-  - [ ] 1.2 Register the four händelsetyper in every definition site
+  - [x] 1.2 Register the four händelsetyper in every definition site
     - `foster_home` "Fosterhem", `foster_home_ended` "Fosterhem upphörde", `adoption_ended` "Adoption upphörde" (plus the existing `adoption`): `event_editor.py` (`INDIVIDUAL_EVENT_TYPES`, roles `foster_home`/`foster_home_ended`→`fosterbarn`, `adoption_ended`→`adopterad`), `swedish_locale.py`, `filter_dialog.py`, `person_detail_panel.py`, `icon_registry.py`, `reports/ansedel.py`, `reports/kallrapport.py`; icons fall back to generic when an asset is absent
     - _Requirements: 1.1, 1.2, 1.8_
-  - [ ] 1.3 Teach the event editor the parent role per placement type
+  - [x] 1.3 Teach the event editor the parent role per placement type
     - Offer `"fosterförälder"` for foster types and `"adoptivförälder"` for adoptive types when adding participants; adoptee child-role `"adopterad"` already exists
     - _Requirements: 1.2_
-  - [ ] 1.4 Add start-event participant-count validation to the event validator
+  - [x] 1.4 Add start-event participant-count validation to the event validator
     - Exactly one child-role; one or two parent-role; exact per-type Swedish messages; an Adoption start event with no parent-role participant stays valid
     - _Requirements: 1.3, 1.4, 1.5, 1.6, 1.7, 1.9, 13.5_
-  - [ ] 1.5 Add end-event participant and pairing validation
+  - [x] 1.5 Add end-event participant and pairing validation
     - End event names the same child and parents as its start (symmetric, Req 1.10); orphan end event yields the exact per-type message; at most one end per start; end-before-start is a warning-level finding
     - _Requirements: 1.10, 2A.1, 2A.3, 2A.4, 2A.6, 2A.7_
-  - [ ] 1.6 Add the editor one-click fix for an orphan end event
+  - [x] 1.6 Add the editor one-click fix for an orphan end event
     - When creating an end event with no matching start, offer to create a dateless start of the matching type with the same child and parents in the same step, then pair the end to it
     - _Requirements: 2A.5_
 
@@ -167,3 +167,49 @@ Qt event loop.
   - [ ] 12.1 Run the whole test suite and the app's import/export/report paths
     - Confirm sync runs on event save, GEDCOM import, and project load for both types; confirm all three views honour show-level/override/fallback; confirm settings persist across restart
     - _Requirements: 2.3, 4.6, 4.7, 7.5, 11.6, 13.1_
+
+- [x] 13. Participant picker disambiguation and plausibility filtering
+  - Builds on the event editor and participant combos introduced in group 1 (`event_editor.py`, `_get_person_display`, `_populate_combos`); listed last but depends on group 1 being in place
+  - [x] 13.1 Add a person-display helper that formats "Name (birth–death)" and wire it into the participant combos
+    - Derive the birth/death year from the year portion of the person's birth/death event via `_find_event_by_type(person_id, "birth"/"death", data)` (same approach as `reports/ansedel.py`); format the suffix with degradation: both known → " (1914–1978)", birth only → " (1914–)", death only → " (–1978)", neither known → "" (no parentheses); use the en dash `–` (U+2013) consistent with `ui/swedish_locale.py`; extend `_get_person_display` so `_populate_combos` and the participant table both show the suffix
+    - _Requirements: 1B.1, 1B.2, 1B.3, 1B.4, 1B.5_
+  - [x] 13.2 Add the pure `is_plausible_parent(...)` predicate
+    - Module-level, Qt-free function over optional ints `(candidate_birth_year, candidate_death_year, child_birth_year)`; return False only when known dates prove implausibility (candidate born not strictly before the child; candidate died before the child's birth); return True when the child's birth year is unknown or when the candidate's dates are missing/partial
+    - _Requirements: 1B.6, 1B.7, 1B.8, 1B.9_
+  - [x] 13.3 Rebuild the Parent_Role candidate list in the event editor using the predicate
+    - When the current type is a placement type (`foster_home`, `foster_home_ended`, `adoption`, `adoption_ended`) and a Child_Role participant (`fosterbarn`/`adopterad`) with a known birth year is present, populate the parent combo only with candidates for which `is_plausible_parent(...)` is true; otherwise (no child, unknown child birth year, or non-placement type) populate from the full person list; never filter the Child_Role picker
+    - _Requirements: 1B.6, 1B.7, 1B.9, 1B.10_
+  - [x] 13.4 Unit tests for the display helper and the plausibility predicate
+    - Display helper: both-known, birth-only, death-only, neither-known (name only, no parentheses), en-dash separator; predicate: born-after-child, born-same-year-as-child, died-before-child-birth, unknown/partial candidate dates kept, unknown child birth year ⇒ no filtering; editor: the Parent_Role list excludes an implausible person and keeps an unknown-date person for a placement event, and is unfiltered for non-placement types
+    - _Requirements: 1B.1, 1B.2, 1B.3, 1B.4, 1B.6, 1B.7, 1B.8, 1B.9, 1B.10_
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for a faster MVP
+- Each task references specific requirements for traceability
+- Group 13 (participant picker disambiguation and plausibility filtering) is listed last but
+  logically builds on the event editor and participant combos from group 1
+- Property tests use Hypothesis with `@settings(max_examples=100, deadline=None)` and the project's
+  tag-comment/docstring form
+
+## Task Dependency Graph
+
+```json
+{
+  "waves": [
+    { "id": 0, "tasks": ["1.1", "1.2"] },
+    { "id": 1, "tasks": ["1.3", "1.4"] },
+    { "id": 2, "tasks": ["1.5", "1.6"] },
+    { "id": 3, "tasks": ["2.1", "2.2", "2.3"] },
+    { "id": 4, "tasks": ["2.4", "2.5", "2.6", "3.1", "3.2", "3.3"] },
+    { "id": 5, "tasks": ["3.4", "4.1", "5.1"] },
+    { "id": 6, "tasks": ["4.2", "6.1", "6.2", "6.3", "6.4"] },
+    { "id": 7, "tasks": ["7.1", "8.1", "8.2", "8.3"] },
+    { "id": 8, "tasks": ["9.1", "10.1", "10.1a", "10.1b", "10.2", "10.3", "10.3a", "10.4"] },
+    { "id": 9, "tasks": ["10.5", "11.1", "11.2", "11.3"] },
+    { "id": 10, "tasks": ["12.1"] },
+    { "id": 11, "tasks": ["13.1", "13.2"] },
+    { "id": 12, "tasks": ["13.3", "13.4"] }
+  ]
+}
+```

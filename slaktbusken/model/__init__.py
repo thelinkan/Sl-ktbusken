@@ -44,9 +44,11 @@ from slaktbusken.model.validators import (
     validate_dna_triangulation,
     validate_event,
     validate_family,
+    placement_end_findings,
     validate_media_item,
     validate_person,
     validate_place,
+    validate_placement_end_events,
     validate_repository,
     validate_source,
 )
@@ -105,6 +107,8 @@ __all__ = [
     "validate_media_item",
     "validate_person",
     "validate_place",
+    "validate_placement_end_events",
+    "placement_end_findings",
     "validate_repository",
     "validate_source",
 ]

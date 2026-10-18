@@ -216,6 +216,10 @@ _FAMILY_EVENT_TYPES = [
 _ALL_EVENT_TYPES = _INDIVIDUAL_EVENT_TYPES + _FAMILY_EVENT_TYPES
 _CUSTOM_EVENT_TYPES = {"custom_individual_event", "custom_family_event"}
 
+# Placement start event types and their required child role, so the event
+# strategy can emit a valid (one-child) participant list for them.
+_PLACEMENT_START_CHILD_ROLES = {"foster_home": "fosterbarn", "adoption": "adopterad"}
+
 
 @st.composite
 def source_ref_strategy(draw: DrawFn) -> SourceRef:
@@ -272,6 +276,19 @@ def event_strategy(draw: DrawFn) -> Event:
     event_id = draw(_id_strategy("event"))
     event_type = draw(st.sampled_from(_ALL_EVENT_TYPES))
     participants = draw(st.lists(participant_strategy(), min_size=1, max_size=3))
+
+    # Placement start events (Fosterhem / Adoption) require exactly one child in
+    # their child role and at most two parents in their parent role to be valid
+    # (foster-parents Requirements 1.3–1.6). Give them a conforming participant
+    # list so this strategy keeps producing valid events; roles other than the
+    # configured child/parent role are ignored by the count validation.
+    if event_type in _PLACEMENT_START_CHILD_ROLES:
+        participants = [
+            Participant(
+                person_id=draw(_id_strategy("person")),
+                role=_PLACEMENT_START_CHILD_ROLES[event_type],
+            )
+        ]
     date = draw(st.none() | date_value_strategy())
     place = draw(st.none() | place_ref_strategy())
     media_ids = draw(st.lists(_id_strategy("media"), min_size=0, max_size=2))

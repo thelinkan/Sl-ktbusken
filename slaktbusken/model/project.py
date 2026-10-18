@@ -57,3 +57,7 @@ class ProjectData:
     research_notes: list[ResearchNote] = field(default_factory=list)
     leverantorer: list[Leverantor] = field(default_factory=list)
     kalltyper: list[Kalltyp] = field(default_factory=list)
+    connection_overrides: dict[str, str] = field(default_factory=dict)
+    """Maps a child's person id to ``"biological"``, ``"foster"``, or
+    ``"adoptive"``. Absent key means no override. Empty for new and
+    pre-feature projects."""

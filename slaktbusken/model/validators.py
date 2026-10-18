@@ -58,6 +58,119 @@ _MSG_FLYTT_SAME_PLACE = (
     "Flytten har samma plats som både från och till – kontrollera uppgifterna."
 )
 
+# ---------------------------------------------------------------------------
+# Placement (Fosterhem / Adoption) start-event participant-count validation.
+#
+# A Placement_Start_Event is the single source of truth for a set of derived
+# foster/adoptive links (see the foster-parents design). The event carries its
+# child in a child role and one or two parents in a parent role. These counts
+# are validated here; link derivation lives in the sync service. Only the START
+# types appear below — the end types (``foster_home_ended`` / ``adoption_ended``)
+# are deliberately absent so task 1.5 can extend this table without disturbing
+# the start-event rules (Requirements 1.3–1.7, 1.9, 13.5).
+#
+# Each entry carries the two role strings and the three exact Swedish messages
+# for the zero-child, too-many-children, and too-many-parents cases, keeping
+# the foster and adoptive variants symmetric.
+_MSG_PLACEMENT_NO_CHILD_FOSTER = "Ett fosterhem måste ange ett fosterbarn."
+_MSG_PLACEMENT_NO_CHILD_ADOPTION = "En adoption måste ange ett adopterat barn."
+_MSG_PLACEMENT_MANY_CHILDREN_FOSTER = "Ett fosterhem kan bara ange ett fosterbarn."
+_MSG_PLACEMENT_MANY_CHILDREN_ADOPTION = "En adoption kan bara ange ett adopterat barn."
+_MSG_PLACEMENT_MANY_PARENTS_FOSTER = "Ett fosterhem kan ange högst två fosterföräldrar."
+_MSG_PLACEMENT_MANY_PARENTS_ADOPTION = "En adoption kan ange högst två adoptivföräldrar."
+
+
+@dataclass(frozen=True)
+class _PlacementStartSpec:
+    """Roles and messages for one placement start event type."""
+
+    child_role: str
+    parent_role: str
+    no_child_message: str
+    many_children_message: str
+    many_parents_message: str
+
+
+_PLACEMENT_START: dict[str, _PlacementStartSpec] = {
+    "foster_home": _PlacementStartSpec(
+        child_role="fosterbarn",
+        parent_role="fosterförälder",
+        no_child_message=_MSG_PLACEMENT_NO_CHILD_FOSTER,
+        many_children_message=_MSG_PLACEMENT_MANY_CHILDREN_FOSTER,
+        many_parents_message=_MSG_PLACEMENT_MANY_PARENTS_FOSTER,
+    ),
+    "adoption": _PlacementStartSpec(
+        child_role="adopterad",
+        parent_role="adoptivförälder",
+        no_child_message=_MSG_PLACEMENT_NO_CHILD_ADOPTION,
+        many_children_message=_MSG_PLACEMENT_MANY_CHILDREN_ADOPTION,
+        many_parents_message=_MSG_PLACEMENT_MANY_PARENTS_ADOPTION,
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Placement end-event pairing validation (Requirement 2A).
+#
+# A Placement_End_Event (``foster_home_ended`` closes ``foster_home``;
+# ``adoption_ended`` closes ``adoption``) names the SAME child and the SAME
+# parents as its paired Placement_Start_Event, using the same child/parent
+# roles as its start type (symmetric participants, Requirement 1.10). An end is
+# paired to exactly one start by Parent_Set — same child, same set of parent
+# person ids, same derived parentage type.
+#
+# Unlike the start-event count checks, end-event pairing cannot be decided from
+# a single event: orphan detection (2A.4), at-most-one-end (2A.3) and
+# end-before-start (2A.6) all need the other events in the project. The checks
+# therefore live in project-aware functions over the whole event list rather
+# than in ``validate_event``. ``_PLACEMENT_END`` maps each end type to the start
+# type it closes; the roles and parentage come straight from the matching
+# ``_PLACEMENT_START`` entry so the two stay symmetric.
+_MSG_PLACEMENT_ORPHAN_END_FOSTER = (
+    "Fosterhem upphörde saknar en fosterhemsplacering att avsluta."
+)
+_MSG_PLACEMENT_ORPHAN_END_ADOPTION = "Adoption upphörde saknar en adoption att avsluta."
+_MSG_PLACEMENT_DUPLICATE_END_FOSTER = "Fosterhemsplaceringen har redan ett avslut."
+_MSG_PLACEMENT_DUPLICATE_END_ADOPTION = "Adoptionen har redan ett avslut."
+
+# Requirement 2A.6 — the exact wording of the end-before-start warning, shared
+# by both placement types (its tone matches ``_MSG_END_BEFORE_START`` and
+# ``_MSG_FLYTT_SAME_PLACE``).
+_MSG_PLACEMENT_END_BEFORE_START = "Avslutet inträffar före placeringens början."
+
+
+@dataclass(frozen=True)
+class _PlacementEndSpec:
+    """How one placement end type closes its start type.
+
+    Attributes:
+        start_type: The start event type this end closes (``foster_home`` or
+            ``adoption``), whose ``_PLACEMENT_START`` entry supplies the roles
+            and derived parentage.
+        orphan_message: The exact Swedish error for an end with no matching
+            start (Requirement 2A.4).
+        duplicate_message: The exact Swedish error for a second end on a start
+            that already has one (Requirement 2A.3).
+    """
+
+    start_type: str
+    orphan_message: str
+    duplicate_message: str
+
+
+_PLACEMENT_END: dict[str, _PlacementEndSpec] = {
+    "foster_home_ended": _PlacementEndSpec(
+        start_type="foster_home",
+        orphan_message=_MSG_PLACEMENT_ORPHAN_END_FOSTER,
+        duplicate_message=_MSG_PLACEMENT_DUPLICATE_END_FOSTER,
+    ),
+    "adoption_ended": _PlacementEndSpec(
+        start_type="adoption",
+        orphan_message=_MSG_PLACEMENT_ORPHAN_END_ADOPTION,
+        duplicate_message=_MSG_PLACEMENT_DUPLICATE_END_ADOPTION,
+    ),
+}
+
 _VALID_PLACE_TYPES = {"continent", "country", "church", "cemetery", "farm", "school", "ort"}
 
 _PLACE_TYPE_SWEDISH: dict[str, str] = {
@@ -258,6 +371,25 @@ def validate_event(event: Event) -> list[str]:
         elif len(event.custom_type_name) > 100:
             errors.append("custom_type_name överskrider 100 tecken.")
 
+    # Placement start-event participant counts (Requirements 1.3–1.6). Exactly
+    # one participant in the child role and one or two in the parent role; each
+    # offending count yields exactly one occurrence of its per-type message.
+    # Zero parents is allowed so a pre-feature Adoption event that names no
+    # adoptive parent stays valid and simply derives no links
+    # (Requirements 1.9, 13.5); only more than two parents is an error.
+    spec = _PLACEMENT_START.get(event.type)
+    if spec is not None:
+        child_count = sum(1 for p in event.participants if p.role == spec.child_role)
+        parent_count = sum(1 for p in event.participants if p.role == spec.parent_role)
+
+        if child_count == 0:
+            errors.append(spec.no_child_message)
+        elif child_count > 1:
+            errors.append(spec.many_children_message)
+
+        if parent_count > 2:
+            errors.append(spec.many_parents_message)
+
     # A Flytt_Event never errors on its two places: an absent `from_place`, an
     # absent `place` or both absent all mean an unknown side of the move, and a
     # Flytt with the same place on both sides is a warning-level finding from
@@ -300,6 +432,157 @@ def event_findings(event: Event) -> list[EventFinding]:
     if event.type == "flytt" and event.from_place is not None and event.place is not None:
         if event.from_place.place_id == event.place.place_id:
             findings.append(EventFinding(event.id, "warning", _MSG_FLYTT_SAME_PLACE))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Placement end-event pairing (Requirement 2A)
+# ---------------------------------------------------------------------------
+
+
+def _placement_child_id(event: Event, child_role: str) -> Optional[str]:
+    """The single child-role participant's person id, or ``None``.
+
+    A placement names exactly one participant in its child role; if zero or
+    several are present (a shape the start-event count checks already flag)
+    there is no unambiguous child to pair on, so ``None`` is returned.
+    """
+    children = [p.person_id for p in event.participants if p.role == child_role]
+    if len(children) != 1:
+        return None
+    return children[0]
+
+
+def _placement_parent_set(event: Event, parent_role: str) -> frozenset[str]:
+    """The set of parent-role participant person ids (order-independent)."""
+    return frozenset(p.person_id for p in event.participants if p.role == parent_role)
+
+
+def _placement_pairing_key(
+    event: Event,
+    child_role: str,
+    parent_role: str,
+) -> Optional[tuple[str, frozenset[str]]]:
+    """The (child, parent-set) key an end pairs to its start on, or ``None``.
+
+    ``None`` means the event has no unambiguous child to pair on and therefore
+    cannot be matched to a start.
+    """
+    child_id = _placement_child_id(event, child_role)
+    if child_id is None:
+        return None
+    return (child_id, _placement_parent_set(event, parent_role))
+
+
+def validate_placement_end_events(events: list[Event]) -> list[str]:
+    """Return the hard errors for every Placement_End_Event in *events*.
+
+    Operates over the whole event list because end-event pairing is inherently
+    cross-event: an end is paired to its Placement_Start_Event by Parent_Set —
+    the same child and the same set of parents, with the same derived parentage
+    type (Requirements 2A.1, 2A.7). The single-event ``validate_event`` is left
+    untouched so its existing callers keep working.
+
+    Two hard errors are produced, each exactly once per offending end event:
+
+    - **Orphan end** (Requirement 2A.4): an end whose (child, parent set) matches
+      no start event of the type it closes yields the per-type orphan message.
+    - **At most one end per start** (Requirement 2A.3): when several ends match
+      the same start's Parent_Set, every end after the first yields the per-type
+      duplicate message, so a start keeps at most one paired end.
+
+    End-before-start is NOT returned here; it is a warning-level finding from
+    ``placement_end_findings`` (Requirement 2A.6).
+    """
+    errors: list[str] = []
+
+    for end_spec_type, end_spec in _PLACEMENT_END.items():
+        start_spec = _PLACEMENT_START[end_spec.start_type]
+
+        # The pairing keys of the start events this end type can close.
+        start_keys: list[tuple[str, frozenset[str]]] = []
+        for event in events:
+            if event.type != end_spec.start_type:
+                continue
+            key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if key is not None:
+                start_keys.append(key)
+
+        # Walk the end events of this type in project order, counting how many
+        # ends have matched each start key so far: the first consumes the
+        # start's single end slot; later ones are duplicates.
+        matched_counts: dict[tuple[str, frozenset[str]], int] = {}
+        for event in events:
+            if event.type != end_spec_type:
+                continue
+            key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if key is None or key not in start_keys:
+                errors.append(end_spec.orphan_message)
+                continue
+            seen = matched_counts.get(key, 0)
+            if seen >= 1:
+                errors.append(end_spec.duplicate_message)
+            matched_counts[key] = seen + 1
+
+    return errors
+
+
+def placement_end_findings(events: list[Event]) -> list[EventFinding]:
+    """Return the warning-level findings for Placement_End_Events in *events*.
+
+    A Placement_End_Event whose ``date`` is strictly earlier than the ``date``
+    of its paired Placement_Start_Event yields ``_MSG_PLACEMENT_END_BEFORE_START``
+    (Requirement 2A.6). This is a warning, never a hard error, mirroring the
+    residence spec's soft chronology findings. An end paired to several starts
+    (same Parent_Set) is compared against the earliest-dated of them, so the
+    warning fires only when the end precedes every candidate start.
+
+    Ends with no matching start, ends with no date, and starts with no date are
+    all skipped — there is no two dated events to compare.
+    """
+    findings: list[EventFinding] = []
+
+    for end_spec_type, end_spec in _PLACEMENT_END.items():
+        start_spec = _PLACEMENT_START[end_spec.start_type]
+
+        # Earliest known start date per pairing key (dated starts only).
+        start_dates: dict[tuple[str, frozenset[str]], str] = {}
+        for event in events:
+            if event.type != end_spec.start_type:
+                continue
+            key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if key is None or event.date is None or not event.date.value:
+                continue
+            existing = start_dates.get(key)
+            if existing is None or strictly_earlier(event.date.value, existing):
+                start_dates[key] = event.date.value
+
+        for event in events:
+            if event.type != end_spec_type:
+                continue
+            if event.date is None or not event.date.value:
+                continue
+            key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if key is None:
+                continue
+            start_date = start_dates.get(key)
+            if start_date is None:
+                continue
+            if strictly_earlier(event.date.value, start_date):
+                findings.append(
+                    EventFinding(
+                        event.id, "warning", _MSG_PLACEMENT_END_BEFORE_START
+                    )
+                )
 
     return findings
 

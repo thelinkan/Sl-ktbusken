@@ -45,6 +45,9 @@ _EVENT_TYPE_MAP: dict[str, str] = {
     "confirmation": "confirmation.svg",
     "first_communion": "first_communion.svg",
     "adoption": "adoption.svg",
+    "adoption_ended": "adoption_ended.svg",
+    "foster_home": "foster_home.svg",
+    "foster_home_ended": "foster_home_ended.svg",
     "blessing": "blessing.svg",
     "graduation": "graduation.svg",
     "retirement": "retirement.svg",
@@ -141,7 +144,13 @@ class IconRegistry:
         return scaled
 
     def get_event_icon_path(self, event_type: str) -> Path:
-        """Return the file path to the SVG icon for the given event type."""
+        """Return the file path to the SVG icon for the given event type.
+
+        Falls back to the generic event icon both when the event type is
+        unrecognized and when the mapped asset file is absent on disk, so a
+        newly registered event type whose dedicated SVG has not been added
+        yet still renders a sensible icon rather than an empty pixmap.
+        """
         filename = _EVENT_TYPE_MAP.get(event_type)
         if filename is None:
             logger.warning(
@@ -149,7 +158,16 @@ class IconRegistry:
                 event_type,
             )
             filename = _FALLBACK_EVENT_ICON
-        return _EVENTS_DIR / filename
+        path = _EVENTS_DIR / filename
+        if not path.exists():
+            logger.warning(
+                "Icon asset '%s' for event type '%s' is missing, using generic "
+                "fallback icon.",
+                filename,
+                event_type,
+            )
+            path = _EVENTS_DIR / _FALLBACK_EVENT_ICON
+        return path
 
     def get_gender_icon_path(self, sex: str) -> Path:
         """Return the file path to the SVG icon for the given sex value."""

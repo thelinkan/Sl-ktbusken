@@ -65,6 +65,9 @@ PLACE_TYPE_LABELS: dict[str, str] = {
 # Event types — individual (individuella händelsetyper)
 INDIVIDUAL_EVENT_TYPE_LABELS: dict[str, str] = {
     "adoption": "Adoption",
+    "adoption_ended": "Adoption upphörde",
+    "foster_home": "Fosterhem",
+    "foster_home_ended": "Fosterhem upphörde",
     "baptism": "Dop",
     "birth": "Födelse",
     "blessing": "Välsignelse",

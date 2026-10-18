@@ -32,6 +32,9 @@ from slaktbusken.ui.person_list_panel import FilterCriteria
 # All event types used in the project
 INDIVIDUAL_EVENT_TYPES = [
     ("adoption", "Adoption"),
+    ("adoption_ended", "Adoption upphörde"),
+    ("foster_home", "Fosterhem"),
+    ("foster_home_ended", "Fosterhem upphörde"),
     ("baptism", "Dop"),
     ("birth", "Födelse"),
     ("blessing", "Välsignelse"),

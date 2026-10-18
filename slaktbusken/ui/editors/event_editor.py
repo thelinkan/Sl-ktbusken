@@ -61,6 +61,9 @@ logger = logging.getLogger(__name__)
 # Individual event types
 INDIVIDUAL_EVENT_TYPES: list[str] = [
     "adoption",
+    "adoption_ended",
+    "foster_home",
+    "foster_home_ended",
     "baptism",
     "birth",
     "blessing",
@@ -130,6 +133,9 @@ NON_PHOTO_MEDIA_TYPES: list[tuple[str, str]] = [
 # Default participant role per event type
 EVENT_TYPE_ROLES: dict[str, str] = {
     "adoption": "adopterad",
+    "adoption_ended": "adopterad",
+    "foster_home": "fosterbarn",
+    "foster_home_ended": "fosterbarn",
     "baptism": "döpt",
     "birth": "född",
     "blessing": "välsignad",
@@ -154,6 +160,61 @@ EVENT_TYPE_ROLES: dict[str, str] = {
     "marriage": "make/maka",
     "custom_family_event": "deltagare",
 }
+
+
+# Parent role offered for each placement event type when the user adds an
+# additional participant. The default role in EVENT_TYPE_ROLES is the child
+# role (the auto-added subject); the parent added afterwards gets the role
+# below. Foster placements take a foster parent, adoptive placements an
+# adoptive parent.
+PLACEMENT_PARENT_ROLES: dict[str, str] = {
+    "foster_home": "fosterförälder",
+    "foster_home_ended": "fosterförälder",
+    "adoption": "adoptivförälder",
+    "adoption_ended": "adoptivförälder",
+}
+
+
+# End→start type mapping for placement events. A Placement_End_Event closes a
+# Placement_Start_Event of the mapped type (Requirement 2A.5). Kept local to the
+# editor so the one-click orphan-end fix can build the matching start without a
+# round-trip through the validators, while the validators remain the single
+# source of truth for orphan DETECTION.
+PLACEMENT_END_TO_START: dict[str, str] = {
+    "foster_home_ended": "foster_home",
+    "adoption_ended": "adoption",
+}
+
+
+def is_plausible_parent(
+    candidate_birth_year: int | None,
+    candidate_death_year: int | None,
+    child_birth_year: int | None,
+) -> bool:
+    """Decide whether a candidate may plausibly be a child's parent.
+
+    Pure, Qt-free predicate over the year portions of birth/death dates
+    (Requirement 1B.6-1B.9). Returns False only when KNOWN dates prove the
+    candidate cannot be the child's parent:
+
+    - When ``child_birth_year`` is None no judgement is possible, so every
+      candidate is plausible (Requirement 1B.9).
+    - Exclude when the candidate's known birth year is not strictly earlier
+      than the child's birth year; a parent must be strictly older, i.e. any
+      positive gap (Requirement 1B.6).
+    - Exclude when the candidate's known death year is earlier than the
+      child's birth year; the candidate died before the child was born
+      (Requirement 1B.7).
+    - Otherwise plausible. Unknown or partial dates never exclude a candidate
+      (Requirement 1B.8).
+    """
+    if child_birth_year is None:
+        return True
+    if candidate_birth_year is not None and candidate_birth_year >= child_birth_year:
+        return False
+    if candidate_death_year is not None and candidate_death_year < child_birth_year:
+        return False
+    return True
 
 
 class EventEditor(QWidget):
@@ -208,6 +269,10 @@ class EventEditor(QWidget):
         self._project_folder = project_folder
         self._photo_service = photo_service
         self._saved_event: Optional[Event] = None
+        # Tracks the parent role the editor last auto-offered in the role input,
+        # so a stale suggestion can be replaced when the placement type changes
+        # without clobbering a role the user typed.
+        self._offered_parent_role: Optional[str] = None
 
         # Set up UI inside a scroll area so content is accessible even in
         # smaller windows (edit mode shows all sections simultaneously).
@@ -446,12 +511,9 @@ class EventEditor(QWidget):
         for event_type in ALL_EVENT_TYPES:
             self._ui.type_combo.addItem(get_event_type_label(event_type), event_type)
 
-        # Person combo for participants
-        self._ui.participant_person_combo.clear()
-        self._ui.participant_person_combo.addItem("", "")
-        for person in self._project_data.persons:
-            display = self._get_person_display(person.id)
-            self._ui.participant_person_combo.addItem(display, person.id)
+        # Person combo for participants (candidate list, possibly filtered to
+        # plausible parents when adding a Parent_Role to a placement event).
+        self._refresh_participant_person_combo()
 
         # Place combo (full hierarchy, sorted alphabetically, searchable)
         self._ui.place_combo.clear()
@@ -592,27 +654,173 @@ class EventEditor(QWidget):
         """
         current_type = self._ui.type_combo.currentData() or ""
         is_family_event = current_type in FAMILY_EVENT_TYPES
+        is_placement_event = current_type in PLACEMENT_PARENT_ROLES
 
         if self._subject_person_id and not self._event:
-            # New event from person editor: hide participants for individual events
-            self._ui.participants_group.setVisible(is_family_event)
+            # New event from person editor: hide participants for individual
+            # events, but show them for placement events so a foster/adoptive
+            # parent can be added alongside the auto-added child subject.
+            self._ui.participants_group.setVisible(is_family_event or is_placement_event)
 
-            # For family events, update the subject's role and ensure they're added
-            if is_family_event:
+            # For family and placement events, update the subject's role and
+            # ensure they're added. For placement events the subject is the
+            # child, so use the child role from EVENT_TYPE_ROLES
+            # ("fosterbarn"/"adopterad").
+            if is_family_event or is_placement_event:
                 role = EVENT_TYPE_ROLES.get(current_type, "deltagare")
-                # Clear and re-add subject with correct role
+                # Preserve any additional (parent) participants already added;
+                # only re-role the subject row.
+                extras = [
+                    Participant(
+                        person_id=self._ui.participants_table.item(r, 0).data(
+                            Qt.ItemDataRole.UserRole
+                        ),
+                        role=self._ui.participants_table.item(r, 1).text(),
+                    )
+                    for r in range(self._ui.participants_table.rowCount())
+                    if self._ui.participants_table.item(r, 0).data(
+                        Qt.ItemDataRole.UserRole
+                    )
+                    != self._subject_person_id
+                ]
                 self._ui.participants_table.setRowCount(0)
                 self._add_participant_row(
                     Participant(person_id=self._subject_person_id, role=role)
                 )
+                for extra in extras:
+                    self._add_participant_row(extra)
         elif self._event and not is_family_event:
             # Editing an individual event: hide participants if only one
-            # (the sole participant is implicit — it's the person being edited)
+            # (the sole participant is implicit — it's the person being edited),
+            # except for placement events where a parent participant is expected.
             has_multiple = self._ui.participants_table.rowCount() > 1
-            self._ui.participants_group.setVisible(has_multiple)
+            self._ui.participants_group.setVisible(has_multiple or is_placement_event)
         else:
             # Family events or standalone: always show participants
             self._ui.participants_group.setVisible(True)
+
+        # Offer the correct parent role for placement events so the "add
+        # participant" flow suggests "fosterförälder"/"adoptivförälder".
+        self._offer_placement_parent_role()
+
+        # The type (and thus whether/what to filter) may have changed; rebuild
+        # the parent-candidate list. This only touches the PERSON combo, never
+        # the role input, so it does not clobber the role suggestion above.
+        self._refresh_participant_person_combo()
+
+    def _offer_placement_parent_role(self) -> None:
+        """Pre-fill the participant role field with the placement parent role.
+
+        For a placement event type the additional participant the user adds is a
+        parent, so offer the matching Parent_Role ("fosterförälder" for foster
+        types, "adoptivförälder" for adoptive types) in the role input when it is
+        empty. The user remains free to override the suggestion.
+        """
+        current_type = self._ui.type_combo.currentData() or ""
+        parent_role = PLACEMENT_PARENT_ROLES.get(current_type)
+        current_text = self._ui.participant_role_input.text().strip()
+
+        # The field is "available" for a suggestion when it is empty or still
+        # holds the role this editor offered previously (a stale suggestion from
+        # another placement type). A role the user typed is never overwritten.
+        is_available = current_text == "" or current_text == self._offered_parent_role
+
+        if parent_role and is_available:
+            self._ui.participant_role_input.setText(parent_role)
+            self._offered_parent_role = parent_role
+        elif not parent_role and current_text == self._offered_parent_role:
+            # Left a placement type: drop our stale suggestion.
+            self._ui.participant_role_input.clear()
+            self._offered_parent_role = None
+
+    # ------------------------------------------------------------------
+    # Private: parent-candidate plausibility filtering
+    # ------------------------------------------------------------------
+
+    def _current_placement_child_birth_year(self) -> int | None:
+        """Return the child's birth year for plausibility filtering, or None.
+
+        Returns the birth year (int) of the Child_Role participant of the
+        current placement event when one is present and its birth year is
+        known; otherwise None, which disables filtering (Requirement 1B.9).
+
+        The current type must be a placement type. The child is the
+        participant whose role equals the Child_Role for that type
+        (``fosterbarn`` for foster, ``adopterad`` for adoptive) as read from
+        the participants table. As a fallback, when the table has not yet been
+        populated but a subject is set, the subject is treated as the child.
+        The birth year reuses the existing year-derivation helper.
+        """
+        current_type = self._ui.type_combo.currentData() or ""
+        if current_type not in PLACEMENT_PARENT_ROLES:
+            return None
+
+        child_role = EVENT_TYPE_ROLES.get(current_type)
+        child_person_id: str | None = None
+
+        table = self._ui.participants_table
+        for row in range(table.rowCount()):
+            person_item = table.item(row, 0)
+            role_item = table.item(row, 1)
+            if person_item is None or role_item is None:
+                continue
+            if role_item.text() == child_role:
+                child_person_id = person_item.data(Qt.ItemDataRole.UserRole)
+                break
+
+        # Fallback: no child row found yet, but the subject is the child for a
+        # new placement event opened from the person editor.
+        if child_person_id is None and self._subject_person_id:
+            child_person_id = self._subject_person_id
+
+        if not child_person_id:
+            return None
+
+        return self._year_text_to_int(
+            self._person_event_year(child_person_id, "birth")
+        )
+
+    @staticmethod
+    def _year_text_to_int(year_text: str) -> int | None:
+        """Convert a four-digit year string to an int, or None when empty."""
+        return int(year_text) if year_text else None
+
+    def _refresh_participant_person_combo(self) -> None:
+        """Rebuild the participant person combo, filtering implausible parents.
+
+        Keeps the combo structure unchanged: a leading empty ``("", "")`` entry
+        followed by one item per person (display label from
+        ``_get_person_display``, person id as data), and resets the selection to
+        the leading empty entry.
+
+        Filtering applies ONLY when the current type is a placement type, a
+        Child_Role participant is present, and the child's birth year is known.
+        In that case any person failing ``is_plausible_parent`` is skipped
+        (Requirements 1B.6, 1B.7, 1B.10). In every other case the full person
+        list is shown exactly as before (Requirement 1B.9). The Child_Role
+        picker is never filtered because filtering only engages once a child is
+        present in the table.
+        """
+        child_birth_year = self._current_placement_child_birth_year()
+
+        combo = self._ui.participant_person_combo
+        combo.clear()
+        combo.addItem("", "")
+        for person in self._project_data.persons:
+            if child_birth_year is not None:
+                candidate_birth = self._year_text_to_int(
+                    self._person_event_year(person.id, "birth")
+                )
+                candidate_death = self._year_text_to_int(
+                    self._person_event_year(person.id, "death")
+                )
+                if not is_plausible_parent(
+                    candidate_birth, candidate_death, child_birth_year
+                ):
+                    continue
+            display = self._get_person_display(person.id)
+            combo.addItem(display, person.id)
+        combo.setCurrentIndex(0)
 
     # ------------------------------------------------------------------
     # Private: load event data
@@ -708,8 +916,13 @@ class EventEditor(QWidget):
 
         participant = Participant(person_id=person_id, role=role)
         self._add_participant_row(participant)
-        self._ui.participant_person_combo.setCurrentIndex(0)
         self._ui.participant_role_input.clear()
+        # Re-offer the placement parent role so adding a second parent is easy.
+        self._offer_placement_parent_role()
+        # Adding this row may have introduced (or changed) the child used for
+        # plausibility filtering; rebuild the parent-candidate list. This also
+        # resets the person combo to the leading empty entry.
+        self._refresh_participant_person_combo()
         self._clear_status()
 
     def _on_remove_participant(self) -> None:
@@ -721,6 +934,9 @@ class EventEditor(QWidget):
 
         row = selected[0].row()
         self._ui.participants_table.removeRow(row)
+        # Removing a row may have removed the child used for plausibility
+        # filtering; rebuild the parent-candidate list accordingly.
+        self._refresh_participant_person_combo()
         self._clear_status()
 
     # ------------------------------------------------------------------
@@ -1552,6 +1768,126 @@ class EventEditor(QWidget):
     # Private: save / cancel
     # ------------------------------------------------------------------
 
+    def _find_matching_placement_start(
+        self, candidate_end: Event
+    ) -> Optional[Event]:
+        """Return the Placement_Start_Event that *candidate_end* pairs to.
+
+        An end event (``foster_home_ended`` / ``adoption_ended``) pairs to a
+        start of its mapped type (``foster_home`` / ``adoption``) naming the
+        SAME single child (child role) and the SAME set of parents (parent
+        role), order-independent (Requirements 2A.1, 2A.5). The child/parent
+        roles come from the validators' ``_PLACEMENT_START`` table so the match
+        stays consistent with orphan detection.
+
+        Returns the first matching start event in ``self._project_data.events``,
+        or ``None`` when none matches (i.e. the end is an orphan).
+        """
+        from slaktbusken.model.validators import (
+            _PLACEMENT_END,
+            _PLACEMENT_START,
+            _placement_pairing_key,
+        )
+
+        end_spec = _PLACEMENT_END.get(candidate_end.type)
+        if end_spec is None:
+            return None
+
+        start_spec = _PLACEMENT_START[end_spec.start_type]
+        end_key = _placement_pairing_key(
+            candidate_end, start_spec.child_role, start_spec.parent_role
+        )
+        if end_key is None:
+            return None
+
+        for event in self._project_data.events:
+            if event.type != end_spec.start_type:
+                continue
+            start_key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if start_key is not None and start_key == end_key:
+                return event
+        return None
+
+    def _build_matching_placement_start(self, candidate_end: Event) -> Event:
+        """Build a dateless Placement_Start_Event pairing to *candidate_end*.
+
+        The start is of the mapped start type (``foster_home`` for
+        ``foster_home_ended``, ``adoption`` for ``adoption_ended``) and names
+        the SAME child (child role) and SAME parents (parent role) as the end
+        event, with no date and no place (Requirement 2A.5). A fresh uuid id is
+        assigned so the new start is distinct.
+        """
+        from slaktbusken.model.validators import _PLACEMENT_END, _PLACEMENT_START
+
+        end_spec = _PLACEMENT_END[candidate_end.type]
+        start_spec = _PLACEMENT_START[end_spec.start_type]
+
+        participants: list[Participant] = []
+        for participant in candidate_end.participants:
+            if participant.role == start_spec.child_role:
+                participants.append(
+                    Participant(
+                        person_id=participant.person_id,
+                        role=start_spec.child_role,
+                    )
+                )
+            elif participant.role == start_spec.parent_role:
+                participants.append(
+                    Participant(
+                        person_id=participant.person_id,
+                        role=start_spec.parent_role,
+                    )
+                )
+
+        return Event(
+            id=str(uuid.uuid4()),
+            type=end_spec.start_type,
+            participants=participants,
+            date=None,
+            place=None,
+        )
+
+    def _offer_create_matching_placement_start(
+        self, candidate_end: Event
+    ) -> bool:
+        """Offer to create the matching dateless start for an orphan end.
+
+        Shows a confirmation dialog (Requirement 2A.5). On accept, builds the
+        matching dateless Placement_Start_Event (same child, same parents),
+        appends it to ``self._project_data.events`` so the end is no longer
+        orphaned, and returns ``True`` so the caller proceeds to save the end.
+        On decline, returns ``False`` and sets a status message so the caller
+        can abort the save.
+
+        The QMessageBox lives here only; the orphan detection and start-building
+        logic are factored into ``_find_matching_placement_start`` and
+        ``_build_matching_placement_start`` so they are testable without a modal
+        dialog.
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        answer = QMessageBox.question(
+            self,
+            "Ingen placering att avsluta",
+            "Det finns ingen placering som den här händelsen avslutar.\n\n"
+            "Vill du skapa en matchande placering (utan datum) med samma barn "
+            "och samma föräldrar så att avslutet hör ihop med den?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+
+        if answer == QMessageBox.StandardButton.Yes:
+            start_event = self._build_matching_placement_start(candidate_end)
+            self._project_data.events.append(start_event)
+            return True
+
+        self._update_status(
+            "Avslutet har ingen matchande placering att avsluta."
+        )
+        return False
+
     def _on_save(self) -> None:
         """Validate and save the event data.
 
@@ -1665,6 +2001,21 @@ class EventEditor(QWidget):
             cause_of_death=cause_of_death,
         )
 
+        # One-click fix for an orphan placement end event (Requirement 2A.5).
+        # When saving a Placement_End_Event that pairs to no existing
+        # Placement_Start_Event, offer to create a dateless matching start (same
+        # child, same parents) in this same save step rather than only rejecting
+        # the end. On accept, the start is created so the end is no longer
+        # orphaned; on decline, the save is aborted so the user can correct it.
+        if event_type in PLACEMENT_END_TO_START:
+            if self._find_matching_placement_start(self._saved_event) is None:
+                if not self._offer_create_matching_placement_start(
+                    self._saved_event
+                ):
+                    # User declined — abort the save, leaving the editor open.
+                    self._saved_event = None
+                    return
+
         # Link newly added event media items via EventMediaService
         for media_item in self._event_media_items:
             if media_item.id in event_media_ids:
@@ -1724,9 +2075,67 @@ class EventEditor(QWidget):
                     if name.surname:
                         parts.append(name.surname)
                     if parts:
-                        return " ".join(parts)
+                        return " ".join(parts) + self._life_year_suffix(person_id)
                 return person_id
         return person_id
+
+    def _life_year_suffix(self, person_id: str) -> str:
+        """Build the " (birth–death)" life-years suffix for a person.
+
+        Derives the birth and death year from the four-digit year portion of
+        the person's birth/death event ``date.value`` (looked up the same way
+        the Ansedel report does). Degrades gracefully:
+
+        - both years known  -> " (1914–1978)"
+        - birth year only    -> " (1914–)"
+        - death year only    -> " (–1978)"
+        - neither known      -> "" (no parentheses)
+
+        The separator is the EN DASH (U+2013), matching the project's date-range
+        formatting in ``swedish_locale.py``.
+
+        Args:
+            person_id: The person ID to build the suffix for.
+
+        Returns:
+            The parenthesised life-years suffix, or an empty string when neither
+            year is known.
+        """
+        birth_year = self._person_event_year(person_id, "birth")
+        death_year = self._person_event_year(person_id, "death")
+
+        if not birth_year and not death_year:
+            return ""
+        return f" ({birth_year}\u2013{death_year})"
+
+    def _person_event_year(self, person_id: str, event_type: str) -> str:
+        """Return the four-digit year of a person's event, or "" if unknown.
+
+        Scans the project events for an event of ``event_type`` that has the
+        person as a participant (same lookup as ``reports/ansedel.py``), then
+        takes the first four characters of ``date.value`` as the year. Values
+        shorter than four characters or whose first four characters are not all
+        digits are treated as unknown rather than raising.
+
+        Args:
+            person_id: The person whose event year is wanted.
+            event_type: The event type to look up (e.g. "birth" or "death").
+
+        Returns:
+            The four-digit year string, or "" when the event or a usable year
+            is missing.
+        """
+        for event in self._project_data.events:
+            if event.type != event_type:
+                continue
+            if not any(p.person_id == person_id for p in event.participants):
+                continue
+            value = event.date.value if event.date and event.date.value else ""
+            year = value[:4]
+            if len(year) == 4 and year.isdigit():
+                return year
+            return ""
+        return ""
 
     def _get_source_display(self, source_id: str) -> str:
         """Get a human-readable display string for a source.
