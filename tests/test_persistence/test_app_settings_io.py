@@ -373,3 +373,54 @@ class TestRoundTrip:
         assert loaded.column_visibility.yrke is True
         assert loaded.column_visibility.kluster is False
         assert loaded.column_visibility.dna_company is True
+
+
+class TestParentageDiagramSettings:
+    """Tests for the parentage-related DiagramSettings fields in app settings."""
+
+    def test_default_parentage_fields(self) -> None:
+        settings = AppSettings()
+        assert settings.diagram_settings.parentage_show_level == "biological"
+        assert settings.diagram_settings.parentage_badge is False
+        assert settings.diagram_settings.parentage_fallback is True
+
+    def test_parentage_fields_round_trip_non_default(
+        self, service: AppSettingsService
+    ) -> None:
+        from slaktbusken.persistence.settings_io import DiagramSettings
+
+        settings = AppSettings(
+            diagram_settings=DiagramSettings(
+                parentage_show_level="all",
+                parentage_badge=True,
+                parentage_fallback=False,
+            )
+        )
+        service.save(settings)
+
+        svc2 = AppSettingsService()
+        svc2.SETTINGS_PATH = service.SETTINGS_PATH
+        loaded = svc2.load()
+        assert loaded.diagram_settings.parentage_show_level == "all"
+        assert loaded.diagram_settings.parentage_badge is True
+        assert loaded.diagram_settings.parentage_fallback is False
+
+    def test_missing_parentage_keys_default(
+        self, service: AppSettingsService
+    ) -> None:
+        # A diagram_settings payload that predates the parentage fields.
+        data = {
+            "diagram_settings": {
+                "ancestry_depth": 4,
+                "descendants_depth": 4,
+                "ancestry_compact": False,
+                "background_color": "#f0f0f0",
+            }
+        }
+        service.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        service.SETTINGS_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+        result = service.load()
+        assert result.diagram_settings.parentage_show_level == "biological"
+        assert result.diagram_settings.parentage_badge is False
+        assert result.diagram_settings.parentage_fallback is True

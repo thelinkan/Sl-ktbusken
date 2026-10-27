@@ -286,3 +286,82 @@ class TestConnectionLineItem:
         """Default connection type is PARENT_CHILD."""
         item = ConnectionLineItem(QPointF(0, 0), QPointF(100, 100))
         assert item.connection_type == ConnectionType.PARENT_CHILD
+
+    def test_connection_type_has_foster_and_adoptive(self) -> None:
+        """ConnectionType exposes FOSTER and ADOPTIVE members."""
+        assert ConnectionType.FOSTER is not None
+        assert ConnectionType.ADOPTIVE is not None
+        members = set(ConnectionType)
+        assert ConnectionType.FOSTER in members
+        assert ConnectionType.ADOPTIVE in members
+
+    def test_foster_creation(self) -> None:
+        """ConnectionLineItem can be created for foster connections."""
+        start = QPointF(100, 50)
+        end = QPointF(100, 150)
+        item = ConnectionLineItem(start, end, ConnectionType.FOSTER)
+        assert item.connection_type == ConnectionType.FOSTER
+        assert item.start_point == start
+        assert item.end_point == end
+
+    def test_adoptive_creation(self) -> None:
+        """ConnectionLineItem can be created for adoptive connections."""
+        start = QPointF(100, 50)
+        end = QPointF(100, 150)
+        item = ConnectionLineItem(start, end, ConnectionType.ADOPTIVE)
+        assert item.connection_type == ConnectionType.ADOPTIVE
+
+    def test_badge_text_defaults_to_none(self) -> None:
+        """badge_text defaults to None when not provided."""
+        item = ConnectionLineItem(QPointF(0, 0), QPointF(100, 100))
+        assert item.badge_text is None
+
+    def test_badge_text_is_stored(self) -> None:
+        """badge_text is stored and exposed when provided."""
+        item = ConnectionLineItem(
+            QPointF(0, 0),
+            QPointF(100, 100),
+            ConnectionType.FOSTER,
+            badge_text="foster",
+        )
+        assert item.badge_text == "foster"
+
+    def test_construct_with_badge_does_not_error(self) -> None:
+        """Constructing with badge_text set does not raise."""
+        item = ConnectionLineItem(
+            QPointF(0, 0),
+            QPointF(50, 200),
+            ConnectionType.ADOPTIVE,
+            badge_text="adoptiv",
+        )
+        assert item.badge_text == "adoptiv"
+        assert item.connection_type == ConnectionType.ADOPTIVE
+
+    @pytest.mark.parametrize(
+        "connection_type, badge_text",
+        [
+            (ConnectionType.FOSTER, None),
+            (ConnectionType.ADOPTIVE, None),
+            (ConnectionType.FOSTER, "foster"),
+            (ConnectionType.ADOPTIVE, "adoptiv"),
+            (ConnectionType.PARENT_CHILD, None),
+            (ConnectionType.PARTNER, None),
+        ],
+    )
+    def test_paint_does_not_raise(self, connection_type, badge_text) -> None:
+        """Painting foster/adoptive items and badges does not raise."""
+        from PySide6.QtGui import QPainter, QPixmap
+        from PySide6.QtWidgets import QStyleOptionGraphicsItem
+
+        item = ConnectionLineItem(
+            QPointF(0, 0),
+            QPointF(100, 200),
+            connection_type,
+            badge_text=badge_text,
+        )
+        pixmap = QPixmap(200, 300)
+        painter = QPainter(pixmap)
+        try:
+            item.paint(painter, QStyleOptionGraphicsItem(), None)
+        finally:
+            painter.end()

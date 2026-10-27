@@ -373,6 +373,11 @@ class AppSettingsService:
                 descendants_depth=ds_data.get("descendants_depth", 4),
                 ancestry_compact=ds_data.get("ancestry_compact", False),
                 background_color=ds_data.get("background_color", "#f0f0f0"),
+                parentage_show_level=ds_data.get(
+                    "parentage_show_level", "biological"
+                ),
+                parentage_badge=ds_data.get("parentage_badge", False),
+                parentage_fallback=ds_data.get("parentage_fallback", True),
             )
         else:
             diagram_settings = DiagramSettings()

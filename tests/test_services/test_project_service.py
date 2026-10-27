@@ -727,3 +727,159 @@ class TestStandardProviders:
         assert len(data["leverantorer"]) == 5
         assert len(data["kalltyper"]) == 37
         assert data["leverantorer"][0]["name"] == "Arkiv Digital"
+
+# ---------------------------------------------------------------------------
+# 11.4 – Foster/adoptive parentage sync wiring (event edits + project load)
+# ---------------------------------------------------------------------------
+
+
+class TestParentageSyncWiring:
+    """Tests for sync_parentage_links wiring in event edits and project load.
+
+    Requirements: 2.3, 13.3
+    """
+
+    @pytest.fixture(autouse=True)
+    def _create_project(self, service: ProjectService, project_dir: Path) -> None:
+        """Create a project with a child and two parents before each test."""
+        service.create_project("TestProjekt", project_dir)
+        service.add_person(
+            Person(id="child", sex="F", names=[Name(type="birth", given="Barn", surname="B")])
+        )
+        service.add_person(
+            Person(id="mor", sex="F", names=[Name(type="birth", given="Foster", surname="Mor")])
+        )
+        service.add_person(
+            Person(id="far", sex="M", names=[Name(type="birth", given="Foster", surname="Far")])
+        )
+
+    @staticmethod
+    def _foster_event(event_id: str, parents: list[str]) -> Event:
+        """Build a valid foster_home start event naming child and parents."""
+        participants = [Participant(person_id="child", role="fosterbarn")]
+        participants.extend(
+            Participant(person_id=pid, role="fosterförälder") for pid in parents
+        )
+        return Event(id=event_id, type="foster_home", participants=participants)
+
+    @staticmethod
+    def _foster_links(data: ProjectData) -> list:
+        """All derived foster ParentChildLinks in the project."""
+        return [
+            link
+            for family in data.families
+            for link in family.parent_child_links
+            if link.parentage_type == "foster"
+        ]
+
+    def test_add_event_derives_foster_link(self, service: ProjectService) -> None:
+        """Adding a foster_home event derives the foster ParentChildLink."""
+        service.add_event(self._foster_event("ev1", ["mor"]))
+
+        links = self._foster_links(service.data)
+        assert len(links) == 1
+        assert links[0].child_id == "child"
+        assert links[0].parent_id == "mor"
+        assert links[0].parentage_type == "foster"
+
+    def test_add_non_placement_event_derives_no_link(
+        self, service: ProjectService
+    ) -> None:
+        """A non-placement event leaves the derived links empty."""
+        service.add_event(
+            Event(
+                id="ev1", type="birth",
+                participants=[Participant(person_id="child", role="subject")],
+            )
+        )
+        assert self._foster_links(service.data) == []
+
+    def test_update_event_resyncs_links(self, service: ProjectService) -> None:
+        """Editing a placement event's parents re-syncs the derived links."""
+        service.add_event(self._foster_event("ev1", ["mor"]))
+        assert {link.parent_id for link in self._foster_links(service.data)} == {"mor"}
+
+        # Edit the event to name a different foster parent.
+        service.update_event(self._foster_event("ev1", ["far"]))
+
+        links = self._foster_links(service.data)
+        assert {link.parent_id for link in links} == {"far"}
+
+    def test_update_unknown_event_raises(self, service: ProjectService) -> None:
+        """Updating an event with an unknown id raises KeyError."""
+        with pytest.raises(KeyError):
+            service.update_event(self._foster_event("missing", ["mor"]))
+
+    def test_delete_event_removes_derived_links(
+        self, service: ProjectService
+    ) -> None:
+        """Deleting the placement start event removes its derived links."""
+        service.add_event(self._foster_event("ev1", ["mor"]))
+        assert len(self._foster_links(service.data)) == 1
+
+        service.delete_event("ev1")
+
+        assert self._foster_links(service.data) == []
+
+    def test_open_project_backfills_and_syncs_orphan_link(
+        self, service: ProjectService, project_dir: Path
+    ) -> None:
+        """Opening a project with an orphan foster link back-fills+syncs it.
+
+        A pre-feature orphan foster link (a ParentChildLink with no backing
+        placement event) must survive load: the migration back-fills a dateless
+        Fosterhem event and sync keeps the link (Requirement 13.3).
+        """
+        from slaktbusken.model.family import Family, ParentChildLink
+
+        # Inject an orphan foster link with no backing placement event.
+        service.data.families.append(
+            Family(
+                id="fam1",
+                partners=[],
+                children=["child"],
+                parent_child_links=[
+                    ParentChildLink(
+                        child_id="child",
+                        parent_id="mor",
+                        parentage_type="foster",
+                    )
+                ],
+            )
+        )
+        service.save_project()
+        data_file = project_dir / "TestProjekt" / "TestProjekt.json.gz"
+
+        service.close_project()
+        opened = service.open_project(data_file)
+
+        # The foster link survived the migrate-then-sync on load.
+        foster_links = [
+            link
+            for family in opened.families
+            for link in family.parent_child_links
+            if link.parentage_type == "foster"
+            and link.child_id == "child"
+            and link.parent_id == "mor"
+        ]
+        assert len(foster_links) == 1
+
+        # A backing dateless Fosterhem event was created.
+        foster_events = [e for e in opened.events if e.type == "foster_home"]
+        assert len(foster_events) == 1
+        assert foster_events[0].date is None
+
+        # Back-fill created a new event, so the opened project is marked dirty.
+        assert service.is_dirty
+
+    def test_open_project_without_orphans_stays_clean(
+        self, service: ProjectService, project_dir: Path
+    ) -> None:
+        """Opening a project with no orphan links leaves dirty state False."""
+        service.save_project()
+        data_file = project_dir / "TestProjekt" / "TestProjekt.json.gz"
+
+        service.close_project()
+        service.open_project(data_file)
+
+        assert not service.is_dirty

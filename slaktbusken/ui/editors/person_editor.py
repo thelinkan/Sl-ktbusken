@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QStyleOptionViewItem,
     QStyledItemDelegate,
@@ -38,6 +39,7 @@ from slaktbusken.model.event import Participant
 from slaktbusken.model.name_parser import validate_given_name_markers
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.foster_sync import sync_parentage_links
 from slaktbusken.services.parent_service import ParentInfo, ParentService
 from slaktbusken.services.photo_service import PhotoService
 from slaktbusken.services.project_service import ValidationError
@@ -69,6 +71,22 @@ _PARENTAGE_TYPE_LABELS: dict[str, str] = {
 
 # Reverse mapping for combo selection
 _PARENTAGE_LABEL_TO_TYPE: dict[str, str] = {v: k for k, v in _PARENTAGE_TYPE_LABELS.items()}
+
+# Parentage types that are derived from a Placement_Event (Fosterhem / Adoption)
+# and are therefore read-only in the person editor (Requirements 2.6, 2.7).
+# They cannot be added, retyped, or removed directly; the user is routed to the
+# corresponding placement event instead.
+_EVENT_DERIVED_PARENTAGE_TYPES: frozenset[str] = frozenset({"foster", "adoptive"})
+
+# Suffix appended to the type label of an event-derived (read-only) parent row.
+_EVENT_DERIVED_LABEL_SUFFIX = " (via händelse)"
+
+# The placement event type that backs each derived parentage type, with the
+# Swedish name used in user-facing messages (Requirement 2.7).
+_PARENTAGE_TYPE_TO_PLACEMENT: dict[str, tuple[str, str]] = {
+    "foster": ("foster_home", "Fosterhem"),
+    "adoptive": ("adoption", "Adoption"),
+}
 
 # Custom role for storing the has-coordinates flag on event list items
 _HAS_COORDS_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -891,14 +909,35 @@ class PersonEditor(QWidget):
             row = self._parents_table.rowCount()
             self._parents_table.insertRow(row)
 
+            is_derived = info.parentage_type in _EVENT_DERIVED_PARENTAGE_TYPES
+
             name_item = QTableWidgetItem(info.parent_name)
             name_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             name_item.setData(Qt.ItemDataRole.UserRole, info.parent_id)
 
-            type_label = _PARENTAGE_TYPE_LABELS.get(info.parentage_type, info.parentage_type)
+            # Event-derived rows get a "(via händelse)" suffix and read-only styling
+            # (Requirement 2.6). The raw parentage_type stays in UserRole so the
+            # selection handler and the guards can detect derived rows.
+            base_label = _PARENTAGE_TYPE_LABELS.get(info.parentage_type, info.parentage_type)
+            type_label = base_label + _EVENT_DERIVED_LABEL_SUFFIX if is_derived else base_label
             type_item = QTableWidgetItem(type_label)
             type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             type_item.setData(Qt.ItemDataRole.UserRole, info.parentage_type)
+
+            if is_derived:
+                # Grey out derived rows to signal they are read-only.
+                disabled_colour = self.palette().color(
+                    self.palette().ColorGroup.Disabled,
+                    self.palette().ColorRole.Text,
+                )
+                name_item.setForeground(disabled_colour)
+                type_item.setForeground(disabled_colour)
+                tooltip = (
+                    "Härledd från en händelse och kan inte ändras här. "
+                    "Redigera motsvarande Fosterhem-/Adoption-händelse under Händelser."
+                )
+                name_item.setToolTip(tooltip)
+                type_item.setToolTip(tooltip)
 
             self._parents_table.setItem(row, 0, name_item)
             self._parents_table.setItem(row, 1, type_item)
@@ -906,11 +945,29 @@ class PersonEditor(QWidget):
         self._edit_parent_button.setEnabled(False)
         self._remove_parent_button.setEnabled(False)
 
+    def _selected_parent_is_derived(self) -> bool:
+        """Return True if the selected parent row is an event-derived (read-only) link."""
+        selected = self._parents_table.selectedItems()
+        if not selected:
+            return False
+        row = selected[0].row()
+        type_item = self._parents_table.item(row, 1)
+        if type_item is None:
+            return False
+        parentage_type = type_item.data(Qt.ItemDataRole.UserRole)
+        return parentage_type in _EVENT_DERIVED_PARENTAGE_TYPES
+
     def _on_parent_selection_changed(self) -> None:
-        """Enable/disable edit and remove buttons based on parent row selection."""
+        """Enable/disable edit and remove buttons based on parent row selection.
+
+        Event-derived foster/adoptive rows are read-only: the "Ändra typ" and
+        "Ta bort" buttons stay disabled for them (Requirement 2.6).
+        """
         has_selection = len(self._parents_table.selectedItems()) > 0
-        self._edit_parent_button.setEnabled(has_selection)
-        self._remove_parent_button.setEnabled(has_selection)
+        # Derived (foster/adoptive) links cannot be retyped or removed here.
+        editable = has_selection and not self._selected_parent_is_derived()
+        self._edit_parent_button.setEnabled(editable)
+        self._remove_parent_button.setEnabled(editable)
 
     def _on_add_parent(self) -> None:
         """Add a parent relationship using ParentService."""
@@ -932,6 +989,12 @@ class PersonEditor(QWidget):
         type_label = self._parent_type_combo.currentText()
         parentage_type = _PARENTAGE_LABEL_TO_TYPE.get(type_label, "biological")
 
+        # Foster/adoptive links are event-derived: decline the direct add and
+        # offer to create the backing placement event instead (Requirement 2.7).
+        if parentage_type in _EVENT_DERIVED_PARENTAGE_TYPES:
+            self._offer_create_placement_event(parentage_type, parent_id)
+            return
+
         try:
             self._parent_service.add_parent(
                 child_id=self._person.id,
@@ -943,6 +1006,118 @@ class PersonEditor(QWidget):
             self._clear_status()
         except ValidationError as e:
             self._update_status(e.errors[0] if e.errors else str(e))
+
+    def _offer_create_placement_event(
+        self, parentage_type: str, parent_id: str | None = None
+    ) -> None:
+        """Offer to create the placement event backing a foster/adoptive link.
+
+        Foster and adoptive parentage is derived from a Fosterhem/Adoption event
+        (the single source of truth), so it cannot be added directly in the
+        person editor. This declines the direct add and, after confirmation,
+        opens the event editor pre-populated with this person as the child in
+        the correct child role (Requirement 2.7).
+
+        Args:
+            parentage_type: Either "foster" or "adoptive".
+            parent_id: Optional pre-selected parent to add to the placement event.
+        """
+        if self._person is None:
+            return
+
+        placement = _PARENTAGE_TYPE_TO_PLACEMENT.get(parentage_type)
+        if placement is None:
+            return
+        event_type, event_label = placement
+
+        answer = QMessageBox.question(
+            self,
+            "Skapa händelse",
+            (
+                f"{event_label} hanteras som en händelse och kan inte läggas till "
+                "direkt här.\n\n"
+                f"Vill du skapa en {event_label}-händelse för den här personen istället?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._update_status(
+                f"{event_label} läggs till via en händelse under Händelser."
+            )
+            return
+
+        self._open_placement_event_editor(event_type, parent_id)
+
+    def _open_placement_event_editor(
+        self, event_type: str, parent_id: str | None = None
+    ) -> None:
+        """Open the event editor to create a placement event for this person.
+
+        The editor is pre-populated with this person as the child (child role
+        derived from the placement type) and the requested placement event type
+        pre-selected. On save the new event is added to the project and the
+        parents table is refreshed so the derived link appears read-only once
+        link sync runs (Requirement 2.7).
+
+        Args:
+            event_type: "foster_home" or "adoption".
+            parent_id: Optional parent to pre-add to the event's participants.
+        """
+        from slaktbusken.ui.editors.event_editor import (
+            EventEditor,
+            PLACEMENT_PARENT_ROLES,
+        )
+
+        if self._person is None:
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Ny händelse")
+        dialog.setMinimumSize(750, 650)
+        layout = QVBoxLayout(dialog)
+
+        editor = EventEditor(
+            project_data=self._project_data,
+            event=None,
+            subject_person_id=self._person.id,
+            parent=dialog,
+            project_folder=self._project_folder,
+            photo_service=self._photo_service,
+        )
+        layout.addWidget(editor)
+
+        # Pre-select the placement event type; this re-roles the subject as the
+        # child and reveals the participants section so a parent can be added.
+        type_index = editor._ui.type_combo.findData(event_type)
+        if type_index >= 0:
+            editor._ui.type_combo.setCurrentIndex(type_index)
+
+        # Pre-add the chosen parent with the matching parent role, if any.
+        if parent_id:
+            parent_role = PLACEMENT_PARENT_ROLES.get(event_type, "deltagare")
+            editor._add_participant_row(
+                Participant(person_id=parent_id, role=parent_role)
+            )
+
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            saved_event = editor.saved_event
+            if saved_event is not None:
+                self._project_data.events.append(saved_event)
+
+                # Reconcile derived foster/adoptive links so the newly created
+                # placement event derives its link immediately (Requirement 2.3),
+                # before the parents table is refreshed below.
+                sync_parentage_links(self._project_data)
+
+                self._ensure_family_for_event(saved_event)
+                self._refresh_events_list()
+                self._refresh_parents_table()
+                self._parent_person_combo.setCurrentIndex(0)
+                self._clear_status()
 
     def _on_edit_parent(self) -> None:
         """Change the parentage type of the selected parent relationship."""
@@ -956,6 +1131,16 @@ class PersonEditor(QWidget):
         row = selected[0].row()
         parent_id = self._parents_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         old_type = self._parents_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+
+        # Defensive guard: event-derived foster/adoptive links are read-only and
+        # must never be retyped here, even if this is reached by a path that
+        # bypasses the disabled button (Requirement 2.6).
+        if old_type in _EVENT_DERIVED_PARENTAGE_TYPES:
+            self._update_status(
+                "Fosterförälder och adoptivförälder är härledda från en händelse "
+                "och kan inte ändras här. Redigera motsvarande händelse under Händelser."
+            )
+            return
 
         # Show a dialog to select new parentage type
         dialog = QDialog(self)
@@ -1008,6 +1193,16 @@ class PersonEditor(QWidget):
         row = selected[0].row()
         parent_id = self._parents_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         parentage_type = self._parents_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+
+        # Defensive guard: event-derived foster/adoptive links are read-only and
+        # must never be removed here, even if this is reached by a path that
+        # bypasses the disabled button (Requirement 2.6).
+        if parentage_type in _EVENT_DERIVED_PARENTAGE_TYPES:
+            self._update_status(
+                "Fosterförälder och adoptivförälder är härledda från en händelse "
+                "och kan inte tas bort här. Redigera motsvarande händelse under Händelser."
+            )
+            return
 
         self._parent_service.remove_parent(
             child_id=self._person.id,
@@ -1115,6 +1310,12 @@ class PersonEditor(QWidget):
                 # Add the event to project data
                 self._project_data.events.append(saved_event)
 
+                # Reconcile derived foster/adoptive links from placement events
+                # so a newly created Fosterhem/Adoption event derives its links
+                # immediately (Requirement 2.3). Idempotent and cheap for
+                # non-placement events.
+                sync_parentage_links(self._project_data)
+
                 # For family events (marriage, divorce, etc.), ensure a Family
                 # record exists linking the participants as partners so they
                 # appear in the family diagram.
@@ -1201,6 +1402,11 @@ class PersonEditor(QWidget):
                         self._project_data.events[i] = saved_event
                         break
 
+                # Re-derive foster/adoptive links so editing a placement
+                # event's child or parents re-syncs its derived links
+                # (Requirement 2.3).
+                sync_parentage_links(self._project_data)
+
                 # Refresh the events list
                 self._refresh_events_list()
                 self._clear_status()
@@ -1225,6 +1431,10 @@ class PersonEditor(QWidget):
         self._project_data.events = [
             e for e in self._project_data.events if e.id != event_id
         ]
+
+        # Re-derive foster/adoptive links so deleting a placement start event
+        # removes its derived links (Requirement 2.3).
+        sync_parentage_links(self._project_data)
 
         # Refresh the events list
         self._refresh_events_list()

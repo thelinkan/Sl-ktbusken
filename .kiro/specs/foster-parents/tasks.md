@@ -39,44 +39,44 @@ Qt event loop.
     - When creating an end event with no matching start, offer to create a dateless start of the matching type with the same child and parents in the same step, then pair the end to it
     - _Requirements: 2A.5_
 
-- [ ] 2. Parentage sync service (source of truth, both types)
-  - [ ] 2.1 Create `slaktbusken/services/foster_sync.py` with `sync_parentage_links(project)` and the `_PLACEMENT_START`/`_PLACEMENT_END` tables
+- [x] 2. Parentage sync service (source of truth, both types)
+  - [x] 2.1 Create `slaktbusken/services/foster_sync.py` with `sync_parentage_links(project)` and the `_PLACEMENT_START`/`_PLACEMENT_END` tables
     - Derive one family per START event, keyed via `Family.event_ids`; one link per (parent → child) with the event's parentage type; delete derived families whose start event is gone; never touch biological or other links; idempotent
     - END events never create/remove a link; pair each end to the derived family of its matching start by Parent_Set (append end id to that family's `event_ids`); detach an end whose start is gone rather than deleting it
     - Per-set cap of two parents; no project-wide cap on foster or adoptive parents for a child
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.8, 2.9, 2.10, 2A.1, 2A.2_
-  - [ ] 2.2 Add Parent_Set ordering helper
+  - [x] 2.2 Add Parent_Set ordering helper
     - Pure function returning a child's Parent_Sets of a given type ordered by start event `date.value`, undated last in project order, without mutating data
     - _Requirements: 2.5_
-  - [ ] 2.3 Create shared Hypothesis strategies in `tests/test_foster/foster_strategies.py`
+  - [x] 2.3 Create shared Hypothesis strategies in `tests/test_foster/foster_strategies.py`
     - Projects with: zero/one/many placement events per child per type, one-and-two-parent sets, mixed biological+foster+adoptive, orphan foster and adoptive links with no event, pre-feature descriptive adoption events, dated/undated events, start events with/without a paired end, orphan end events, end-before-start dates, overrides for present/absent sets
     - _Requirements: 2.1, 2.9, 2A.1, 13.5_
-  - [ ] 2.4 Write property test for sync idempotence and foster/adoptive-only reconciliation
+  - [x] 2.4 Write property test for sync idempotence and foster/adoptive-only reconciliation
     - **Property 1 & 2: sync twice == once; biological and other links untouched**
     - **Validates: Requirements 2.2, 2.8**
-  - [ ] 2.5 Write property test for event⇒link coverage and set cap, both types
+  - [x] 2.5 Write property test for event⇒link coverage and set cap, both types
     - **Property 3 & 4: every event has exactly its links of its type and vice versa; no set >2, project uncapped**
     - **Validates: Requirements 2.1, 2.9**
-  - [ ] 2.6 Write property test for end events annotating but never mutating links
+  - [x] 2.6 Write property test for end events annotating but never mutating links
     - **Property 9: adding/editing/removing any end event leaves every Derived_Link unchanged; each end pairs to one start by Parent_Set; at most one end per start; an orphan end is flagged not dropped**
     - **Validates: Requirements 2.10, 2A.1, 2A.2, 2A.3, 2A.4**
 
-- [ ] 3. Persistence, migration, and settings
-  - [ ] 3.1 Serialize `connection_overrides`
+- [x] 3. Persistence, migration, and settings
+  - [x] 3.1 Serialize `connection_overrides`
     - Written as a dict, omitted/empty for untouched projects; read back empty when absent
     - _Requirements: 13.1, 13.2_
-  - [ ] 3.2 Add the pre-feature orphan-link adoption migration
+  - [x] 3.2 Add the pre-feature orphan-link adoption migration
     - For each orphan foster/adoptive family with no backing placement event, create a dateless Fosterhem/Adoption event, then let `sync_parentage_links` adopt it; preserve pre-feature descriptive adoption events; delete no foster/adoptive data
     - _Requirements: 13.3, 13.5_
-  - [ ] 3.3 Add parentage fields to `DiagramSettings` and persist them
+  - [x] 3.3 Add parentage fields to `DiagramSettings` and persist them
     - `parentage_show_level: str = "biological"`, `parentage_badge: bool = False`, `parentage_fallback: bool = True`; round-trip through `app_settings_io.py`
     - _Requirements: 4.5, 6.1, 7.4_
-  - [ ] 3.4 Write property test for backward compatibility
+  - [x] 3.4 Write property test for backward compatibility
     - **Property 8: loading a pre-feature project loses no foster/adoptive links; descriptive adoption events preserved; overrides default empty**
     - **Validates: Requirements 13.1, 13.3, 13.4, 13.5**
 
 - [ ] 4. Shared parent-display resolver
-  - [ ] 4.1 Create `slaktbusken/ui/views/parent_display.py:resolve_parent_display(...)`
+  - [x] 4.1 Create `slaktbusken/ui/views/parent_display.py:resolve_parent_display(...)`
     - Precedence override > show-level > fallback; `non_biological` draws both foster and adoptive; override for a missing set ignored; connection type chosen from each drawn link's `parentage_type`; fallback with both non-biological types draws both
     - Return drawn links grouped by Parent_Set with each set's cardinality (one or two parents), so views can render a one-parent derived set without a partner connector or second-parent placeholder
     - _Requirements: 3.8, 3.9, 3.10, 4.1, 4.2, 4.3, 4.4, 5.2, 5.3, 5.6, 6.2, 6.3, 6.4, 6.5, 6.6_
@@ -84,8 +84,8 @@ Qt event loop.
     - **Property 5: override wins over show-level wins over fallback; missing-set override ignored; non_biological draws foster+adoptive; one-parent sets are reported as complete single-parent sets**
     - **Validates: Requirements 3.8, 4.2, 4.3, 4.4, 5.2, 5.3, 5.6, 6.2, 6.3, 6.6_
 
-- [ ] 5. Visual layer
-  - [ ] 5.1 Extend `ConnectionType` and `ConnectionLineItem` in `connection_line.py`
+- [x] 5. Visual layer
+  - [x] 5.1 Extend `ConnectionType` and `ConnectionLineItem` in `connection_line.py`
     - Add `FOSTER` and `ADOPTIVE` members; dashed pens with distinct `_FOSTER_COLOR` and `_ADOPTIVE_COLOR`; biological unchanged; optional `badge_text` painted near the path midpoint
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.6, 3.7_
 
@@ -153,7 +153,7 @@ Qt event loop.
     - **Validates: Requirements 11.1, 11.2, 11.2a, 11.2b, 11.2c, 11.2d, 11.2e, 11.3, 11.4, 11.5, 11.6, 11.7, 11.7a, 11.8, 11.9, 11.10_
 
 - [ ] 11. Person editor and person checks
-  - [ ] 11.1 Make foster and adoptive links read-only in `person_editor.py`
+  - [x] 11.1 Make foster and adoptive links read-only in `person_editor.py`
     - Foster/adoptive rows shown read-only labelled "(via händelse)"; no direct add/retype/remove; adding a foster or adoptive parent routes to a pre-populated placement event
     - _Requirements: 2.6, 2.7_
   - [ ] 11.2 Make `person_check_engine.py` foster/adoptive-aware
@@ -162,10 +162,15 @@ Qt event loop.
   - [ ] 11.3 Label foster and adoptive parents in `person_detail_panel.py`
     - Annotate each distinctly in "Föräldrar och syskon"
     - _Requirements: 12.3_
+  - [x] 11.4 Wire `sync_parentage_links` into event edits and project load
+    - Call `sync_parentage_links(project)` whenever a Placement_Event is created, edited, or deleted, so Derived_Links agree with the current events; the natural single choke point is `project_service.add_event` plus the corresponding event update/delete paths reached from `event_editor._on_save` and the event delete action — call sync after the event mutation commits, for both foster and adoptive types
+    - Call `sync_parentage_links(project)` on project open in `project_service.open_project`, AFTER the pre-feature orphan-link migration (task 3.2) has back-filled placement events, so the on-load order is migrate-then-sync and no orphan foster/adoptive link is dropped (Design Decision 1 / Requirement 13.3)
+    - Do NOT add a second sync call to the GEDCOM import path (task 10.4 already runs sync after its back-fill); keep sync a no-op-safe single call per mutation given its idempotence
+    - _Requirements: 2.3, 13.3_
 
 - [ ] 12. Full integration verification
   - [ ] 12.1 Run the whole test suite and the app's import/export/report paths
-    - Confirm sync runs on event save, GEDCOM import, and project load for both types; confirm all three views honour show-level/override/fallback; confirm settings persist across restart
+    - Confirm the task 11.4 wiring runs sync on event create/edit/delete and on project load, and that task 10.4 runs it on GEDCOM import, for both types; confirm all three views honour show-level/override/fallback; confirm settings persist across restart
     - _Requirements: 2.3, 4.6, 4.7, 7.5, 11.6, 13.1_
 
 - [x] 13. Participant picker disambiguation and plausibility filtering
@@ -206,7 +211,7 @@ Qt event loop.
     { "id": 6, "tasks": ["4.2", "6.1", "6.2", "6.3", "6.4"] },
     { "id": 7, "tasks": ["7.1", "8.1", "8.2", "8.3"] },
     { "id": 8, "tasks": ["9.1", "10.1", "10.1a", "10.1b", "10.2", "10.3", "10.3a", "10.4"] },
-    { "id": 9, "tasks": ["10.5", "11.1", "11.2", "11.3"] },
+    { "id": 9, "tasks": ["10.5", "11.1", "11.2", "11.3", "11.4"] },
     { "id": 10, "tasks": ["12.1"] },
     { "id": 11, "tasks": ["13.1", "13.2"] },
     { "id": 12, "tasks": ["13.3", "13.4"] }

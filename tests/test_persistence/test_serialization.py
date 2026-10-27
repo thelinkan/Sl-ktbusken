@@ -762,3 +762,69 @@ class TestPlaceExternalIdsAndAlternativeNames:
         result = deserialize(serialize(data))
         assert len(result.places) == 1
         assert result.places[0] == original_place
+
+
+class TestConnectionOverridesSerialization:
+    """Tests for serialization/deserialization of ProjectData.connection_overrides.
+
+    Validates: Requirements 13.1, 13.2
+    """
+
+    def test_connection_overrides_round_trip(self) -> None:
+        """A project with connection overrides round-trips the dict unchanged."""
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.2",
+            project=ProjectMetadata(title="Test"),
+            connection_overrides={
+                "person_1": "foster",
+                "person_2": "adoptive",
+                "person_3": "biological",
+            },
+        )
+        result = deserialize(serialize(data))
+        assert result.connection_overrides == {
+            "person_1": "foster",
+            "person_2": "adoptive",
+            "person_3": "biological",
+        }
+
+    def test_empty_overrides_omitted_from_json(self) -> None:
+        """An untouched project omits the connection_overrides key on write."""
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.2",
+            project=ProjectMetadata(title="Test"),
+        )
+        json_str = serialize(data)
+        parsed = json.loads(json_str)
+        assert "connection_overrides" not in parsed
+
+    def test_non_empty_overrides_included_in_json(self) -> None:
+        """When overrides are set, they are written as a plain dict."""
+        data = ProjectData(
+            format="släktbuske-file",
+            version="0.2",
+            project=ProjectMetadata(title="Test"),
+            connection_overrides={"person_1": "foster"},
+        )
+        parsed = json.loads(serialize(data))
+        assert parsed["connection_overrides"] == {"person_1": "foster"}
+
+    def test_missing_overrides_key_defaults_empty(self) -> None:
+        """A pre-feature project dict without the key loads with empty overrides."""
+        old_json = json.dumps({
+            "format": "släktbuske-file",
+            "version": "0.2",
+            "project": {"title": "Pre-feature Project"},
+            "persons": [{"id": "p1", "sex": "F", "names": []}],
+        })
+        result = deserialize(old_json)
+        assert result.connection_overrides == {}
+
+    def test_full_project_with_overrides_round_trip_equality(self) -> None:
+        """A ProjectData carrying overrides round-trips via == equality."""
+        data = _make_full_project_data()
+        data.connection_overrides = {"person_3": "foster", "person_4": "adoptive"}
+        result = deserialize(serialize(data))
+        assert result.connection_overrides == data.connection_overrides

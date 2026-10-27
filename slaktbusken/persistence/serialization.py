@@ -68,6 +68,12 @@ def serialize(data: ProjectData) -> str:
             items, _ = deduplicate_places(list(items))
         output[field_name] = [_serialize_dataclass(item) for item in items]
 
+    # Per-child connection overrides map. Omit the key entirely when empty so
+    # projects that never used the feature are unchanged on disk
+    # (Requirement 13.2).
+    if data.connection_overrides:
+        output["connection_overrides"] = dict(data.connection_overrides)
+
     return json.dumps(output, ensure_ascii=False, indent=2)
 
 
@@ -95,6 +101,15 @@ def deserialize(json_str: str, log: list[str] | None = None) -> ProjectData:
 
     # Deserialize entity arrays with proper nested type reconstruction.
     _deserialize_entities(project_data, raw, log=log)
+
+    # Per-child connection overrides map. A pre-feature project has no such
+    # key; default to an empty dict so it loads successfully with no overrides
+    # (Requirement 13.1).
+    overrides = raw.get("connection_overrides")
+    if isinstance(overrides, dict):
+        project_data.connection_overrides = {
+            str(k): str(v) for k, v in overrides.items()
+        }
 
     # Normalize Unicode in file paths to NFC for consistent handling of
     # Swedish characters (å, ä, ö). File systems on Windows use NFC but

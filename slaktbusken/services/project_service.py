@@ -53,6 +53,10 @@ from slaktbusken.persistence.translation_io import (
     TranslationData,
     write_all as write_translations,
 )
+from slaktbusken.services.foster_sync import (
+    migrate_orphan_links,
+    sync_parentage_links,
+)
 from slaktbusken.services.standard_providers import initialize_standard_providers
 
 logger = logging.getLogger(__name__)
@@ -235,6 +239,20 @@ class ProjectService:
         self._project_path = path
         self._dirty = False
 
+        # Establish the placement-event source-of-truth invariant on load:
+        # back-fill a dateless placement start event for every pre-feature
+        # orphan foster/adoptive Parent_Set (task 3.2), then reconcile the
+        # derived links from the events. The migrate-then-sync order ensures no
+        # orphan foster/adoptive link is dropped (Design Decision 1 /
+        # Requirement 13.3). `migrate_orphan_links` runs the sync internally.
+        created = migrate_orphan_links(project_data)
+        # A freshly loaded project is clean. Only flag it dirty when the
+        # migration actually created back-fill events — those are genuine new
+        # entities the user will want to persist. A no-op migration (the common
+        # case for post-feature projects) leaves the load's clean state intact.
+        if created:
+            self._dirty = True
+
         # Attempt to load settings from the same folder.
         settings_file = path.parent / "settings.json"
         from slaktbusken.persistence.settings_io import read_settings
@@ -332,8 +350,64 @@ class ProjectService:
         if errors:
             raise ValidationError(errors)
         data.events.append(event)
+        # Reconcile derived foster/adoptive links from placement events. Sync is
+        # idempotent and cheap, so it runs unconditionally for every event
+        # rather than gating on placement types — a non-placement event simply
+        # leaves the links unchanged (Requirement 2.3).
+        sync_parentage_links(data)
         self._dirty = True
         return event
+
+    def update_event(self, event: Event) -> Event:
+        """Validate and replace an existing event in place by id.
+
+        Finds the event with the same id in ``project.events`` and replaces it
+        with ``event``, preserving its position, then reconciles derived
+        foster/adoptive links so editing a placement event's child or parents
+        re-derives its links (Requirement 2.3).
+
+        Args:
+            event: The updated Event instance (matched by ``id``).
+
+        Returns:
+            The updated Event instance.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+            ValidationError: If the event fails validation.
+            KeyError: If no event with the same id exists.
+        """
+        data = self.data
+        errors = validate_event(event)
+        if errors:
+            raise ValidationError(errors)
+        for index, existing in enumerate(data.events):
+            if existing.id == event.id:
+                data.events[index] = event
+                break
+        else:
+            raise KeyError(f"Ingen händelse med id {event.id!r} att uppdatera.")
+        sync_parentage_links(data)
+        self._dirty = True
+        return event
+
+    def delete_event(self, event_id: str) -> None:
+        """Remove an event by id and reconcile derived links.
+
+        Removing a placement start event removes its derived foster/adoptive
+        links; the subsequent sync handles that cleanup (Requirement 2.3).
+        Deleting an unknown id is a no-op beyond the sync.
+
+        Args:
+            event_id: The id of the event to remove.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+        """
+        data = self.data
+        data.events = [event for event in data.events if event.id != event_id]
+        sync_parentage_links(data)
+        self._dirty = True
 
     def add_place(self, place: Place) -> Place:
         """Validate and add a place to the project.

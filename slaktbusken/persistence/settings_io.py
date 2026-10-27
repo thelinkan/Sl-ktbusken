@@ -66,12 +66,21 @@ class DiagramSettings:
         descendants_depth: Number of descendant generations to display (1-30).
         ancestry_compact: Use compact layout for ancestry view.
         background_color: Background color for the diagram canvas (hex string).
+        parentage_show_level: Which parent set the diagram draws by default,
+            one of "biological", "non_biological", or "all".
+        parentage_badge: Paint a "foster"/"adoptiv" badge on non-biological
+            connection lines.
+        parentage_fallback: When showing biological parents and a child has
+            none, fall back to drawing its non-biological parents.
     """
 
     ancestry_depth: int = 4
     descendants_depth: int = 4
     ancestry_compact: bool = False
     background_color: str = "#f0f0f0"
+    parentage_show_level: str = "biological"
+    parentage_badge: bool = False
+    parentage_fallback: bool = True
 
 
 @dataclass
@@ -332,6 +341,9 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         descendants_depth=diagram_data.get("descendants_depth", 4),
         ancestry_compact=diagram_data.get("ancestry_compact", False),
         background_color=diagram_data.get("background_color", "#f0f0f0"),
+        parentage_show_level=diagram_data.get("parentage_show_level", "biological"),
+        parentage_badge=diagram_data.get("parentage_badge", False),
+        parentage_fallback=diagram_data.get("parentage_fallback", True),
     )
 
     person_list_data = data.get("person_list_config", {})

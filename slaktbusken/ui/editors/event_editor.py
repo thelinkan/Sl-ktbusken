@@ -342,7 +342,18 @@ class EventEditor(QWidget):
         table = self._ui.participants_table
         table.horizontalHeader().setStretchLastSection(True)
         table.setEditTriggers(table.EditTrigger.NoEditTriggers)
-        table.setMaximumHeight(100)
+        # Size the table from actual row metrics so several participants
+        # (e.g. a foster child plus both foster parents) are all visible at
+        # once without scrolling. The old hard cap of 100px only showed a
+        # single data row.
+        row_height = table.verticalHeader().defaultSectionSize()
+        header_height = table.horizontalHeader().height()
+        frame = 2 * table.frameWidth()
+        # Show ~4 data rows plus the header by default.
+        table.setMinimumHeight(row_height * 4 + header_height + frame)
+        # Allow growth up to ~8 rows for busier events without dominating the
+        # dialog.
+        table.setMaximumHeight(row_height * 8 + header_height + frame)
 
         # Sources table — give it more room so entries are readable
         table = self._ui.sources_table
@@ -1923,14 +1934,22 @@ class EventEditor(QWidget):
         participants: list[Participant] = []
         is_family_event = event_type in FAMILY_EVENT_TYPES
 
-        if self._subject_person_id and not self._event and not is_family_event:
+        is_placement_event = event_type in PLACEMENT_PARENT_ROLES
+
+        if (
+            self._subject_person_id
+            and not self._event
+            and not is_family_event
+            and not is_placement_event
+        ):
             # Individual event from person editor: subject is the sole participant
             role = EVENT_TYPE_ROLES.get(event_type, "huvudperson")
             participants.append(
                 Participant(person_id=self._subject_person_id, role=role)
             )
         else:
-            # Collect from table (family events, editing existing, standalone)
+            # Collect from table (family + placement events, editing existing,
+            # standalone)
             table = self._ui.participants_table
             for row in range(table.rowCount()):
                 person_id = table.item(row, 0).data(Qt.ItemDataRole.UserRole)

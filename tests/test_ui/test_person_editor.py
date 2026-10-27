@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from slaktbusken.model.dna import DnaCluster, DnaMatch, DnaProfile
 from slaktbusken.model.event import Event, Participant
@@ -1136,3 +1136,266 @@ class TestPersonEditorNameEventAssociation:
         combo = table.cellWidget(1, 3)
         assert isinstance(combo, QComboBox)
         assert combo.isEnabled()
+
+
+class TestPersonEditorFosterAdoptiveReadOnly:
+    """Tests for read-only event-derived foster/adoptive parent links.
+
+    Covers Requirements 2.6 (read-only derived rows, disabled retype/remove,
+    defensive guards) and 2.7 (declining a direct foster/adoptive add in favour
+    of creating a placement event).
+    """
+
+    @staticmethod
+    def _child_with_parents() -> tuple[Person, ProjectData]:
+        """Build a project with a child having a biological and a foster parent."""
+        from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
+
+        child = Person(id="child_1", sex="M", names=[Name(type="birth", given="Kalle", surname="Ek")])
+        bio = Person(id="bio_1", sex="M", names=[Name(type="birth", given="Bo", surname="Ek")])
+        foster = Person(id="foster_1", sex="F", names=[Name(type="birth", given="Fia", surname="Dahl")])
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            persons=[child, bio, foster],
+            families=[
+                Family(
+                    id="family_bio",
+                    partners=[FamilyPartner(person_id="bio_1", role="father")],
+                    children=["child_1"],
+                    parent_child_links=[
+                        ParentChildLink(
+                            child_id="child_1", parent_id="bio_1", parentage_type="biological"
+                        )
+                    ],
+                ),
+                Family(
+                    id="family_foster",
+                    partners=[FamilyPartner(person_id="foster_1", role="mother")],
+                    children=["child_1"],
+                    parent_child_links=[
+                        ParentChildLink(
+                            child_id="child_1", parent_id="foster_1", parentage_type="foster"
+                        )
+                    ],
+                ),
+            ],
+        )
+        return child, project
+
+    def _find_row_by_parentage(self, editor: PersonEditor, parentage_type: str) -> int:
+        """Return the parents-table row index whose link is of the given type."""
+        from PySide6.QtCore import Qt
+
+        table = editor._parents_table
+        for row in range(table.rowCount()):
+            if table.item(row, 1).data(Qt.ItemDataRole.UserRole) == parentage_type:
+                return row
+        raise AssertionError(f"No row with parentage_type={parentage_type}")
+
+    def test_foster_row_shows_via_handelse_label(self, qapp):
+        """A foster link row shows the '(via händelse)' read-only label."""
+        child, project = self._child_with_parents()
+        editor = PersonEditor(project, person=child)
+
+        row = self._find_row_by_parentage(editor, "foster")
+        assert editor._parents_table.item(row, 1).text() == "fosterförälder (via händelse)"
+
+    def test_biological_row_has_plain_label(self, qapp):
+        """A biological link row keeps its plain label without the suffix."""
+        child, project = self._child_with_parents()
+        editor = PersonEditor(project, person=child)
+
+        row = self._find_row_by_parentage(editor, "biological")
+        assert editor._parents_table.item(row, 1).text() == "biologisk"
+
+    def test_selecting_foster_row_disables_edit_and_remove(self, qapp):
+        """Selecting a foster row disables 'Ändra typ' and 'Ta bort'."""
+        child, project = self._child_with_parents()
+        editor = PersonEditor(project, person=child)
+
+        row = self._find_row_by_parentage(editor, "foster")
+        editor._parents_table.selectRow(row)
+
+        assert editor._edit_parent_button.isEnabled() is False
+        assert editor._remove_parent_button.isEnabled() is False
+
+    def test_selecting_biological_row_enables_edit_and_remove(self, qapp):
+        """Selecting a biological row enables 'Ändra typ' and 'Ta bort'."""
+        child, project = self._child_with_parents()
+        editor = PersonEditor(project, person=child)
+
+        row = self._find_row_by_parentage(editor, "biological")
+        editor._parents_table.selectRow(row)
+
+        assert editor._edit_parent_button.isEnabled() is True
+        assert editor._remove_parent_button.isEnabled() is True
+
+    def test_edit_parent_refuses_on_derived_row(self, qapp):
+        """The retype handler refuses on a foster row and leaves data unchanged."""
+        child, project = self._child_with_parents()
+        editor = PersonEditor(project, person=child)
+
+        row = self._find_row_by_parentage(editor, "foster")
+        editor._parents_table.selectRow(row)
+        editor._on_edit_parent()
+
+        # Link type is unchanged and a directing message is shown.
+        service = editor._parent_service
+        types = {p.parentage_type for p in service.get_parents_for_person("child_1")}
+        assert "foster" in types
+        assert "Händelser" in editor._ui.status_label.text()
+
+    def test_remove_parent_refuses_on_derived_row(self, qapp):
+        """The remove handler refuses on a foster row and leaves data unchanged."""
+        child, project = self._child_with_parents()
+        editor = PersonEditor(project, person=child)
+
+        row = self._find_row_by_parentage(editor, "foster")
+        editor._parents_table.selectRow(row)
+        editor._on_remove_parent()
+
+        service = editor._parent_service
+        parents = service.get_parents_for_person("child_1")
+        assert any(p.parentage_type == "foster" for p in parents)
+        assert "Händelser" in editor._ui.status_label.text()
+
+    def test_add_foster_declines_direct_and_offers_event(self, qapp, monkeypatch):
+        """Choosing a foster type in the add flow declines the direct add.
+
+        It must NOT call ParentService.add_parent for foster, and must route to
+        the placement-event creation flow instead (Requirement 2.7).
+        """
+        child, project = self._child_with_parents()
+        editor = PersonEditor(project, person=child)
+
+        # Guard: add_parent must never be called for a foster/adoptive type.
+        called = {"add": False, "placement": None}
+        orig_add = editor._parent_service.add_parent
+
+        def _spy_add(**kwargs):
+            called["add"] = True
+            return orig_add(**kwargs)
+
+        monkeypatch.setattr(editor._parent_service, "add_parent", _spy_add)
+        monkeypatch.setattr(
+            editor,
+            "_open_placement_event_editor",
+            lambda event_type, parent_id=None: called.__setitem__(
+                "placement", (event_type, parent_id)
+            ),
+        )
+        # Auto-confirm the QMessageBox offer.
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *a, **k: QMessageBox.StandardButton.Yes,
+        )
+
+        # Select the foster parent and the 'fosterförälder' type, then add.
+        idx = editor._parent_person_combo.findData("foster_1")
+        editor._parent_person_combo.setCurrentIndex(idx)
+        type_idx = editor._parent_type_combo.findText("fosterförälder")
+        editor._parent_type_combo.setCurrentIndex(type_idx)
+        editor._on_add_parent()
+
+        assert called["add"] is False
+        assert called["placement"] == ("foster_home", "foster_1")
+
+    def test_add_foster_declined_when_user_cancels_offer(self, qapp, monkeypatch):
+        """Declining the offer adds no link and shows a directing message."""
+        child, project = self._child_with_parents()
+        editor = PersonEditor(project, person=child)
+
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *a, **k: QMessageBox.StandardButton.No,
+        )
+        before = len(editor._parent_service.get_parents_for_person("child_1"))
+
+        idx = editor._parent_person_combo.findData("foster_1")
+        editor._parent_person_combo.setCurrentIndex(idx)
+        type_idx = editor._parent_type_combo.findText("fosterförälder")
+        editor._parent_type_combo.setCurrentIndex(type_idx)
+        editor._on_add_parent()
+
+        after = len(editor._parent_service.get_parents_for_person("child_1"))
+        assert after == before
+        assert "Händelser" in editor._ui.status_label.text()
+
+    def test_add_biological_still_works(self, qapp):
+        """A biological add is unaffected and creates the link directly."""
+        child, project = self._child_with_parents()
+        new_parent = Person(
+            id="bio_2", sex="F", names=[Name(type="birth", given="Berit", surname="Ek")]
+        )
+        project.persons.append(new_parent)
+        editor = PersonEditor(project, person=child)
+
+        idx = editor._parent_person_combo.findData("bio_2")
+        editor._parent_person_combo.setCurrentIndex(idx)
+        type_idx = editor._parent_type_combo.findText("biologisk")
+        editor._parent_type_combo.setCurrentIndex(type_idx)
+        editor._on_add_parent()
+
+        parents = editor._parent_service.get_parents_for_person("child_1")
+        assert any(p.parent_id == "bio_2" and p.parentage_type == "biological" for p in parents)
+
+    def test_placement_event_flow_derives_foster_link_immediately(
+        self, qapp, monkeypatch
+    ):
+        """Creating a foster placement event derives its link without a reload.
+
+        End-to-end test chosen: rather than exercising only the three-line
+        committed sequence, this drives ``_open_placement_event_editor`` through
+        a simulated modal dialog. ``QDialog.exec`` is monkeypatched to locate the
+        inner EventEditor, invoke its real ``_on_save()`` (which populates
+        ``saved_event`` from the pre-added child subject + parent participant
+        rows) and return Accepted. This proves that the method's post-append call
+        to ``sync_parentage_links`` reconciles the derived ParentChildLink before
+        the parents table refreshes (Requirement 2.3).
+        """
+        from PySide6.QtWidgets import QDialog
+        from slaktbusken.ui.editors.event_editor import EventEditor
+
+        # Start from a clean project: one child, one prospective foster parent,
+        # no pre-existing families/links so the derived link must come from the
+        # new event's sync run.
+        child = Person(
+            id="child_1", sex="M", names=[Name(type="birth", given="Kalle", surname="Ek")]
+        )
+        foster = Person(
+            id="foster_1", sex="F", names=[Name(type="birth", given="Fia", surname="Dahl")]
+        )
+        project = ProjectData(
+            project=ProjectMetadata(title="Test"),
+            persons=[child, foster],
+        )
+        editor = PersonEditor(project, person=child)
+
+        def _fake_exec(dialog_self):
+            # Find the EventEditor embedded in the placement dialog and run its
+            # real save path with the participants the method pre-added.
+            inner = dialog_self.findChild(EventEditor)
+            assert inner is not None, "EventEditor not found in placement dialog"
+            inner._on_save()
+            return QDialog.DialogCode.Accepted
+
+        monkeypatch.setattr(QDialog, "exec", _fake_exec)
+
+        editor._open_placement_event_editor("foster_home", parent_id="foster_1")
+
+        # A foster_home event was created and committed to the project.
+        assert any(e.type == "foster_home" for e in project.events)
+
+        # The derived read-only foster link now exists from foster_1 to child_1,
+        # proving sync_parentage_links ran inside the method after the append.
+        links = [
+            link
+            for family in project.families
+            for link in family.parent_child_links
+            if link.child_id == "child_1"
+            and link.parent_id == "foster_1"
+            and link.parentage_type == "foster"
+        ]
+        assert links, "Expected a derived foster ParentChildLink after placement event"
