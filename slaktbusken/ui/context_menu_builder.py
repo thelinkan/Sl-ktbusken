@@ -95,6 +95,30 @@ class ContextMenuBuilder:
         action_show_map = menu.addAction("Visa på karta")
         action_show_map.setData(("show_on_map", person_id))
 
+        # Per-connection parentage override actions (Requirement 5.4).
+        #
+        # The design calls for a context action "on a child's parent
+        # connection" to set/clear ProjectData.connection_overrides[child_id].
+        # Hit-testing the thin ConnectionLineItem is unreliable and the panel's
+        # right-click path is built around PersonBoxItem, so the robust,
+        # codebase-consistent realization is to attach the four override actions
+        # to the PERSON menu: the right-clicked person is treated as the child
+        # whose parent connection is being overridden. The actions live in a
+        # dedicated submenu to avoid cluttering the top-level menu.
+        override_menu = menu.addMenu("Visa föräldratyp")
+
+        action_override_bio = override_menu.addAction("Visa biologiska föräldrar")
+        action_override_bio.setData(("override_biological", person_id))
+
+        action_override_foster = override_menu.addAction("Visa fosterföräldrar")
+        action_override_foster.setData(("override_foster", person_id))
+
+        action_override_adoptive = override_menu.addAction("Visa adoptivföräldrar")
+        action_override_adoptive.setData(("override_adoptive", person_id))
+
+        action_override_clear = override_menu.addAction("Återställ till standard")
+        action_override_clear.setData(("override_clear", person_id))
+
         # Separator before destructive action
         menu.addSeparator()
 

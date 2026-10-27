@@ -28,7 +28,12 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.name_parser import ParsedGivenName, parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
-from slaktbusken.persistence.settings_io import PersonBoxConfig
+from slaktbusken.persistence.settings_io import DiagramSettings, PersonBoxConfig
+from slaktbusken.ui.views.parent_display import (
+    ParentSetDisplay,
+    _connection_type_for,
+    resolve_parent_display,
+)
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
 from slaktbusken.ui.widgets.person_box import PersonBoxItem, _BOX_WIDTH
 from slaktbusken.ui.widgets.placeholder_box import PlaceholderBoxItem, PlaceholderRole
@@ -42,6 +47,30 @@ _PARENT_GAP = 50.0  # Horizontal gap between father and mother boxes
 _CHILD_V_GAP = 20.0  # Vertical gap between stacked children
 _BAR_DROP = 25.0  # Distance from parent bottom / sibling top to the bar
 _PLACEHOLDER_HEIGHT = 50.0  # Fixed height of placeholder boxes
+
+# Parentage types the resolver groups into one-or-two-parent derived sets.
+_NON_BIOLOGICAL_TYPES = frozenset({"foster", "adoptive"})
+
+# Badge labels painted on a derived parent-child connector when the diagram's
+# badge setting is enabled (Req 3.6). Biological edges never carry a badge.
+_BADGE_TEXT: dict[ConnectionType, str] = {
+    ConnectionType.FOSTER: "foster",
+    ConnectionType.ADOPTIVE: "adoptiv",
+}
+
+
+def _badge_for(
+    connection_type: ConnectionType, badge_enabled: bool
+) -> Optional[str]:
+    """Return the badge text for a connection, or ``None``.
+
+    Only foster/adoptive connectors carry a badge, and only when the diagram's
+    badge setting is on (Req 3.6/3.7). Biological ``PARENT_CHILD`` edges never
+    get a badge.
+    """
+    if not badge_enabled:
+        return None
+    return _BADGE_TEXT.get(connection_type)
 
 
 class FamilyView:
@@ -71,6 +100,7 @@ class FamilyView:
         ancestor_set: Optional[set[str]] = None,
         descendant_set: Optional[set[str]] = None,
         project_folder: Optional[Path] = None,
+        diagram_settings: Optional[DiagramSettings] = None,
     ) -> None:
         """Rendera familjediagrammet i scenen.
 
@@ -82,9 +112,25 @@ class FamilyView:
             ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
             descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
             project_folder: Path to the project folder for resolving media files.
+            diagram_settings: Diagram display settings driving parentage
+                show-level, the foster/adoptive badge, and the fallback. When
+                ``None`` the view behaves as before this feature: show-level
+                "biological", badge off, fallback on.
         """
         self._person_boxes = []
         self._placeholder_boxes = []
+
+        # Resolve the parentage display settings with safe pre-feature defaults
+        # so existing callers/tests that pass no DiagramSettings are unaffected.
+        if diagram_settings is not None:
+            show_level = diagram_settings.parentage_show_level
+            badge_enabled = diagram_settings.parentage_badge
+            fallback_enabled = diagram_settings.parentage_fallback
+        else:
+            show_level = "biological"
+            badge_enabled = False
+            fallback_enabled = True
+        connection_overrides = project_data.connection_overrides
 
         if ancestor_set is None:
             ancestor_set = set()
@@ -106,14 +152,50 @@ class FamilyView:
             logger.warning("Aktiv person %s hittades inte.", active_person_id)
             return
 
-        # Find the family where active person is a child (parent family)
+        # Collect every family where the active person is a child — the
+        # biological family and any derived foster/adoptive families — then let
+        # the shared resolver decide which Parent_Set(s) to draw (override >
+        # show-level > fallback). _find_parent_family is kept for the biological
+        # spine used elsewhere; the resolver works off the full set so a derived
+        # single-parent set can be drawn per the single-parent rule.
+        parent_families = _find_parent_families(project_data, active_person_id)
         parent_family = _find_parent_family(project_data, active_person_id)
 
-        # Siblings from parent family
+        parent_display = resolve_parent_display(
+            child_id=active_person_id,
+            parent_families=parent_families,
+            show_level=show_level,
+            override=connection_overrides.get(active_person_id),
+            fallback_enabled=fallback_enabled,
+        )
+
+        # The parent row draws the first resolved set. The existing layout has
+        # room for a single parent row; when the resolver returns several sets
+        # (e.g. show-level "all" with both a biological pair and a derived set),
+        # we draw the first and rely on the resolver's ordering (biological
+        # groups first) to keep the biological spine primary. This is a
+        # deliberate simplification documented here: the must-hold behaviour is
+        # the single-parent rule and the connection-type/badge wiring for the
+        # set that is drawn.
+        drawn_set: Optional[ParentSetDisplay] = (
+            parent_display.sets[0] if parent_display.sets else None
+        )
+
+        # Siblings come from the family that the drawn set belongs to so the
+        # sibling bar matches the parents being shown; fall back to the
+        # biological parent family when nothing is drawn (empty placeholders).
+        sibling_source = None
+        if drawn_set is not None and drawn_set.family_id is not None:
+            sibling_source = _find_family_by_id(
+                project_data, drawn_set.family_id
+            )
+        if sibling_source is None:
+            sibling_source = parent_family
+
         siblings: list[str] = []
-        if parent_family:
+        if sibling_source:
             siblings = [
-                cid for cid in parent_family.children if cid != active_person_id
+                cid for cid in sibling_source.children if cid != active_person_id
             ]
 
         # ===================================================================
@@ -169,96 +251,177 @@ class FamilyView:
         father_x = bar_center_x - _PARENT_GAP / 2.0 - _BOX_WIDTH
         mother_x = bar_center_x + _PARENT_GAP / 2.0
 
-        father_id: Optional[str] = None
-        mother_id: Optional[str] = None
-
-        if parent_family:
-            for partner in parent_family.partners:
-                if partner.role in ("father", "husband"):
-                    father_id = partner.person_id
-                elif partner.role in ("mother", "wife"):
-                    mother_id = partner.person_id
-                elif partner.role == "partner":
-                    # Same-sex or gender-neutral: assign to first empty slot
-                    if father_id is None:
-                        father_id = partner.person_id
-                    elif mother_id is None:
-                        mother_id = partner.person_id
-
-        # Create parent boxes to determine their heights
-        father_box: Optional[PersonBoxItem] = None
-        mother_box: Optional[PersonBoxItem] = None
-        father_height = _PLACEHOLDER_HEIGHT
-        mother_height = _PLACEHOLDER_HEIGHT
-
         # The bar is at a fixed distance above the sibling row
         bar_y = siblings_y - _BAR_DROP
 
-        # Parents are above the bar
-        # We need to know parent height first, so create the boxes:
-        if father_id:
-            p = _find_person(project_data, father_id)
-            if p:
-                display_data = _augment_display_data(p)
-                father_box = PersonBoxItem(father_id, display_data, config)
-                father_height = father_box.box_height
+        # The connection type / badge for the parent-child drop comes from the
+        # drawn set: biological -> PARENT_CHILD (no badge), foster/adoptive ->
+        # FOSTER/ADOPTIVE with an optional "foster"/"adoptiv" badge (Req 3.5,
+        # 3.6, 3.7). When nothing is drawn (empty placeholders) it stays the
+        # solid biological style.
+        parent_conn_type = (
+            drawn_set.connection_type if drawn_set else ConnectionType.PARENT_CHILD
+        )
+        parent_badge = _badge_for(parent_conn_type, badge_enabled)
 
-        if mother_id:
-            p = _find_person(project_data, mother_id)
-            if p:
-                display_data = _augment_display_data(p)
-                mother_box = PersonBoxItem(mother_id, display_data, config)
-                mother_height = mother_box.box_height
-
-        max_parent_height = max(father_height, mother_height)
-        parents_y = bar_y - _BAR_DROP - max_parent_height
-
-        # Place father
-        if father_box:
-            father_box.setPos(father_x, parents_y)
-            scene.addItem(father_box)
-            self._person_boxes.append(father_box)
-        else:
-            placeholder = PlaceholderBoxItem(
-                PlaceholderRole.FATHER,
-                family_id=parent_family.id if parent_family else None,
-            )
-            placeholder.setPos(father_x, parents_y)
-            scene.addItem(placeholder)
-            self._placeholder_boxes.append(placeholder)
-
-        # Place mother
-        if mother_box:
-            mother_box.setPos(mother_x, parents_y)
-            scene.addItem(mother_box)
-            self._person_boxes.append(mother_box)
-        else:
-            placeholder = PlaceholderBoxItem(
-                PlaceholderRole.MOTHER,
-                family_id=parent_family.id if parent_family else None,
-            )
-            placeholder.setPos(mother_x, parents_y)
-            scene.addItem(placeholder)
-            self._placeholder_boxes.append(placeholder)
-
-        # ===================================================================
-        # STEP 3: Connection lines — parents to sibling bar
-        # ===================================================================
-        # Horizontal partner line between father and mother (at their vertical center)
-        partner_line_y = parents_y + max_parent_height / 2.0
-        father_right = QPointF(father_x + _BOX_WIDTH, partner_line_y)
-        mother_left = QPointF(mother_x, partner_line_y)
-        scene.addItem(
-            ConnectionLineItem(father_right, mother_left, ConnectionType.PARTNER)
+        # A derived Parent_Set with exactly one parent is drawn as a single
+        # complete parent: one box, no partner connector, no second-parent
+        # placeholder, with the drop line centred on that parent (Req 3.8–3.10).
+        single_parent_mode = bool(
+            drawn_set is not None
+            and drawn_set.is_derived
+            and drawn_set.cardinality == 1
         )
 
-        # Vertical drop from the midpoint of the partner line down to the bar
-        partner_mid_x = (father_x + _BOX_WIDTH + mother_x) / 2.0
-        scene.addItem(ConnectionLineItem(
-            QPointF(partner_mid_x, partner_line_y),
-            QPointF(bar_center_x, bar_y),
-            ConnectionType.PARENT_CHILD,
-        ))
+        if single_parent_mode:
+            # -------- Single-parent derived set --------------------------------
+            assert drawn_set is not None
+            single_parent_id = drawn_set.links[0].parent_id
+            single_box: Optional[PersonBoxItem] = None
+            single_height = _PLACEHOLDER_HEIGHT
+            if single_parent_id:
+                p = _find_person(project_data, single_parent_id)
+                if p:
+                    display_data = _augment_display_data(p)
+                    single_box = PersonBoxItem(
+                        single_parent_id, display_data, config
+                    )
+                    single_height = single_box.box_height
+
+            parents_y = bar_y - _BAR_DROP - single_height
+            # Centre the single parent box over the sibling bar.
+            single_x = bar_center_x - _BOX_WIDTH / 2.0
+            if single_box:
+                single_box.setPos(single_x, parents_y)
+                scene.addItem(single_box)
+                self._person_boxes.append(single_box)
+
+            # Drop straight down from the single parent's bottom-centre to the
+            # bar — no partner line, no second-parent placeholder.
+            single_bottom = QPointF(bar_center_x, parents_y + single_height)
+            scene.addItem(ConnectionLineItem(
+                single_bottom,
+                QPointF(bar_center_x, bar_y),
+                parent_conn_type,
+                badge_text=parent_badge,
+            ))
+        else:
+            # -------- Two-slot layout (biological pair or two-parent set) ------
+            # A biological pair keeps its father/mother placeholder for an
+            # unknown slot (Req 3.10); a derived two-parent set draws both boxes
+            # with no placeholder (both parents are present).
+            is_two_parent_derived = bool(
+                drawn_set is not None
+                and drawn_set.is_derived
+                and drawn_set.cardinality == 2
+            )
+
+            father_id: Optional[str] = None
+            mother_id: Optional[str] = None
+
+            if is_two_parent_derived:
+                # Assign the set's two parents to the slots in link order.
+                assert drawn_set is not None
+                set_parent_ids = [
+                    link.parent_id
+                    for link in drawn_set.links
+                    if link.parent_id
+                ]
+                if len(set_parent_ids) >= 1:
+                    father_id = set_parent_ids[0]
+                if len(set_parent_ids) >= 2:
+                    mother_id = set_parent_ids[1]
+                slot_family_id = drawn_set.family_id
+            else:
+                # Biological pair: derive father/mother from the family roles.
+                slot_source = sibling_source if sibling_source else parent_family
+                if slot_source:
+                    for partner in slot_source.partners:
+                        if partner.role in ("father", "husband"):
+                            father_id = partner.person_id
+                        elif partner.role in ("mother", "wife"):
+                            mother_id = partner.person_id
+                        elif partner.role == "partner":
+                            # Same-sex / gender-neutral: first empty slot.
+                            if father_id is None:
+                                father_id = partner.person_id
+                            elif mother_id is None:
+                                mother_id = partner.person_id
+                slot_family_id = slot_source.id if slot_source else None
+
+            # Create parent boxes to determine their heights
+            father_box: Optional[PersonBoxItem] = None
+            mother_box: Optional[PersonBoxItem] = None
+            father_height = _PLACEHOLDER_HEIGHT
+            mother_height = _PLACEHOLDER_HEIGHT
+
+            if father_id:
+                p = _find_person(project_data, father_id)
+                if p:
+                    display_data = _augment_display_data(p)
+                    father_box = PersonBoxItem(father_id, display_data, config)
+                    father_height = father_box.box_height
+
+            if mother_id:
+                p = _find_person(project_data, mother_id)
+                if p:
+                    display_data = _augment_display_data(p)
+                    mother_box = PersonBoxItem(mother_id, display_data, config)
+                    mother_height = mother_box.box_height
+
+            max_parent_height = max(father_height, mother_height)
+            parents_y = bar_y - _BAR_DROP - max_parent_height
+
+            # Place father (or a placeholder only for a biological pair)
+            if father_box:
+                father_box.setPos(father_x, parents_y)
+                scene.addItem(father_box)
+                self._person_boxes.append(father_box)
+            elif not is_two_parent_derived:
+                placeholder = PlaceholderBoxItem(
+                    PlaceholderRole.FATHER,
+                    family_id=slot_family_id,
+                )
+                placeholder.setPos(father_x, parents_y)
+                scene.addItem(placeholder)
+                self._placeholder_boxes.append(placeholder)
+
+            # Place mother (or a placeholder only for a biological pair)
+            if mother_box:
+                mother_box.setPos(mother_x, parents_y)
+                scene.addItem(mother_box)
+                self._person_boxes.append(mother_box)
+            elif not is_two_parent_derived:
+                placeholder = PlaceholderBoxItem(
+                    PlaceholderRole.MOTHER,
+                    family_id=slot_family_id,
+                )
+                placeholder.setPos(mother_x, parents_y)
+                scene.addItem(placeholder)
+                self._placeholder_boxes.append(placeholder)
+
+            # ===============================================================
+            # STEP 3: Connection lines — parents to sibling bar
+            # ===============================================================
+            # Horizontal partner line between the two parent slots.
+            partner_line_y = parents_y + max_parent_height / 2.0
+            father_right = QPointF(father_x + _BOX_WIDTH, partner_line_y)
+            mother_left = QPointF(mother_x, partner_line_y)
+            scene.addItem(
+                ConnectionLineItem(
+                    father_right, mother_left, ConnectionType.PARTNER
+                )
+            )
+
+            # Vertical drop from the midpoint of the partner line to the bar,
+            # styled/badged per the drawn set's parentage type.
+            partner_mid_x = (father_x + _BOX_WIDTH + mother_x) / 2.0
+            scene.addItem(ConnectionLineItem(
+                QPointF(partner_mid_x, partner_line_y),
+                QPointF(bar_center_x, bar_y),
+                parent_conn_type,
+                badge_text=parent_badge,
+            ))
 
         # Horizontal sibling bar
         leftmost_center_x = siblings_start_x + _BOX_WIDTH / 2.0
@@ -346,34 +509,76 @@ class FamilyView:
             # Track the lowest point the spine reaches
             spine_end_y = cur_y
 
-            for fam_idx, family in enumerate(sib_partner_families):
-                other_partners = [
-                    fp for fp in family.partners
-                    if fp.person_id != box.person_id
-                ]
+            # Merge partner families that share the same set of *other* partners
+            # into one spouse block. A sibling can have several derived
+            # families with the identical partner set (e.g. a biological family
+            # and a foster family both with the same spouse); each merged block
+            # draws ONE spouse box and ONE "Lägg till barn" placeholder, with
+            # the children of every family in the group stacked beneath it.
+            partner_groups = _group_partner_families_by_partner_set(
+                box.person_id, sib_partner_families
+            )
 
+            for other_ids, group_families in partner_groups:
                 # Spouse box is indented to the right of the spine
                 spouse_x = sib_x
-                spouse_mid_y = cur_y  # will be set after placing
 
-                # Place spouse box
+                # The spouse is the first "other" partner of the shared set,
+                # taken from the first family that names it (preserves the
+                # pre-merge ordering for the common single-family case).
+                spouse_partner_id: Optional[str] = None
+                for fam in group_families:
+                    for fp in fam.partners:
+                        if fp.person_id != box.person_id:
+                            spouse_partner_id = fp.person_id
+                            break
+                    if spouse_partner_id is not None:
+                        break
+
+                # Place spouse box (once per merged block)
                 spouse_box_item: Optional[PersonBoxItem] = None
-                for fp in other_partners:
-                    sp = _find_person(project_data, fp.person_id)
+                if spouse_partner_id is not None:
+                    sp = _find_person(project_data, spouse_partner_id)
                     if sp:
                         display_data = _augment_display_data(sp)
                         spouse_box_item = PersonBoxItem(
-                            fp.person_id, display_data, config
+                            spouse_partner_id, display_data, config
                         )
                         spouse_box_item.setPos(spouse_x, cur_y)
                         scene.addItem(spouse_box_item)
                         self._person_boxes.append(spouse_box_item)
 
-                # If no spouse was found, show a placeholder for the missing parent
-                if spouse_box_item is None:
+                # The placeholder "owning" family: prefer a biological family in
+                # the group (so "Lägg till barn" / the missing-spouse placeholder
+                # keep the biological family_id as before the merge), otherwise
+                # the first family in the group.
+                owning_family = next(
+                    (
+                        fam for fam in group_families
+                        if not _is_derived_single_parent_family(fam)
+                    ),
+                    group_families[0],
+                )
+
+                # If no spouse was found, show a placeholder for the missing
+                # parent — UNLESS the whole group is derived single-parent
+                # foster/adoptive sets, where there is no implied second parent
+                # to add (Req 3.8, same single-parent suppression as the parent
+                # row). A biological family in the group keeps its placeholder.
+                group_is_derived_single = not other_ids and all(
+                    _is_derived_single_parent_family(fam)
+                    for fam in group_families
+                )
+                if spouse_box_item is None and group_is_derived_single:
+                    pass
+                elif spouse_box_item is None:
                     # Determine placeholder role based on the current person's role
                     current_partner = next(
-                        (fp for fp in family.partners if fp.person_id == box.person_id),
+                        (
+                            fp
+                            for fp in owning_family.partners
+                            if fp.person_id == box.person_id
+                        ),
                         None,
                     )
                     if current_partner and current_partner.role in ("mother", "wife"):
@@ -391,7 +596,7 @@ class FamilyView:
                             ph_role = PlaceholderRole.PARTNER
 
                     spouse_placeholder = PlaceholderBoxItem(
-                        ph_role, family_id=family.id
+                        ph_role, family_id=owning_family.id
                     )
                     spouse_placeholder.setPos(spouse_x, cur_y)
                     scene.addItem(spouse_placeholder)
@@ -417,16 +622,28 @@ class FamilyView:
                 cur_y += sp_height + _CHILD_V_GAP
 
                 # --- Children below spouse, stacked vertically ---
-                children_ids = [
-                    cid for cid in family.children
-                    if any(
-                        link.child_id == cid and link.parent_id == box.person_id
-                        for link in family.parent_child_links
-                    )
-                ]
+                # Union of children across the grouped families. Each child
+                # remembers the Family it belongs to so its connector style can
+                # come from the right family's parent_child_links.
+                merged_children: list[tuple[str, Family]] = []
+                seen_children: set[tuple[str, str]] = set()
+                for fam in group_families:
+                    for cid in fam.children:
+                        if not any(
+                            link.child_id == cid
+                            and link.parent_id == box.person_id
+                            for link in fam.parent_child_links
+                        ):
+                            continue
+                        key = (fam.id, cid)
+                        if key in seen_children:
+                            continue
+                        seen_children.add(key)
+                        merged_children.append((cid, fam))
+
                 child_center_x = spouse_x + _BOX_WIDTH / 2.0
 
-                for c_idx, child_id in enumerate(children_ids):
+                for child_id, child_family in merged_children:
                     cp = _find_person(project_data, child_id)
                     if cp:
                         display_data = _augment_display_data(cp)
@@ -435,24 +652,44 @@ class FamilyView:
                         scene.addItem(child_box)
                         self._person_boxes.append(child_box)
 
+                        # The child's connector style comes from its own
+                        # family's parent_child_link to the sibling: biological
+                        # -> PARENT_CHILD (solid, no badge), foster -> FOSTER,
+                        # adoptive -> ADOPTIVE (dashed + optional badge). Older
+                        # biological data with no explicit link defaults to
+                        # biological/PARENT_CHILD.
+                        child_link_type = next(
+                            (
+                                link.parentage_type
+                                for link in child_family.parent_child_links
+                                if link.child_id == child_id
+                                and link.parent_id == box.person_id
+                            ),
+                            "biological",
+                        )
+                        child_conn_type = _connection_type_for(child_link_type)
+                        child_badge = _badge_for(child_conn_type, badge_enabled)
+
                         # Vertical line from above to child top
                         scene.addItem(ConnectionLineItem(
                             QPointF(child_center_x, cur_y - _CHILD_V_GAP),
                             QPointF(child_center_x, cur_y),
-                            ConnectionType.PARENT_CHILD,
+                            child_conn_type,
+                            badge_text=child_badge,
                         ))
 
                         cur_y += child_box.box_height + _CHILD_V_GAP
 
-                # Placeholder for adding new child
+                # Placeholder for adding new child (one per merged block)
                 placeholder = PlaceholderBoxItem(
-                    PlaceholderRole.CHILD, family_id=family.id
+                    PlaceholderRole.CHILD, family_id=owning_family.id
                 )
                 placeholder.setPos(spouse_x, cur_y)
                 scene.addItem(placeholder)
                 self._placeholder_boxes.append(placeholder)
 
-                # Line to placeholder from above
+                # Line to placeholder from above — the add button is not a real
+                # child, so it keeps the solid PARENT_CHILD style with no badge.
                 scene.addItem(ConnectionLineItem(
                     QPointF(child_center_x, cur_y - _CHILD_V_GAP),
                     QPointF(child_center_x, cur_y),
@@ -563,6 +800,109 @@ def _find_parent_family(
         if person_id in family.children:
             return family
     return None
+
+
+def _find_parent_families(
+    project_data: ProjectData, person_id: str
+) -> list[Family]:
+    """Hitta alla familjer där personen är ett barn.
+
+    Till skillnad från :func:`_find_parent_family` returneras *alla* familjer
+    där personen förekommer som barn — både den biologiska familjen och
+    härledda foster-/adoptivfamiljer — i projektets ordning. Används för att
+    mata :func:`resolve_parent_display`.
+
+    Args:
+        project_data: Projektdata att söka i.
+        person_id: ID för barnet.
+
+    Returns:
+        Lista med alla familjer där personen är barn.
+    """
+    return [
+        family
+        for family in project_data.families
+        if person_id in family.children
+    ]
+
+
+def _find_family_by_id(
+    project_data: ProjectData, family_id: str
+) -> Optional[Family]:
+    """Hitta en familj via ID.
+
+    Args:
+        project_data: Projektdata att söka i.
+        family_id: Familjens ID.
+
+    Returns:
+        Family-instansen eller None om ej hittad.
+    """
+    for family in project_data.families:
+        if family.id == family_id:
+            return family
+    return None
+
+
+def _is_derived_single_parent_family(family: Family) -> bool:
+    """Return whether ``family`` is a derived single-parent foster/adoptive set.
+
+    A derived single-parent Parent_Set holds exactly one parent and all its
+    parent-child links are foster or adoptive. For such a partner family the
+    diagram suppresses the missing-spouse placeholder, since there is no implied
+    second foster/adoptive parent (Requirement 3.8).
+
+    Args:
+        family: The partner family being laid out in STEP 4.
+
+    Returns:
+        ``True`` when the family has one partner and only non-biological links.
+    """
+    if len(family.partners) != 1:
+        return False
+    link_types = {link.parentage_type for link in family.parent_child_links}
+    if not link_types:
+        return False
+    return link_types.issubset(_NON_BIOLOGICAL_TYPES)
+
+
+def _group_partner_families_by_partner_set(
+    person_id: str, families: list[Family]
+) -> list[tuple[frozenset[str], list[Family]]]:
+    """Group a person's partner families by their *other*-partner set.
+
+    STEP 4 draws one spouse block per distinct set of co-partners. A person may
+    have several derived :class:`Family` objects that share the same partner
+    (e.g. a biological family and a foster family both with the same spouse);
+    those must collapse into a single spouse block so the spouse box is drawn
+    once with the union of all children stacked beneath it.
+
+    Families are grouped by the frozenset of partner ids *excluding*
+    ``person_id``. The returned list preserves the first-appearance order of
+    each distinct other-partner set (in the original ``families`` order), and
+    each group preserves the original order of its member families.
+
+    Args:
+        person_id: The sibling/active person whose partner families are grouped.
+        families: The partner families as returned by ``_find_partner_families``.
+
+    Returns:
+        A list of ``(other_partner_ids, grouped_families)`` tuples, one per
+        distinct other-partner set, in stable first-appearance order.
+    """
+    order: list[frozenset[str]] = []
+    groups: dict[frozenset[str], list[Family]] = {}
+    for family in families:
+        other_ids = frozenset(
+            fp.person_id
+            for fp in family.partners
+            if fp.person_id != person_id
+        )
+        if other_ids not in groups:
+            groups[other_ids] = []
+            order.append(other_ids)
+        groups[other_ids].append(family)
+    return [(key, groups[key]) for key in order]
 
 
 def _find_partner_families(

@@ -42,10 +42,13 @@ class TestContextMenuBuilder:
     def test_menu_has_correct_action_count(
         self, builder: ContextMenuBuilder, parent_widget: QWidget
     ) -> None:
-        """The menu should contain exactly 11 entries (9 actions + separator + delete)."""
+        """The menu should contain exactly 12 entries.
+
+        9 actions + override submenu + separator + delete.
+        """
         menu = builder.build_person_menu("person_1", "main_1", parent_widget)
         actions = menu.actions()
-        assert len(actions) == 11
+        assert len(actions) == 12
 
     def test_action_order(
         self, builder: ContextMenuBuilder, parent_widget: QWidget
@@ -64,6 +67,7 @@ class TestContextMenuBuilder:
             "Visa släktskap med huvudpersonen",
             "Filtrera på DNA-träffar",
             "Visa på karta",
+            "Visa föräldratyp",  # override submenu
             "",  # separator
             "Ta bort person",
         ]
@@ -80,6 +84,10 @@ class TestContextMenuBuilder:
 
         for action in actions:
             if action.isSeparator():
+                continue
+            # The override submenu's action is a container with no data; its
+            # child actions carry the person_id and are checked separately.
+            if action.menu() is not None:
                 continue
             data = action.data()
             assert data is not None
@@ -104,8 +112,40 @@ class TestContextMenuBuilder:
             "show_on_map",
             "delete_person",
         ]
-        actual_types = [action.data()[0] for action in actions if not action.isSeparator()]
+        actual_types = [
+            action.data()[0]
+            for action in actions
+            if not action.isSeparator() and action.menu() is None
+        ]
         assert actual_types == expected_types
+
+    def test_override_submenu_actions(
+        self, builder: ContextMenuBuilder, parent_widget: QWidget
+    ) -> None:
+        """The 'Visa föräldratyp' submenu carries the four override actions.
+
+        Each override action must use the exact Swedish label and the
+        (action_type, person_id) data tuple (Requirement 5.4).
+        """
+        person_id = "child_7"
+        menu = builder.build_person_menu(person_id, "main_1", parent_widget)
+
+        # Find the submenu action by label.
+        submenu_action = next(
+            a for a in menu.actions() if a.text() == "Visa föräldratyp"
+        )
+        submenu = submenu_action.menu()
+        assert submenu is not None
+
+        sub_actions = submenu.actions()
+        actual = [(a.text(), a.data()) for a in sub_actions]
+        expected = [
+            ("Visa biologiska föräldrar", ("override_biological", person_id)),
+            ("Visa fosterföräldrar", ("override_foster", person_id)),
+            ("Visa adoptivföräldrar", ("override_adoptive", person_id)),
+            ("Återställ till standard", ("override_clear", person_id)),
+        ]
+        assert actual == expected
 
     def test_menu_parent_is_correct(
         self, builder: ContextMenuBuilder, parent_widget: QWidget
@@ -120,7 +160,7 @@ class TestContextMenuBuilder:
         """Menu should build correctly even when main_person_id is None."""
         menu = builder.build_person_menu("person_1", None, parent_widget)
         actions = menu.actions()
-        assert len(actions) == 11
+        assert len(actions) == 12
 
     @patch("slaktbusken.ui.context_menu_builder.QMessageBox.information")
     def test_show_relationship_same_as_main_shows_message(

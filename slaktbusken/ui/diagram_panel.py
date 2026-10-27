@@ -738,6 +738,7 @@ class DiagramPanel(QWidget):
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,
+                    diagram_settings=self._diagram_settings,
                 )
 
                 # Enable selection on person boxes
@@ -775,6 +776,7 @@ class DiagramPanel(QWidget):
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,
                     compact=ancestry_compact,
+                    diagram_settings=getattr(self, "_diagram_settings", None),
                 )
 
                 # Enable selection on person boxes
@@ -809,6 +811,11 @@ class DiagramPanel(QWidget):
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,
+                    diagram_settings=(
+                        self._diagram_settings
+                        if hasattr(self, "_diagram_settings")
+                        else None
+                    ),
                 )
 
                 # Aktivera markering på personrutor

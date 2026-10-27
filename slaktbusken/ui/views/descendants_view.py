@@ -31,7 +31,11 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.name_parser import ParsedGivenName, parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
-from slaktbusken.persistence.settings_io import PersonBoxConfig
+from slaktbusken.persistence.settings_io import DiagramSettings, PersonBoxConfig
+from slaktbusken.ui.views.parent_display import (
+    link_identity,
+    resolve_parent_display,
+)
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
 from slaktbusken.ui.widgets.person_box import PersonBoxItem, _BOX_WIDTH
 
@@ -69,6 +73,7 @@ class DescendantsView:
         ancestor_set: Optional[set[str]] = None,
         descendant_set: Optional[set[str]] = None,
         project_folder: Optional[Path] = None,
+        diagram_settings: Optional[DiagramSettings] = None,
     ) -> None:
         """Rendera ättlingsdiagrammet i scenen.
 
@@ -81,9 +86,31 @@ class DescendantsView:
             ancestor_set: Mängd av person-ID:n som är direkta förfäder till huvudpersonen.
             descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
             project_folder: Path to the project folder for resolving media files.
+            diagram_settings: The active :class:`DiagramSettings` supplying the
+                Show_Level, badge, and fallback flags. When ``None`` the view
+                falls back to Show_Level ``"biological"``, badge off, fallback
+                on — exactly the pre-feature behaviour, so existing callers and
+                tests keep drawing biological descendants unchanged.
         """
         self._person_boxes = []
         self._project_folder = project_folder
+        # Resolve the parentage display settings with safe, pre-feature defaults.
+        self._show_level = (
+            diagram_settings.parentage_show_level
+            if diagram_settings is not None
+            else "biological"
+        )
+        self._badge_enabled = (
+            diagram_settings.parentage_badge if diagram_settings is not None else False
+        )
+        self._fallback_enabled = (
+            diagram_settings.parentage_fallback if diagram_settings is not None else True
+        )
+        self._overrides = dict(project_data.connection_overrides)
+        # Per-render cache of resolver results, keyed by child id, so the
+        # resolver is called at most once per child within one render.
+        self._display_cache: dict[str, dict[str, ConnectionType]] = {}
+        self._project_data = project_data
 
         if ancestor_set is None:
             ancestor_set = set()
@@ -98,13 +125,15 @@ class DescendantsView:
             logger.warning("Aktiv person %s hittades inte.", active_person_id)
             return
 
-        # Samla in ättlingar
-        descendants_by_gen = collect_descendants(project_data, active_person_id, depth)
+        # Bygg layoutträd: beräkna antal ättlingar per generation för att
+        # bestämma vertikala positioner. Trädbygget gaten är resolver-baserad:
+        # en förälder→barn-kant tas bara med när upplösaren faktiskt ritar en
+        # länk från denna förälder till detta barn under aktuell show-level/
+        # override/fallback (biologiska kanter dras som idag).
+        tree = self._build_layout_tree(project_data, active_person_id, depth)
 
-        # Kontrollera om inga ättlingar hittades (inga barn alls)
-        has_descendants = any(
-            len(persons) > 0 for gen, persons in descendants_by_gen.items() if gen > 0
-        )
+        # Kontrollera om inga ättlingar hittades (inga barn alls efter gating)
+        has_descendants = bool(tree.children)
 
         if not has_descendants:
             # Visa meddelande om inga ättlingar
@@ -128,11 +157,6 @@ class DescendantsView:
             msg.setPos(0, _BOX_HEIGHT_ESTIMATE + 20)
             return
 
-        # Bygg layoutträd: beräkna antal ättlingar per generation
-        # för att bestämma vertikala positioner
-        # Vi behöver bygga ett träd med position-data
-        tree = _build_layout_tree(project_data, active_person_id, depth)
-
         # Beräkna vertikal storlek för varje nod (antal löv under den)
         _compute_subtree_sizes(tree)
 
@@ -144,6 +168,163 @@ class DescendantsView:
 
         # Rita anslutningslinjer
         self._render_connections(scene, tree)
+
+    # ------------------------------------------------------------------
+    # Resolver-based edge gating and styling
+    # ------------------------------------------------------------------
+
+    def _connection_types_for_child(
+        self, project_data: ProjectData, child_id: str
+    ) -> dict[str, ConnectionType]:
+        """Return, for ``child_id``, the connection type of each drawn link.
+
+        Calls :func:`resolve_parent_display` once per child (cached within one
+        render) with the active Show_Level, the child's Connection_Override,
+        and the Parentage_Fallback flag, and returns a mapping from the
+        parent id of each *drawn* link to the :class:`ConnectionType` that link
+        should be rendered with. A parent absent from the mapping means the
+        resolver does not draw an edge from that parent to this child under the
+        current settings, so the descendants view must not show the child
+        through that parent (Req 4.6).
+        """
+        cached = self._display_cache.get(child_id)
+        if cached is not None:
+            return cached
+
+        families = [
+            family
+            for family in project_data.families
+            if child_id in family.children
+        ]
+        display = resolve_parent_display(
+            child_id,
+            families,
+            self._show_level,
+            self._overrides.get(child_id),
+            self._fallback_enabled,
+        )
+        by_parent: dict[str, ConnectionType] = {}
+        for link in display.links_to_draw:
+            if link.parent_id is None:
+                continue
+            by_parent[link.parent_id] = display.connection_type_for[
+                link_identity(link)
+            ]
+        self._display_cache[child_id] = by_parent
+        return by_parent
+
+    def _resolve_child_edge(
+        self,
+        project_data: ProjectData,
+        parent_id: str,
+        child_id: str,
+    ) -> Optional[tuple[ConnectionType, Optional[str]]]:
+        """Resolve the parent→child connector for the descendants view.
+
+        Returns ``(connection_type, badge_text)`` when the resolver draws a
+        link from ``parent_id`` down to ``child_id`` under the current
+        settings, or ``None`` when it does not (so the edge — and the child
+        reached only through it — must be skipped). ``badge_text`` is
+        ``"foster"``/``"adoptiv"`` for a foster/adoptive edge when the badge
+        setting is on, else ``None``. Biological edges keep
+        ``ConnectionType.PARENT_CHILD`` and no badge, exactly as before.
+        """
+        by_parent = self._connection_types_for_child(project_data, child_id)
+        connection_type = by_parent.get(parent_id)
+        if connection_type is None:
+            return None
+        badge_text: Optional[str] = None
+        if self._badge_enabled:
+            if connection_type == ConnectionType.FOSTER:
+                badge_text = "foster"
+            elif connection_type == ConnectionType.ADOPTIVE:
+                badge_text = "adoptiv"
+        return connection_type, badge_text
+
+    def _gated_children(
+        self, project_data: ProjectData, parent_id: str
+    ) -> list[tuple[str, ConnectionType, Optional[str]]]:
+        """Return the drawable children of ``parent_id`` with their edge style.
+
+        Mirrors :func:`_find_children` (scanning families where ``parent_id`` is
+        a partner and names a child) but keeps only the children for which the
+        shared resolver draws a parent→child link under the active Show_Level/
+        override/fallback, and pairs each kept child with the connection type
+        and badge for its connector. Biological children under the default
+        settings are kept with ``PARENT_CHILD``, so the existing geometry and
+        recursion are preserved.
+        """
+        result: list[tuple[str, ConnectionType, Optional[str]]] = []
+        seen: set[str] = set()
+        for family in project_data.families:
+            is_partner = any(
+                partner.person_id == parent_id for partner in family.partners
+            )
+            if not is_partner:
+                continue
+            for child_id in family.children:
+                if child_id in seen:
+                    continue
+                has_link = any(
+                    link.child_id == child_id and link.parent_id == parent_id
+                    for link in family.parent_child_links
+                )
+                if not has_link:
+                    continue
+                resolved = self._resolve_child_edge(
+                    project_data, parent_id, child_id
+                )
+                if resolved is None:
+                    continue
+                connection_type, badge_text = resolved
+                seen.add(child_id)
+                result.append((child_id, connection_type, badge_text))
+        return result
+
+    def _build_layout_tree(
+        self,
+        project_data: ProjectData,
+        person_id: str,
+        depth: int,
+    ) -> _TreeNode:
+        """Bygg ett gatat layoutträd för ättlingsdiagrammet.
+
+        Som :func:`_build_layout_tree` men varje förälder→barn-kant gaten av
+        den delade upplösaren: endast barn vars länk faktiskt ritas under
+        aktuell show-level/override/fallback tas med, och varje barnnod bär
+        anslutningstyp och badge för sin inkommande kant.
+
+        Args:
+            project_data: Projektdata.
+            person_id: Startpersonens ID.
+            depth: Maximalt djup att traversera.
+
+        Returns:
+            Rotnoden i layoutträdet.
+        """
+        root = _TreeNode(person_id, 0)
+        visited: set[str] = {person_id}
+
+        queue: list[_TreeNode] = [root]
+
+        while queue:
+            node = queue.pop(0)
+            if node.generation >= depth:
+                continue
+
+            for child_id, connection_type, badge_text in self._gated_children(
+                project_data, node.person_id
+            ):
+                if child_id in visited:
+                    continue  # Undvik cykler
+                visited.add(child_id)
+                child_node = _TreeNode(child_id, node.generation + 1)
+                child_node.connection_type = connection_type
+                child_node.badge_text = badge_text
+                node.children.append(child_node)
+                queue.append(child_node)
+
+        return root
 
     def _render_tree(
         self,
@@ -209,25 +390,34 @@ class DescendantsView:
             child_left_x = child_node.x
             child_mid_y = child_node.y + _BOX_HEIGHT_ESTIMATE / 2.0
 
+            # Connection style for this parent→child edge. Biological edges keep
+            # the solid PARENT_CHILD style with no badge; foster/adoptive edges
+            # carry their own dashed style and an optional badge. The badge is
+            # painted once, on the vertical mid-segment, so it is not repeated
+            # across the three orthogonal segments.
+            conn_type = child_node.connection_type
+            badge = child_node.badge_text
+
             # Segment 1: horisontell från förälder till midpunkt
             scene.addItem(ConnectionLineItem(
                 QPointF(parent_right_x, parent_mid_y),
                 QPointF(mid_x, parent_mid_y),
-                ConnectionType.PARENT_CHILD,
+                conn_type,
             ))
 
             # Segment 2: vertikal från förälder-y till barn-y vid midpunkt
             scene.addItem(ConnectionLineItem(
                 QPointF(mid_x, parent_mid_y),
                 QPointF(mid_x, child_mid_y),
-                ConnectionType.PARENT_CHILD,
+                conn_type,
+                badge_text=badge,
             ))
 
             # Segment 3: horisontell från midpunkt till barn
             scene.addItem(ConnectionLineItem(
                 QPointF(mid_x, child_mid_y),
                 QPointF(child_left_x, child_mid_y),
-                ConnectionType.PARENT_CHILD,
+                conn_type,
             ))
 
             # Rekursivt för barnets barn
@@ -279,7 +469,16 @@ class _TreeNode:
         y: Beräknad Y-position.
     """
 
-    __slots__ = ("person_id", "generation", "children", "subtree_size", "x", "y")
+    __slots__ = (
+        "person_id",
+        "generation",
+        "children",
+        "subtree_size",
+        "x",
+        "y",
+        "connection_type",
+        "badge_text",
+    )
 
     def __init__(self, person_id: str, generation: int) -> None:
         """Skapa en trädnod.
@@ -294,50 +493,12 @@ class _TreeNode:
         self.subtree_size: int = 1
         self.x: float = 0.0
         self.y: float = 0.0
-
-
-def _build_layout_tree(
-    project_data: ProjectData,
-    person_id: str,
-    depth: int,
-) -> _TreeNode:
-    """Bygg ett layoutträd för ättlingsdiagrammet.
-
-    Traverserar ättlingar BFS och bygger ett träd med noder.
-    Hanterar att en person kan förekomma i flera familjer som
-    partner.
-
-    Args:
-        project_data: Projektdata.
-        person_id: Startpersonens ID.
-        depth: Maximalt djup att traversera.
-
-    Returns:
-        Rotnoden i layoutträdet.
-    """
-    root = _TreeNode(person_id, 0)
-    visited: set[str] = {person_id}
-
-    # BFS med nod-referens
-    queue: list[_TreeNode] = [root]
-
-    while queue:
-        node = queue.pop(0)
-        if node.generation >= depth:
-            continue
-
-        # Hitta alla barn till denna person
-        children_ids = _find_children(project_data, node.person_id)
-
-        for child_id in children_ids:
-            if child_id in visited:
-                continue  # Undvik cykler
-            visited.add(child_id)
-            child_node = _TreeNode(child_id, node.generation + 1)
-            node.children.append(child_node)
-            queue.append(child_node)
-
-    return root
+        # Connection style for the edge from this node's parent down to it.
+        # Biological descendants keep the solid PARENT_CHILD style (default);
+        # foster/adoptive descendants carry FOSTER/ADOPTIVE and an optional
+        # badge. The root node has no incoming edge and leaves these defaults.
+        self.connection_type: ConnectionType = ConnectionType.PARENT_CHILD
+        self.badge_text: Optional[str] = None
 
 
 def _compute_subtree_sizes(node: _TreeNode) -> int:

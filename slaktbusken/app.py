@@ -25,6 +25,48 @@ from slaktbusken.ui.main_window import MainWindow
 logger = logging.getLogger(__name__)
 
 
+# Maps the context-menu override action types to the parentage value written
+# into ProjectData.connection_overrides. "override_clear" removes the key.
+_OVERRIDE_ACTION_VALUES: dict[str, str] = {
+    "override_biological": "biological",
+    "override_foster": "foster",
+    "override_adoptive": "adoptive",
+}
+
+
+def apply_connection_override(
+    overrides: dict[str, str], action_type: str, person_id: str
+) -> bool:
+    """Write or clear a child's parentage override in the overrides dict.
+
+    Pure dict mutation, factored out of the GUI handler so it can be unit
+    tested without a Qt application. For the three set actions the child's
+    entry is set to ``biological``/``foster``/``adoptive``; for
+    ``override_clear`` the entry is removed if present
+    (Requirements 5.1, 5.4, 5.5).
+
+    Args:
+        overrides: The ``ProjectData.connection_overrides`` dict to mutate.
+        action_type: One of ``override_biological``, ``override_foster``,
+            ``override_adoptive``, or ``override_clear``.
+        person_id: The child whose override is being set or cleared.
+
+    Returns:
+        ``True`` if the dict was changed, ``False`` otherwise (e.g. clearing a
+        child that had no override, or setting the value it already holds).
+    """
+    if action_type == "override_clear":
+        return overrides.pop(person_id, None) is not None
+
+    value = _OVERRIDE_ACTION_VALUES.get(action_type)
+    if value is None:
+        return False
+    if overrides.get(person_id) == value:
+        return False
+    overrides[person_id] = value
+    return True
+
+
 class Application:
     """Application shell that wires services to the UI.
 
@@ -297,8 +339,45 @@ class Application:
             self._handle_filter_dna_matches(person_id)
         elif action_type == "show_on_map":
             self.show_person_map(person_id)
+        elif action_type in (
+            "override_biological",
+            "override_foster",
+            "override_adoptive",
+            "override_clear",
+        ):
+            self._handle_connection_override(action_type, person_id)
         else:
             logger.warning("Unknown context menu action: %s", action_type)
+
+    def _handle_connection_override(self, action_type: str, person_id: str) -> None:
+        """Set or clear a child's per-connection parentage override.
+
+        Writes/clears ``ProjectData.connection_overrides[person_id]`` and
+        redraws the active diagram so the override takes visual effect
+        immediately (Requirements 5.1, 5.4, 5.5). The resolver
+        (``resolve_parent_display``) already consumes the dict, so writing it
+        plus a redraw is sufficient; the serializer persists the dict on save.
+
+        Args:
+            action_type: One of ``override_biological``, ``override_foster``,
+                ``override_adoptive``, or ``override_clear``.
+            person_id: The child whose parent connection is being overridden.
+        """
+        data = self.project_service.data
+        changed = apply_connection_override(
+            data.connection_overrides, action_type, person_id
+        )
+        if not changed:
+            return
+
+        # Mirror how the service marks direct data mutations dirty so the
+        # override is persisted on the next save (Requirement 5.5).
+        self.project_service._dirty = True
+        self._update_status()
+
+        # Lightest redraw: the panel re-renders from the same ProjectData
+        # object the views read connection_overrides from.
+        self.main_window.diagram_panel._refresh_diagram()
 
     def _handle_context_add_relative(self, role: str, person_id: str) -> None:
         """Handle adding a relative via context menu.

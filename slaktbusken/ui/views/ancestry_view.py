@@ -26,7 +26,8 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.name_parser import ParsedGivenName, parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
-from slaktbusken.persistence.settings_io import PersonBoxConfig
+from slaktbusken.persistence.settings_io import DiagramSettings, PersonBoxConfig
+from slaktbusken.ui.views.parent_display import resolve_parent_display
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
 from slaktbusken.ui.widgets.person_box import PersonBoxItem, _BOX_WIDTH
 from slaktbusken.ui.widgets.placeholder_box import PlaceholderBoxItem, PlaceholderRole
@@ -67,6 +68,7 @@ class AncestryView:
         descendant_set: Optional[set[str]] = None,
         project_folder: Optional[Path] = None,
         compact: bool = False,
+        diagram_settings: Optional[DiagramSettings] = None,
     ) -> None:
         """Rendera anordiagrammet i scenen.
 
@@ -80,11 +82,35 @@ class AncestryView:
             descendant_set: Mängd av person-ID:n som är direkta ättlingar till huvudpersonen.
             project_folder: Path to the project folder for resolving media files.
             compact: If True, reduce vertical space for branches with fewer generations.
+            diagram_settings: Diagram display settings controlling the parentage
+                Show_Level, the "foster"/"adoptiv" badge, and the Parentage_Fallback.
+                When ``None`` the view defaults to Show_Level "biological", badge off,
+                and fallback on, so existing callers/tests keep their behaviour.
         """
         self._person_boxes = []
         self._placeholder_boxes = []
         self._placeholder_y_map: dict[tuple[int, int], float] = {}
         self._project_folder = project_folder
+
+        # Resolve parentage display settings with safe defaults so callers and
+        # tests that pass no DiagramSettings keep the biological-only behaviour.
+        if diagram_settings is not None:
+            self._show_level = diagram_settings.parentage_show_level
+            self._badge_enabled = diagram_settings.parentage_badge
+            self._fallback_enabled = diagram_settings.parentage_fallback
+        else:
+            self._show_level = "biological"
+            self._badge_enabled = False
+            self._fallback_enabled = True
+        self._connection_overrides = dict(project_data.connection_overrides)
+        # Per-slot connection type and badge, keyed by (gen, pos) of the ancestor.
+        # Filled while resolving each person's parents; PARENT_CHILD + no badge
+        # for biological, FOSTER/ADOPTIVE + optional badge for derived sets.
+        self._slot_connection: dict[tuple[int, int], ConnectionType] = {}
+        self._slot_badge: dict[tuple[int, int], Optional[str]] = {}
+        # Parent slots (gen, pos) that a derived single-parent set deliberately
+        # leaves empty: no placeholder box and no connector are drawn for them.
+        self._suppressed_slots: set[tuple[int, int]] = set()
 
         if ancestor_set is None:
             ancestor_set = set()
@@ -121,22 +147,13 @@ class AncestryView:
                 if person_id is None:
                     continue
 
-                # Find parent family for this person
-                parent_family = _find_parent_family(project_data, person_id)
-                father_id: Optional[str] = None
-                mother_id: Optional[str] = None
-
-                if parent_family:
-                    for partner in parent_family.partners:
-                        if partner.role in ("father", "husband"):
-                            father_id = partner.person_id
-                        elif partner.role in ("mother", "wife"):
-                            mother_id = partner.person_id
-                        elif partner.role == "partner":
-                            if father_id is None:
-                                father_id = partner.person_id
-                            elif mother_id is None:
-                                mother_id = partner.person_id
+                # Resolve which parents to draw for this person via the shared
+                # resolver (biological pair, derived two-parent set, or derived
+                # single-parent set). The helper records the per-slot connection
+                # type / badge / suppression for the child's two parent slots.
+                father_id, mother_id = self._resolve_parent_slots(
+                    project_data, person_id, next_gen, pos
+                )
 
                 # Always store both parent slots (for placeholder rendering)
                 ancestor_map[(next_gen, pos * 2)] = father_id
@@ -201,7 +218,10 @@ class AncestryView:
                     box_map[(gen, pos)] = box
                 else:
                     placeholder_positions.append((gen, pos, col_x))
-            elif gen > 0:
+            elif gen > 0 and (gen, pos) not in self._suppressed_slots:
+                # A slot suppressed by a derived single-parent set gets no
+                # placeholder box (Requirement 3.8); a biological unknown parent
+                # still gets its father/mother placeholder (Requirement 3.10).
                 parent_pos = pos // 2
                 parent_id = ancestor_map.get((gen - 1, parent_pos))
                 if parent_id is not None:
@@ -327,6 +347,11 @@ class AncestryView:
             child_pos = pos // 2
             child_id = ancestor_map.get((child_gen, child_pos))
 
+            # A slot suppressed by a derived single-parent set draws neither a
+            # placeholder nor a connector to an absent second parent (Req 3.8).
+            if (gen, pos) in self._suppressed_slots:
+                continue
+
             has_ancestor = person_id is not None and _find_person(project_data, person_id) is not None
             has_placeholder_at_pos = self._has_item_at_gen_pos(gen, pos)
 
@@ -334,6 +359,14 @@ class AncestryView:
                 continue
             if not has_ancestor and not has_placeholder_at_pos:
                 continue
+
+            # The connector style comes from the resolved Parent_Set of this
+            # ancestor slot (biological PARENT_CHILD, or FOSTER/ADOPTIVE for a
+            # derived set), not a hardcoded PARENT_CHILD (Req 3.5).
+            conn_type = self._slot_connection.get(
+                (gen, pos), ConnectionType.PARENT_CHILD
+            )
+            badge_text = self._slot_badge.get((gen, pos))
 
             child_box = box_map.get((child_gen, child_pos))
             ancestor_box = box_map.get((gen, pos))
@@ -358,18 +391,139 @@ class AncestryView:
             scene.addItem(ConnectionLineItem(
                 QPointF(child_col_x + _BOX_WIDTH, child_mid_y),
                 QPointF(mid_x, child_mid_y),
-                ConnectionType.PARENT_CHILD,
+                conn_type,
             ))
             scene.addItem(ConnectionLineItem(
                 QPointF(mid_x, child_mid_y),
                 QPointF(mid_x, ancestor_mid_y),
-                ConnectionType.PARENT_CHILD,
+                conn_type,
             ))
             scene.addItem(ConnectionLineItem(
                 QPointF(mid_x, ancestor_mid_y),
                 QPointF(col_x, ancestor_mid_y),
-                ConnectionType.PARENT_CHILD,
+                conn_type,
+                badge_text=badge_text,
             ))
+
+    def _resolve_parent_slots(
+        self,
+        project_data: ProjectData,
+        person_id: str,
+        parent_gen: int,
+        child_pos: int,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Resolve the father/mother slots for one person via the resolver.
+
+        Collects every family where ``person_id`` is a child (biological plus
+        derived foster/adoptive) and runs :func:`resolve_parent_display` with the
+        current Show_Level, the child's Connection_Override, and the
+        Parentage_Fallback flag. The returned Parent_Sets are mapped into the two
+        ancestry slots at ``(parent_gen, child_pos * 2)`` (father slot, even) and
+        ``(parent_gen, child_pos * 2 + 1)`` (mother slot, odd):
+
+        * A **biological pair** (``is_derived`` False) keeps the existing
+          behaviour: its father-role parent goes in the even slot, its
+          mother-role parent in the odd slot, and a missing parent leaves the
+          slot ``None`` so the normal father/mother placeholder is drawn
+          (Requirement 3.10).
+        * A **derived two-parent set** fills both slots with its two parents; the
+          slot connectors use the set's FOSTER/ADOPTIVE connection type.
+        * A **derived single-parent set** occupies one slot with its single
+          parent and marks the other slot *suppressed* so no placeholder box and
+          no connector are drawn there (Requirement 3.8).
+
+        The ancestry grid is a strict two-slot binary pedigree. When the resolver
+        returns several drawable sets for one person (e.g. Show_Level "all" with a
+        biological pair plus a foster set, or two derived sets), only two slots
+        exist, so this view draws the first biological pair if present, otherwise
+        the first derived set, and logs a debug note. The override/show-level
+        controls are the intended mechanism for choosing among multiple sets in
+        this view; richer multi-set layout is out of scope here (see design
+        "Out of Scope").
+
+        Returns:
+            ``(father_slot_id, mother_slot_id)`` — the person ids placed in the
+            even and odd slots, either of which may be ``None``.
+        """
+        even_slot = (parent_gen, child_pos * 2)
+        odd_slot = (parent_gen, child_pos * 2 + 1)
+
+        parent_families = [
+            fam for fam in project_data.families if person_id in fam.children
+        ]
+        if not parent_families:
+            return None, None
+
+        override = self._connection_overrides.get(person_id)
+        display = resolve_parent_display(
+            child_id=person_id,
+            parent_families=parent_families,
+            show_level=self._show_level,
+            override=override,
+            fallback_enabled=self._fallback_enabled,
+        )
+        if not display.sets:
+            return None, None
+
+        # Pick the set to draw for this person's two slots. Prefer a biological
+        # pair (the spine); otherwise take the first derived set. The ancestry
+        # grid only has two slots per person, so multiple sets cannot all be
+        # drawn here.
+        biological_sets = [s for s in display.sets if not s.is_derived]
+        if biological_sets:
+            chosen = biological_sets[0]
+        else:
+            chosen = display.sets[0]
+        if len(display.sets) > 1:
+            logger.debug(
+                "Person %s has %d parent sets; ancestry view draws one "
+                "(override/show-level selects among them).",
+                person_id,
+                len(display.sets),
+            )
+
+        parent_ids = [link.parent_id for link in chosen.links if link.parent_id]
+
+        if not chosen.is_derived:
+            # Biological pair: honour father/mother roles so the existing slot
+            # geometry and placeholders are preserved exactly.
+            family = next(
+                (f for f in parent_families if f.id == chosen.family_id),
+                None,
+            )
+            father_id, mother_id = _split_parents_by_role(family, parent_ids)
+            # Biological slots keep the solid PARENT_CHILD style and no badge.
+            self._slot_connection[even_slot] = ConnectionType.PARENT_CHILD
+            self._slot_connection[odd_slot] = ConnectionType.PARENT_CHILD
+            return father_id, mother_id
+
+        # Derived set (foster/adoptive). Connectors use the set's type and an
+        # optional badge; no placeholder is drawn for an absent second parent.
+        badge_text = self._badge_text_for(chosen.connection_type)
+        if len(parent_ids) >= 2:
+            # Two-parent derived set: fill both slots.
+            self._slot_connection[even_slot] = chosen.connection_type
+            self._slot_connection[odd_slot] = chosen.connection_type
+            self._slot_badge[even_slot] = badge_text
+            self._slot_badge[odd_slot] = badge_text
+            return parent_ids[0], parent_ids[1]
+
+        # Single-parent derived set: occupy the even (father) slot and suppress
+        # the odd slot so no second-parent placeholder/connector is drawn.
+        self._slot_connection[even_slot] = chosen.connection_type
+        self._slot_badge[even_slot] = badge_text
+        self._suppressed_slots.add(odd_slot)
+        return (parent_ids[0] if parent_ids else None), None
+
+    def _badge_text_for(self, connection_type: ConnectionType) -> Optional[str]:
+        """Return the badge label for a derived connection, if badges are on."""
+        if not self._badge_enabled:
+            return None
+        if connection_type == ConnectionType.FOSTER:
+            return "foster"
+        if connection_type == ConnectionType.ADOPTIVE:
+            return "adoptiv"
+        return None
 
     def _add_placeholder(
         self,
@@ -584,6 +738,51 @@ def _find_parent_family(
         if person_id in family.children:
             return family
     return None
+
+
+def _split_parents_by_role(
+    family: Optional[Family], parent_ids: list[str]
+) -> tuple[Optional[str], Optional[str]]:
+    """Split a biological family's parents into (father_slot, mother_slot).
+
+    Mirrors the original slot assignment: a ``father``/``husband`` partner goes
+    in the even (father) slot and a ``mother``/``wife`` partner in the odd
+    (mother) slot; generic ``partner`` roles fill father then mother. Only
+    parents present in ``parent_ids`` (the links the resolver chose to draw) are
+    placed, so a missing parent leaves its slot ``None`` for the normal
+    placeholder (Requirement 3.10).
+
+    Args:
+        family: The biological family whose partner roles are read, or ``None``.
+        parent_ids: The parent ids of the drawn biological links.
+
+    Returns:
+        ``(father_slot_id, mother_slot_id)``, either of which may be ``None``.
+    """
+    father_id: Optional[str] = None
+    mother_id: Optional[str] = None
+    drawn = set(parent_ids)
+    if family is not None:
+        for partner in family.partners:
+            if partner.person_id not in drawn:
+                continue
+            if partner.role in ("father", "husband"):
+                father_id = partner.person_id
+            elif partner.role in ("mother", "wife"):
+                mother_id = partner.person_id
+            elif partner.role == "partner":
+                if father_id is None:
+                    father_id = partner.person_id
+                elif mother_id is None:
+                    mother_id = partner.person_id
+    # Fallback: if the family had no partner metadata matching the drawn links
+    # (defensive), fill slots in order so no parent is lost.
+    leftover = [pid for pid in parent_ids if pid not in (father_id, mother_id)]
+    if father_id is None and leftover:
+        father_id = leftover.pop(0)
+    if mother_id is None and leftover:
+        mother_id = leftover.pop(0)
+    return father_id, mother_id
 
 
 def _build_display_data(

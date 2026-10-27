@@ -80,7 +80,7 @@ Qt event loop.
     - Precedence override > show-level > fallback; `non_biological` draws both foster and adoptive; override for a missing set ignored; connection type chosen from each drawn link's `parentage_type`; fallback with both non-biological types draws both
     - Return drawn links grouped by Parent_Set with each set's cardinality (one or two parents), so views can render a one-parent derived set without a partner connector or second-parent placeholder
     - _Requirements: 3.8, 3.9, 3.10, 4.1, 4.2, 4.3, 4.4, 5.2, 5.3, 5.6, 6.2, 6.3, 6.4, 6.5, 6.6_
-  - [ ] 4.2 Write property test for display precedence and set cardinality
+  - [x] 4.2 Write property test for display precedence and set cardinality
     - **Property 5: override wins over show-level wins over fallback; missing-set override ignored; non_biological draws foster+adoptive; one-parent sets are reported as complete single-parent sets**
     - **Validates: Requirements 3.8, 4.2, 4.3, 4.4, 5.2, 5.3, 5.6, 6.2, 6.3, 6.6_
 
@@ -89,19 +89,19 @@ Qt event loop.
     - Add `FOSTER` and `ADOPTIVE` members; dashed pens with distinct `_FOSTER_COLOR` and `_ADOPTIVE_COLOR`; biological unchanged; optional `badge_text` painted near the path midpoint
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.6, 3.7_
 
-- [ ] 6. Wire the three diagram views
-  - [ ] 6.1 Route `family_view.py` through `resolve_parent_display`
+- [x] 6. Wire the three diagram views
+  - [x] 6.1 Route `family_view.py` through `resolve_parent_display`
     - Read `DiagramSettings` + `connection_overrides`; draw returned links with their connection type and optional badge
     - For a one-parent derived Parent_Set, draw a single parent box with no partner connector and no second-parent placeholder, centring the drop line on that parent; two-parent sets draw both boxes and the partner connector; biological pairs keep the existing father/mother placeholder for an unknown parent
     - Apply the same single-parent suppression to a sibling's foster/adoptive partner family in STEP 4 of the layout
     - _Requirements: 3.5, 3.8, 3.9, 3.10, 4.2, 4.3, 4.4, 4.6, 6.2_
-  - [ ] 6.2 Route `ancestry_view.py` through the same resolver
+  - [x] 6.2 Route `ancestry_view.py` through the same resolver
     - Same single-parent rule for one-parent derived Parent_Sets as 6.1
     - _Requirements: 3.5, 3.8, 3.9, 3.10, 4.6_
-  - [ ] 6.3 Route `descendants_view.py` through the same resolver
+  - [x] 6.3 Route `descendants_view.py` through the same resolver
     - Same single-parent rule for one-parent derived Parent_Sets as 6.1
     - _Requirements: 3.5, 3.8, 3.9, 3.10, 4.6_
-  - [ ] 6.4 Add the per-connection override context action
+  - [x] 6.4 Add the per-connection override context action
     - Right-click sets/clears `connection_overrides[child_id]` to biological/foster/adoptive/cleared; redraw on change
     - _Requirements: 5.1, 5.4, 5.5_
 
