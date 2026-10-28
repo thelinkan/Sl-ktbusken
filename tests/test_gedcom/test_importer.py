@@ -1385,3 +1385,1234 @@ class TestFamilyReimportWithEvents:
         # The last marriage event should have a place
         latest_marriage = marriage_events[-1]
         assert latest_marriage.place is not None
+
+
+# ---------------------------------------------------------------------------
+# FAMC/PEDI pedigree → parentage_type (Requirements 11.3, 11.4, 11.5)
+# ---------------------------------------------------------------------------
+
+from slaktbusken.gedcom.importer import _pedigree_to_parentage_type
+
+
+# A GEDCOM template where the child @I3@ is a child of family @F1@ and the
+# pedigree under the child's FAMC is parameterised. `{pedi_line}` is either an
+# empty string (no PEDI) or a "2 PEDI <value>\n" fragment.
+_GEDCOM_PEDI_TEMPLATE = """\
+0 HEAD
+1 SOUR Test
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Johan /Andersson/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anna /Persson/
+1 SEX F
+0 @I3@ INDI
+1 NAME Erik /Andersson/
+1 SEX M
+1 BIRT
+2 DATE 3 FEB 1876
+1 FAMC @F1@
+{pedi_line}0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+0 TRLR
+"""
+
+
+def _pedi_gedcom(pedi: str | None) -> str:
+    """Build a GEDCOM string for the pedigree template.
+
+    Args:
+        pedi: The PEDI value to place under the child's FAMC, or None to omit
+            the PEDI line entirely (plain FAMC / family-level CHIL only).
+    """
+    pedi_line = f"2 PEDI {pedi}\n" if pedi is not None else ""
+    return _GEDCOM_PEDI_TEMPLATE.format(pedi_line=pedi_line)
+
+
+class TestPedigreeToParentageType:
+    """Unit tests for the pure PEDI → parentage_type mapping."""
+
+    def test_foster_maps_to_foster(self) -> None:
+        """PEDI 'foster' maps to the 'foster' parentage type."""
+        assert _pedigree_to_parentage_type("foster") == "foster"
+
+    def test_adopted_maps_to_adoptive(self) -> None:
+        """PEDI 'adopted' maps to our internal 'adoptive' type."""
+        assert _pedigree_to_parentage_type("adopted") == "adoptive"
+
+    def test_birth_maps_to_biological(self) -> None:
+        """Standard PEDI 'birth' maps to 'biological'."""
+        assert _pedigree_to_parentage_type("birth") == "biological"
+
+    def test_sealing_maps_to_biological(self) -> None:
+        """PEDI 'sealing' is treated as 'biological'."""
+        assert _pedigree_to_parentage_type("sealing") == "biological"
+
+    def test_none_maps_to_biological(self) -> None:
+        """An absent (None) pedigree maps to 'biological'."""
+        assert _pedigree_to_parentage_type(None) == "biological"
+
+    def test_empty_maps_to_biological(self) -> None:
+        """An empty-string pedigree maps to 'biological'."""
+        assert _pedigree_to_parentage_type("") == "biological"
+
+    def test_unknown_maps_to_biological(self) -> None:
+        """An unrecognised pedigree value maps to 'biological'."""
+        assert _pedigree_to_parentage_type("whatever") == "biological"
+
+    def test_case_insensitive(self) -> None:
+        """Mapping is case-insensitive for GEDCOM-cased values."""
+        assert _pedigree_to_parentage_type("Adopted") == "adoptive"
+        assert _pedigree_to_parentage_type("ADOPTED") == "adoptive"
+        assert _pedigree_to_parentage_type("Foster") == "foster"
+
+
+class TestImportPedigree:
+    """Tests that FAMC/PEDI sets parentage_type on imported links.
+
+    Validates: Requirements 11.3, 11.4, 11.5
+    """
+
+    def _import(
+        self,
+        pedi: str | None,
+        empty_project: ProjectData,
+        translation_dir: Path,
+        tmp_path: Path,
+    ) -> ProjectData:
+        gedcom_file = tmp_path / "pedi.ged"
+        gedcom_file.write_text(_pedi_gedcom(pedi), encoding="utf-8")
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+        return empty_project
+
+    def test_adopted_pedi_yields_adoptive_links(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """'2 PEDI adopted' yields adoptive links for that child (Req 11.4)."""
+        project = self._import("adopted", empty_project, translation_dir, tmp_path)
+
+        family = project.families[0]
+        assert len(family.parent_child_links) == 2  # one per parent
+        assert {link.parentage_type for link in family.parent_child_links} == {
+            "adoptive"
+        }
+
+    def test_foster_pedi_yields_foster_links(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """'2 PEDI foster' yields foster links for that child (Req 11.3)."""
+        project = self._import("foster", empty_project, translation_dir, tmp_path)
+
+        family = project.families[0]
+        assert len(family.parent_child_links) == 2
+        assert {link.parentage_type for link in family.parent_child_links} == {
+            "foster"
+        }
+
+    def test_no_pedi_yields_biological_links(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A plain FAMC with no PEDI yields biological links (Req 11.5)."""
+        project = self._import(None, empty_project, translation_dir, tmp_path)
+
+        family = project.families[0]
+        assert len(family.parent_child_links) == 2
+        assert {link.parentage_type for link in family.parent_child_links} == {
+            "biological"
+        }
+
+    def test_birth_pedi_yields_biological_links(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """'2 PEDI birth' is treated as biological (Req 11.5)."""
+        project = self._import("birth", empty_project, translation_dir, tmp_path)
+
+        family = project.families[0]
+        assert {link.parentage_type for link in family.parent_child_links} == {
+            "biological"
+        }
+
+    def test_pedi_case_insensitive(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A GEDCOM-cased 'Adopted' still yields adoptive links (Req 11.4)."""
+        project = self._import("Adopted", empty_project, translation_dir, tmp_path)
+
+        family = project.families[0]
+        assert {link.parentage_type for link in family.parent_child_links} == {
+            "adoptive"
+        }
+
+    def test_pedi_applies_to_both_parent_links(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """The pedigree applies to BOTH of the child's parent links in the family."""
+        project = self._import("adopted", empty_project, translation_dir, tmp_path)
+
+        family = project.families[0]
+        # Both the father link and the mother link for @I3@ are adoptive.
+        parent_ids = {link.parent_id for link in family.parent_child_links}
+        assert len(parent_ids) == 2
+        for link in family.parent_child_links:
+            assert link.parentage_type == "adoptive"
+
+
+# ---------------------------------------------------------------------------
+# Import back-fill of placement events for foster/adoptive links
+# (Requirements 11.6, 11.7, 11.7a, 11.8)
+# ---------------------------------------------------------------------------
+
+from slaktbusken.services.foster_sync import sync_parentage_links
+
+
+# A two-parent adopted child whose INDI carries the exporter's ADOP structure
+# (DATE/PLAC + a subordinate FAMC pointing at the derived family @F1@), plus the
+# FAMC/PEDI adopted link. This mirrors a Släktbusken GEDCOM export round-trip.
+_GEDCOM_ADOP_WITH_FAMC = """\
+0 HEAD
+1 SOUR Test
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Johan /Andersson/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anna /Persson/
+1 SEX F
+0 @I3@ INDI
+1 NAME Erik /Andersson/
+1 SEX M
+1 BIRT
+2 DATE 3 FEB 1876
+1 FAMC @F1@
+2 PEDI adopted
+1 ADOP
+2 DATE 10 JUN 1880
+2 PLAC Ljusdal, Gävleborgs län, Sverige
+2 FAMC @F1@
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+0 TRLR
+"""
+
+
+# A two-parent foster child whose INDI carries the exporter's custom
+# EVEN/TYPE Fosterhem structure (DATE/PLAC + subordinate FAMC) and the
+# FAMC/PEDI foster link.
+_GEDCOM_FOSTER_WITH_FAMC = """\
+0 HEAD
+1 SOUR Test
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Johan /Andersson/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anna /Persson/
+1 SEX F
+0 @I3@ INDI
+1 NAME Erik /Andersson/
+1 SEX M
+1 BIRT
+2 DATE 3 FEB 1876
+1 FAMC @F1@
+2 PEDI foster
+1 EVEN
+2 TYPE Fosterhem
+2 DATE 10 JUN 1880
+2 PLAC Ljusdal, Gävleborgs län, Sverige
+2 FAMC @F1@
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+0 TRLR
+"""
+
+
+# An adopted child with NO ADOP structure — only the FAMC/PEDI adopted link.
+# The importer must fabricate a dateless Adoption event for the Parent_Set.
+_GEDCOM_ADOPTED_NO_EVENT = """\
+0 HEAD
+1 SOUR Test
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Johan /Andersson/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anna /Persson/
+1 SEX F
+0 @I3@ INDI
+1 NAME Erik /Andersson/
+1 SEX M
+1 FAMC @F1@
+2 PEDI adopted
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+0 TRLR
+"""
+
+
+class TestImportPlacementBackfill:
+    """Imported foster/adoptive links are backed by a placement event.
+
+    Covers the shared back-fill (Requirement 11.6), preferring the matching
+    ADOP/EVEN structure's date/place and FAMC parent linkage (11.7, 11.7a),
+    grouping GEDCOM-family-mates into one Parent_Set (11.8), and that the
+    post-import sync never deletes an imported link (11.8/11.9 precondition).
+    """
+
+    def _import(
+        self,
+        gedcom_text: str,
+        empty_project: ProjectData,
+        translation_dir: Path,
+        tmp_path: Path,
+    ) -> ProjectData:
+        gedcom_file = tmp_path / "placement.ged"
+        gedcom_file.write_text(gedcom_text, encoding="utf-8")
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+        return empty_project
+
+    @staticmethod
+    def _child_id(project: ProjectData) -> str:
+        """The App_JSON id of the imported child Erik (@I3@)."""
+        for person in project.persons:
+            if person.names and person.names[0].given == "Erik":
+                return person.id
+        raise AssertionError("child Erik not found")
+
+    @staticmethod
+    def _parent_ids(project: ProjectData) -> set[str]:
+        """The App_JSON ids of the two parents Johan (@I1@) and Anna (@I2@)."""
+        ids: set[str] = set()
+        for person in project.persons:
+            if person.names and person.names[0].given in ("Johan", "Anna"):
+                ids.add(person.id)
+        return ids
+
+    def test_adop_structure_reused_not_duplicated(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A matching ADOP event backs the links; no duplicate is created (11.8)."""
+        project = self._import(
+            _GEDCOM_ADOP_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+
+        adoption_events = [e for e in project.events if e.type == "adoption"]
+        assert len(adoption_events) == 1  # reused, not duplicated
+
+    def test_adop_event_names_child_and_both_parents(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Finalisation attaches the FAMC parents and the adopterad child (11.7a)."""
+        project = self._import(
+            _GEDCOM_ADOP_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+        event = next(e for e in project.events if e.type == "adoption")
+
+        child_id = self._child_id(project)
+        parent_ids = self._parent_ids(project)
+
+        child_participants = [
+            p for p in event.participants if p.role == "adopterad"
+        ]
+        parent_participants = [
+            p for p in event.participants if p.role == "adoptivförälder"
+        ]
+        assert [p.person_id for p in child_participants] == [child_id]
+        assert {p.person_id for p in parent_participants} == parent_ids
+
+    def test_adop_date_and_place_preferred(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """The structure's own DATE/PLAC are kept on the event (11.7)."""
+        project = self._import(
+            _GEDCOM_ADOP_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+        event = next(e for e in project.events if e.type == "adoption")
+
+        assert event.date is not None
+        assert event.date.value == "1880-06-10"
+        assert event.place is not None and event.place.place_id
+
+    def test_foster_even_structure_reused(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """EVEN/TYPE Fosterhem becomes one foster_home event with its parents (11.7a)."""
+        project = self._import(
+            _GEDCOM_FOSTER_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+
+        foster_events = [e for e in project.events if e.type == "foster_home"]
+        assert len(foster_events) == 1
+        # It must not have been misclassified as a generic custom event.
+        assert not [
+            e for e in project.events if e.type == "custom_individual_event"
+        ]
+
+        event = foster_events[0]
+        child_id = self._child_id(project)
+        parent_ids = self._parent_ids(project)
+        assert [
+            p.person_id for p in event.participants if p.role == "fosterbarn"
+        ] == [child_id]
+        assert {
+            p.person_id for p in event.participants if p.role == "fosterförälder"
+        } == parent_ids
+        assert event.date is not None and event.date.value == "1880-06-10"
+
+    def test_backfill_fabricates_event_when_no_structure(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """An adopted link with no ADOP structure gets a dateless back-fill event (11.6)."""
+        project = self._import(
+            _GEDCOM_ADOPTED_NO_EVENT, empty_project, translation_dir, tmp_path
+        )
+
+        adoption_events = [e for e in project.events if e.type == "adoption"]
+        assert len(adoption_events) == 1
+        event = adoption_events[0]
+        assert event.date is None  # fabricated dateless
+
+        child_id = self._child_id(project)
+        parent_ids = self._parent_ids(project)
+        assert [
+            p.person_id for p in event.participants if p.role == "adopterad"
+        ] == [child_id]
+        assert {
+            p.person_id for p in event.participants if p.role == "adoptivförälder"
+        } == parent_ids
+
+    def test_family_mates_grouped_into_one_parent_set(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Two parents sharing a GEDCOM family form a single event (11.8)."""
+        project = self._import(
+            _GEDCOM_ADOPTED_NO_EVENT, empty_project, translation_dir, tmp_path
+        )
+
+        adoption_events = [e for e in project.events if e.type == "adoption"]
+        # One event (one Parent_Set), not two single-parent events.
+        assert len(adoption_events) == 1
+        parents = [
+            p for p in adoption_events[0].participants
+            if p.role == "adoptivförälder"
+        ]
+        assert len(parents) == 2
+
+    def test_imported_links_survive_post_import_sync(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Running the sync after import never deletes the adoptive links (11.8).
+
+        Because the back-fill (or the reused ADOP structure) backs the imported
+        Parent_Set before the sync runs, the sync keeps a derived adoptive link
+        for each (parent -> child) pair rather than dropping it as an orphan.
+        """
+        project = self._import(
+            _GEDCOM_ADOP_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+
+        child_id = self._child_id(project)
+        parent_ids = self._parent_ids(project)
+
+        def adoptive_pairs() -> set[tuple[str, str]]:
+            return {
+                (link.child_id, link.parent_id)
+                for family in project.families
+                for link in family.parent_child_links
+                if link.child_id == child_id
+                and link.parentage_type == "adoptive"
+            }
+
+        before = adoptive_pairs()
+        assert before == {(child_id, pid) for pid in parent_ids}
+
+        sync_parentage_links(project)
+
+        # Every imported (parent -> child) adoptive pair still exists; none was
+        # deleted as an unbacked orphan (Requirement 11.8).
+        after = adoptive_pairs()
+        assert before <= after
+
+    def test_backfill_is_idempotent_on_reimport(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Re-importing the same GEDCOM does not create duplicate events (11.6)."""
+        gedcom_file = tmp_path / "placement.ged"
+        gedcom_file.write_text(_GEDCOM_ADOP_WITH_FAMC, encoding="utf-8")
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+        first_count = len([e for e in empty_project.events if e.type == "adoption"])
+
+        importer2 = GEDCOMImporter(empty_project, translation_dir)
+        importer2.import_file(gedcom_file)
+        second_count = len([e for e in empty_project.events if e.type == "adoption"])
+
+        assert first_count == 1
+        assert second_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Placement END event reconstruction from an imported end date (Req 11.10)
+# ---------------------------------------------------------------------------
+
+from slaktbusken.gedcom.exporter import GEDCOMExporter
+from slaktbusken.gedcom.importer import _parse_placement_dates
+from slaktbusken.gedcom.parser import GedcomLine
+from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef
+from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
+from slaktbusken.model.person import Name, Person
+
+
+def _event_record(
+    tag: str, *, date: str | None = None, note: str | None = None
+) -> GedcomLine:
+    """Build a level-1 placement GedcomLine with an optional DATE/NOTE child.
+
+    Mirrors the shape ``_parse_placement_dates`` reads from an ADOP / EVEN
+    structure (only the DATE and NOTE children matter to it).
+    """
+    children: list[GedcomLine] = []
+    if date is not None:
+        children.append(
+            GedcomLine(level=2, tag="DATE", value=date, xref_id=None, line_number=0)
+        )
+    if note is not None:
+        children.append(
+            GedcomLine(level=2, tag="NOTE", value=note, xref_id=None, line_number=0)
+        )
+    return GedcomLine(
+        level=1,
+        tag=tag,
+        value=None,
+        xref_id=None,
+        line_number=0,
+        children=children,
+    )
+
+
+class TestParsePlacementDates:
+    """Unit tests for the pure placement period / NOTE splitter."""
+
+    def test_from_to_period_splits_start_and_end(self) -> None:
+        """'FROM x TO y' yields start x and end y."""
+        start, end = _parse_placement_dates(
+            _event_record("ADOP", date="FROM 10 JUN 1880 TO 5 MAY 1890")
+        )
+        assert start is not None and start.value == "1880-06-10"
+        assert end is not None and end.value == "1890-05-05"
+
+    def test_from_only_yields_no_end(self) -> None:
+        """'FROM x' (period marker, no TO) yields a start but no end (Req 11.10)."""
+        start, end = _parse_placement_dates(
+            _event_record("ADOP", date="FROM 10 JUN 1880")
+        )
+        assert start is not None and start.value == "1880-06-10"
+        assert end is None
+
+    def test_to_only_yields_end_no_start(self) -> None:
+        """'TO y' yields an end but no start (the start is dateless)."""
+        start, end = _parse_placement_dates(
+            _event_record("ADOP", date="TO 5 MAY 1890")
+        )
+        assert start is None
+        assert end is not None and end.value == "1890-05-05"
+
+    def test_plain_date_yields_no_end(self) -> None:
+        """A plain (non-period) DATE never fabricates an end."""
+        start, end = _parse_placement_dates(
+            _event_record("ADOP", date="10 JUN 1880")
+        )
+        assert start is not None and start.value == "1880-06-10"
+        assert end is None
+
+    def test_avslutades_note_yields_end(self) -> None:
+        """A labelled 'Avslutades: <end>' NOTE provides the end date."""
+        start, end = _parse_placement_dates(
+            _event_record("ADOP", date="10 JUN 1880", note="Avslutades: 1890")
+        )
+        assert start is not None and start.value == "1880-06-10"
+        assert end is not None and end.value == "1890"
+
+    def test_no_date_no_note_yields_nothing(self) -> None:
+        """A structure with neither DATE nor NOTE yields (None, None)."""
+        start, end = _parse_placement_dates(_event_record("ADOP"))
+        assert start is None
+        assert end is None
+
+
+# GEDCOM snippets exercising the import reconstruction. Each child @I3@ is an
+# adopted/foster child of family @F1@; the ADOP / EVEN Fosterhem structure
+# carries the placement span.
+def _placement_gedcom(structure: str, pedi: str) -> str:
+    return f"""\
+0 HEAD
+1 SOUR Test
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Johan /Andersson/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anna /Persson/
+1 SEX F
+0 @I3@ INDI
+1 NAME Erik /Andersson/
+1 SEX M
+1 FAMC @F1@
+2 PEDI {pedi}
+{structure}
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+0 TRLR
+"""
+
+
+_ADOP_PERIOD_STRUCTURE = """\
+1 ADOP
+2 DATE FROM 10 JUN 1880 TO 5 MAY 1890
+2 FAMC @F1@"""
+
+_ADOP_FROM_ONLY_STRUCTURE = """\
+1 ADOP
+2 DATE FROM 10 JUN 1880
+2 FAMC @F1@"""
+
+_ADOP_NOTE_STRUCTURE = """\
+1 ADOP
+2 DATE 10 JUN 1880
+2 FAMC @F1@
+2 NOTE Avslutades: 1890"""
+
+_FOSTER_PERIOD_STRUCTURE = """\
+1 EVEN
+2 TYPE Fosterhem
+2 DATE FROM 10 JUN 1880 TO 5 MAY 1890
+2 FAMC @F1@"""
+
+
+class TestImportReconstructEndEvent:
+    """An imported placement end date reconstructs the paired end event.
+
+    Validates: Requirement 11.10
+    """
+
+    def _import(
+        self,
+        gedcom_text: str,
+        empty_project: ProjectData,
+        translation_dir: Path,
+        tmp_path: Path,
+    ) -> ProjectData:
+        gedcom_file = tmp_path / "placement_end.ged"
+        gedcom_file.write_text(gedcom_text, encoding="utf-8")
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+        return empty_project
+
+    @staticmethod
+    def _child_id(project: ProjectData) -> str:
+        for person in project.persons:
+            if person.names and person.names[0].given == "Erik":
+                return person.id
+        raise AssertionError("child Erik not found")
+
+    @staticmethod
+    def _parent_ids(project: ProjectData) -> set[str]:
+        ids: set[str] = set()
+        for person in project.persons:
+            if person.names and person.names[0].given in ("Johan", "Anna"):
+                ids.add(person.id)
+        return ids
+
+    def test_adoption_period_creates_paired_end_event(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A FROM/TO ADOP period yields a start + an adoption_ended end event."""
+        project = self._import(
+            _placement_gedcom(_ADOP_PERIOD_STRUCTURE, "adopted"),
+            empty_project,
+            translation_dir,
+            tmp_path,
+        )
+
+        starts = [e for e in project.events if e.type == "adoption"]
+        ends = [e for e in project.events if e.type == "adoption_ended"]
+        assert len(starts) == 1
+        assert len(ends) == 1
+
+        # Start keeps only its own (lower-bound) date; the period is not left on it.
+        assert starts[0].date is not None and starts[0].date.value == "1880-06-10"
+        # End carries the upper bound.
+        assert ends[0].date is not None and ends[0].date.value == "1890-05-05"
+
+    def test_end_event_names_same_child_and_parents(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """The end event mirrors the start's child and parents (symmetric)."""
+        project = self._import(
+            _placement_gedcom(_ADOP_PERIOD_STRUCTURE, "adopted"),
+            empty_project,
+            translation_dir,
+            tmp_path,
+        )
+        end = next(e for e in project.events if e.type == "adoption_ended")
+
+        child_id = self._child_id(project)
+        parent_ids = self._parent_ids(project)
+        assert [
+            p.person_id for p in end.participants if p.role == "adopterad"
+        ] == [child_id]
+        assert {
+            p.person_id for p in end.participants if p.role == "adoptivförälder"
+        } == parent_ids
+
+    def test_from_only_period_creates_no_end_event(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A 'FROM <start>' period (no upper bound) yields no end event (11.10)."""
+        project = self._import(
+            _placement_gedcom(_ADOP_FROM_ONLY_STRUCTURE, "adopted"),
+            empty_project,
+            translation_dir,
+            tmp_path,
+        )
+
+        starts = [e for e in project.events if e.type == "adoption"]
+        ends = [e for e in project.events if e.type == "adoption_ended"]
+        assert len(starts) == 1
+        assert starts[0].date is not None and starts[0].date.value == "1880-06-10"
+        assert ends == []
+
+    def test_avslutades_note_creates_end_event(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A labelled 'Avslutades:' NOTE reconstructs the end event."""
+        project = self._import(
+            _placement_gedcom(_ADOP_NOTE_STRUCTURE, "adopted"),
+            empty_project,
+            translation_dir,
+            tmp_path,
+        )
+
+        starts = [e for e in project.events if e.type == "adoption"]
+        ends = [e for e in project.events if e.type == "adoption_ended"]
+        assert len(starts) == 1
+        assert starts[0].date is not None and starts[0].date.value == "1880-06-10"
+        assert len(ends) == 1
+        assert ends[0].date is not None and ends[0].date.value == "1890"
+
+    def test_foster_period_creates_foster_home_ended(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A FROM/TO Fosterhem EVEN period yields a foster_home_ended end event."""
+        project = self._import(
+            _placement_gedcom(_FOSTER_PERIOD_STRUCTURE, "foster"),
+            empty_project,
+            translation_dir,
+            tmp_path,
+        )
+
+        starts = [e for e in project.events if e.type == "foster_home"]
+        ends = [e for e in project.events if e.type == "foster_home_ended"]
+        assert len(starts) == 1
+        assert len(ends) == 1
+        assert starts[0].date is not None and starts[0].date.value == "1880-06-10"
+        assert ends[0].date is not None and ends[0].date.value == "1890-05-05"
+
+        child_id = self._child_id(project)
+        parent_ids = self._parent_ids(project)
+        assert [
+            p.person_id for p in ends[0].participants if p.role == "fosterbarn"
+        ] == [child_id]
+        assert {
+            p.person_id for p in ends[0].participants if p.role == "fosterförälder"
+        } == parent_ids
+
+
+class TestPlacementEndRoundTrip:
+    """Export a start+end placement, re-import, assert the span round-trips.
+
+    Validates: Requirement 11.10 (round-trip with Requirements 11.2c/11.2e)
+    """
+
+    @staticmethod
+    def _synced_adoption_project() -> ProjectData:
+        """Build an adopted child with a dated start and a dated end, synced.
+
+        ``sync_parentage_links`` creates the derived family (whose ``event_ids``
+        the exporter needs for the ``FAMC`` pointer) and pairs the end to it, so
+        the exporter can emit the span as a GEDCOM period.
+        """
+        child = Person(
+            id="person_1",
+            names=[Name(type="birth", given="Barn", surname="Testsson")],
+            sex="M",
+        )
+        father = Person(
+            id="person_10",
+            names=[Name(type="birth", given="Far", surname="Testsson")],
+            sex="M",
+        )
+        mother = Person(
+            id="person_11",
+            names=[Name(type="birth", given="Mor", surname="Testsson")],
+            sex="F",
+        )
+        start = Event(
+            id="event_1",
+            type="adoption",
+            participants=[
+                Participant(person_id="person_1", role="adopterad"),
+                Participant(person_id="person_10", role="adoptivförälder"),
+                Participant(person_id="person_11", role="adoptivförälder"),
+            ],
+            date=DateValue(value="1880-06-10", precision="day"),
+        )
+        end = Event(
+            id="event_2",
+            type="adoption_ended",
+            participants=[
+                Participant(person_id="person_1", role="adopterad"),
+                Participant(person_id="person_10", role="adoptivförälder"),
+                Participant(person_id="person_11", role="adoptivförälder"),
+            ],
+            date=DateValue(value="1890-05-05", precision="day"),
+        )
+        project = ProjectData(
+            format="släktbuske-file",
+            version="0.2",
+            project=ProjectMetadata(title="Test"),
+            persons=[child, father, mother],
+            families=[],
+            events=[start, end],
+            places=[],
+            sources=[],
+        )
+        sync_parentage_links(project)
+        return project
+
+    def test_export_import_round_trips_two_events(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """export(start+end) → import → the child's start + paired end survive.
+
+        The import must reconstruct the child's adoption start and its paired
+        adoption_ended end with the exported span's dates, and the end must name
+        the same Parent_Set (both parents) as the start.
+
+        Now that the exporter emits the placement structure only on the adopted
+        child's INDI (not on the parents), the round-trip is unscoped: the
+        project must contain EXACTLY one adoption start and one adoption_ended
+        end — no spurious structures fabricated from the parents' INDI records.
+        """
+        source_project = self._synced_adoption_project()
+
+        ged_path = tmp_path / "roundtrip.ged"
+        GEDCOMExporter().export(source_project, ged_path)
+
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(ged_path)
+
+        child_id = next(
+            person.id
+            for person in empty_project.persons
+            if person.names and person.names[0].given == "Barn"
+        )
+        parent_ids = {
+            person.id
+            for person in empty_project.persons
+            if person.names and person.names[0].given in ("Far", "Mor")
+        }
+
+        def names_child(event: Event) -> bool:
+            return any(
+                p.person_id == child_id and p.role == "adopterad"
+                for p in event.participants
+            )
+
+        starts = [
+            e for e in empty_project.events
+            if e.type == "adoption" and names_child(e)
+        ]
+        ends = [
+            e for e in empty_project.events
+            if e.type == "adoption_ended" and names_child(e)
+        ]
+        assert len(starts) == 1
+        assert len(ends) == 1
+
+        # Unscoped: the exporter no longer emits the ADOP structure on the
+        # parents, so the whole project has exactly one start and one end —
+        # no bogus placement events reconstructed from a parent's INDI.
+        all_starts = [e for e in empty_project.events if e.type == "adoption"]
+        all_ends = [e for e in empty_project.events if e.type == "adoption_ended"]
+        assert len(all_starts) == 1
+        assert len(all_ends) == 1
+        assert starts[0].date is not None and starts[0].date.value == "1880-06-10"
+        assert ends[0].date is not None and ends[0].date.value == "1890-05-05"
+
+        # The end names the same Parent_Set as the start (same child + parents).
+        start_parents = {
+            p.person_id
+            for p in starts[0].participants
+            if p.role == "adoptivförälder"
+        }
+        end_parents = {
+            p.person_id
+            for p in ends[0].participants
+            if p.role == "adoptivförälder"
+        }
+        assert start_parents == parent_ids
+        assert end_parents == start_parents and len(end_parents) == 2
+
+
+# ---------------------------------------------------------------------------
+# Step 3d: import_file runs sync_parentage_links after back-fill, events take
+# precedence, no imported foster/adoptive relationship is deleted (Req 11.9)
+# ---------------------------------------------------------------------------
+
+
+# A mixed GEDCOM family @F1@ with an adopted child (@I3@, two adoptive parents
+# via an ADOP structure + FAMC/PEDI) and a biological child (@I4@). Exercises
+# the dangerous case where the imported family holds BOTH adoptive and
+# biological links, so reconciliation must relocate only the adoptive links and
+# must leave the biological ones exactly as found.
+_GEDCOM_MIXED_ADOPTIVE_BIOLOGICAL = """\
+0 HEAD
+1 SOUR Test
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Johan /Andersson/
+1 SEX M
+0 @I2@ INDI
+1 NAME Anna /Persson/
+1 SEX F
+0 @I3@ INDI
+1 NAME Erik /Andersson/
+1 SEX M
+1 FAMC @F1@
+2 PEDI adopted
+1 ADOP
+2 DATE 10 JUN 1880
+2 FAMC @F1@
+0 @I4@ INDI
+1 NAME Karl /Andersson/
+1 SEX M
+1 FAMC @F1@
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+1 CHIL @I4@
+0 TRLR
+"""
+
+
+class TestImportRunsSyncStep3d:
+    """``import_file`` runs the sync after back-fill (Requirement 11.9).
+
+    Sync now runs *inside* ``import_file`` (Step 3d), so every assertion is on
+    the final project state the importer returns — no external sync call. The
+    end-state invariant: foster/adoptive links are authoritative on the
+    event-derived family, no imported foster/adoptive relationship vanishes, and
+    biological (and every other) link is left exactly as found.
+
+    Validates: Requirement 11.9
+    """
+
+    def _import(
+        self,
+        gedcom_text: str,
+        empty_project: ProjectData,
+        translation_dir: Path,
+        tmp_path: Path,
+    ) -> ProjectData:
+        gedcom_file = tmp_path / "step3d.ged"
+        gedcom_file.write_text(gedcom_text, encoding="utf-8")
+        importer = GEDCOMImporter(empty_project, translation_dir)
+        importer.import_file(gedcom_file)
+        return empty_project
+
+    @staticmethod
+    def _id_for(project: ProjectData, given: str) -> str:
+        for person in project.persons:
+            if person.names and person.names[0].given == given:
+                return person.id
+        raise AssertionError(f"person {given!r} not found")
+
+    @staticmethod
+    def _pairs(
+        project: ProjectData, parentage_type: str
+    ) -> set[tuple[str, str | None]]:
+        """All (child_id, parent_id) pairs of a given parentage type."""
+        return {
+            (link.child_id, link.parent_id)
+            for family in project.families
+            for link in family.parent_child_links
+            if link.parentage_type == parentage_type
+        }
+
+    @staticmethod
+    def _event_derived_family(project: ProjectData, child_id: str):
+        """The sync-derived placement family that names ``child_id``.
+
+        A derived family records a placement START event id on ``event_ids``.
+        """
+        placement_start_ids = {
+            e.id for e in project.events if e.type in ("adoption", "foster_home")
+        }
+        for family in project.families:
+            if child_id in family.children and any(
+                eid in placement_start_ids for eid in family.event_ids
+            ):
+                return family
+        return None
+
+    # --- (a) adoptive relationship survives — with and without an ADOP -------
+
+    def test_adoptive_links_survive_with_adop_structure(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """An adopted child's links survive the in-import sync (ADOP present)."""
+        project = self._import(
+            _GEDCOM_ADOP_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+
+        erik = self._id_for(project, "Erik")
+        johan = self._id_for(project, "Johan")
+        anna = self._id_for(project, "Anna")
+
+        # Both imported (parent -> Erik) adoptive pairs still exist post-import.
+        assert self._pairs(project, "adoptive") >= {
+            (erik, johan),
+            (erik, anna),
+        }
+
+    def test_adoptive_links_survive_without_adop_structure(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """An adopted child's links survive even when no ADOP structure exists.
+
+        The back-fill fabricates a dateless Adoption event before the sync, so
+        the sync keeps the links rather than dropping them as unbacked orphans.
+        """
+        project = self._import(
+            _GEDCOM_ADOPTED_NO_EVENT, empty_project, translation_dir, tmp_path
+        )
+
+        erik = self._id_for(project, "Erik")
+        johan = self._id_for(project, "Johan")
+        anna = self._id_for(project, "Anna")
+
+        assert self._pairs(project, "adoptive") == {
+            (erik, johan),
+            (erik, anna),
+        }
+
+    def test_adoptive_links_authoritative_on_event_derived_family(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """Events take precedence: links live on the event-derived family.
+
+        After the sync + reconciliation the adoptive (child -> parent) pairs are
+        carried by exactly one family — the one keyed to the placement event —
+        rather than being duplicated across the imported GEDCOM family and the
+        derived family.
+        """
+        project = self._import(
+            _GEDCOM_ADOP_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+
+        erik = self._id_for(project, "Erik")
+
+        families_with_adoptive_erik = [
+            family
+            for family in project.families
+            if any(
+                link.child_id == erik and link.parentage_type == "adoptive"
+                for link in family.parent_child_links
+            )
+        ]
+        # Exactly one family carries Erik's adoptive links (no duplicate).
+        assert len(families_with_adoptive_erik) == 1
+        # And it is the event-derived family (keyed by the placement event).
+        derived = self._event_derived_family(project, erik)
+        assert derived is not None
+        assert families_with_adoptive_erik[0] is derived
+
+    # --- (b) biological links untouched --------------------------------------
+
+    def test_biological_links_untouched_in_mixed_family(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """The sync never alters a biological link in a mixed GEDCOM family.
+
+        @F1@ holds adoptive links for Erik and biological links for Karl. After
+        the in-import sync the biological links for Karl are present and
+        unchanged, while Erik's adoptive links have moved to the event-derived
+        family.
+        """
+        project = self._import(
+            _GEDCOM_MIXED_ADOPTIVE_BIOLOGICAL,
+            empty_project,
+            translation_dir,
+            tmp_path,
+        )
+
+        erik = self._id_for(project, "Erik")
+        karl = self._id_for(project, "Karl")
+        johan = self._id_for(project, "Johan")
+        anna = self._id_for(project, "Anna")
+
+        # Karl's biological links are intact (both parents).
+        assert self._pairs(project, "biological") >= {
+            (karl, johan),
+            (karl, anna),
+        }
+        # Erik's adoptive links survive too (no loss).
+        assert self._pairs(project, "adoptive") >= {
+            (erik, johan),
+            (erik, anna),
+        }
+        # Erik's adoptive links are not left duplicated on the biological family.
+        bio_family = next(
+            family
+            for family in project.families
+            if karl in family.children
+        )
+        assert not any(
+            link.child_id == erik for link in bio_family.parent_child_links
+        )
+
+    # --- (c) foster child case -----------------------------------------------
+
+    def test_foster_links_survive_and_are_authoritative(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A foster child's links survive and live on the event-derived family."""
+        project = self._import(
+            _GEDCOM_FOSTER_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+
+        erik = self._id_for(project, "Erik")
+        johan = self._id_for(project, "Johan")
+        anna = self._id_for(project, "Anna")
+
+        assert self._pairs(project, "foster") == {
+            (erik, johan),
+            (erik, anna),
+        }
+
+        families_with_foster_erik = [
+            family
+            for family in project.families
+            if any(
+                link.child_id == erik and link.parentage_type == "foster"
+                for link in family.parent_child_links
+            )
+        ]
+        assert len(families_with_foster_erik) == 1
+        derived = self._event_derived_family(project, erik)
+        assert derived is not None
+        assert families_with_foster_erik[0] is derived
+
+    # --- Childless marriage family is NOT destroyed by the sync --------------
+
+    def test_childless_marriage_family_preserved(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """A partner-only marriage family survives the in-import sync.
+
+        The sync only ever removes event-derived foster/adoptive families; a
+        childless family carrying only a MARR/DIV event on ``event_ids`` (and no
+        parent-child links) must be left exactly as found.
+        """
+        project = self._import(
+            _GEDCOM_ALL_FAM_EVENTS, empty_project, translation_dir, tmp_path
+        )
+
+        assert len(project.families) == 1
+        family = project.families[0]
+        assert family.children == []
+        assert family.parent_child_links == []
+        # Its marriage event is still present.
+        assert any(e.type == "marriage" for e in project.events)
+
+    # --- (d) round-trip export -> import preserves parentage -----------------
+
+    def test_round_trip_preserves_adopted_childs_parentage(
+        self, empty_project: ProjectData, translation_dir: Path, tmp_path: Path
+    ) -> None:
+        """import -> export -> import keeps the adopted child's adoptive links.
+
+        The first import runs the Step 3d sync internally. Exporting then
+        re-importing must preserve the adopted child's (parent -> child)
+        adoptive relationships (events remain the source of truth across the
+        round-trip).
+
+        Previously the exporter emitted the ``1 ADOP ... 2 FAMC`` placement
+        structure on EVERY participant of the adoption event — including the
+        adoptive parents — so the re-import fabricated bogus parent->parent
+        adoptive links. This test was once scoped to the child to tolerate that
+        behaviour; now that the exporter emits the placement structure only on
+        the adopted child's INDI, the full set of adoptive pairs round-trips
+        with NO spurious additions, so the assertion is unscoped.
+        """
+        first = self._import(
+            _GEDCOM_ADOP_WITH_FAMC, empty_project, translation_dir, tmp_path
+        )
+
+        def adoptive_parents_of_child(project: ProjectData) -> set[str]:
+            erik = self._id_for(project, "Erik")
+            names = {p.id: (p.names[0].given if p.names else "") for p in project.persons}
+            return {
+                names[link.parent_id]
+                for family in project.families
+                for link in family.parent_child_links
+                if link.child_id == erik
+                and link.parentage_type == "adoptive"
+                and link.parent_id is not None
+            }
+
+        def all_adoptive_pairs(project: ProjectData) -> set[tuple[str, str]]:
+            names = {p.id: (p.names[0].given if p.names else "") for p in project.persons}
+            return {
+                (names[link.child_id], names[link.parent_id])
+                for family in project.families
+                for link in family.parent_child_links
+                if link.parentage_type == "adoptive"
+                and link.parent_id is not None
+            }
+
+        before = adoptive_parents_of_child(first)
+        assert before == {"Johan", "Anna"}
+        # The source project's ONLY adoptive pairs are the child's two.
+        pairs_before = all_adoptive_pairs(first)
+        assert pairs_before == {("Erik", "Johan"), ("Erik", "Anna")}
+
+        ged_path = tmp_path / "roundtrip_step3d.ged"
+        GEDCOMExporter().export(first, ged_path)
+
+        second_project = ProjectData(project=ProjectMetadata(title="RT"))
+        second_dir = tmp_path / "translation_rt"
+        second_dir.mkdir()
+        GEDCOMImporter(second_project, second_dir).import_file(ged_path)
+
+        after = adoptive_parents_of_child(second_project)
+        # The adopted child's adoptive parents survive the round-trip.
+        assert after == before
+        # Full, UNSCOPED round-trip: no spurious parent->parent adoptive links
+        # are fabricated — the set of adoptive pairs is exactly preserved.
+        assert all_adoptive_pairs(second_project) == pairs_before

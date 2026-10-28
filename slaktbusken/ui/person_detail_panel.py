@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.ui.swedish_locale import get_parentage_type_label
+
 if TYPE_CHECKING:
     from slaktbusken.app import Application
 
@@ -57,6 +59,36 @@ _SEX_LABELS: dict[str, str] = {
     "X": "Annat",
     "U": "Okänt",
 }
+
+
+def _parentage_type_for(family: object, child_id: str, parent_id: str) -> str:
+    """Return the parentage type of a parent's link to a child in a family.
+
+    Reads the authoritative ``parent_child_links`` on the family, finding the
+    link where ``child_id`` and ``parent_id`` match. When no explicit link
+    exists (e.g. older biological data), the parentage is treated as
+    ``"biological"``. This mirrors the convention used by the Ansedel report
+    so foster and adoptive annotations stay consistent across the app.
+    """
+    for link in family.parent_child_links:
+        if link.child_id == child_id and link.parent_id == parent_id:
+            return link.parentage_type
+    return "biological"
+
+
+def _format_parent_entry(role_label: str, name: str, parentage_type: str) -> str:
+    """Build the parent display line, annotating non-biological parents.
+
+    Biological parents (and links with no explicit parentage type) are listed
+    unannotated. Foster and adoptive parents get the Swedish parentage label
+    appended in parentheses, distinct from each other, e.g.
+    ``"Far: Erik Svensson (Foster)"`` or ``"Mor: Anna Persdotter (Adoptiv)"``.
+    This mirrors the Ansedel report's convention.
+    """
+    if parentage_type and parentage_type != "biological":
+        label = get_parentage_type_label(parentage_type)
+        return f"{role_label}: {name} ({label})"
+    return f"{role_label}: {name}"
 
 
 class PersonDetailPanel(QWidget):
@@ -377,8 +409,11 @@ class PersonDetailPanel(QWidget):
 
         Returns a list of display strings like:
         - "Far: Erik Svensson"
-        - "Mor: Anna Persdotter"
+        - "Mor: Anna Persdotter (Foster)"
         - "Syskon: Karl Eriksson, Maria Eriksdotter"
+
+        Foster and adoptive parents are annotated distinctly from biological
+        parents with the Swedish parentage label (Requirement 12.3).
         """
         data = self._app.project_service.data
         entries: list[str] = []
@@ -388,13 +423,14 @@ class PersonDetailPanel(QWidget):
                 continue
 
             # Found a family where this person is a child
-            # List parents
+            # List parents, annotating foster/adoptive parents distinctly
             for partner in family.partners:
                 parent = next((p for p in data.persons if p.id == partner.person_id), None)
                 if parent:
                     name = f"{parent.names[0].given} {parent.names[0].surname}".strip() if parent.names else parent.id
                     role_label = "Far" if parent.sex == "M" else "Mor" if parent.sex == "F" else "Förälder"
-                    entries.append(f"{role_label}: {name}")
+                    parentage_type = _parentage_type_for(family, person_id, partner.person_id)
+                    entries.append(_format_parent_entry(role_label, name, parentage_type))
 
             # List siblings (other children in this family)
             sibling_names = []

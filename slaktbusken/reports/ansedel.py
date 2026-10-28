@@ -21,8 +21,12 @@ from slaktbusken.reports.content import (
     ParagraphBlock,
     ReportContent,
 )
+from slaktbusken.services.foster_sync import _PLACEMENT_END, _PLACEMENT_START
 from slaktbusken.services.residence_query import swedish_sort_key
-from slaktbusken.ui.swedish_locale import format_residence_line
+from slaktbusken.ui.swedish_locale import (
+    format_residence_line,
+    get_parentage_type_label,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -317,12 +321,95 @@ def _add_profile_photo(
     report.blocks.append(ImageBlock(path=photo_path_normalized, caption=None))
 
 
+# Placement event types (start + end) that need role-aware rendering. The role
+# strings themselves are imported from foster_sync (_PLACEMENT_START /
+# _PLACEMENT_END) so ansedel and the sync service share a single source of
+# truth for which role names mark the child vs the parents in a placement event.
+_PLACEMENT_EVENT_TYPES = frozenset(_PLACEMENT_START) | frozenset(_PLACEMENT_END)
+
+
+def _placement_roles_for(event_type: str) -> tuple[str, str]:
+    """Return ``(child_role, parent_role)`` for a placement event type.
+
+    Handles both START types (keys of ``_PLACEMENT_START``) and END types
+    (keys of ``_PLACEMENT_END``, which resolve to their START config).
+    """
+    start_type = event_type if event_type in _PLACEMENT_START else _PLACEMENT_END[event_type]
+    config = _PLACEMENT_START[start_type]
+    return config["child_role"], config["parent_role"]
+
+
+def _format_placement_event_entry(
+    event,
+    person_id: str,
+    persons_by_id: dict[str, object],
+    places_by_id: dict[str, object],
+) -> str:
+    """Render a foster/adoption placement event from ``person_id``'s perspective.
+
+    The same underlying event is shown differently depending on whether this
+    person is the placed child (role ``fosterbarn``/``adopterad``) or one of the
+    placement parents (role ``fosterförälder``/``adoptivförälder``):
+
+    * Child perspective – e.g. "Fosterhem (fosterföräldrar: <name>, ...)" so the
+      several foster families a child lived in stay distinguishable (BUG 4).
+    * Parent perspective – e.g. "Fosterhem (fosterbarn: <name>)" naming the
+      placed child, since one foster family may hold several foster children and
+      the parent's line must say which one it pertains to (BUG 3).
+
+    Falls back to the plain event-type label when the person's role cannot be
+    determined. The trailing " – <date> – <place>" is appended by the caller so
+    the date sort key stays the raw date string.
+    """
+    type_label = _translate_event_type(event.type)
+    child_role, parent_role = _placement_roles_for(event.type)
+
+    # Determine this person's role in the event.
+    person_role = None
+    for participant in event.participants:
+        if participant.person_id == person_id:
+            person_role = participant.role
+            break
+
+    def _name(pid: str) -> str:
+        p = persons_by_id.get(pid)
+        return _format_person_name(p.names) if p else pid
+
+    if person_role == parent_role:
+        # Parent perspective: name the placed child(ren).
+        child_names = [
+            _name(part.person_id)
+            for part in event.participants
+            if part.role == child_role
+        ]
+        if child_names:
+            noun = "adoptivbarn" if parent_role == "adoptivförälder" else "fosterbarn"
+            return f"{type_label} ({noun}: {', '.join(child_names)})"
+        return type_label
+
+    if person_role == child_role:
+        # Child perspective: name the other placement parents so distinct
+        # families are distinguishable.
+        parent_names = [
+            _name(part.person_id)
+            for part in event.participants
+            if part.role == parent_role and part.person_id != person_id
+        ]
+        if parent_names:
+            noun = "adoptivföräldrar" if parent_role == "adoptivförälder" else "fosterföräldrar"
+            return f"{type_label} ({noun}: {', '.join(parent_names)})"
+        return type_label
+
+    return type_label
+
+
 def _add_events_section(
     report: ReportContent,
     person_id: str,
     data: ProjectData,
 ) -> None:
     """Add all events linked to the person, including children's births/deaths, sorted by date."""
+    persons_by_id = {p.id: p for p in data.persons}
     places_by_id = {p.id: p for p in data.places}
 
     linked_events = []
@@ -336,11 +423,17 @@ def _add_events_section(
     person_death_event = _find_event_by_type(person_id, "death", data)
     person_death_date = _format_event_date(person_death_event)
 
-    # Find children
+    # Find children whose birth/death belongs under "Barns födelse/död".
+    # Only biological children count: a foster/adoptive child's birth predates
+    # the placement and is not a biological "child's birth" for this person
+    # (BUG 2). Include a child only when this person's link to them in that
+    # family is biological.
     children_ids: set[str] = set()
     for family in data.families:
         if any(p.person_id == person_id for p in family.partners):
-            children_ids.update(family.children)
+            for child_id in family.children:
+                if _parentage_type_for(family, child_id, person_id) == "biological":
+                    children_ids.add(child_id)
 
     # Collect all event entries as (sort_key, display_text) tuples
     # sort_key is the date string (empty dates sort first)
@@ -348,7 +441,16 @@ def _add_events_section(
 
     # Person's own events
     for event in linked_events:
-        parts = [_translate_event_type(event.type)]
+        if event.type in _PLACEMENT_EVENT_TYPES:
+            # Role-aware rendering for foster/adoption placement events so the
+            # parent and child lines differ and each identifies the relevant
+            # child / parents (BUG 3 + BUG 4).
+            lead = _format_placement_event_entry(
+                event, person_id, persons_by_id, places_by_id
+            )
+        else:
+            lead = _translate_event_type(event.type)
+        parts = [lead]
         date_key = ""
         if event.date:
             date_key = event.date.value
@@ -458,13 +560,36 @@ def _add_residences_section(
     report.blocks.append(ListBlock(items=entries))
 
 
+def _parentage_type_for(
+    family: object, child_id: str, parent_id: str
+) -> str:
+    """Return the parentage type of a parent's link to a child in a family.
+
+    Reads the authoritative ``parent_child_links`` on the family, finding the
+    link where ``child_id`` and ``parent_id`` match. When no explicit link
+    exists (e.g. older biological data), the parentage is treated as
+    ``"biological"``.
+    """
+    for link in family.parent_child_links:
+        if link.child_id == child_id and link.parent_id == parent_id:
+            return link.parentage_type
+    return "biological"
+
+
 def _add_parents_section(
     report: ReportContent,
     person_id: str,
     data: ProjectData,
     persons_by_id: dict[str, object],
 ) -> None:
-    """Add the person's parents (from families where person is a child)."""
+    """Add the person's parents (from families where person is a child).
+
+    Each parent is listed by name. For non-biological parents, the Swedish
+    parentage label (e.g. "Foster", "Adoptiv") is appended so foster and
+    adoptive parents are annotated distinctly from each other and from
+    biological parents. Biological parents (and links with no explicit
+    parentage type) are listed unannotated.
+    """
     parent_entries: list[str] = []
 
     for family in data.families:
@@ -473,7 +598,14 @@ def _add_parents_section(
                 parent = persons_by_id.get(partner.person_id)
                 if parent:
                     name = _format_person_name(parent.names)
-                    parent_entries.append(name)
+                    parentage_type = _parentage_type_for(
+                        family, person_id, partner.person_id
+                    )
+                    if parentage_type and parentage_type != "biological":
+                        label = get_parentage_type_label(parentage_type)
+                        parent_entries.append(f"{name} ({label})")
+                    else:
+                        parent_entries.append(name)
 
     if not parent_entries:
         report.blocks.append(
@@ -489,8 +621,15 @@ def _add_partners_section(
     data: ProjectData,
     persons_by_id: dict[str, object],
 ) -> None:
-    """Add the person's partners with birth and death dates."""
+    """Add the person's partners with birth and death dates.
+
+    A co-partner is listed once even when they share more than one family with
+    this person (e.g. a biological family and a derived foster family), while
+    genuinely distinct partners are all kept. De-duplication is by
+    ``person_id`` preserving first-seen order.
+    """
     partner_entries: list[str] = []
+    seen_partner_ids: set[str] = set()
 
     for family in data.families:
         person_is_partner = any(
@@ -498,9 +637,10 @@ def _add_partners_section(
         )
         if person_is_partner:
             for fp in family.partners:
-                if fp.person_id != person_id:
+                if fp.person_id != person_id and fp.person_id not in seen_partner_ids:
                     partner = persons_by_id.get(fp.person_id)
                     if partner:
+                        seen_partner_ids.add(fp.person_id)
                         name = _format_person_name(partner.names)
                         dates = _get_birth_death_str(fp.person_id, data)
                         entry = f"{name}{dates}" if dates else name

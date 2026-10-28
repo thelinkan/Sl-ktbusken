@@ -75,7 +75,7 @@ Qt event loop.
     - **Property 8: loading a pre-feature project loses no foster/adoptive links; descriptive adoption events preserved; overrides default empty**
     - **Validates: Requirements 13.1, 13.3, 13.4, 13.5**
 
-- [ ] 4. Shared parent-display resolver
+- [x] 4. Shared parent-display resolver
   - [x] 4.1 Create `slaktbusken/ui/views/parent_display.py:resolve_parent_display(...)`
     - Precedence override > show-level > fallback; `non_biological` draws both foster and adoptive; override for a missing set ignored; connection type chosen from each drawn link's `parentage_type`; fallback with both non-biological types draws both
     - Return drawn links grouped by Parent_Set with each set's cardinality (one or two parents), so views can render a one-parent derived set without a partner connector or second-parent placeholder
@@ -105,61 +105,61 @@ Qt event loop.
     - Right-click sets/clears `connection_overrides[child_id]` to biological/foster/adoptive/cleared; redraw on change
     - _Requirements: 5.1, 5.4, 5.5_
 
-- [ ] 7. Settings dialog (Diagram tab)
-  - [ ] 7.1 Add Show_Level, badge, and fallback controls
+- [x] 7. Settings dialog (Diagram tab)
+  - [x] 7.1 Add Show_Level, badge, and fallback controls
     - Show_Level (Biologiska/Icke-biologiska/Alla), badge checkbox (default off), fallback checkbox (default on); writing any triggers an active-diagram redraw
     - _Requirements: 7.1, 7.2, 7.3, 7.5, 4.1, 4.5, 4.7, 6.1_
 
-- [ ] 8. Relationship calculator and kinship terms
-  - [ ] 8.1 Add the foster branch to `_classify_relationship_type`
+- [x] 8. Relationship calculator and kinship terms
+  - [x] 8.1 Add the foster branch to `_classify_relationship_type`
     - After the all-blood check and the adoptive check: any foster → `"foster"`; mixed blood/non-blood still → blood; adoptive branch unchanged
     - _Requirements: 8.1, 8.2, 9.1, 9.3, 9.4_
-  - [ ] 8.2 Add foster Swedish terms to `kinship_terms.py`
+  - [x] 8.2 Add foster Swedish terms to `kinship_terms.py`
     - "fosterfar"/"fostermor"/"fosterbarn" for immediate; `"foster-"`-prefixed terms otherwise; adoption terms unchanged
     - _Requirements: 9.2, 9.4_
-  - [ ] 8.3 Write property test for blood priority and classification
+  - [x] 8.3 Write property test for blood priority and classification
     - **Property 6: any all-blood path ⇒ no non-blood path returned; mixed ⇒ blood; pure foster ⇒ "foster"; pure adoptive ⇒ "adoption"**
     - **Validates: Requirements 8.2, 8.3, 9.1, 9.3, 9.4_
 
-- [ ] 9. Ansedel report
-  - [ ] 9.1 Annotate foster and adoptive parents in `reports/ansedel.py`
+- [x] 9. Ansedel report
+  - [x] 9.1 Annotate foster and adoptive parents in `reports/ansedel.py`
     - Append the Swedish parentage label for non-biological parents, distinctly for foster vs adoptive; biological unannotated; Fosterhem and Adoption events render with their labels
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
 
-- [ ] 10. GEDCOM round-trip
-  - [ ] 10.1 Emit `FAMC`/`FAMS` with `PEDI` in `exporter.py` `_write_person`
+- [x] 10. GEDCOM round-trip
+  - [x] 10.1 Emit `FAMC`/`FAMS` with `PEDI` in `exporter.py` `_write_person`
     - `FAMC` for each family where the person is a child, with `2 PEDI foster`/`2 PEDI adopted` for foster/adoptive links; `FAMS` for partner families; biological `FAMC` carries no `PEDI`
     - _Requirements: 11.1, 11.2_
-  - [ ] 10.1a Export the Adoption event (`1 ADOP`) and Fosterhem event (`1 EVEN` / `2 TYPE Fosterhem`)
+  - [x] 10.1a Export the Adoption event (`1 ADOP`) and Fosterhem event (`1 EVEN` / `2 TYPE Fosterhem`)
     - Add `"adoption": "ADOP"` to `_EVENT_TYPE_TO_TAG` (absent today, so adoption events are dropped on export); add `_write_foster_event` mirroring `_write_flytt_event` and route `foster_home` to it in `_write_person`; emit `DATE`/`PLAC` when present
     - Emit a subordinate `FAMC` on each `ADOP`/`EVEN` pointing at the derived family for its Parent_Set; one structure per Placement_Start_Event
     - _Requirements: 11.2a, 11.2b, 11.2c, 11.2d_
-  - [ ] 10.1b Carry the Placement_End_Event date on the paired start structure
+  - [x] 10.1b Carry the Placement_End_Event date on the paired start structure
     - When a placement has an end, encode the span on the same `ADOP`/`EVEN` `DATE` line as a GEDCOM period (`FROM <start> TO <end>`, degrading to `FROM`/`TO` only), or a labelled `NOTE` ("Avslutades: <end>") with structure-loss logging like `_write_flytt_event`; never emit the end as a separate orphan structure
     - _Requirements: 11.2e_
-  - [ ] 10.2 Read FAMC/`PEDI` in `importer.py` and set `parentage_type`
+  - [x] 10.2 Read FAMC/`PEDI` in `importer.py` and set `parentage_type`
     - Add FAMC/PEDI reading (the importer reads only family-level CHIL today); `foster`→foster, `adopted`→adoptive, else/absent→biological (replacing the hardcoded biological)
     - _Requirements: 11.3, 11.4, 11.5_
-  - [ ] 10.3 Back-fill placement events for imported foster/adoptive links BEFORE syncing
+  - [x] 10.3 Back-fill placement events for imported foster/adoptive links BEFORE syncing
     - Share the back-fill helper with the on-load migration (task 3.2); create a Fosterhem/Adoption event per imported foster/adoptive link not already backed; group parents sharing a GEDCOM family for the same child into one event; prefer a matching `ADOP`/`EVEN TYPE Fosterhem` structure's `DATE`/`PLAC` and its `FAMC` parent linkage; reuse an existing `ADOP`-derived adoption event rather than duplicating it
     - _Requirements: 11.6, 11.7, 11.7a, 11.8_
-  - [ ] 10.3a Reconstruct the Placement_End_Event from an imported end date
+  - [x] 10.3a Reconstruct the Placement_End_Event from an imported end date
     - When an imported `ADOP`/`EVEN TYPE Fosterhem` structure carries an end (period upper bound or labelled note), create the paired end event with that date and the same child and parents as the start
     - _Requirements: 11.10_
-  - [ ] 10.4 Run `sync_parentage_links` after back-fill, events taking precedence, no imported relationship deleted
+  - [x] 10.4 Run `sync_parentage_links` after back-fill, events taking precedence, no imported relationship deleted
     - _Requirements: 11.9_
-  - [ ] 10.5 Write property test for GEDCOM round-trip with no loss
+  - [x] 10.5 Write property test for GEDCOM round-trip with no loss
     - **Property 7: export then import preserves parentage_type AND the event's date/place/parent-set/end-date; every imported foster/adoptive link survives the post-import sync; GEDCOM-family-mates form one Parent_Set; multiple Parent_Sets round-trip as multiple ordered structures; a placement's end date round-trips on the paired structure**
     - **Validates: Requirements 11.1, 11.2, 11.2a, 11.2b, 11.2c, 11.2d, 11.2e, 11.3, 11.4, 11.5, 11.6, 11.7, 11.7a, 11.8, 11.9, 11.10_
 
-- [ ] 11. Person editor and person checks
+- [x] 11. Person editor and person checks
   - [x] 11.1 Make foster and adoptive links read-only in `person_editor.py`
     - Foster/adoptive rows shown read-only labelled "(via händelse)"; no direct add/retype/remove; adding a foster or adoptive parent routes to a pre-populated placement event
     - _Requirements: 2.6, 2.7_
-  - [ ] 11.2 Make `person_check_engine.py` foster/adoptive-aware
+  - [x] 11.2 Make `person_check_engine.py` foster/adoptive-aware
     - Distinguish foster and adoptive from biological in `parents_of`; a person with only non-biological parents is not "saknar föräldrar"; skip meaningless age-gap/chronology checks for foster (and adoptive where meaningless)
     - _Requirements: 12.1, 12.2, 12.4_
-  - [ ] 11.3 Label foster and adoptive parents in `person_detail_panel.py`
+  - [x] 11.3 Label foster and adoptive parents in `person_detail_panel.py`
     - Annotate each distinctly in "Föräldrar och syskon"
     - _Requirements: 12.3_
   - [x] 11.4 Wire `sync_parentage_links` into event edits and project load
@@ -168,8 +168,8 @@ Qt event loop.
     - Do NOT add a second sync call to the GEDCOM import path (task 10.4 already runs sync after its back-fill); keep sync a no-op-safe single call per mutation given its idempotence
     - _Requirements: 2.3, 13.3_
 
-- [ ] 12. Full integration verification
-  - [ ] 12.1 Run the whole test suite and the app's import/export/report paths
+- [x] 12. Full integration verification
+  - [x] 12.1 Run the whole test suite and the app's import/export/report paths
     - Confirm the task 11.4 wiring runs sync on event create/edit/delete and on project load, and that task 10.4 runs it on GEDCOM import, for both types; confirm all three views honour show-level/override/fallback; confirm settings persist across restart
     - _Requirements: 2.3, 4.6, 4.7, 7.5, 11.6, 13.1_
 

@@ -272,31 +272,43 @@ def _family_survives(
     (Requirement 2.8): END ids a previous sync appended to a family are ignored
     here. Concretely:
 
-    * END ids (ids naming a live placement END event) are discarded from the
-      recorded set — they are mere annotations, never evidence that a family was
-      derived from a START event.
-    * What remains are the family's would-be START ids. If any is still a live
-      start, the family is backed and survives. If none remain (e.g. an *orphan*
-      link family that recorded only an END id, or never recorded anything), the
-      family is not a derived placement family and is preserved unchanged
-      (Requirement 13.3). Only when a remaining recorded id is a *vanished*
-      start — and the family's links are all ours — is the derived family
-      dropped.
+    * END ids (ids naming a live placement END event) and ids naming any other
+      *still-present non-placement* event (e.g. a family-level ``marriage`` /
+      ``divorce`` recorded on ``event_ids``) are discarded from the recorded
+      set — they are never evidence that a family was derived from a placement
+      START event. Ignoring the latter keeps childless marriage families (no
+      links, only a MARR id on ``event_ids``) from being mistaken for a derived
+      placement family whose start vanished.
+    * What remains are the family's would-be placement-START ids: a live start,
+      or a *vanished* id (absent from the project entirely, so possibly a
+      deleted placement start). If any is still a live start, the family is
+      backed and survives. If none remain (e.g. an *orphan* link family that
+      recorded only an END id, a family recording only non-placement events, or
+      one that never recorded anything), the family is not a derived placement
+      family and is preserved unchanged (Requirement 13.3). Only when a
+      remaining recorded id is a *vanished* start — and the family's links are
+      all ours (or it is linkless) — is the derived family dropped.
     """
     recorded = set(family.event_ids)
-    # Drop END-event annotations: they never make a family a deletion target,
-    # and ignoring them keeps the decision identical on a re-run after an end
-    # id was paired in (idempotence, Req 2.8 / 13.3).
-    end_ids = {
+    # Discard ids that are NOT evidence of a derived placement START: live
+    # placement END events (mere annotations) and any other event still present
+    # in the project whose type is not a placement START (e.g. a family-level
+    # MARR/DIV). Only live placement STARTs and *vanished* ids (absent from the
+    # project) remain as START candidates. Ignoring still-present non-placement
+    # events keeps the decision stable across re-runs (idempotence, Req 2.8)
+    # and stops a childless marriage family from being deleted as a phantom
+    # derived family (every-other-type-left-as-found guarantee, Req 2.2).
+    non_start_ids = {
         event_id
         for event_id in recorded
         if events_by_id.get(event_id) is not None
-        and events_by_id[event_id].type in _PLACEMENT_END
+        and events_by_id[event_id].type not in _PLACEMENT_START
     }
-    start_candidates = recorded - end_ids
+    start_candidates = recorded - non_start_ids
     if not start_candidates:
-        # No recorded START id (orphan link family or event-less family): never
-        # a derived placement family to delete.
+        # No recorded START id (orphan link family, a family recording only
+        # non-placement events, or an event-less family): never a derived
+        # placement family to delete.
         return True
     if start_candidates & live_start_ids:
         # Still backed by at least one live start event.

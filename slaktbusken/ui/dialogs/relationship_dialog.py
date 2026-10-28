@@ -42,6 +42,15 @@ if TYPE_CHECKING:
 from slaktbusken.model.name_parser import parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.relationship.calculator import RelationshipCalculator, RelationshipPath
+from slaktbusken.relationship.graph_builder import build_relationship_graph
+# Foster/adoptive connector styling mirrors the main diagram views. The names
+# are module-private globals in connection_line.py; importing them keeps the
+# mini-diagram's dashed foster (teal) and adoptive (purple) colours identical
+# to the main views without duplicating the literal QColor values.
+from slaktbusken.ui.widgets.connection_line import (
+    _ADOPTIVE_COLOR,
+    _FOSTER_COLOR,
+)
 
 
 class _MultiWordFilterProxy(QSortFilterProxyModel):
@@ -863,6 +872,47 @@ class RelationshipDialog(QDialog):
         connector_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         connector_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
 
+        # Build a global (parent_id, child_id) -> parentage_type lookup from the
+        # project graph. This is path-independent: a given parent→child link has
+        # one real parentage type regardless of which path surfaced it, so
+        # foster/adoptive drops render consistently across every drawn path.
+        edge_parentage: dict[tuple[str, str], str] = {}
+        if self._data is not None:
+            graph = build_relationship_graph(self._data)
+            for person_id in graph.person_ids:
+                for edge in graph.get_edges(person_id):
+                    # edge_type "parent" means person_id IS the parent OF
+                    # edge.target, so (person_id, edge.target) = (parent, child).
+                    if edge.edge_type == "parent":
+                        edge_parentage[(person_id, edge.target)] = edge.parentage_type
+
+        # Pre-build the dashed foster/adoptive pens once (same cap/join as the
+        # solid connector_pen, width 1.5). Colours mirror the main views.
+        foster_pen = QPen(_FOSTER_COLOR, 1.5, Qt.PenStyle.DashLine)
+        foster_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        foster_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        adoptive_pen = QPen(_ADOPTIVE_COLOR, 1.5, Qt.PenStyle.DashLine)
+        adoptive_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        adoptive_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+
+        def _child_drop_pen(couple_key: tuple[str, ...], child_id: str) -> QPen:
+            """Return the pen for the drop into ``child_id`` from its parents.
+
+            Mirrors the main views' precedence: if any parent→child link from
+            the parents in ``couple_key`` is foster, draw the dashed foster
+            (teal) pen; else if any is adoptive, the dashed adoptive (purple)
+            pen; otherwise the solid grey connector pen (biological/unknown).
+            """
+            types = [
+                edge_parentage.get((parent_id, child_id))
+                for parent_id in couple_key
+            ]
+            if any(t == "foster" for t in types):
+                return foster_pen
+            if any(t == "adoptive" for t in types):
+                return adoptive_pen
+            return connector_pen
+
         drawn_edges: set[tuple[str, str]] = set()
         drawn_partner_bars: set[tuple[str, str]] = set()
 
@@ -920,20 +970,24 @@ class RelationshipDialog(QDialog):
                 self._scene.addPath(path_line, connector_pen)
 
                 if len(children_list) == 1:
-                    # Single child: straight line down
+                    # Single child: straight line down. The drop reflects the
+                    # child's parentage; for a single foster/adoptive child the
+                    # whole L is drawn in the dashed pen (simplest and still
+                    # reads correctly, since only this child hangs off it).
                     cx, cy = positions[children_list[0]]
                     child_center_x = cx + node_w / 2
+                    drop_pen = _child_drop_pen(couple_key, children_list[0])
                     path_line = QPainterPath()
                     path_line.moveTo(trunk_x, trunk_bottom)
                     path_line.lineTo(child_center_x, trunk_bottom)
                     path_line.lineTo(child_center_x, cy)
-                    self._scene.addPath(path_line, connector_pen)
+                    self._scene.addPath(path_line, drop_pen)
                 else:
                     # Multiple children: sibling bar + drops
                     leftmost_x = positions[children_list[0]][0] + node_w / 2
                     rightmost_x = positions[children_list[-1]][0] + node_w / 2
 
-                    # Sibling bar
+                    # Sibling bar (structural — always the solid pen)
                     path_line = QPainterPath()
                     path_line.moveTo(leftmost_x, trunk_bottom)
                     path_line.lineTo(rightmost_x, trunk_bottom)
@@ -949,14 +1003,15 @@ class RelationshipDialog(QDialog):
                         )
                         self._scene.addPath(path_line, connector_pen)
 
-                    # Child drops
+                    # Child drops — per-child pen reflects each child's parentage
                     for child_id in children_list:
                         cx, cy = positions[child_id]
                         child_center_x = cx + node_w / 2
+                        drop_pen = _child_drop_pen(couple_key, child_id)
                         path_line = QPainterPath()
                         path_line.moveTo(child_center_x, trunk_bottom)
                         path_line.lineTo(child_center_x, cy)
-                        self._scene.addPath(path_line, connector_pen)
+                        self._scene.addPath(path_line, drop_pen)
 
             else:
                 # Single parent: orthogonal L-connector from parent to each child
@@ -975,18 +1030,22 @@ class RelationshipDialog(QDialog):
                 self._scene.addPath(path_line, connector_pen)
 
                 if len(children_list) == 1:
+                    # Single child: the whole L down to the child reflects the
+                    # child's parentage (dashed for foster/adoptive), same
+                    # rationale as the couple single-child case above.
                     cx, cy = positions[children_list[0]]
                     child_center_x = cx + node_w / 2
+                    drop_pen = _child_drop_pen(couple_key, children_list[0])
                     path_line = QPainterPath()
                     path_line.moveTo(parent_bottom_x, mid_y)
                     path_line.lineTo(child_center_x, mid_y)
                     path_line.lineTo(child_center_x, cy)
-                    self._scene.addPath(path_line, connector_pen)
+                    self._scene.addPath(path_line, drop_pen)
                 else:
                     leftmost_x = positions[children_list[0]][0] + node_w / 2
                     rightmost_x = positions[children_list[-1]][0] + node_w / 2
 
-                    # Sibling bar
+                    # Sibling bar (structural — always the solid pen)
                     path_line = QPainterPath()
                     path_line.moveTo(leftmost_x, mid_y)
                     path_line.lineTo(rightmost_x, mid_y)
@@ -1002,14 +1061,15 @@ class RelationshipDialog(QDialog):
                         )
                         self._scene.addPath(path_line, connector_pen)
 
-                    # Child drops
+                    # Child drops — per-child pen reflects each child's parentage
                     for child_id in children_list:
                         cx, cy = positions[child_id]
                         child_center_x = cx + node_w / 2
+                        drop_pen = _child_drop_pen(couple_key, child_id)
                         path_line = QPainterPath()
                         path_line.moveTo(child_center_x, mid_y)
                         path_line.lineTo(child_center_x, cy)
-                        self._scene.addPath(path_line, connector_pen)
+                        self._scene.addPath(path_line, drop_pen)
 
         # Step 6: Draw any remaining partner lines not already drawn
         # (explicit partner edges from paths that weren't in partner_pairs)

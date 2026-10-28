@@ -47,6 +47,13 @@ from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import Repository, RepositoryRef, Source
+from slaktbusken.services.foster_sync import (
+    _DERIVED_PARENTAGE_TYPES,
+    _PLACEMENT_END as _PLACEMENT_END_TYPES,
+    _PLACEMENT_START as _PLACEMENT_START_ROLES,
+    backfill_orphan_placement_events,
+    sync_parentage_links,
+)
 from slaktbusken.persistence.translation_io import (
     FamilyMapping,
     PersonMapping,
@@ -189,6 +196,65 @@ _FAM_EVENT_TAGS: dict[str, str] = {
 _SUPPORTED_LEVEL0_TAGS = frozenset(
     {"HEAD", "INDI", "FAM", "SOUR", "TRLR", "SUBM", "NOTE", "REPO"}
 )
+
+
+# ---------------------------------------------------------------------------
+# GEDCOM pedigree (PEDI) mapping
+# ---------------------------------------------------------------------------
+
+# Maps a GEDCOM 5.5.1 pedigree value (lowercased) to our internal
+# ParentChildLink.parentage_type. Standard PEDI values are
+# birth/adopted/foster/sealing; only "foster" and "adopted" denote a
+# non-biological link in our model. Note the GEDCOM value is "adopted"
+# while our internal type is "adoptive". Anything else (birth, sealing,
+# an unrecognised value, or no PEDI at all) maps to "biological".
+_PEDIGREE_TO_PARENTAGE_TYPE: dict[str, str] = {
+    "foster": "foster",
+    "adopted": "adoptive",
+}
+
+
+def _pedigree_to_parentage_type(pedigree: Optional[str]) -> str:
+    """Map a GEDCOM PEDI value to an internal parentage_type.
+
+    Args:
+        pedigree: The raw PEDI value (any case), or None when absent.
+
+    Returns:
+        ``"foster"`` for ``foster``, ``"adoptive"`` for ``adopted`` (case
+        insensitive), and ``"biological"`` for any other value or None.
+    """
+    if not pedigree:
+        return "biological"
+    return _PEDIGREE_TO_PARENTAGE_TYPE.get(pedigree.strip().lower(), "biological")
+
+
+def _extract_famc_pedigree(record: GedcomLine) -> dict[str, str]:
+    """Extract an INDI record's FAMC → PEDI pedigree map.
+
+    In GEDCOM 5.5.1 the pedigree tag lives under the individual's ``FAMC``
+    cross-reference, not under the family's ``CHIL``::
+
+        0 @I1@ INDI
+        1 FAMC @F1@
+        2 PEDI adopted
+
+    Args:
+        record: A level-0 GedcomLine with tag "INDI".
+
+    Returns:
+        A dict mapping each family xref (e.g. ``"@F1@"``) to its lowercased
+        PEDI value. Only FAMC links that carry a PEDI value are included.
+    """
+    pedigrees: dict[str, str] = {}
+    for famc in _get_children(record, "FAMC"):
+        family_xref = famc.value
+        if not family_xref:
+            continue
+        pedi_val = _get_child_value(famc, "PEDI")
+        if pedi_val and pedi_val.strip():
+            pedigrees[family_xref] = pedi_val.strip().lower()
+    return pedigrees
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +491,99 @@ def _parse_resi_date(raw_date: Optional[str]) -> _ResiDateResult:
         return result
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# GEDCOM placement (ADOP / Fosterhem EVEN) period parsing
+# ---------------------------------------------------------------------------
+
+# Matches the labelled note the exporter writes when a placement's end date
+# cannot be expressed as a GEDCOM period (``2 NOTE Avslutades: <raw end>``),
+# mirroring ``_placement_date_lines`` in ``gedcom/exporter.py``. The captured
+# group is the raw end-date string.
+_AVSLUTADES_NOTE_RE = re.compile(r"^Avslutades:\s*(.+)$", re.IGNORECASE)
+
+
+def _date_value_from(raw: Optional[str]) -> Optional[DateValue]:
+    """Parse a single GEDCOM date fragment into a DateValue, or None.
+
+    A thin wrapper over :func:`_parse_single_gedcom_date` that returns a
+    :class:`DateValue` when the fragment is interpretable, mirroring the
+    ``(value, precision)`` contract used by the RESI date parser.
+    """
+    if not raw or not raw.strip():
+        return None
+    value, precision = _parse_single_gedcom_date(raw)
+    if value is None:
+        return None
+    return DateValue(value=value, precision=precision or "day")
+
+
+def _parse_placement_dates(
+    event_record: GedcomLine,
+) -> tuple[Optional[DateValue], Optional[DateValue]]:
+    """Split a placement structure's end date from its start date.
+
+    A Släktbusken-exported ``ADOP`` / ``EVEN TYPE Fosterhem`` structure carries
+    the span of a placement on a single ``DATE`` line as a GEDCOM period
+    (``FROM <start> TO <end>``, degrading to ``FROM <start>`` or ``TO <end>``),
+    or — when the end cannot be expressed as a period — on a labelled
+    ``NOTE`` (``Avslutades: <end>``). This mirrors ``_placement_date_lines`` in
+    ``gedcom/exporter.py`` (Requirements 11.2e, 11.10).
+
+    Returns ``(start_date, end_date)``:
+
+    - ``FROM x TO y`` → start ``x``, end ``y``.
+    - ``FROM x`` (period marker but no ``TO``) → start ``x``, end ``None``.
+    - ``TO y`` → start ``None``, end ``y``.
+    - a plain (non-period) ``DATE`` → start = that date, end ``None`` (left to
+      :func:`parse_gedcom_date` by the caller; returned here for completeness).
+    - no ``DATE`` period but an ``Avslutades:`` note → start from a plain
+      ``DATE`` if present, end from the note.
+
+    Either element is ``None`` when the corresponding bound is absent or
+    uninterpretable. The end is only ever produced from a period's upper bound
+    or the labelled note — never from a plain single date — so a placement
+    without an end never fabricates one.
+    """
+    date_str = _get_child_value(event_record, "DATE")
+    start_date: Optional[DateValue] = None
+    end_date: Optional[DateValue] = None
+
+    if date_str and date_str.strip():
+        stripped = date_str.strip()
+
+        m = _FROM_TO_RE.match(stripped)
+        if m:
+            start_date = _date_value_from(m.group(1))
+            end_date = _date_value_from(m.group(2))
+            return start_date, end_date
+
+        m = _FROM_ONLY_RE.match(stripped)
+        if m:
+            start_date = _date_value_from(m.group(1))
+            return start_date, None
+
+        m = _TO_ONLY_RE.match(stripped)
+        if m:
+            end_date = _date_value_from(m.group(1))
+            return None, end_date
+
+        # Plain date (no period marker): the start is this date; no end.
+        start_date = parse_gedcom_date(stripped)
+
+    # No period upper bound: fall back to a labelled "Avslutades:" NOTE.
+    if end_date is None:
+        for note in _get_children(event_record, "NOTE"):
+            if not note.value:
+                continue
+            note_match = _AVSLUTADES_NOTE_RE.match(note.value.strip())
+            if note_match:
+                end_date = _date_value_from(note_match.group(1))
+                if end_date is not None:
+                    break
+
+    return start_date, end_date
 
 
 # ---------------------------------------------------------------------------
@@ -763,6 +922,125 @@ def _parse_gedcom_coordinate(
             return None
 
 
+def _is_event_derived_family(
+    family: Family, placement_start_ids: set[str]
+) -> bool:
+    """True when a family is an event-derived placement family.
+
+    A derived family is one whose ``event_ids`` records a live placement START
+    event id. The post-import sync (Step 3d) builds exactly these for each
+    imported/back-filled placement event, and they are the authoritative home
+    of foster/adoptive links.
+    """
+    return any(event_id in placement_start_ids for event_id in family.event_ids)
+
+
+def _reconcile_imported_placement_families(project: ProjectData) -> None:
+    """Drop foster/adoptive links made redundant by event-derived families.
+
+    After :func:`sync_parentage_links` runs on an import, every imported
+    foster/adoptive (child, parent) pair is also represented on an event-derived
+    family keyed by the placement event. An imported GEDCOM ``FAM`` family that
+    originally carried those foster/adoptive links (from FAMC/PEDI) is left
+    holding a now-redundant duplicate, because the sync deliberately does not
+    reconcile such a family in place (that would destroy any biological links it
+    also carries for its other children).
+
+    This reconciliation removes, from every *non* event-derived family, each
+    foster/adoptive link whose exact ``(child_id, parent_id, parentage_type)`` is
+    already present on some event-derived family — so the event-derived family
+    is the single source of truth (Requirement 11.9 "giving precedence to
+    Placement_Events"). It:
+
+    - never removes a biological link or any link whose parentage this service
+      does not own;
+    - never removes a foster/adoptive link unless an event-derived family
+      already carries the identical pair, so no imported relationship vanishes
+      (Requirement 11.9 "SHALL NOT delete any imported foster or adoptive
+      relationship for which a Placement_Event exists or was back-filled");
+    - after stripping links, drops any child from ``children`` (and any partner
+      from ``partners``) of the imported family that no longer participates in
+      any remaining link there, so the exporter does not emit a stray
+      pedigree-less ``FAMC`` for a child whose only tie to the family was the
+      relocated foster/adoptive link;
+    - removes an imported family entirely only when stripping leaves it with no
+      links and no children, so it carries no information of its own.
+
+    Mutates ``project`` in place. Idempotent: a second run finds the links
+    already relocated and changes nothing.
+    """
+    placement_start_ids = {
+        event.id
+        for event in project.events
+        if event.type in _PLACEMENT_START_ROLES
+    }
+
+    derived_families = [
+        family
+        for family in project.families
+        if _is_event_derived_family(family, placement_start_ids)
+    ]
+
+    # Every (child, parent, type) pair authoritatively held by a derived family.
+    derived_pairs: set[tuple[str, Optional[str], str]] = set()
+    for family in derived_families:
+        for link in family.parent_child_links:
+            if link.parentage_type in _DERIVED_PARENTAGE_TYPES:
+                derived_pairs.add(
+                    (link.child_id, link.parent_id, link.parentage_type)
+                )
+
+    surviving: list[Family] = []
+    for family in project.families:
+        if _is_event_derived_family(family, placement_start_ids):
+            surviving.append(family)
+            continue
+
+        # Keep every link except a foster/adoptive one already represented on a
+        # derived family. Biological and other links are always kept.
+        kept_links = [
+            link
+            for link in family.parent_child_links
+            if not (
+                link.parentage_type in _DERIVED_PARENTAGE_TYPES
+                and (link.child_id, link.parent_id, link.parentage_type)
+                in derived_pairs
+            )
+        ]
+
+        if len(kept_links) == len(family.parent_child_links):
+            # Nothing redundant here; leave the family exactly as found.
+            surviving.append(family)
+            continue
+
+        family.parent_child_links = kept_links
+
+        # A child/parent that no longer appears in any remaining link of this
+        # family is pruned so the exporter will not emit a stray FAMC/FAMS for a
+        # relationship that now lives solely on the derived family.
+        remaining_children = {link.child_id for link in kept_links}
+        remaining_parents = {
+            link.parent_id for link in kept_links if link.parent_id is not None
+        }
+        family.children = [
+            child_id
+            for child_id in family.children
+            if child_id in remaining_children
+        ]
+        family.partners = [
+            partner
+            for partner in family.partners
+            if partner.person_id in remaining_parents
+        ]
+
+        # Drop a family emptied of all links and children; it holds no data.
+        if not family.parent_child_links and not family.children:
+            continue
+        surviving.append(family)
+
+    project.families = surviving
+
+
 # ---------------------------------------------------------------------------
 # GEDCOMImporter class
 # ---------------------------------------------------------------------------
@@ -813,6 +1091,27 @@ class GEDCOMImporter:
         self._source_xref_map: dict[str, str] = {}
         self._person_xref_map: dict[str, str] = {}
         self._family_xref_map: dict[str, str] = {}
+
+        # FAMC/PEDI pedigree lookup keyed by (child xref, family xref) →
+        # lowercased PEDI value. Populated from INDI records before families
+        # are processed so family-link creation can set parentage_type.
+        self._famc_pedigree: dict[tuple[str, str], str] = {}
+
+        # Imported placement START events (ADOP → "adoption",
+        # EVEN/TYPE Fosterhem → "foster_home") awaiting finalisation after the
+        # families are built. Each entry records the created event's id, the
+        # child's App_JSON person id, the subordinate FAMC family xref (or
+        # None) the structure pointed at, and the end date extracted from the
+        # structure's period upper bound or labelled "Avslutades:" NOTE (or
+        # None when the placement has no end). Finalisation (task 10.3) rewrites
+        # the child participant to the placement child role and adds the FAMC
+        # family's partners as parent-role participants so the back-fill and the
+        # Parentage_Sync_Service recognise the event as backing its Parent_Set
+        # (Requirements 11.7, 11.7a); task 10.3a then reconstructs the paired
+        # Placement_End_Event from the recorded end date (Requirement 11.10).
+        self._imported_placement_events: list[
+            tuple[str, str, Optional[str], Optional[DateValue]]
+        ] = []
 
         # Place cache: GEDCOM place string → App_JSON place_id
         self._place_cache: dict[str, str] = {}
@@ -924,8 +1223,52 @@ class GEDCOMImporter:
         # Step 2: Process persons (pass fam_records for fingerprint matching)
         self._process_persons(indi_records, translation_data, fam_records)
 
+        # Step 2b: Collect FAMC/PEDI pedigree so family-link creation can
+        # set parentage_type (the pedigree lives under the child INDI's
+        # FAMC, not under the family's CHIL).
+        self._collect_famc_pedigree(indi_records)
+
         # Step 3: Process families
         self._process_families(fam_records, translation_data)
+
+        # Step 3b: Finalise imported placement START events (ADOP / Fosterhem
+        # EVEN). Now that the families exist, resolve each event's subordinate
+        # FAMC to the Parent_Set it names and attach those parents in the
+        # placement parent role, converting the child-only event into a real
+        # backing placement event (Requirements 11.7, 11.7a).
+        self._finalize_placement_events()
+
+        # Step 3c: Back-fill a placement event for every imported foster/
+        # adoptive link not already backed by an imported (or just-finalised)
+        # placement event, so the post-import sync preserves it rather than
+        # deleting it as an orphan (Requirements 11.6, 11.8). The same shared
+        # helper is used by the on-load migration (task 3.2) so importer and
+        # migration cannot diverge. Running the Parentage_Sync_Service itself is
+        # task 10.4; the back-fill establishes the precondition it relies on.
+        backfill_orphan_placement_events(self._project_data)
+
+        # Step 3d: Run the Parentage_Sync_Service so the imported foster/
+        # adoptive links agree with the imported and back-filled placement
+        # events, with the events as the source of truth (Requirement 11.9).
+        # Because Step 3c backed every imported orphan Parent_Set with an event
+        # BEFORE this runs, the sync preserves every imported foster/adoptive
+        # relationship rather than dropping it as an unbacked orphan.
+        #
+        # The sync keys a derived family off a placement event id in
+        # ``Family.event_ids``. An imported GEDCOM ``FAM`` whose foster/adoptive
+        # links came from FAMC/PEDI does not record a placement event id, so the
+        # sync builds a SEPARATE derived family for the event (rather than
+        # reconciling the GEDCOM family in place — doing the latter would
+        # destroy any biological links the GEDCOM family also carries for its
+        # other children). After the sync the authoritative foster/adoptive
+        # links therefore live on the event-derived family, while the imported
+        # GEDCOM family may still carry the same foster/adoptive links as a now
+        # redundant copy. Step 3d's reconciliation removes those redundant
+        # copies from the imported families so the event-derived family is the
+        # single source of truth, without ever touching biological or other
+        # links (Requirement 11.9 "giving precedence to Placement_Events").
+        sync_parentage_links(self._project_data)
+        _reconcile_imported_placement_families(self._project_data)
 
         # Save updated translation data
         self._translation_mgr.save_translations(translation_data)
@@ -1575,6 +1918,31 @@ class GEDCOMImporter:
             if tag == "RESI":
                 # RESI → ResidenceFact (Requirement 12.7, 12.8, 12.12, 12.13)
                 self._create_residence(person_id, child)
+            elif tag == "ADOP":
+                # ADOP → an "adoption" placement START event. It carries the
+                # child in the "subject" role for now and (when exported by us)
+                # a subordinate FAMC pointing at the derived family for its
+                # Parent_Set. Record it for finalisation once the families exist
+                # so the adoptive parents can be attached (Requirements 11.7,
+                # 11.7a). The child's DATE/PLAC are read by _create_event, so a
+                # matching ADOP's date/place is preferred over a dateless
+                # back-fill.
+                event_id = self._create_event(
+                    event_type="adoption",
+                    event_record=child,
+                    participant_id=person_id,
+                    participant_role="subject",
+                )
+                if event_id is not None:
+                    end_date = self._apply_placement_period(event_id, child)
+                    self._imported_placement_events.append(
+                        (
+                            event_id,
+                            person_id,
+                            _get_child_value(child, "FAMC"),
+                            end_date,
+                        )
+                    )
             elif tag in _INDI_EVENT_TAGS:
                 event_type = _INDI_EVENT_TAGS[tag]
                 self._create_event(
@@ -1584,15 +1952,40 @@ class GEDCOMImporter:
                     participant_role="subject",
                 )
             elif tag == "EVEN":
-                # Check if it's a Flytt event (Requirement 18.16)
                 custom_type_name = _get_child_value(child, "TYPE")
-                if custom_type_name and custom_type_name.strip().lower() == "flytt":
+                normalized_type = (
+                    custom_type_name.strip().lower() if custom_type_name else ""
+                )
+                if normalized_type == "flytt":
+                    # Flytt event (Requirement 18.16)
                     self._create_event(
                         event_type="flytt",
                         event_record=child,
                         participant_id=person_id,
                         participant_role="subject",
                     )
+                elif normalized_type == "fosterhem":
+                    # EVEN / TYPE Fosterhem → a "foster_home" placement START
+                    # event, mirroring the ADOP handling above (Requirements
+                    # 11.7, 11.7a). The exporter emits this structure for a
+                    # Fosterhem event; parsing it here lets the back-fill prefer
+                    # its DATE/PLAC/FAMC over a dateless fabrication.
+                    event_id = self._create_event(
+                        event_type="foster_home",
+                        event_record=child,
+                        participant_id=person_id,
+                        participant_role="subject",
+                    )
+                    if event_id is not None:
+                        end_date = self._apply_placement_period(event_id, child)
+                        self._imported_placement_events.append(
+                            (
+                                event_id,
+                                person_id,
+                                _get_child_value(child, "FAMC"),
+                                end_date,
+                            )
+                        )
                 else:
                     # Generic individual event → custom_individual_event
                     self._create_event(
@@ -1750,6 +2143,44 @@ class GEDCOMImporter:
     # Family processing
     # ------------------------------------------------------------------
 
+    def _collect_famc_pedigree(self, indi_records: list[GedcomLine]) -> None:
+        """Populate ``self._famc_pedigree`` from the INDI records.
+
+        Reads each individual's ``FAMC`` cross-references and their
+        subordinate ``PEDI`` values, keying the result by
+        ``(child xref, family xref)`` so that family-link creation can look
+        up the pedigree for a given (child, family) pair. Only FAMC links
+        carrying a PEDI value are recorded.
+
+        Args:
+            indi_records: Level-0 INDI GedcomLine records.
+        """
+        for record in indi_records:
+            child_xref = record.xref_id
+            if not child_xref:
+                continue
+            for family_xref, pedi in _extract_famc_pedigree(record).items():
+                self._famc_pedigree[(child_xref, family_xref)] = pedi
+
+    def _parentage_type_for(
+        self, child_xref: str, family_xref: str
+    ) -> str:
+        """Resolve the parentage_type for a (child, family) pair.
+
+        Consults the FAMC/PEDI pedigree collected from the child INDI
+        record. ``foster`` → ``"foster"``, ``adopted`` → ``"adoptive"``,
+        and anything else or absent → ``"biological"``.
+
+        Args:
+            child_xref: The child's GEDCOM cross-reference (e.g. ``"@I1@"``).
+            family_xref: The family's GEDCOM cross-reference (e.g. ``"@F1@"``).
+
+        Returns:
+            One of ``"foster"``, ``"adoptive"``, or ``"biological"``.
+        """
+        pedigree = self._famc_pedigree.get((child_xref, family_xref))
+        return _pedigree_to_parentage_type(pedigree)
+
     def _process_families(
         self,
         fam_records: list[GedcomLine],
@@ -1863,15 +2294,24 @@ class GEDCOMImporter:
                 if event_id:
                     event_ids.append(event_id)
 
-        # Build ParentChildLinks
+        # Build ParentChildLinks. The parentage_type comes from the child's
+        # FAMC/PEDI pedigree for THIS family and applies to both parent
+        # links of the child in the family (PEDI qualifies the child's
+        # membership in the family, not a single parent).
         parent_child_links: list[ParentChildLink] = []
-        for child_id in children:
+        for child_xref in gedcom_family.child_xrefs:
+            child_id = self._person_xref_map.get(child_xref)
+            if not child_id:
+                continue
+            parentage_type = self._parentage_type_for(
+                child_xref, gedcom_family.xref_id
+            )
             for partner in partners:
                 parent_child_links.append(
                     ParentChildLink(
                         child_id=child_id,
                         parent_id=partner.person_id,
-                        parentage_type="biological",
+                        parentage_type=parentage_type,
                     )
                 )
 
@@ -1936,13 +2376,19 @@ class GEDCOMImporter:
                     children_list.append(child_id)
 
             parent_child_links: list[ParentChildLink] = []
-            for child_id in children_list:
+            for child_xref in gedcom_family.child_xrefs:
+                child_id = self._person_xref_map.get(child_xref)
+                if not child_id:
+                    continue
+                parentage_type = self._parentage_type_for(
+                    child_xref, gedcom_family.xref_id
+                )
                 for partner in partners:
                     parent_child_links.append(
                         ParentChildLink(
                             child_id=child_id,
                             parent_id=partner.person_id,
-                            parentage_type="biological",
+                            parentage_type=parentage_type,
                         )
                     )
 
@@ -1975,13 +2421,19 @@ class GEDCOMImporter:
                 children_list.append(child_id)
 
         parent_child_links = []
-        for child_id in children_list:
+        for child_xref in gedcom_family.child_xrefs:
+            child_id = self._person_xref_map.get(child_xref)
+            if not child_id:
+                continue
+            parentage_type = self._parentage_type_for(
+                child_xref, gedcom_family.xref_id
+            )
             for partner in partners:
                 parent_child_links.append(
                     ParentChildLink(
                         child_id=child_id,
                         parent_id=partner.person_id,
-                        parentage_type="biological",
+                        parentage_type=parentage_type,
                     )
                 )
 
@@ -2042,6 +2494,188 @@ class GEDCOMImporter:
                 if event_id:
                     event_ids.append(event_id)
         existing_family.event_ids = event_ids
+
+    # ------------------------------------------------------------------
+    # Placement event finalisation (Requirements 11.7, 11.7a, 11.10)
+    # ------------------------------------------------------------------
+
+    def _apply_placement_period(
+        self, event_id: str, event_record: GedcomLine
+    ) -> Optional[DateValue]:
+        """Normalise a placement start event's date and return its end date.
+
+        A Släktbusken-exported ``ADOP`` / ``EVEN TYPE Fosterhem`` structure may
+        carry its placement's span as a GEDCOM period on the ``DATE`` line
+        (``FROM <start> TO <end>``) or as a labelled ``Avslutades: <end>``
+        ``NOTE`` (Requirement 11.2e). ``_create_event`` already stored whatever
+        :func:`parse_gedcom_date` could make of the raw ``DATE`` string, but it
+        cannot interpret a period, so a ``FROM``/``TO`` placement would be left
+        dateless. This method re-reads the structure, splits the span into its
+        start and end bounds, sets the start event's date to the lower bound
+        (so the start keeps only its own date, not the whole period), and
+        returns the end bound for the paired Placement_End_Event reconstruction
+        (Requirement 11.10).
+
+        Returns the extracted end :class:`DateValue`, or ``None`` when the
+        placement has no end bound.
+        """
+        start_date, end_date = _parse_placement_dates(event_record)
+
+        # Only override the start date when we parsed a period's lower bound;
+        # a plain DATE was already handled correctly by _create_event, and we
+        # must not clobber its source refs with a fresh DateValue.
+        if end_date is not None and start_date is not None:
+            event = next(
+                (e for e in self._project_data.events if e.id == event_id),
+                None,
+            )
+            if event is not None:
+                event.date = start_date
+        elif end_date is not None and start_date is None:
+            # ``TO <end>`` with no lower bound: the start is genuinely dateless.
+            event = next(
+                (e for e in self._project_data.events if e.id == event_id),
+                None,
+            )
+            if event is not None:
+                event.date = None
+
+        return end_date
+
+    def _finalize_placement_events(self) -> None:
+        """Attach parents and the child role to imported placement events.
+
+        An ``ADOP`` or ``EVEN``/``TYPE Fosterhem`` structure is parsed during
+        person processing into a dateless-or-dated placement START event that,
+        at that point, names only the child in the generic ``"subject"`` role
+        (the families do not yet exist, so the parents are unknown). This method
+        runs after the families are built and, for each such recorded event:
+
+        - rewrites the child participant's role from ``"subject"`` to the
+          placement child role (``"adopterad"`` / ``"fosterbarn"``); and
+        - when the structure carried a subordinate ``FAMC`` that resolves to an
+          imported family, adds that family's partners as parent-role
+          participants (``"adoptivförälder"`` / ``"fosterförälder"``), so the
+          event names the exact Parent_Set the GEDCOM structure described
+          (Requirement 11.7a) rather than leaving the parents to be guessed.
+
+        A structure with no (resolvable) FAMC keeps only its child participant,
+        staying a descriptive placement event that backs no Parent_Set — exactly
+        how a pre-feature descriptive adoption event behaves. Carrying the
+        event's own ``DATE``/``PLAC`` is already done by ``_create_event`` when
+        the structure is parsed, satisfying the "prefer the structure's
+        date/place" half of Requirement 11.7.
+
+        When the structure carried an end date (a period upper bound or a
+        labelled ``Avslutades:`` NOTE, recorded by ``_apply_placement_period``),
+        this method also reconstructs the paired Placement_End_Event — an
+        ``adoption_ended`` / ``foster_home_ended`` event naming the same child
+        and the same parents as the start, dated with the extracted end date —
+        so the placement's span round-trips (Requirement 11.10).
+
+        Idempotent per event: a participant is never duplicated.
+        """
+        # Start type -> its paired end type, inverted from foster_sync's
+        # end -> start table so an imported start can spawn its end.
+        start_to_end = {
+            start_type: end_type
+            for end_type, start_type in _PLACEMENT_END_TYPES.items()
+        }
+
+        events_by_id = {event.id: event for event in self._project_data.events}
+
+        for (
+            event_id,
+            child_person_id,
+            famc_xref,
+            end_date,
+        ) in self._imported_placement_events:
+            event = events_by_id.get(event_id)
+            if event is None:
+                continue
+
+            config = _PLACEMENT_START_ROLES.get(event.type)
+            if config is None:
+                continue
+            child_role = config["child_role"]
+            parent_role = config["parent_role"]
+
+            # Rewrite the child's role from the generic "subject" to the
+            # placement child role so the sync/back-fill recognise the child.
+            for participant in event.participants:
+                if (
+                    participant.person_id == child_person_id
+                    and participant.role == "subject"
+                ):
+                    participant.role = child_role
+
+            # Resolve the FAMC family → attach its partners as parents.
+            family = None
+            if famc_xref:
+                family_id = self._family_xref_map.get(famc_xref)
+                if family_id is not None:
+                    family = next(
+                        (
+                            f
+                            for f in self._project_data.families
+                            if f.id == family_id
+                        ),
+                        None,
+                    )
+
+            if family is not None:
+                existing_ids = {p.person_id for p in event.participants}
+                for partner in family.partners:
+                    if partner.person_id in existing_ids:
+                        continue
+                    if partner.person_id == child_person_id:
+                        continue
+                    event.participants.append(
+                        Participant(
+                            person_id=partner.person_id, role=parent_role
+                        )
+                    )
+                    existing_ids.add(partner.person_id)
+
+            # Reconstruct the paired Placement_End_Event from the end date the
+            # structure carried (Requirement 11.10). It names the same child
+            # and the same parents (symmetric participants, Requirement 1.10),
+            # using the end type's own roles (identical to the start's roles).
+            if end_date is not None:
+                end_type = start_to_end.get(event.type)
+                if end_type is not None:
+                    self._create_paired_end_event(
+                        start_event=event,
+                        end_type=end_type,
+                        end_date=end_date,
+                    )
+
+    def _create_paired_end_event(
+        self,
+        start_event: Event,
+        end_type: str,
+        end_date: DateValue,
+    ) -> None:
+        """Create the Placement_End_Event paired to an imported start event.
+
+        The end event mirrors the start's participants (same child in the child
+        role, same parents in the parent role — the end and start types share
+        the same roles) and carries the ``end_date`` extracted from the start
+        structure's period/NOTE. Appended to ``project.events`` so the
+        placement's span is represented internally as two separate events, the
+        symmetric model ``foster_sync`` pairs by Parent_Set (Requirement 11.10).
+        """
+        end_event = Event(
+            id=self._id_gen.generate("event"),
+            type=end_type,
+            participants=[
+                Participant(person_id=p.person_id, role=p.role)
+                for p in start_event.participants
+            ],
+            date=end_date,
+        )
+        self._project_data.events.append(end_event)
+        self._events_added += 1
 
     # ------------------------------------------------------------------
     # Event creation helpers

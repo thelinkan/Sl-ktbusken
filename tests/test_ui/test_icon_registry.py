@@ -50,6 +50,9 @@ ALL_EVENT_TYPES = [
     "confirmation",
     "first_communion",
     "adoption",
+    "adoption_ended",
+    "foster_home",
+    "foster_home_ended",
     "blessing",
     "graduation",
     "retirement",
@@ -128,6 +131,27 @@ class TestFallbackBehavior:
         unknown_pixmap = registry.get_gender_icon("U")
         invalid_pixmap = registry.get_gender_icon("Z")
         assert invalid_pixmap.cacheKey() == unknown_pixmap.cacheKey()
+
+    @pytest.mark.parametrize(
+        ("event_type", "filename"),
+        [
+            ("foster_home", "foster_home.svg"),
+            ("foster_home_ended", "foster_home_ended.svg"),
+            ("adoption_ended", "adoption_ended.svg"),
+        ],
+    )
+    def test_placement_event_assets_resolve_to_real_file(
+        self, registry: IconRegistry, event_type: str, filename: str
+    ):
+        """Placement event types resolve to their real asset, not the fallback.
+
+        Regression guard: the dedicated SVGs exist on disk, so the path must
+        point at them (and .exists()), never at generic_event.svg.
+        """
+        path = registry.get_event_icon_path(event_type)
+        assert path.name == filename
+        assert path.exists()
+        assert path.name != "generic_event.svg"
 
 
 class TestDnaCompanyLogo:

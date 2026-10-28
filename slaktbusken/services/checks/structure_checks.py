@@ -171,13 +171,19 @@ def check_must_have_relations(
         return []
 
     person_families = context.families_by_person.get(person.id, [])
-    if not person_families:
-        return [_make_finding(
-            person, events,
-            "Personen saknar familjerelationer",
-        )]
+    if person_families:
+        return []
 
-    return []
+    # A person whose only parents are foster and/or adoptive still "has
+    # parents" and must not be flagged solely because biological parents are
+    # absent (Req 12.2). parents_of includes links of every parentage type.
+    if context.has_any_parents(person.id):
+        return []
+
+    return [_make_finding(
+        person, events,
+        "Personen saknar familjerelationer",
+    )]
 
 
 def check_no_ancestor_cycle(

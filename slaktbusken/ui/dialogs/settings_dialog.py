@@ -120,6 +120,9 @@ class SettingsDialog(QDialog):
             descendants_depth=self._spin_descendants.value(),
             ancestry_compact=self._check_compact.isChecked(),
             background_color=self._bg_color,
+            parentage_show_level=self._combo_parentage_show_level.currentData(),
+            parentage_badge=self._check_parentage_badge.isChecked(),
+            parentage_fallback=self._check_parentage_fallback.isChecked(),
         )
 
     @property
@@ -415,6 +418,36 @@ class SettingsDialog(QDialog):
         depth_layout.addRow("Antal generationer nedåt (ättlingar):", self._spin_descendants)
 
         layout.addWidget(depth_group)
+
+        # --- Släktskapstyper group (foster/adoptive diagram controls) ---
+        parentage_group = QGroupBox("Släktskapstyper i diagram", tab)
+        parentage_layout = QFormLayout(parentage_group)
+
+        # Maps internal Show_Level values to their Swedish labels and back.
+        self._parentage_show_level_values = ["biological", "non_biological", "all"]
+        self._combo_parentage_show_level = QComboBox()
+        self._combo_parentage_show_level.addItem("Biologiska", "biological")
+        self._combo_parentage_show_level.addItem("Icke-biologiska", "non_biological")
+        self._combo_parentage_show_level.addItem("Alla", "all")
+        show_level_index = self._combo_parentage_show_level.findData(
+            settings.parentage_show_level
+        )
+        if show_level_index < 0:
+            show_level_index = self._combo_parentage_show_level.findData("biological")
+        self._combo_parentage_show_level.setCurrentIndex(show_level_index)
+        parentage_layout.addRow("Visa föräldrar:", self._combo_parentage_show_level)
+
+        self._check_parentage_badge = QCheckBox("Visa etikett (foster/adoptiv)")
+        self._check_parentage_badge.setChecked(settings.parentage_badge)
+        parentage_layout.addRow("", self._check_parentage_badge)
+
+        self._check_parentage_fallback = QCheckBox(
+            "Visa icke-biologiska när biologiska saknas"
+        )
+        self._check_parentage_fallback.setChecked(settings.parentage_fallback)
+        parentage_layout.addRow("", self._check_parentage_fallback)
+
+        layout.addWidget(parentage_group)
 
         # --- Bakgrundsfärg group ---
         bg_group = QGroupBox("Bakgrundsfärg", tab)

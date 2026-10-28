@@ -83,6 +83,7 @@ _EVENT_TYPE_TO_TAG: dict[str, str] = {
     "retirement": "RETI",
     "graduation": "GRAD",
     "cremation": "CREM",
+    "adoption": "ADOP",
 }
 
 _FAMILY_EVENT_TYPE_TO_TAG: dict[str, str] = {
@@ -126,6 +127,7 @@ class GEDCOMExporter:
         self._exported_source_ids: set[str] = set()
         self._resi_has_sour: bool = False
         self._flytt_from_place_loss: bool = False
+        self._placement_end_note_loss: bool = False
 
     def export(self, data: ProjectData, output_path: Path) -> ExportResult:
         """Export ProjectData to a GEDCOM 5.5.1 file.
@@ -144,6 +146,7 @@ class GEDCOMExporter:
         self._exported_source_ids = {s.id for s in data.sources}
         self._resi_has_sour = False
         self._flytt_from_place_loss = False
+        self._placement_end_note_loss = False
 
         # Build residence-by-person index
         residences_by_person: dict[str, list[ResidenceFact]] = {}
@@ -189,6 +192,13 @@ class GEDCOMExporter:
             warnings.append(
                 "Flyttens ursprungsplats exporteras som anteckning"
                 " – GEDCOM 5.5.1 tillåter bara en PLAC per händelse."
+            )
+
+        # Export log entry for placement-end NOTE fallback (Requirement 11.2e)
+        if self._placement_end_note_loss:
+            warnings.append(
+                "Placeringens slutdatum exporteras som anteckning"
+                " – det kunde inte uttryckas som en GEDCOM-period på DATE-raden."
             )
 
         return ExportResult(
@@ -325,11 +335,41 @@ class GEDCOMExporter:
         if person.sex in ("M", "F"):
             lines.append(f"1 SEX {person.sex}")
 
+        # Family links (FAMC / FAMS) — Requirements 11.1, 11.2
+        lines.extend(self._write_family_links(person, data))
+
         # Events for this person
         for event in data.events:
             if any(p.person_id == person.id for p in event.participants):
                 if event.type == "flytt":
                     lines.extend(self._write_flytt_event(event))
+                elif event.type == "foster_home":
+                    # The Fosterhem placement structure belongs ONLY on the
+                    # placed CHILD's INDI record, never on a foster parent's.
+                    # Emitting it on a parent would give that parent a spurious
+                    # ``1 EVEN TYPE Fosterhem ... 2 FAMC`` that the importer's
+                    # _finalize_placement_events mis-reads as a placed child,
+                    # fabricating bogus parent→parent links and breaking the
+                    # round-trip. Guard by the placement child role.
+                    if self._is_placement_child(person.id, event):
+                        lines.extend(self._write_foster_event(event, data))
+                elif event.type == "adoption":
+                    # Same child-only guard for the Adoption placement
+                    # structure (``1 ADOP ... 2 FAMC``): emit it only on the
+                    # adoptee's INDI, never on an adoptive parent's.
+                    if self._is_placement_child(person.id, event):
+                        lines.extend(self._write_adoption_event(event, data))
+                elif event.type in ("foster_home_ended", "adoption_ended"):
+                    # Placement END events carry no structure of their own: their
+                    # date rides on the paired START structure's DATE line (as a
+                    # GEDCOM period) or a labelled NOTE, emitted by
+                    # ``_write_foster_event``/``_write_adoption_event`` via
+                    # ``_find_paired_end_event``. Skipping here ensures the end is
+                    # never emitted as a separate orphan structure
+                    # (Requirement 11.2e). (The generic branch would already drop
+                    # these types — they have no ``_EVENT_TYPE_TO_TAG`` entry — but
+                    # this explicit skip documents the intent.)
+                    continue
                 else:
                     tag = _EVENT_TYPE_TO_TAG.get(event.type)
                     if tag:
@@ -341,6 +381,88 @@ class GEDCOMExporter:
                 lines.extend(self._write_residence(residence))
 
         return lines
+
+    # ------------------------------------------------------------------
+    # Family links (FAMC / FAMS) — Requirements 11.1, 11.2
+    # ------------------------------------------------------------------
+
+    def _write_family_links(
+        self, person: Person, data: ProjectData
+    ) -> list[str]:
+        """Write the individual's ``FAMC``/``FAMS`` family-link structures.
+
+        In GEDCOM 5.5.1 the pedigree tag ``PEDI`` is a subordinate of the
+        child's ``FAMC`` link (not of the family's ``CHIL``), so foster and
+        adoptive parentage is emitted here:
+
+        - ``1 FAMC @Fxx@`` for each family in which the person is a child.
+          The child's parentage type in that family is read from the
+          family's ``parent_child_links`` (links where ``child_id`` equals the
+          person). A foster link emits ``2 PEDI foster``; an adoptive link
+          emits ``2 PEDI adopted`` (the GEDCOM value is ``adopted``, not
+          ``adoptive``). Biological or any other parentage type emits no
+          ``PEDI`` line. When a single family mixes link types for the same
+          child, foster takes precedence over adoptive (any other type is
+          ignored) so exactly one ``PEDI`` line is emitted at most.
+        - ``1 FAMS @Fxx@`` for each family in which the person is a partner.
+
+        Families are iterated in project order (``data.families``) and each
+        family produces at most one ``FAMC``/``FAMS`` line, giving stable,
+        deduplicated output.
+
+        Args:
+            person: The person whose family links are written.
+            data: Full project data (iterated for its families).
+
+        Returns:
+            List of GEDCOM lines for this person's FAMC/FAMS structures.
+        """
+        lines: list[str] = []
+
+        for family in data.families:
+            family_gedcom_id = self._to_gedcom_id(family.id)
+
+            # FAMC — person appears as a child of this family.
+            if person.id in family.children:
+                lines.append(f"1 FAMC {family_gedcom_id}")
+                pedi = self._pedigree_for_child(family, person.id)
+                if pedi:
+                    lines.append(f"2 PEDI {pedi}")
+
+            # FAMS — person appears as a partner of this family.
+            if any(fp.person_id == person.id for fp in family.partners):
+                lines.append(f"1 FAMS {family_gedcom_id}")
+
+        return lines
+
+    @staticmethod
+    def _pedigree_for_child(family: Family, child_id: str) -> str | None:
+        """Resolve the GEDCOM ``PEDI`` value for a child in a family.
+
+        Reads the family's ``parent_child_links`` for links whose
+        ``child_id`` matches. Returns ``"foster"`` if any such link is a
+        foster link, else ``"adopted"`` if any is an adoptive link, else
+        ``None`` (biological and every other type carry no pedigree tag).
+        Foster is preferred over adoptive when a family mixes types for the
+        same child.
+
+        Args:
+            family: The family the child belongs to.
+            child_id: The child's person id.
+
+        Returns:
+            ``"foster"``, ``"adopted"``, or ``None``.
+        """
+        types = {
+            link.parentage_type
+            for link in family.parent_child_links
+            if link.child_id == child_id
+        }
+        if "foster" in types:
+            return "foster"
+        if "adoptive" in types:
+            return "adopted"
+        return None
 
     # ------------------------------------------------------------------
     # RESI record (Residence_Fact export)
@@ -536,6 +658,287 @@ class GEDCOMExporter:
         return lines
 
     # ------------------------------------------------------------------
+    # Placement events (Adoption / Fosterhem) export — Requirements 11.2a–11.2d
+    # ------------------------------------------------------------------
+    #
+    # Routing note: both ``adoption`` and ``foster_home`` are handled by
+    # dedicated branches in ``_write_person`` rather than the generic
+    # ``_EVENT_TYPE_TO_TAG`` path, because each must carry a subordinate
+    # ``FAMC`` pointing at the derived family for its Parent_Set. ``adoption``
+    # is also present in ``_EVENT_TYPE_TO_TAG`` (so adoption events are no
+    # longer dropped), but the explicit branch runs first and the generic
+    # branch is only reached for event types *without* an explicit case, so
+    # the ``ADOP`` structure is never emitted twice.
+    #
+    # GEDCOM levels: the event tag is level 1 (``1 ADOP`` / ``1 EVEN``); its
+    # ``DATE``/``PLAC``/``TYPE`` are level 2; the derived-family ``FAMC`` is a
+    # level-2 subordinate of the level-1 event (``2 FAMC @Fxx@``).
+
+    def _derived_family_for_event(
+        self, event: Event, data: ProjectData
+    ) -> Family | None:
+        """Return the derived :class:`Family` keyed to ``event``.
+
+        ``foster_sync`` keys a derived family to its placement start event by
+        appending the event id to the family's ``event_ids`` (a paired end
+        event's id is also appended there). This returns the first family whose
+        ``event_ids`` contains ``event.id``, or ``None`` when no family
+        references the event (e.g. a pre-feature descriptive adoption event with
+        no parents, which derives no family — Requirement 1.9).
+
+        Args:
+            event: The placement event (start or end).
+            data: Full project data (iterated for its families).
+
+        Returns:
+            The matching :class:`Family`, or ``None``.
+        """
+        for family in data.families:
+            if event.id in family.event_ids:
+                return family
+        return None
+
+    def _derived_family_gedcom_id(
+        self, event: Event, data: ProjectData
+    ) -> str | None:
+        """Find the GEDCOM id of the derived family keyed to ``event``.
+
+        Thin wrapper over :meth:`_derived_family_for_event` returning the
+        family's GEDCOM id, or ``None`` when no family references the event.
+
+        Args:
+            event: The placement start event.
+            data: Full project data (iterated for its families).
+
+        Returns:
+            A GEDCOM family id string (e.g. ``@F3@``), or ``None``.
+        """
+        family = self._derived_family_for_event(event, data)
+        return self._to_gedcom_id(family.id) if family is not None else None
+
+    # Maps a placement START event type to the matching placement END event
+    # type. Kept locally (rather than imported from ``foster_sync``'s private
+    # ``_PLACEMENT_END``) so the exporter has no dependency on service
+    # internals; it mirrors that table (foster_home → foster_home_ended,
+    # adoption → adoption_ended).
+    _PLACEMENT_START_TO_END: dict[str, str] = {
+        "foster_home": "foster_home_ended",
+        "adoption": "adoption_ended",
+    }
+
+    def _find_paired_end_event(
+        self, start_event: Event, data: ProjectData
+    ) -> Event | None:
+        """Return the placement END event paired to ``start_event``, or ``None``.
+
+        ``foster_sync`` pairs an end to its start by appending the end event's
+        id to the *same* derived family whose ``event_ids`` already holds the
+        start event id. The paired end is therefore the event — among that
+        family's ``event_ids`` — whose type is the matching end type
+        (``foster_home_ended`` for a ``foster_home`` start, ``adoption_ended``
+        for an ``adoption`` start). Returns ``None`` when the start has no
+        derived family or no such end is recorded.
+
+        Args:
+            start_event: The placement start event.
+            data: Full project data (for the derived-family lookup).
+
+        Returns:
+            The paired placement END :class:`Event`, or ``None``.
+        """
+        end_type = self._PLACEMENT_START_TO_END.get(start_event.type)
+        if end_type is None:
+            return None
+        family = self._derived_family_for_event(start_event, data)
+        if family is None:
+            return None
+        for event_id in family.event_ids:
+            candidate = self._events.get(event_id)
+            if candidate is not None and candidate.type == end_type:
+                return candidate
+        return None
+
+    def _placement_date_lines(
+        self, start_event: Event, data: ProjectData
+    ) -> list[str]:
+        """Build the period-aware ``DATE`` (and fallback ``NOTE``) lines.
+
+        Encodes a placement's span on a single ``2 DATE`` line as a GEDCOM
+        period, following the paired end rules (Requirement 11.2e):
+
+        - paired end + both dates formattable → ``2 DATE FROM <start> TO <end>``
+        - paired end + start only → ``2 DATE FROM <start>``
+        - paired end + end only (start dateless) → ``2 DATE TO <end>``
+        - paired end whose date exists but is *unformattable* by
+          :meth:`_format_date` → the plain start ``DATE`` (if any) plus a
+          labelled ``2 NOTE Avslutades: <raw end>`` fallback, recording the
+          structure loss via ``self._placement_end_note_loss`` (mirrors
+          ``_write_flytt_event``'s ``from_place`` note loss).
+        - no paired end → the existing 10.1a behaviour: a plain ``2 DATE
+          <start>`` when the start has a formattable date (no regression).
+
+        Args:
+            start_event: The placement start event.
+            data: Full project data (for the paired-end lookup).
+
+        Returns:
+            The ``DATE``/``NOTE`` lines for the structure (possibly empty).
+        """
+        start_formatted = (
+            self._format_date(start_event.date) if start_event.date else ""
+        )
+
+        end_event = self._find_paired_end_event(start_event, data)
+        if end_event is None:
+            # No end at all: keep the 10.1a plain-DATE behaviour unchanged.
+            if start_formatted:
+                return [f"2 DATE {start_formatted}"]
+            return []
+
+        end_formatted = (
+            self._format_date(end_event.date) if end_event.date else ""
+        )
+
+        # An end exists but its date is unformattable (e.g. a non-standard or
+        # approximate form _format_date returns "" for) while a raw value is
+        # present: fall back to a labelled NOTE and record the structure loss.
+        if (
+            not end_formatted
+            and end_event.date is not None
+            and end_event.date.value
+            and end_event.date.value.strip()
+        ):
+            lines: list[str] = []
+            if start_formatted:
+                lines.append(f"2 DATE {start_formatted}")
+            lines.append(
+                f"2 NOTE Avslutades: {end_event.date.value.strip()}"
+            )
+            self._placement_end_note_loss = True
+            return lines
+
+        # Period encoding from the formattable endpoints.
+        if start_formatted and end_formatted:
+            return [f"2 DATE FROM {start_formatted} TO {end_formatted}"]
+        if start_formatted:
+            # End exists but has no (formattable) date: prefer FROM <start>.
+            return [f"2 DATE FROM {start_formatted}"]
+        if end_formatted:
+            # Start is dateless, end is dated.
+            return [f"2 DATE TO {end_formatted}"]
+        # Neither endpoint has a date: emit no DATE line.
+        return []
+
+    def _is_placement_child(self, person_id: str, event: Event) -> bool:
+        """Return True when ``person_id`` is the placed CHILD of ``event``.
+
+        The placement structure (``1 ADOP`` / ``1 EVEN TYPE Fosterhem``) must be
+        emitted only on the placed child's INDI record, never on a foster/
+        adoptive parent's. The child role per placement type comes from the
+        validators' ``_PLACEMENT_START`` table (``fosterbarn`` for ``foster_home``,
+        ``adopterad`` for ``adoption``) rather than being hardcoded, so the
+        exporter stays consistent with validation and sync. A non-placement
+        event type returns ``False``.
+
+        Args:
+            person_id: The person whose INDI record is being written.
+            event: The placement start event.
+
+        Returns:
+            ``True`` when the person participates in ``event`` with its child
+            role; ``False`` otherwise.
+        """
+        from slaktbusken.model.validators import _PLACEMENT_START
+
+        spec = _PLACEMENT_START.get(event.type)
+        if spec is None:
+            return False
+        return any(
+            p.person_id == person_id and p.role == spec.child_role
+            for p in event.participants
+        )
+
+    def _write_adoption_event(
+        self, event: Event, data: ProjectData
+    ) -> list[str]:
+        """Write a GEDCOM ``ADOP`` structure for an Adoption event.
+
+        Emits the standard ``1 ADOP`` event detail (``DATE``/``PLAC``/source
+        citations via :meth:`_write_event_detail`), then a subordinate
+        ``2 FAMC @Fxx@`` pointing at the derived family for this event's
+        Parent_Set when such a family exists (Requirements 11.2a, 11.2c, 11.2d).
+
+        Args:
+            event: The adoption Event to export.
+            data: Full project data (for derived-family lookup).
+
+        Returns:
+            List of GEDCOM lines for this adoption event.
+
+        DATE handling: ``_write_event_detail`` emits the plain ``2 DATE`` from
+        10.1a, but for a placement with a paired end the DATE must become a
+        GEDCOM period (``FROM <start> TO <end>`` etc.). We therefore delegate to
+        ``_write_event_detail`` for the tag, ``PLAC`` and source citations, drop
+        the plain ``DATE`` line(s) it produced, and splice in the period-aware
+        ``DATE``/``NOTE`` lines from ``_placement_date_lines`` right after the
+        ``1 ADOP`` header. This keeps PLAC/sources/FAMC working, produces the
+        period DATE, and never double-emits ``DATE``.
+        """
+        detail = self._write_event_detail("ADOP", event)
+        # Drop the plain top-level DATE line(s) emitted by _write_event_detail;
+        # source-citation TEXT lines live at level 3 and are not affected.
+        detail = [line for line in detail if not line.startswith("2 DATE ")]
+
+        # detail[0] is "1 ADOP"; insert the period-aware DATE/NOTE right after.
+        date_lines = self._placement_date_lines(event, data)
+        lines = [detail[0], *date_lines, *detail[1:]]
+
+        family_gedcom_id = self._derived_family_gedcom_id(event, data)
+        if family_gedcom_id:
+            lines.append(f"2 FAMC {family_gedcom_id}")
+
+        return lines
+
+    def _write_foster_event(
+        self, event: Event, data: ProjectData
+    ) -> list[str]:
+        """Write a GEDCOM ``EVEN`` structure for a Fosterhem event.
+
+        Fosterhem has no GEDCOM tag, so it is exported as a custom event like
+        Flytt: ``1 EVEN`` / ``2 TYPE Fosterhem`` / a period-aware ``2 DATE``
+        (``FROM <start> TO <end>`` etc. when a paired Placement_End_Event
+        exists, else the plain start date — Requirement 11.2e) / ``2 PLAC``
+        (when present), followed by a subordinate ``2 FAMC @Fxx@``
+        pointing at the derived family for this event's Parent_Set when such a
+        family exists (Requirements 11.2b, 11.2c, 11.2d).
+
+        Args:
+            event: The foster_home Event to export.
+            data: Full project data (for derived-family lookup).
+
+        Returns:
+            List of GEDCOM lines for this foster event.
+        """
+        lines: list[str] = ["1 EVEN", "2 TYPE Fosterhem"]
+
+        # DATE line(s) — period-aware when a paired end exists, else the plain
+        # 10.1a DATE (Requirement 11.2e).
+        lines.extend(self._placement_date_lines(event, data))
+
+        # PLAC line resolved from event.place.
+        if event.place and event.place.place_id:
+            place_str = self._resolve_place_hierarchy(event.place.place_id)
+            if place_str:
+                lines.append(f"2 PLAC {place_str}")
+
+        # Derived-family linkage.
+        family_gedcom_id = self._derived_family_gedcom_id(event, data)
+        if family_gedcom_id:
+            lines.append(f"2 FAMC {family_gedcom_id}")
+
+        return lines
+
+    # ------------------------------------------------------------------
     # FAM record
     # ------------------------------------------------------------------
 
@@ -552,13 +955,37 @@ class GEDCOMExporter:
         gedcom_id = self._to_gedcom_id(family.id)
         lines: list[str] = [f"0 {gedcom_id} FAM"]
 
-        # Partners
+        # Partners. GEDCOM 5.5.1 FAM has exactly one HUSB slot and one WIFE
+        # slot; the importer reads only the first of each. A two-parent
+        # Parent_Set whose partners share a role (two foster/adoptive fathers,
+        # two mothers, or two sex-unknown parents, all role "partner") would
+        # otherwise emit two HUSB (or two WIFE) lines and lose the second
+        # partner on re-import. To preserve BOTH cross-references of any
+        # two-person set, each partner takes its natural slot when free and
+        # falls back to the other free slot otherwise. Ordinary biological
+        # father+mother pairs are unaffected (father→HUSB, mother→WIFE). A set
+        # never holds more than two parents (per-set cap, Requirement 2.9), so
+        # the two GEDCOM slots always suffice.
+        husb_id: str | None = None
+        wife_id: str | None = None
         for partner in family.partners:
             person_gedcom_id = self._to_gedcom_id(partner.person_id)
-            if partner.role in ("husband", "father"):
-                lines.append(f"1 HUSB {person_gedcom_id}")
-            elif partner.role in ("wife", "mother"):
-                lines.append(f"1 WIFE {person_gedcom_id}")
+            prefers_husb = partner.role in ("husband", "father")
+            prefers_wife = partner.role in ("wife", "mother")
+            if prefers_husb and husb_id is None:
+                husb_id = person_gedcom_id
+            elif prefers_wife and wife_id is None:
+                wife_id = person_gedcom_id
+            elif husb_id is None:
+                # Preferred slot taken (or no preference): use the free HUSB.
+                husb_id = person_gedcom_id
+            elif wife_id is None:
+                wife_id = person_gedcom_id
+            # Both slots full: a third partner cannot occur for a derived set.
+        if husb_id is not None:
+            lines.append(f"1 HUSB {husb_id}")
+        if wife_id is not None:
+            lines.append(f"1 WIFE {wife_id}")
 
         # Children
         for child_id in family.children:

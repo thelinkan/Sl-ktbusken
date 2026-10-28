@@ -9,12 +9,19 @@ from pathlib import Path
 from typing import Callable
 
 from slaktbusken.model.event import Event
-from slaktbusken.model.family import Family
+from slaktbusken.model.family import Family, ParentChildLink
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.persistence.settings_io import PersonCheckConfig
 from slaktbusken.services.checks.date_utils import parse_date_value
+
+# Parentage types that represent a biological parent-child relationship. Any
+# other value (e.g. "foster", "adoptive") is a non-biological relationship for
+# the purposes of the person checks.
+BIOLOGICAL_PARENTAGE = "biological"
+FOSTER_PARENTAGE = "foster"
+ADOPTIVE_PARENTAGE = "adoptive"
 
 
 @dataclass
@@ -38,6 +45,11 @@ class CheckContext:
     parents_of: dict[str, list[str]] = field(default_factory=dict)
     children_of: dict[str, list[str]] = field(default_factory=dict)
     siblings_of: dict[str, set[str]] = field(default_factory=dict)
+    # parentage_type keyed by (child_id, parent_id). Lets checks tell foster
+    # and adoptive links apart from biological ones (Req 12.1). Links whose
+    # (child, parent) pair is absent default to biological so pre-feature data
+    # behaves unchanged.
+    parentage_types: dict[tuple[str, str], str] = field(default_factory=dict)
     media_by_id: dict[str, MediaItem] = field(default_factory=dict)
     project_folder: Path | None = None
     main_person_id: str | None = None
@@ -46,6 +58,48 @@ class CheckContext:
     reachable_from_main: set[str] | None = None
     # Full ProjectData reference for checks that need the entire project
     project_data: ProjectData | None = None
+
+    def parentage_type_of(self, child_id: str, parent_id: str) -> str:
+        """Return the parentage type of a (child, parent) link.
+
+        Defaults to ``"biological"`` when the pair is unknown, so data without
+        explicit non-biological links (the common case) is treated as
+        biological exactly as before.
+        """
+        return self.parentage_types.get((child_id, parent_id), BIOLOGICAL_PARENTAGE)
+
+    def biological_parents_of(self, child_id: str) -> list[str]:
+        """Return only the biological parents of a child.
+
+        Used by chronology/age checks that assume a biological parent and are
+        meaningless for foster or adoptive links (Req 12.4).
+        """
+        return [
+            parent_id
+            for parent_id in self.parents_of.get(child_id, [])
+            if self.parentage_type_of(child_id, parent_id) == BIOLOGICAL_PARENTAGE
+        ]
+
+    def biological_children_of(self, parent_id: str) -> list[str]:
+        """Return only the biological children of a parent.
+
+        Mirror of :meth:`biological_parents_of` for parent-side age-gap checks
+        (e.g. age at childbirth), which are meaningless for foster or adoptive
+        children (Req 12.4).
+        """
+        return [
+            child_id
+            for child_id in self.children_of.get(parent_id, [])
+            if self.parentage_type_of(child_id, parent_id) == BIOLOGICAL_PARENTAGE
+        ]
+
+    def has_any_parents(self, child_id: str) -> bool:
+        """Return True if the child has any parent of any parentage type.
+
+        A child with only foster and/or adoptive parents still "has parents"
+        for the purpose of missing-parents findings (Req 12.2).
+        """
+        return bool(self.parents_of.get(child_id))
 
 
 def format_person_display(person: Person, events: list[Event]) -> str:
@@ -136,12 +190,19 @@ class PersonCheckEngine:
         ctx.families_by_person = dict(families_by_person)
 
         # parents_of: child_id -> parent_ids (from ParentChildLink)
+        # parentage_types: (child_id, parent_id) -> parentage_type, so checks
+        # can distinguish foster/adoptive links from biological ones (Req 12.1).
         parents_of: dict[str, list[str]] = defaultdict(list)
+        parentage_types: dict[tuple[str, str], str] = {}
         for family in data.families:
             for link in family.parent_child_links:
                 if link.parent_id:
                     parents_of[link.child_id].append(link.parent_id)
+                    parentage_types[(link.child_id, link.parent_id)] = (
+                        link.parentage_type or BIOLOGICAL_PARENTAGE
+                    )
         ctx.parents_of = dict(parents_of)
+        ctx.parentage_types = parentage_types
 
         # children_of: parent_id -> child_ids (reverse of parents_of)
         children_of: dict[str, list[str]] = defaultdict(list)

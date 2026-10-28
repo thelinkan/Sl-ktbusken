@@ -167,3 +167,150 @@ def test_property_ancestor_terms_are_nonempty(generations: int, sex: str):
     )
     assert len(result) > 0
     assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# Foster kinship terms (Task 8.2)
+# **Validates: Requirements 9.2, 9.4**
+# ---------------------------------------------------------------------------
+
+
+def test_foster_immediate_parent_male():
+    """Immediate foster father (gen_a=1, gen_b=0, M) => 'fosterfar'.
+
+    **Validates: Requirements 9.2**
+    """
+    terms = SwedishKinshipTerms()
+    result = terms.get_term(
+        generations_a=1,
+        generations_b=0,
+        sex_of_relative="M",
+        relationship_type="foster",
+    )
+    assert result == "fosterfar"
+
+
+def test_foster_immediate_parent_female():
+    """Immediate foster mother (gen_a=1, gen_b=0, F) => 'fostermor'.
+
+    **Validates: Requirements 9.2**
+    """
+    terms = SwedishKinshipTerms()
+    result = terms.get_term(
+        generations_a=1,
+        generations_b=0,
+        sex_of_relative="F",
+        relationship_type="foster",
+    )
+    assert result == "fostermor"
+
+
+def test_foster_immediate_parent_unknown_sex():
+    """Immediate foster parent with unknown sex => 'fosterförälder'.
+
+    **Validates: Requirements 9.2**
+    """
+    terms = SwedishKinshipTerms()
+    result = terms.get_term(
+        generations_a=1,
+        generations_b=0,
+        sex_of_relative="X",
+        relationship_type="foster",
+    )
+    assert result == "fosterförälder"
+
+
+@given(sex=st.sampled_from(["M", "F"]))
+@settings(max_examples=10, deadline=None)
+def test_foster_immediate_child(sex: str):
+    """Immediate foster child (gen_a=0, gen_b=1) => 'fosterbarn'.
+
+    **Validates: Requirements 9.2**
+    """
+    terms = SwedishKinshipTerms()
+    result = terms.get_term(
+        generations_a=0,
+        generations_b=1,
+        sex_of_relative=sex,
+        relationship_type="foster",
+    )
+    assert result == "fosterbarn"
+
+
+def test_foster_distant_sibling_prefixed():
+    """A foster sibling (gen_a=1, gen_b=1, M) yields a foster-prefixed term.
+
+    The natural closed form 'fosterbror' is used, which still starts with
+    'foster' and contains the base 'bror'.
+
+    **Validates: Requirements 9.2**
+    """
+    terms = SwedishKinshipTerms()
+    result = terms.get_term(
+        generations_a=1,
+        generations_b=1,
+        sex_of_relative="M",
+        relationship_type="foster",
+    )
+    assert result.startswith("foster")
+    assert "bror" in result
+
+
+def test_foster_uncle_hyphen_prefixed():
+    """A foster uncle (gen_a=2, gen_b=1) gets the hyphenated 'foster-' prefix.
+
+    **Validates: Requirements 9.2**
+    """
+    terms = SwedishKinshipTerms()
+    result = terms.get_term(
+        generations_a=2,
+        generations_b=1,
+        sex_of_relative="M",
+        relationship_type="foster",
+    )
+    assert result.startswith("foster-")
+    assert "farbror/morbror" in result
+
+
+# ---------------------------------------------------------------------------
+# Regression: adoption/legal unchanged, blood unchanged (Req 9.4)
+# ---------------------------------------------------------------------------
+
+
+@given(
+    generations_a=st.integers(min_value=0, max_value=5),
+    generations_b=st.integers(min_value=0, max_value=5),
+    sex=st.sampled_from(["M", "F", "X"]),
+)
+@settings(max_examples=100, deadline=None)
+def test_adoption_matches_blood(generations_a, generations_b, sex):
+    """adoption/legal produce the SAME term as blood (adoption unchanged).
+
+    **Validates: Requirements 9.4**
+    """
+    terms = SwedishKinshipTerms()
+    blood = terms.get_term(
+        generations_a, generations_b, sex, relationship_type="blood"
+    )
+    adoption = terms.get_term(
+        generations_a, generations_b, sex, relationship_type="adoption"
+    )
+    legal = terms.get_term(
+        generations_a, generations_b, sex, relationship_type="legal"
+    )
+    assert adoption == blood
+    assert legal == blood
+
+
+def test_blood_parent_unchanged():
+    """Blood parent (gen_a=1, gen_b=0, M) is still 'far'.
+
+    **Validates: Requirements 9.4**
+    """
+    terms = SwedishKinshipTerms()
+    assert (
+        terms.get_term(1, 0, "M", relationship_type="blood") == "far"
+    )
+    assert (
+        terms.get_term(0, 1, "F", relationship_type="blood") == "dotter"
+    )
