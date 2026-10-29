@@ -162,13 +162,15 @@ def residents_of_place(
 
     Returns one entry per Residence_Fact in the place subtree whose Possible_Span
     shares at least one day with *year*; two facts of the same person yield two
-    entries and are never merged (Requirement 8.1). An entry is labelled "säker"
-    when *year* overlaps the fact's Certain_Core by at least one day and "möjlig"
-    when it overlaps only the Possible_Span or when the core is empty
-    (Requirements 8.2–8.4). A Possible_Span unbounded in both directions matches
-    every year, is labelled "möjlig" with ``undated=True`` and sorts after every
-    bounded entry (Requirement 8.9); no clamping to the person's lifespan is
-    applied (Requirement 15.9).
+    entries and are never merged (Requirement 8.1). An entry whose Possible_Span
+    is bounded in at least one direction is labelled "säker" when *year* overlaps
+    the fact's Certain_Core by at least one day and "möjlig" when it overlaps only
+    the Possible_Span or when the core is empty (Requirements 8.2–8.4). A
+    Possible_Span unbounded in both directions matches every year and is always
+    labelled "möjlig" with ``undated=True`` and sorts after every bounded entry,
+    regardless of whether its Certain_Core overlaps the queried year — Requirement
+    8.9 takes precedence over 8.2 for this fact shape. No clamping to the person's
+    lifespan is applied (Requirement 15.9).
 
     Entries are ordered by label with "säker" first, then the undated entries
     last, then by place display name in Swedish alphabetical order, then by
@@ -211,11 +213,25 @@ def residents_of_place(
                 continue
             label_and_interval = matched.get(bounds)
             if label_and_interval is None:
-                core = certain_core(fact)
+                # A Possible_Span unbounded in both directions is always
+                # "möjlig" + odaterat, regardless of whether the Certain_Core
+                # overlaps the queried year: Requirement 8.9 takes precedence
+                # over 8.2 for this fact shape (product-owner decision). The
+                # "säker" rule (8.2) therefore applies only to facts whose
+                # Possible_Span is bounded in at least one direction. Since
+                # ``is_unbounded_both()`` is a function of the same four bounds
+                # that key this cache, folding it in keeps the cache valid.
+                if span.is_unbounded_both():
+                    label = LABEL_POSSIBLE
+                else:
+                    core = certain_core(fact)
+                    label = (
+                        LABEL_CERTAIN
+                        if core is not None and overlaps(core, queried_year)
+                        else LABEL_POSSIBLE
+                    )
                 label_and_interval = (
-                    LABEL_CERTAIN
-                    if core is not None and overlaps(core, queried_year)
-                    else LABEL_POSSIBLE,
+                    label,
                     format_residence_interval(fact.start, fact.end),
                 )
                 matched[bounds] = label_and_interval

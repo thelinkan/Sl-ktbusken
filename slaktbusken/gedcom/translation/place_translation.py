@@ -695,16 +695,27 @@ def _find_existing_by_name_and_type(
     parent_id: Optional[str],
     existing_places: list[Place],
 ) -> Optional[Place]:
-    """Find an existing place matching name, type, and optionally parent.
+    """Find an existing place matching name, type, and parent position.
 
-    Performs case-insensitive name comparison. When parent_id is provided,
-    prefers a match with the same parent, but falls back to a match with
-    just name and type if no parent-specific match is found.
+    Performs case-insensitive name comparison. The parent chain is respected
+    strictly for nested levels:
+
+    - When ``parent_id`` is provided (a NESTED level), only a place whose
+      ``parent_place_id`` equals ``parent_id`` may be reused. There is NO
+      fallback to a name+type-only match. This prevents a nested level from
+      being bound to a shallower, differently-parented place that merely
+      shares the same name — the collapse that flattened repeated-name
+      hierarchies such as "Ed, Ed" onto a standalone "Ed".
+    - When ``parent_id`` is None (a TOP-level lookup), a name+type match is
+      reused. The preferred match is one whose ``parent_place_id`` is also
+      None, but a name+type-only match is still accepted as a fallback. This
+      preserves distinct-name hierarchy de-duplication and bare single-level
+      reuse unchanged.
 
     Args:
         name: The place name to search for.
         place_type: The expected place type.
-        parent_id: The expected parent_place_id (may be None for top-level).
+        parent_id: The expected parent_place_id (None for top-level).
         existing_places: The list of all existing places.
 
     Returns:
@@ -722,5 +733,12 @@ def _find_existing_by_name_and_type(
             if match_without_parent is None:
                 match_without_parent = place
 
-    # Prefer exact parent match, fall back to name+type match
+    # For a nested level (parent_id provided) only a parent-specific match may
+    # be reused; never fall back to a differently-parented place of the same
+    # name, which would flatten a repeated-name chain.
+    if parent_id is not None:
+        return match_with_parent
+
+    # Top-level lookup: prefer the exact (parentless) match, else reuse any
+    # name+type match so distinct-name de-dup and single-level reuse stand.
     return match_with_parent if match_with_parent is not None else match_without_parent

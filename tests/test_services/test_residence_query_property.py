@@ -124,7 +124,14 @@ class TestResidentsQuery:
             span = possible_span(fact)
             if not span.overlaps_year(year):
                 continue
-            # Determine the label
+            # Determine the label. A Possible_Span unbounded in both directions
+            # is always "möjlig" + odaterat regardless of core overlap:
+            # Requirement 8.9 takes precedence over 8.2 for this fact shape
+            # (product-owner decision). The core-overlap "säker" rule (8.2)
+            # applies only to facts bounded in at least one direction.
+            if span.is_unbounded_both():
+                expected_matches.append((fact.id, LABEL_POSSIBLE))
+                continue
             core = certain_core(fact)
             if core is not None and overlaps(core, queried_year):
                 expected_matches.append((fact.id, LABEL_CERTAIN))

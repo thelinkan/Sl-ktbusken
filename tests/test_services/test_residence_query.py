@@ -231,8 +231,13 @@ def test_both_sides_unbounded_span_matches_every_year_without_clamping():
         assert entries[0].undated is True
         assert entries[0].interval_display == "senast 1840\u2013tidigast 1846"
 
+    # Even for a year overlapping the (non-empty) Certain_Core, an entry whose
+    # Possible_Span is unbounded in both directions stays "möjlig" + odaterat:
+    # Requirement 8.9 takes precedence over 8.2 for this fact shape.
     for year in (1840, 1843, 1846):
-        assert residents_of_place(data, "place_1", year)[0].label == LABEL_CERTAIN
+        entry = residents_of_place(data, "place_1", year)[0]
+        assert entry.label == LABEL_POSSIBLE
+        assert entry.undated is True
 
 
 def test_undated_entries_sort_after_every_bounded_entry():
@@ -259,6 +264,74 @@ def test_undated_entries_sort_after_every_bounded_entry():
 
     assert [entry.residence_id for entry in entries] == ["residence_2", "residence_1"]
     assert [entry.undated for entry in entries] == [False, True]
+
+
+# --- unbounded-both overrides core overlap: 8.9 over 8.2 (Bug 2) ---
+
+
+def test_unbounded_both_with_overlapping_core_is_possible_and_undated():
+    # Falsifying example from the bug: start.latest=1500, end.earliest=1501,
+    # outer bounds absent → non-empty core (1500..1501) but Possible_Span
+    # unbounded in both directions. Requirement 8.9 takes precedence over 8.2:
+    # the entry must be "möjlig" + odaterat even for a year inside the core.
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact(
+                "residence_1",
+                start=Endpoint(latest="1500"),
+                end=Endpoint(earliest="1501"),
+            )
+        ],
+    )
+
+    entry = residents_of_place(data, "place_1", 1500)[0]
+
+    assert entry.label == LABEL_POSSIBLE
+    assert entry.undated is True
+
+
+def test_bounded_span_with_overlapping_core_is_certain():
+    # Possible_Span bounded in at least one direction and the queried year
+    # overlaps the Certain_Core → "säker" (Requirement 8.2 unchanged).
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact(
+                "residence_1",
+                start=Endpoint(earliest="1840", latest="1840"),
+                end=Endpoint(earliest="1846", latest="1846"),
+            )
+        ],
+    )
+
+    entry = residents_of_place(data, "place_1", 1843)[0]
+
+    assert entry.label == LABEL_CERTAIN
+    assert entry.undated is False
+
+
+def test_empty_core_bounded_span_is_possible():
+    # Empty core (start.latest 1846 after end.earliest 1840) with a bounded
+    # Possible_Span → "möjlig" (Requirement 8.4 unchanged), not undated.
+    data = _project(
+        persons=[_person("person_1")],
+        places=[_place("place_1", "Åby")],
+        residences=[
+            _fact(
+                "residence_1",
+                start=Endpoint(earliest="1838", latest="1846"),
+                end=Endpoint(earliest="1840", latest="1848"),
+            )
+        ],
+    )
+
+    entry = residents_of_place(data, "place_1", 1842)[0]
+
+    assert entry.label == LABEL_POSSIBLE
+    assert entry.undated is False
 
 
 # --- no merging and ordering (Requirement 8.1) ---

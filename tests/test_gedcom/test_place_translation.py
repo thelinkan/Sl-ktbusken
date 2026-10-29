@@ -362,3 +362,112 @@ class TestMapPlaceToHierarchy:
         # IDs should be generated starting after existing high-water mark
         for place in new_places:
             assert place.id.startswith("place_")
+
+
+# ---------------------------------------------------------------------------
+# Repeated-name hierarchy preservation (bugfix: repeated-name collapse)
+# ---------------------------------------------------------------------------
+
+
+class TestRepeatedNameHierarchy:
+    """Tests that repeated-name levels are not collapsed onto a shallower place.
+
+    Regression coverage for the bug where
+    ``_find_existing_by_name_and_type`` fell back to a name+type-only match
+    for nested levels, flattening a chain such as "Ed, Ed" onto a standalone
+    "Ed".
+
+    Validates: Requirements 1.1, 1.2, 2.1, 2.2, 3.1, 3.2
+    """
+
+    def _resolve_chain(
+        self, place_id: str, all_places: list[Place]
+    ) -> list[str]:
+        """Walk the parent chain from *place_id* and return names child→root."""
+        by_id = {p.id: p for p in all_places}
+        names: list[str] = []
+        current: Optional[str] = place_id
+        while current is not None and current in by_id:
+            place = by_id[current]
+            names.append(place.name)
+            current = place.parent_place_id
+        return names
+
+    def test_bare_ed_yields_single_parentless_place(self) -> None:
+        """A bare "Ed" creates exactly one parentless place (Preservation 3.2)."""
+        gp = parse_place_string("Ed")
+        new_places = map_place_to_hierarchy(gp, [], [])
+
+        ed_places = [p for p in new_places if p.name == "Ed"]
+        assert len(ed_places) == 1
+        assert ed_places[0].parent_place_id is None
+
+    def test_repeated_name_creates_two_distinct_levels(self) -> None:
+        """"Ed, Ed" resolves to a 2-level chain of two DISTINCT "Ed" places.
+
+        The nested "Ed" must get its own place whose parent is a distinct
+        "Ed"; the chain must not collapse to a single "Ed" (Bug 1.1/1.2/2.2).
+        """
+        gp = parse_place_string("Ed, Ed")
+        new_places = map_place_to_hierarchy(gp, [], [])
+
+        all_eds = [p for p in new_places if p.name == "Ed"]
+        # Two DISTINCT "Ed" places must exist for the chain.
+        assert len({p.id for p in all_eds}) == 2
+
+        # The most-specific (child) level is the last entry produced; its
+        # parent must be the other, distinct "Ed".
+        child = new_places[-1]
+        assert child.name == "Ed"
+        assert child.parent_place_id is not None
+        parent = next(p for p in new_places if p.id == child.parent_place_id)
+        assert parent.name == "Ed"
+        assert parent.id != child.id
+        assert parent.parent_place_id is None
+
+        # Resolving the child's chain yields two "Ed" levels ("Ed, Ed").
+        chain = self._resolve_chain(child.id, new_places)
+        assert chain == ["Ed", "Ed"]
+
+    def test_repeated_name_not_collapsed_by_standalone_place(self) -> None:
+        """A pre-existing standalone "Ed" does not flatten the "Ed, Ed" chain.
+
+        Before the fix, the nested level fell back to the standalone "Ed",
+        collapsing the chain. After the fix, "Ed, Ed" still resolves to a
+        two-level chain regardless of the standalone place (Bug 1.1/1.2/2.2).
+        """
+        # Pre-existing standalone "Ed".
+        gp_bare = parse_place_string("Ed")
+        bare_places = map_place_to_hierarchy(gp_bare, [], [])
+        project_places = list(bare_places)
+
+        # Import the two-level "Ed, Ed" into a project already holding "Ed".
+        gp = parse_place_string("Ed, Ed")
+        new_places = map_place_to_hierarchy(gp, project_places, [])
+        project_places.extend(new_places)
+
+        # The child level still resolves to the full two-level chain and is
+        # NOT merged onto the pre-existing standalone "Ed".
+        child = new_places[-1]
+        chain = self._resolve_chain(child.id, project_places)
+        assert chain == ["Ed", "Ed"]
+        assert child.parent_place_id is not None
+        parent = next(p for p in project_places if p.id == child.parent_place_id)
+        assert parent.id != child.id
+
+    def test_distinct_name_hierarchy_deduplicates(self) -> None:
+        """A distinct-name chain cited twice reuses one shared chain (3.1)."""
+        gp1 = parse_place_string("Ljusdal, Gävleborgs län, Sverige")
+        first = map_place_to_hierarchy(gp1, [], [])
+        project_places = list(first)
+
+        # Second citation of the exact same string must create nothing new.
+        gp2 = parse_place_string("Ljusdal, Gävleborgs län, Sverige")
+        second = map_place_to_hierarchy(gp2, project_places, [])
+
+        assert second == []
+        # The original chain spans the full 3 levels (plus continent).
+        names = {p.name for p in project_places}
+        assert "Ljusdal" in names
+        assert "Gävleborgs län" in names
+        assert "Sverige" in names
