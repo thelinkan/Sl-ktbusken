@@ -400,9 +400,12 @@ class ResidenceEditor(QWidget):
             QAbstractItemView.SelectionMode.SingleSelection
         )
 
-        # Fixed height for the table — shows ~4 rows, scrolls for more
-        self._observations_table.setMinimumHeight(120)
-        self._observations_table.setMaximumHeight(180)
+        # Size for at least 15 untruncated rows (Requirement 16.12)
+        row_height = self._observations_table.verticalHeader().defaultSectionSize()
+        header_height = self._observations_table.horizontalHeader().height()
+        self._observations_table.setMinimumHeight(
+            row_height * _OBSERVATION_MIN_ROWS + header_height + 4
+        )
 
         # Stretch source title column, reasonable widths for others
         header = self._observations_table.horizontalHeader()

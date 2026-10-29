@@ -84,9 +84,9 @@ class TestZoomableGraphicsView:
         assert panel.view.zoom_factor == 1.0
 
     def test_set_zoom_clamps_minimum(self) -> None:
-        """set_zoom clamps to 25% minimum."""
+        """set_zoom clamps to the 1% minimum."""
         panel = DiagramPanel()
-        panel.view.set_zoom(0.1)
+        panel.view.set_zoom(0.001)
         assert panel.view.zoom_factor == pytest.approx(_MIN_ZOOM)
 
     def test_set_zoom_clamps_maximum(self) -> None:

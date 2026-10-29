@@ -1,9 +1,9 @@
 """Boenden tab for PersonEditor.
 
-Displays a list of Residence_Facts linked to a person, allows creation
-of a new Residence_Fact for the active person, and provides an entry
-point to the ResidentsDialog. Follows the FotoTab insertion pattern —
-the widget is instantiated programmatically inside the Person editor.
+Displays a list of Residence_Facts linked to a person and allows creation,
+editing and deletion of Residence_Facts for the active person. Follows the
+FotoTab insertion pattern — the widget is instantiated programmatically
+inside the Person editor.
 """
 
 from __future__ import annotations
@@ -34,16 +34,13 @@ class BoendenTab(QWidget):
 
     Shows a list of the person's Residence_Facts rendered with place,
     interval and role, or an empty state message when no residences exist.
-    Provides buttons to create a new Residence_Fact and to open the
-    ResidentsDialog.
+    Provides buttons to create, edit and delete a Residence_Fact.
 
     Signals:
         create_requested: Emitted when the user wants to create a new
             Residence_Fact for this person.
         edit_requested(str): Emitted with the residence id when the user
             wants to edit an existing Residence_Fact.
-        residents_dialog_requested: Emitted when the user clicks the
-            residents dialog entry point.
 
     Args:
         project_data: The project data containing all entities.
@@ -190,11 +187,6 @@ class BoendenTab(QWidget):
     def edit_button(self) -> QPushButton:
         """The 'Redigera boende' button."""
         return self._edit_button
-
-    @property
-    def residents_button(self) -> QPushButton:
-        """The 'Boende på plats' button."""
-        return self._residents_button
 
     @property
     def residence_list(self) -> QListWidget:

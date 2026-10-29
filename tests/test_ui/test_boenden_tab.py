@@ -5,7 +5,6 @@ Verifies that:
 - The residence list shows the person's residence facts
 - The empty state is displayed when no residences exist
 - The create button emits the create_requested signal
-- The residents dialog button emits the residents_dialog_requested signal
 - The edit button is enabled only when a residence is selected
 """
 
@@ -185,16 +184,6 @@ class TestBoendenTabWidget:
         tab.edit_button.click()
         assert len(signals) == 1
         assert signals[0] in ("res1", "res2")
-
-    def test_residents_dialog_signal_emitted(
-        self, qapp, project_no_residences, person
-    ):
-        """Clicking 'Boende på plats' emits residents_dialog_requested."""
-        tab = BoendenTab(project_no_residences, person)
-        signals = []
-        tab.residents_dialog_requested.connect(lambda: signals.append(True))
-        tab.residents_button.click()
-        assert len(signals) == 1
 
     def test_refresh_updates_list(self, qapp, person, place):
         """Calling refresh after adding residences updates the list."""
