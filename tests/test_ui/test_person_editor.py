@@ -119,7 +119,7 @@ class TestPersonEditorNewPerson:
         """A new editor with no person should have empty fields."""
         editor = PersonEditor(empty_project, person=None)
         assert editor._ui.names_table.rowCount() == 0
-        assert editor._ui.sex_combo.currentText() == "M"
+        assert editor._ui.sex_combo.currentText() == "Man"
         assert editor._ui.title_input.text() == ""
         assert editor._ui.occupation_input.text() == ""
 
@@ -200,7 +200,7 @@ class TestPersonEditorExistingPerson:
         """Loading an existing person should populate all fields."""
         editor = PersonEditor(empty_project, person=sample_person)
 
-        assert editor._ui.sex_combo.currentText() == "M"
+        assert editor._ui.sex_combo.currentText() == "Man"
         assert editor._ui.title_input.text() == "Fil.Dr"
         assert editor._ui.occupation_input.text() == "Lektor"
         assert editor._ui.notes_input.toPlainText() == "Test notes"
@@ -210,13 +210,17 @@ class TestPersonEditorExistingPerson:
         self, qapp, empty_project: ProjectData, sample_person: Person
     ):
         """Person names should appear in the table."""
+        from PySide6.QtCore import Qt
+
         editor = PersonEditor(empty_project, person=sample_person)
         table = editor._ui.names_table
 
-        assert table.item(0, 0).text() == "birth"
+        assert table.item(0, 0).text() == "Födelsenamn"
+        assert table.item(0, 0).data(Qt.ItemDataRole.UserRole) == "birth"
         assert table.item(0, 1).text() == "Erik"
         assert table.item(0, 2).text() == "Johansson"
-        assert table.item(1, 0).text() == "married"
+        assert table.item(1, 0).text() == "Gift namn"
+        assert table.item(1, 0).data(Qt.ItemDataRole.UserRole) == "married"
         assert table.item(1, 1).text() == "Erik"
         assert table.item(1, 2).text() == "Eriksson"
 
@@ -254,7 +258,7 @@ class TestPersonEditorExistingPerson:
         editor._on_edit_name()
 
         table = editor._ui.names_table
-        assert table.item(0, 0).text() == "other"
+        assert table.item(0, 0).text() == "Annat"
         assert table.item(0, 1).text() == "Karl"
         assert table.item(0, 2).text() == "Karlsson"
 

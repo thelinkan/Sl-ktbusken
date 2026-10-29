@@ -46,7 +46,7 @@ def person() -> Person:
 @pytest.fixture()
 def place() -> Place:
     """A sample place."""
-    return Place(id="place1", name="Ekeby")
+    return Place(id="place1", type="socken", name="Ekeby")
 
 
 @pytest.fixture()
@@ -98,15 +98,15 @@ class TestBoendenTabInPersonEditor:
         ]
         assert "Boenden" in tab_texts
 
-    def test_boenden_tab_after_foton(self, qapp, project_with_residences, person):
-        """The Boenden tab comes immediately after the Foton tab."""
+    def test_boenden_tab_before_foton(self, qapp, project_with_residences, person):
+        """The Boenden tab comes immediately before the Foton tab."""
         editor = PersonEditor(project_with_residences, person)
         tab_texts = [
             editor._ui.tab_widget.tabText(i)
             for i in range(editor._ui.tab_widget.count())
         ]
         foton_idx = tab_texts.index("Foton")
-        assert tab_texts[foton_idx + 1] == "Boenden"
+        assert tab_texts[foton_idx - 1] == "Boenden"
 
     def test_boenden_tab_not_created_for_new_person(self, qapp, project_no_residences):
         """No Boenden tab when creating a new person (person is None)."""
