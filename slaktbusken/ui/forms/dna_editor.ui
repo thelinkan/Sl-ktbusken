@@ -222,6 +222,17 @@
        <item>
         <widget class="QWidget" name="matches_left">
          <layout class="QVBoxLayout" name="matches_left_layout">
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLineEdit" name="match_filter_input">
+            <property name="placeholderText">
+             <string>Filtrera på person…</string>
+            </property>
+           </widget>
+          </item>
           <item>
            <widget class="QListWidget" name="matches_list"/>
           </item>

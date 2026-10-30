@@ -246,7 +246,6 @@ class Ui_DnaEditor(object):
         self.matches_left_layout.setContentsMargins(0, 0, 0, 0)
         self.match_filter_input = QLineEdit(self.matches_left)
         self.match_filter_input.setObjectName(u"match_filter_input")
-        self.match_filter_input.setPlaceholderText("")
 
         self.matches_left_layout.addWidget(self.match_filter_input)
 
@@ -846,6 +845,7 @@ class Ui_DnaEditor(object):
         self.profile_notes_label.setText(QCoreApplication.translate("DnaEditor", u"Anteckningar:", None))
         self.save_profile_button.setText(QCoreApplication.translate("DnaEditor", u"Spara profil", None))
         self.tab_widget.setTabText(self.tab_widget.indexOf(self.profiles_tab), QCoreApplication.translate("DnaEditor", u"Profiler", None))
+        self.match_filter_input.setPlaceholderText(QCoreApplication.translate("DnaEditor", u"Filtrera p\u00e5 person\u2026", None))
         self.add_match_button.setText(QCoreApplication.translate("DnaEditor", u"L\u00e4gg till", None))
         self.remove_match_button.setText(QCoreApplication.translate("DnaEditor", u"Ta bort", None))
         self.match_form_group.setTitle(QCoreApplication.translate("DnaEditor", u"Matchningsuppgifter", None))
@@ -858,7 +858,6 @@ class Ui_DnaEditor(object):
         self.match_source_label.setText(QCoreApplication.translate("DnaEditor", u"K\u00e4lla:", None))
         self.match_notes_label.setText(QCoreApplication.translate("DnaEditor", u"Anteckningar:", None))
         self.save_match_button.setText(QCoreApplication.translate("DnaEditor", u"Spara matchning", None))
-        self.match_filter_input.setPlaceholderText(QCoreApplication.translate("DnaEditor", u"Filtrera p\u00e5 person\u2026", None))
         self.tab_widget.setTabText(self.tab_widget.indexOf(self.matches_tab), QCoreApplication.translate("DnaEditor", u"Matchningar", None))
         self.add_segment_button.setText(QCoreApplication.translate("DnaEditor", u"L\u00e4gg till", None))
         self.remove_segment_button.setText(QCoreApplication.translate("DnaEditor", u"Ta bort", None))

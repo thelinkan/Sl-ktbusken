@@ -360,6 +360,16 @@
          </widget>
         </item>
         <item>
+         <widget class="QPushButton" name="open_source_button">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="text">
+           <string>Öppna källa</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <spacer name="sources_buttons_spacer">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
