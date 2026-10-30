@@ -20,7 +20,9 @@ from PySide6.QtWidgets import QFileDialog, QListWidgetItem, QMessageBox, QWidget
 
 from slaktbusken.model.media import LinkedEntity, MediaItem
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.research_index import ResearchIndex
 from slaktbusken.ui.generated.ui_media_editor import Ui_MediaEditor
+from slaktbusken.ui.widgets.research_marker import ResearchMarkerDelegate, apply_research_marker
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +235,9 @@ class MediaEditor(QWidget):
         """
         self._ui.media_list.clear()
         filter_lower = filter_text.lower()
+        if not isinstance(self._ui.media_list.itemDelegate(), ResearchMarkerDelegate):
+            self._ui.media_list.setItemDelegate(ResearchMarkerDelegate(self._ui.media_list))
+        research_index = ResearchIndex(self._project_data)
 
         for media in self._project_data.media:
             if filter_lower:
@@ -252,6 +257,7 @@ class MediaEditor(QWidget):
 
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, media.id)
+            apply_research_marker(item, research_index.counts_for_entity("media", media.id))
             self._ui.media_list.addItem(item)
 
     def _on_search_changed(self, text: str) -> None:

@@ -122,6 +122,7 @@ class PersonListConfig:
         occupation: Show occupation column.
         clusters: Show cluster column.
         dna: Show DNA column.
+        research: Show the research cases column ("Forskningsärenden").
     """
 
     sex: bool = True
@@ -135,6 +136,7 @@ class PersonListConfig:
     occupation: bool = True
     clusters: bool = True
     dna: bool = True
+    research: bool = True
 
 
 @dataclass
@@ -359,6 +361,7 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         occupation=person_list_data.get("occupation", True),
         clusters=person_list_data.get("clusters", True),
         dna=person_list_data.get("dna", True),
+        research=person_list_data.get("research", True),
     )
 
     ui_state = UiState(

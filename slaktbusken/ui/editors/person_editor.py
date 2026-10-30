@@ -59,6 +59,8 @@ from slaktbusken.ui.swedish_locale import get_event_type_label
 from slaktbusken.ui.widgets.boenden_tab import BoendenTab
 from slaktbusken.model.residence import Endpoint, ResidenceFact
 from slaktbusken.ui.widgets.foto_tab import FotoTab
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.widgets.research_marker import apply_research_marker, paint_research_dot
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +127,7 @@ class EventListMapIconDelegate(QStyledItemDelegate):
 
         has_coords = index.data(_HAS_COORDS_ROLE)
         if not has_coords:
+            paint_research_dot(painter, option, index, icon_width=16 + 4)
             return
 
         # Calculate text width to position the icon after it
@@ -154,6 +157,15 @@ class EventListMapIconDelegate(QStyledItemDelegate):
         y = option.rect.top() + (option.rect.height() - self._ICON_SIZE) // 2
 
         painter.drawPixmap(x, y, self._ICON_SIZE, self._ICON_SIZE, map_pixmap)
+
+        # The research marker follows the map icon.
+        paint_research_dot(
+            painter,
+            option,
+            index,
+            extra_offset=self._ICON_SPACING + self._ICON_SIZE,
+            icon_width=16 + 4,
+        )
 
 
 class PersonEditor(QWidget):
@@ -1299,12 +1311,16 @@ class PersonEditor(QWidget):
         # Sort by date (empty dates last)
         person_events.sort(key=lambda x: (x[0] == "", x[0]))
 
+        research_index = ResearchIndex(self._project_data)
         for _date_key, display, event_id, event_type, has_coords in person_events:
             item = QListWidgetItem(display)
             item.setIcon(QIcon(icon_registry.get_event_icon(event_type)))
             item.setData(Qt.ItemDataRole.UserRole, event_id)
             if has_coords:
                 item.setData(_HAS_COORDS_ROLE, True)
+            apply_research_marker(
+                item, research_index.counts_for_entity("event", event_id)
+            )
             self._ui.events_list.addItem(item)
 
     def _on_add_event(self) -> None:

@@ -42,6 +42,7 @@ class ColumnVisibility:
     kluster: bool = True
     dna_company: bool = True
     boende: bool = True
+    research: bool = True
 
 
 @dataclass
@@ -269,6 +270,7 @@ class AppSettingsService:
                 "yrke": cv.yrke,
                 "kluster": cv.kluster,
                 "dna_company": cv.dna_company,
+                "research": cv.research,
             },
         }
 
@@ -334,12 +336,14 @@ class AppSettingsService:
             yrke = cv_data.get("yrke", True)
             kluster = cv_data.get("kluster", True)
             dna_company = cv_data.get("dna_company", True)
+            research = cv_data.get("research", True)
             # Fall back to True for non-boolean values
             column_visibility = ColumnVisibility(
                 titel=titel if isinstance(titel, bool) else True,
                 yrke=yrke if isinstance(yrke, bool) else True,
                 kluster=kluster if isinstance(kluster, bool) else True,
                 dna_company=dna_company if isinstance(dna_company, bool) else True,
+                research=research if isinstance(research, bool) else True,
             )
         else:
             column_visibility = ColumnVisibility()
@@ -396,6 +400,7 @@ class AppSettingsService:
                 occupation=plc_data.get("occupation", True),
                 clusters=plc_data.get("clusters", True),
                 dna=plc_data.get("dna", True),
+                research=plc_data.get("research", True),
             )
         else:
             person_list_config = PersonListConfig()

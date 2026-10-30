@@ -1103,6 +1103,7 @@ class Application:
         if not self._confirm_discard_changes():
             return
 
+        self._close_research_overview()
         self.project_service.close_project()
         self._update_status()
         self._update_diagram_panel()
@@ -1211,6 +1212,8 @@ class Application:
         app_settings.person_box_config = dialog.person_box_config
         app_settings.diagram_settings = dialog.diagram_settings
         app_settings.person_list_config = dialog.person_list_config
+        # The header menu and the dialog both control the research column.
+        app_settings.column_visibility.research = app_settings.person_list_config.research
         self.app_settings_service.save(app_settings)
 
         # Apply theme
@@ -1407,6 +1410,130 @@ class Application:
         # Mark project dirty if any DNA data was modified
         self.project_service._dirty = True
         self._update_status()
+
+    # ------------------------------------------------------------------
+    # Research
+    # ------------------------------------------------------------------
+
+    def show_research_overview(self, initial_mode: str = "cases") -> None:
+        """Show the research overview window in the given mode.
+
+        There is one overview window. When it is already open it is raised and
+        switched to *initial_mode*. The window refreshes itself whenever
+        research data changes.
+        """
+        from PySide6.QtCore import Qt as _Qt
+
+        from slaktbusken.ui.dialogs.delete_research_case_dialog import (
+            confirm_and_delete_case,
+        )
+        from slaktbusken.ui.research_overview import ResearchOverview
+
+        if self.project_service.project_path is None:
+            return
+        data = self.project_service.data
+
+        window = getattr(self, "_research_overview", None)
+        if window is not None and window._data is not data:
+            # A different project was opened since: start over with the new data.
+            window.close()
+            window = None
+
+        if window is None:
+            window = ResearchOverview(data, initial_mode, parent=self.main_window)
+            window.setWindowFlag(_Qt.WindowType.Window, True)
+            window.resize(900, 520)
+            window.open_case_requested.connect(self.open_research_case)
+            window.create_case_requested.connect(lambda: self.open_research_case())
+            window.open_action_requested.connect(
+                lambda case_id, action_id: self.open_research_case(
+                    case_id, select_action_id=action_id
+                )
+            )
+            window.delete_case_requested.connect(
+                lambda case_id: confirm_and_delete_case(
+                    window, self.project_service, case_id
+                )
+            )
+            # Views that show research content rebuild when research changes.
+            self.research_changed.connect(window.refresh)
+            window.setAttribute(_Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            window.destroyed.connect(lambda *_: self._forget_research_overview())
+            self._research_overview = window
+        else:
+            window.set_mode(initial_mode)
+            window.refresh()
+
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _forget_research_overview(self) -> None:
+        self._research_overview = None
+
+    def _close_research_overview(self) -> None:
+        window = getattr(self, "_research_overview", None)
+        if window is not None:
+            window.close()
+            self._research_overview = None
+
+    def open_research_case(
+        self,
+        case_id: Optional[str] = None,
+        prepopulate=None,
+        select_action_id: Optional[str] = None,
+    ) -> None:
+        """Open the research case editor in a dialog.
+
+        Args:
+            case_id: The case to edit, or None to create a new one.
+            prepopulate: For a new case, a ``ResearchEntityLink`` to use as the
+                primary entity (for example the person the user came from).
+            select_action_id: An action to select when the editor opens.
+
+        Saving commits through the project service, which marks the project
+        changed and notifies open views. Cancelling or closing the dialog
+        discards the editor's working copy and leaves the project untouched.
+        """
+        from slaktbusken.ui.editors.research_case_editor import ResearchCaseEditor
+
+        if self.project_service.project_path is None:
+            return
+
+        parent = getattr(self, "_research_overview", None) or self.main_window
+        dialog = QDialog(parent)
+        dialog.setWindowTitle("Forskningsärende")
+        dialog.setMinimumSize(760, 700)
+        layout = QVBoxLayout(dialog)
+
+        try:
+            editor = ResearchCaseEditor(
+                self.project_service, case_id, prepopulate, parent=dialog
+            )
+        except KeyError:
+            # The case was deleted (for example in another window) before opening.
+            self._update_status()
+            return
+        layout.addWidget(editor)
+
+        editor.save_requested.connect(lambda _case_id: dialog.accept())
+        editor.cancel_requested.connect(dialog.reject)
+        editor.deleted.connect(lambda _case_id: dialog.accept())
+        editor.open_entity_requested.connect(self._open_research_linked_entity)
+        if select_action_id:
+            editor.select_action(select_action_id)
+
+        dialog.exec()
+        self._update_status()
+
+    def _open_research_linked_entity(self, entity_type: str, entity_id: str) -> None:
+        """Go to a linked entity from the case editor, keeping its unsaved edits.
+
+        The editor dialog stays open underneath, so nothing is discarded.
+        Only persons have a dedicated editor to go to so far.
+        """
+        if entity_type == "person":
+            self.open_person_editor(entity_id)
 
     def show_provider_editor(self) -> None:
         """Open the provider editor dialog.

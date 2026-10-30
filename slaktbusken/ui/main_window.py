@@ -205,6 +205,23 @@ class MainWindow(QMainWindow):
         )
         self.action_dna_editor.triggered.connect(self._app.show_dna_editor)
 
+        # Forskning (Research)
+        self.action_research_overview = QAction("&Forskningsöversikt", self)
+        self.action_research_overview.setToolTip("Visa och hantera alla forskningsärenden")
+        self.action_research_overview.triggered.connect(
+            lambda: self._app.show_research_overview("cases")
+        )
+        self.action_research_todo = QAction("&Att göra", self)
+        self.action_research_todo.setToolTip("Visa forskningsåtgärder som återstår")
+        self.action_research_todo.triggered.connect(
+            lambda: self._app.show_research_overview("todo")
+        )
+        self.action_research_hypotheses = QAction("&Hypoteser", self)
+        self.action_research_hypotheses.setToolTip("Visa alla hypoteser, en rad per hypotes")
+        self.action_research_hypotheses.triggered.connect(
+            lambda: self._app.show_research_overview("hypotheses")
+        )
+
         # Verktyg (Tools)
         self.action_relationship = QAction("&Släktskapsberäknare...", self)
         self.action_relationship.setToolTip("Beräkna släktskap mellan två personer")
@@ -303,6 +320,12 @@ class MainWindow(QMainWindow):
         self.menu_goto = self.menu_person.addMenu("Gå till")
         self.menu_goto.addAction(self.action_show_main_person)
         self.menu_goto.addAction(self.action_goto_selected_person)
+
+        # Forskning (Research)
+        self.menu_research = menu_bar.addMenu("&Forskning")
+        self.menu_research.addAction(self.action_research_overview)
+        self.menu_research.addAction(self.action_research_todo)
+        self.menu_research.addAction(self.action_research_hypotheses)
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
@@ -561,6 +584,9 @@ class MainWindow(QMainWindow):
         self.action_place_editor.setEnabled(project_open)
         self.action_place_translation_editor.setEnabled(project_open)
         self.action_dna_editor.setEnabled(project_open)
+        self.action_research_overview.setEnabled(project_open)
+        self.action_research_todo.setEnabled(project_open)
+        self.action_research_hypotheses.setEnabled(project_open)
         self.action_view_family.setEnabled(project_open)
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)

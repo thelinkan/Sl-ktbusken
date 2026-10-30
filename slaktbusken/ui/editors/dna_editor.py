@@ -54,6 +54,8 @@ from slaktbusken.ui.dialogs.chromosome_browser_dialog import ChromosomeBrowserDi
 from slaktbusken.ui.dna_match_display import format_match_entry, matches_filter
 from slaktbusken.ui.generated.ui_dna_editor import Ui_DnaEditor
 from slaktbusken.ui.widgets.person_search_widget import PersonSearchWidget
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.widgets.research_marker import ResearchMarkerDelegate, apply_research_marker
 
 logger = logging.getLogger(__name__)
 
@@ -952,6 +954,11 @@ class DnaEditor(QWidget):
         """Rebuild the matches list widget."""
         self._ui.matches_list.clear()
         self._ui.matches_list.setIconSize(QSize(LOGO_ICON_SIZE, LOGO_ICON_SIZE))
+        if not isinstance(self._ui.matches_list.itemDelegate(), ResearchMarkerDelegate):
+            self._ui.matches_list.setItemDelegate(
+                ResearchMarkerDelegate(self._ui.matches_list)
+            )
+        research_index = ResearchIndex(self._project_data)
         filter_text = self._ui.match_filter_input.text()
         filtered_matches = matches_filter(
             self._project_data.dna_matches, filter_text, self._project_data
@@ -970,6 +977,9 @@ class DnaEditor(QWidget):
                     display = f"⚠ {display} (saknar segmentfil)"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, match.id)
+            apply_research_marker(
+                item, research_index.counts_for_entity("dna_match", match.id)
+            )
             icon = resolve_company_logo_icon(
                 match, self._project_data, self._project_folder, LOGO_ICON_SIZE
             )
@@ -988,10 +998,18 @@ class DnaEditor(QWidget):
     def _refresh_clusters_list(self) -> None:
         """Rebuild the clusters list widget in the split panel."""
         self._cluster_list_widget.clear()
+        if not isinstance(self._cluster_list_widget.itemDelegate(), ResearchMarkerDelegate):
+            self._cluster_list_widget.setItemDelegate(
+                ResearchMarkerDelegate(self._cluster_list_widget)
+            )
+        research_index = ResearchIndex(self._project_data)
         for cluster in self._project_data.dna_clusters:
             display = cluster.name or cluster.id
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, cluster.id)
+            apply_research_marker(
+                item, research_index.counts_for_entity("dna_cluster", cluster.id)
+            )
             self._cluster_list_widget.addItem(item)
 
     def _refresh_triangulations_list(self) -> None:

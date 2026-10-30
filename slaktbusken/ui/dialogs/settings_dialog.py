@@ -140,6 +140,7 @@ class SettingsDialog(QDialog):
             occupation=self._pl_check_occupation.isChecked(),
             clusters=self._pl_check_clusters.isChecked(),
             dna=self._pl_check_dna.isChecked(),
+            research=self._pl_check_research.isChecked(),
         )
 
     @property
@@ -307,6 +308,7 @@ class SettingsDialog(QDialog):
         self._pl_check_occupation = QCheckBox("Yrke")
         self._pl_check_clusters = QCheckBox("Kluster")
         self._pl_check_dna = QCheckBox("DNA")
+        self._pl_check_research = QCheckBox("Forskningsärenden")
 
         for cb in [
             self._pl_check_sex, self._pl_check_relation,
@@ -315,6 +317,7 @@ class SettingsDialog(QDialog):
             self._pl_check_death_date, self._pl_check_death_place,
             self._pl_check_title, self._pl_check_occupation,
             self._pl_check_clusters, self._pl_check_dna,
+            self._pl_check_research,
         ]:
             group_layout.addWidget(cb)
 
@@ -330,6 +333,7 @@ class SettingsDialog(QDialog):
         self._pl_check_occupation.setChecked(config.occupation)
         self._pl_check_clusters.setChecked(config.clusters)
         self._pl_check_dna.setChecked(config.dna)
+        self._pl_check_research.setChecked(config.research)
 
         layout.addWidget(group)
         layout.addStretch()

@@ -139,6 +139,21 @@ def build_warning_lines(
         )
         lines.append("")
 
+    # Research data is kept; its references to the person become dangling.
+    if consequences.research_case_count or consequences.research_hypothesis_count:
+        parts: list[str] = []
+        if consequences.research_case_count:
+            n = consequences.research_case_count
+            parts.append(f"{n} forskningsärende{'n' if n != 1 else ''}")
+        if consequences.research_hypothesis_count:
+            n = consequences.research_hypothesis_count
+            parts.append(f"{n} hypotes{'er' if n != 1 else ''}")
+        lines.append(
+            f"Personen förekommer i {' och '.join(parts)}. Forskningsdatan "
+            f"behålls, men kopplingen visas som \"saknat objekt\"."
+        )
+        lines.append("")
+
     # Disconnection warning
     if consequences.would_disconnect:
         lines.append(

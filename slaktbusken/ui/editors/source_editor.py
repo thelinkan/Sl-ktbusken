@@ -47,7 +47,9 @@ from slaktbusken.services.safe_io import (
 from slaktbusken.services.source_formatting import format_source_title
 from slaktbusken.services.source_links import generate_direct_link
 from slaktbusken.services.source_stats import compute_usage_stats
+from slaktbusken.services.research_index import ResearchIndex
 from slaktbusken.ui.dialogs.usage_detail_dialog import UsageDetailDialog
+from slaktbusken.ui.widgets.research_marker import ResearchMarkerDelegate, apply_research_marker
 from slaktbusken.ui.generated.ui_source_editor import Ui_SourceEditor
 
 logger = logging.getLogger(__name__)
@@ -386,6 +388,9 @@ class SourceEditor(QWidget):
         """
         self._ui.source_list.clear()
         filter_lower = filter_text.lower()
+        if not isinstance(self._ui.source_list.itemDelegate(), ResearchMarkerDelegate):
+            self._ui.source_list.setItemDelegate(ResearchMarkerDelegate(self._ui.source_list))
+        research_index = ResearchIndex(self._project_data)
 
         # Collect and sort sources alphabetically by title
         sorted_sources = sorted(
@@ -410,6 +415,11 @@ class SourceEditor(QWidget):
 
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, source.id)
+            # Directly linked cases only; actions that merely cite the source are
+            # shown in the source editor's research section (task 9.4).
+            apply_research_marker(
+                item, research_index.counts_for_entity("source", source.id)
+            )
             self._ui.source_list.addItem(item)
 
     def _on_search_changed(self, text: str) -> None:

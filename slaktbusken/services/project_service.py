@@ -9,6 +9,7 @@ additions are validated before being appended to the in-memory data.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -26,11 +27,20 @@ from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
+from slaktbusken.model.research_case import (
+    ResearchAction,
+    ResearchCase,
+    ResearchHypothesis,
+    normalize_completed_date,
+)
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, Source
 from slaktbusken.model.validators import (
     validate_dna_cluster,
     validate_dna_match,
+    validate_research_action,
+    validate_research_case,
+    validate_research_hypothesis,
     validate_dna_profile,
     validate_dna_segment,
     validate_dna_triangulation,
@@ -53,6 +63,17 @@ from slaktbusken.persistence.translation_io import (
     TranslationData,
     write_all as write_translations,
 )
+from slaktbusken.services.research_service import (
+    ResearchCaseDiff,
+    ResearchCaseWorkingCopy,
+    ResearchIdGenerator,
+    RewireResult,
+    apply_working_copy,
+    delete_case_cascade,
+    diff_working_copy,
+    reconcile_id_high_water_marks,
+    rewire_entity_merge,
+)
 from slaktbusken.services.foster_sync import (
     migrate_orphan_links,
     sync_parentage_links,
@@ -60,6 +81,27 @@ from slaktbusken.services.foster_sync import (
 from slaktbusken.services.standard_providers import initialize_standard_providers
 
 logger = logging.getLogger(__name__)
+
+#: Stand-in id used while validating research data that has not been issued an id yet.
+_PENDING_ID = "\x00pending"
+
+
+def _with_placeholder_ids(hypothesis: ResearchHypothesis) -> ResearchHypothesis:
+    """Return a copy of *hypothesis* in which blank ids are replaced by placeholders.
+
+    Used only to validate before ids are issued; the original is not changed.
+    """
+    comments = [
+        replace(c, id=c.id or f"{_PENDING_ID}{i}")
+        for i, c in enumerate(hypothesis.comments)
+    ]
+    return replace(hypothesis, id=hypothesis.id or _PENDING_ID, comments=comments)
+
+
+_MSG_RESEARCH_CASE_TITLE_REQUIRED = "Forskningsärendet måste ha en rubrik."
+_MSG_RESEARCH_DUPLICATE_ID = "Id:t {id} används redan av annan forskningsdata."
+_MSG_RESEARCH_EMPTY_ID = "Forskningsdata saknar id."
+_MSG_RESEARCH_WRONG_CASE = "Hypotesen eller åtgärden {id} tillhör inte forskningsärendet."
 
 # Media subfolders to create in a new project.
 _MEDIA_SUBFOLDERS = [
@@ -680,3 +722,349 @@ class ProjectService:
         data.research_notes.append(note)
         self._dirty = True
         return note
+
+    # ------------------------------------------------------------------
+    # Research cases, hypotheses and actions
+    # ------------------------------------------------------------------
+
+    def new_research_id(self, entity_type: str) -> str:
+        """Issue a research id that is never reused, even after a delete and reopen.
+
+        Args:
+            entity_type: ``"research_case"``, ``"research_hypothesis"``,
+                ``"research_action"`` or ``"hypothesis_comment"``.
+
+        Returns:
+            A new id. The id high-water mark advances immediately, so an id
+            handed to an editor's working copy is not issued twice.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+            ValueError: If *entity_type* is not a research entity type.
+        """
+        return ResearchIdGenerator(self.data).generate(entity_type)
+
+    def _research_children_errors(
+        self,
+        hypotheses: list[ResearchHypothesis],
+        actions: list[ResearchAction],
+        case_ids: set[str],
+        owner_case_id: Optional[str],
+        other_hypothesis_ids: set[str],
+        other_comment_ids: set[str],
+        other_action_ids: set[str],
+    ) -> list[str]:
+        """Return the hard errors for a set of hypotheses and actions.
+
+        Entity and source existence is not checked: a reference that was kept
+        on purpose after its target was deleted must not block an edit.
+        """
+        errors: list[str] = []
+        seen_h: set[str] = set()
+        seen_c: set[str] = set()
+        seen_a: set[str] = set()
+
+        for hypothesis in hypotheses:
+            if not hypothesis.id:
+                errors.append(_MSG_RESEARCH_EMPTY_ID)
+            elif hypothesis.id in seen_h or hypothesis.id in other_hypothesis_ids:
+                errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=hypothesis.id))
+            seen_h.add(hypothesis.id)
+            if owner_case_id is not None and hypothesis.research_case_id != owner_case_id:
+                errors.append(_MSG_RESEARCH_WRONG_CASE.format(id=hypothesis.id))
+            errors.extend(validate_research_hypothesis(hypothesis, case_ids, None))
+            for comment in hypothesis.comments:
+                if not comment.id:
+                    errors.append(_MSG_RESEARCH_EMPTY_ID)
+                elif comment.id in seen_c or comment.id in other_comment_ids:
+                    errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=comment.id))
+                seen_c.add(comment.id)
+
+        for action in actions:
+            if not action.id:
+                errors.append(_MSG_RESEARCH_EMPTY_ID)
+            elif action.id in seen_a or action.id in other_action_ids:
+                errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=action.id))
+            seen_a.add(action.id)
+            if owner_case_id is not None and action.research_case_id != owner_case_id:
+                errors.append(_MSG_RESEARCH_WRONG_CASE.format(id=action.id))
+            errors.extend(validate_research_action(action, case_ids, None))
+
+        return errors
+
+    def _commit_research_change(self) -> None:
+        """Mark the project changed and tell research listeners."""
+        reconcile_id_high_water_marks(self.data)
+        self._dirty = True
+        self.notify_research_changed()
+
+    def add_research_case(self, case: ResearchCase) -> ResearchCase:
+        """Validate and add a research case; assigns an id when it has none.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+            ValidationError: If the case is invalid or its id is taken. The
+                project is unchanged.
+        """
+        data = self.data
+        errors = validate_research_case(case, None)
+        if not case.title.strip():
+            errors.append(_MSG_RESEARCH_CASE_TITLE_REQUIRED)
+        if case.id and any(c.id == case.id for c in data.research_cases):
+            errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=case.id))
+        if errors:
+            raise ValidationError(errors)
+        if not case.id:
+            case.id = self.new_research_id("research_case")
+        data.research_cases.append(case)
+        self._commit_research_change()
+        return case
+
+    def update_research_case(self, case: ResearchCase) -> ResearchCase:
+        """Validate a case and replace the stored one with the same id.
+
+        Raises:
+            KeyError: If no case has that id.
+            ValidationError: If the case is invalid. The project is unchanged.
+        """
+        data = self.data
+        index = next(
+            (i for i, c in enumerate(data.research_cases) if c.id == case.id), None
+        )
+        if index is None:
+            raise KeyError(f"Inget forskningsärende med id {case.id!r} att uppdatera.")
+        errors = validate_research_case(case, None)
+        if not case.title.strip():
+            errors.append(_MSG_RESEARCH_CASE_TITLE_REQUIRED)
+        if errors:
+            raise ValidationError(errors)
+        data.research_cases[index] = case
+        self._commit_research_change()
+        return case
+
+    def delete_research_case(self, case_id: str) -> bool:
+        """Delete a case with its own hypotheses, comments and actions.
+
+        Returns:
+            True if a case was deleted, False if there was none (a no-op).
+        """
+        data = self.data
+        if not any(c.id == case_id for c in data.research_cases):
+            return False
+        delete_case_cascade(data, case_id)
+        self._commit_research_change()
+        return True
+
+    def add_research_hypothesis(self, hypothesis: ResearchHypothesis) -> ResearchHypothesis:
+        """Validate and add a hypothesis to an existing case.
+
+        Assigns ids to the hypothesis and to comments that have none.
+
+        Raises:
+            ValidationError: If it is invalid or its case does not exist.
+        """
+        data = self.data
+        case_ids = {c.id for c in data.research_cases}
+        other_comments = {
+            c.id for h in data.research_hypotheses for c in h.comments
+        }
+        # A missing id is assigned only after validation passes, so a rejected
+        # hypothesis does not advance the id high-water mark. Validate with a
+        # placeholder id and blank comment ids in the meantime.
+        missing_id = not hypothesis.id
+        errors = self._research_children_errors(
+            [hypothesis if not missing_id else _with_placeholder_ids(hypothesis)],
+            [],
+            case_ids,
+            None,
+            {h.id for h in data.research_hypotheses},
+            other_comments,
+            set(),
+        )
+        if errors:
+            raise ValidationError(errors)
+        if not hypothesis.id:
+            hypothesis.id = self.new_research_id("research_hypothesis")
+        for comment in hypothesis.comments:
+            if not comment.id:
+                comment.id = self.new_research_id("hypothesis_comment")
+        data.research_hypotheses.append(hypothesis)
+        self._commit_research_change()
+        return hypothesis
+
+    def update_research_hypothesis(
+        self, hypothesis: ResearchHypothesis
+    ) -> ResearchHypothesis:
+        """Validate a hypothesis and replace the stored one with the same id.
+
+        Raises:
+            KeyError: If no hypothesis has that id.
+            ValidationError: If it is invalid. The project is unchanged.
+        """
+        data = self.data
+        index = next(
+            (i for i, h in enumerate(data.research_hypotheses) if h.id == hypothesis.id),
+            None,
+        )
+        if index is None:
+            raise KeyError(f"Ingen hypotes med id {hypothesis.id!r} att uppdatera.")
+        others = [h for i, h in enumerate(data.research_hypotheses) if i != index]
+        errors = self._research_children_errors(
+            [hypothesis],
+            [],
+            {c.id for c in data.research_cases},
+            None,
+            {h.id for h in others},
+            {c.id for h in others for c in h.comments},
+            set(),
+        )
+        if errors:
+            raise ValidationError(errors)
+        for comment in hypothesis.comments:
+            if not comment.id:
+                comment.id = self.new_research_id("hypothesis_comment")
+        data.research_hypotheses[index] = hypothesis
+        self._commit_research_change()
+        return hypothesis
+
+    def delete_research_hypothesis(self, hypothesis_id: str) -> bool:
+        """Delete a hypothesis and its comments; False if there was none."""
+        data = self.data
+        remaining = [h for h in data.research_hypotheses if h.id != hypothesis_id]
+        if len(remaining) == len(data.research_hypotheses):
+            return False
+        data.research_hypotheses = remaining
+        self._commit_research_change()
+        return True
+
+    def add_research_action(self, action: ResearchAction) -> ResearchAction:
+        """Validate and add an action to an existing case; assigns a missing id.
+
+        A blank ``completed_date`` is normalized to ``None`` (pending).
+
+        Raises:
+            ValidationError: If it is invalid or its case does not exist.
+        """
+        data = self.data
+        action.completed_date = normalize_completed_date(action.completed_date)
+        checked = action if action.id else replace(action, id=_PENDING_ID)
+        errors = self._research_children_errors(
+            [],
+            [checked],
+            {c.id for c in data.research_cases},
+            None,
+            set(),
+            set(),
+            {a.id for a in data.research_actions},
+        )
+        if errors:
+            raise ValidationError(errors)
+        if not action.id:
+            action.id = self.new_research_id("research_action")
+        data.research_actions.append(action)
+        self._commit_research_change()
+        return action
+
+    def update_research_action(self, action: ResearchAction) -> ResearchAction:
+        """Validate an action and replace the stored one with the same id.
+
+        Raises:
+            KeyError: If no action has that id.
+            ValidationError: If it is invalid. The project is unchanged.
+        """
+        data = self.data
+        index = next(
+            (i for i, a in enumerate(data.research_actions) if a.id == action.id), None
+        )
+        if index is None:
+            raise KeyError(f"Ingen forskningsåtgärd med id {action.id!r} att uppdatera.")
+        action.completed_date = normalize_completed_date(action.completed_date)
+        errors = self._research_children_errors(
+            [],
+            [action],
+            {c.id for c in data.research_cases},
+            None,
+            set(),
+            set(),
+            {a.id for i, a in enumerate(data.research_actions) if i != index},
+        )
+        if errors:
+            raise ValidationError(errors)
+        data.research_actions[index] = action
+        self._commit_research_change()
+        return action
+
+    def delete_research_action(self, action_id: str) -> bool:
+        """Delete an action; False if there was none."""
+        data = self.data
+        remaining = [a for a in data.research_actions if a.id != action_id]
+        if len(remaining) == len(data.research_actions):
+            return False
+        data.research_actions = remaining
+        self._commit_research_change()
+        return True
+
+    def commit_research_case_working_copy(
+        self, working_copy: ResearchCaseWorkingCopy
+    ) -> ResearchCaseDiff:
+        """Validate a case editor's working copy and write it all at once.
+
+        Blank action completion dates are normalized to ``None`` first. If
+        anything is invalid nothing at all is written. If the copy equals what
+        the project already holds, the project is not marked changed and no
+        listener is told.
+
+        Returns:
+            What was created, updated and deleted.
+
+        Raises:
+            ValidationError: With every error found; the project is unchanged.
+        """
+        data = self.data
+        case = working_copy.case
+        for action in working_copy.actions:
+            action.completed_date = normalize_completed_date(action.completed_date)
+
+        errors = validate_research_case(case, None)
+        if not case.title.strip():
+            errors.append(_MSG_RESEARCH_CASE_TITLE_REQUIRED)
+        if not case.id:
+            errors.append(_MSG_RESEARCH_EMPTY_ID)
+        elif case.id in {c.id for c in data.research_cases} - {case.id}:
+            errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=case.id))
+
+        other_h = [h for h in data.research_hypotheses if h.research_case_id != case.id]
+        errors.extend(
+            self._research_children_errors(
+                working_copy.hypotheses,
+                working_copy.actions,
+                {c.id for c in data.research_cases} | {case.id},
+                case.id,
+                {h.id for h in other_h},
+                {c.id for h in other_h for c in h.comments},
+                {a.id for a in data.research_actions if a.research_case_id != case.id},
+            )
+        )
+        if errors:
+            raise ValidationError(errors)
+
+        diff = diff_working_copy(data, working_copy)
+        if diff.is_empty:
+            return diff
+        apply_working_copy(data, working_copy)
+        self._commit_research_change()
+        return diff
+
+    def merge_research_references(
+        self, entity_type: str, old_id: str, survivor_id: str
+    ) -> RewireResult:
+        """Repoint research references from a merged-away entity to the survivor.
+
+        Call this from any merge of persons, places, sources, events, media or
+        DNA matches. Marks the project changed and notifies only if a
+        reference actually moved.
+        """
+        result = rewire_entity_merge(self.data, entity_type, old_id, survivor_id)
+        if result.links_rewired or result.links_collapsed or result.source_refs_rewired:
+            self._commit_research_change()
+        return result

@@ -57,6 +57,8 @@ from slaktbusken.services.delete_service import find_residence_dependencies
 from slaktbusken.ui.generated.ui_place_editor import Ui_PlaceEditor
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.widgets.coordinate_spin_box import CoordinateSpinBox
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.widgets.research_marker import apply_research_marker, paint_research_dot
 
 logger = logging.getLogger(__name__)
 
@@ -291,6 +293,8 @@ class PlaceListItemDelegate(QStyledItemDelegate):
             return
 
         if not needs_red_dot(place):
+            # No red dot: the research marker (if any) takes the first position.
+            paint_research_dot(painter, option, index)
             return
 
         # Calculate text width to position the dot after it
@@ -314,6 +318,11 @@ class PlaceListItemDelegate(QStyledItemDelegate):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(QRect(dot_x, dot_y, self._DOT_DIAMETER, self._DOT_DIAMETER))
         painter.restore()
+
+        # The research marker follows the red dot.
+        paint_research_dot(
+            painter, option, index, extra_offset=self._DOT_DIAMETER + self._DOT_SPACING
+        )
 
     def _find_place(self, place_id: str) -> Optional[Place]:
         """Find a place by its ID in the project data."""
@@ -757,9 +766,11 @@ class PlaceEditor(QWidget):
 
         entries.sort(key=lambda x: x[0].lower())
 
+        research_index = ResearchIndex(self._project_data)
         for display, place_id in entries:
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, place_id)
+            apply_research_marker(item, research_index.counts_for_entity("place", place_id))
             # Show map icon for places with coordinates
             place = self._find_place_by_id(place_id)
             if place and place.latitude is not None and place.longitude is not None:

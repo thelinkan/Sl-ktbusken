@@ -41,11 +41,23 @@ from slaktbusken.model.place import Place
 from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.dna import DnaCluster, DnaCompany, DnaProfile
 from slaktbusken.model.media import MediaItem
+from slaktbusken.model.research_case import is_pending
 from slaktbusken.services.lineage_computer import LineageComputer
+from slaktbusken.services.research_index import ResearchCaseCounts, ResearchIndex
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import format_residence_interval
+from slaktbusken.ui.widgets.research_indicator import (
+    format_research_counts,
+    indicator_color,
+    indicator_state,
+    indicator_tooltip,
+    research_sort_key,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Index of the "Forskningsärenden" column in the person list.
+_RESEARCH_COLUMN = 10
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +163,9 @@ class PersonDisplayInfo:
     death_date: str = ""
     death_place: str = ""
     residence_intervals: str = ""
+    research_counts: ResearchCaseCounts = field(
+        default_factory=lambda: ResearchCaseCounts(0, 0)
+    )
 
 
 def extract_year(date_value_str: str) -> str:
@@ -446,6 +461,7 @@ def build_person_display_list(
     ancestor_ids: set[str] | None = None,
     descendant_ids: set[str] | None = None,
     residences: list[ResidenceFact] | None = None,
+    research_index: ResearchIndex | None = None,
 ) -> list[PersonDisplayInfo]:
     """Build a sorted list of person display info from project data.
 
@@ -462,6 +478,8 @@ def build_person_display_list(
         ancestor_ids: Set of person IDs that are ancestors of the main person (optional).
         descendant_ids: Set of person IDs that are descendants of the main person (optional).
         residences: All residence facts in the project (optional).
+        research_index: Research lookups (optional). Without one, every person
+            has zero research cases.
 
     Returns:
         Sorted list of PersonDisplayInfo items.
@@ -597,6 +615,11 @@ def build_person_display_list(
                 death_date=death_date,
                 death_place=death_place,
                 residence_intervals=residence_intervals,
+                research_counts=(
+                    research_index.counts_for_entity("person", person.id)
+                    if research_index is not None
+                    else ResearchCaseCounts(0, 0)
+                ),
             )
         )
 
@@ -683,10 +706,67 @@ def format_names_tooltip(all_names: list[tuple[str, str, str]]) -> str:
     return "\n".join(lines)
 
 
+def person_matches_research_filter(
+    person_id: str,
+    criteria: FilterCriteria,
+    research_index: ResearchIndex | None,
+) -> bool:
+    """Return True when a person satisfies the three research filter fields.
+
+    Only cases linked directly to the person count. Within one case the status
+    and action conditions must both hold (one and the same case satisfies
+    both); the person matches when at least one linked case does.
+
+    ``existence == "none"`` matches only persons with no linked case, and the
+    status and action fields are then ignored. Without an index every person
+    has no cases.
+    """
+    existence = criteria.research_existence
+    status = criteria.research_status
+    action = criteria.research_action
+
+    cases = (
+        research_index.cases_for_entity("person", person_id)
+        if research_index is not None
+        else []
+    )
+
+    if existence == "none":
+        return not cases
+
+    if existence == "all" and status == "all" and action == "all":
+        return True
+
+    # "Enbart avslutade ärenden": every case of the person must be closed (a
+    # person with an open case is not "closed only"). The case itself is then
+    # checked against the action condition below, like any other status.
+    if status == "closed_only" and any(case.status != "closed" for case in cases):
+        return False
+
+    # "has", or "all" combined with a status/action condition: a case is needed.
+    def case_matches(case) -> bool:  # noqa: ANN001 - ResearchCase
+        if status == "open" and case.status == "closed":
+            return False
+        if status == "closed_only" and case.status != "closed":
+            return False
+        if action != "all":
+            actions = research_index.actions_for_case(case.id)
+            if action == "pending" and not any(is_pending(a) for a in actions):
+                return False
+            if action == "completed" and not any(not is_pending(a) for a in actions):
+                return False
+            if action == "none" and actions:
+                return False
+        return True
+
+    return any(case_matches(case) for case in cases)
+
+
 def filter_persons(
     persons: list[PersonDisplayInfo],
     criteria: FilterCriteria,
     all_persons_names: dict[str, list[Name]] | None = None,
+    research_index: ResearchIndex | None = None,
 ) -> list[PersonDisplayInfo]:
     """Filter a list of persons by the given criteria using AND logic.
 
@@ -712,6 +792,8 @@ def filter_persons(
         all_persons_names: Optional mapping of person_id to all their Name
             records for multi-name filtering. When None, falls back to
             filtering against the primary name in PersonDisplayInfo.
+        research_index: Research lookups for the research filter fields. When
+            None, no person has any research case.
 
     Returns:
         Filtered list of PersonDisplayInfo matching all active criteria.
@@ -793,6 +875,12 @@ def filter_persons(
         if occupation_lower:
             if occupation_lower not in person.occupation.lower():
                 continue
+
+        # Research filter: concerns only cases linked directly to the person
+        if not person_matches_research_filter(
+            person.person_id, criteria, research_index
+        ):
+            continue
 
         result.append(person)
 
@@ -1009,7 +1097,7 @@ class PersonListPanel(QWidget):
         person_edit_requested: Emitted with person_id on double-click.
     """
 
-    _FULL_HEADERS = ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende"]
+    _FULL_HEADERS = ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende", "Forskningsärenden"]
 
     person_selected = Signal(str)
     person_edit_requested = Signal(str)
@@ -1037,6 +1125,7 @@ class PersonListPanel(QWidget):
         self._syncing_from_diagram: bool = False
         self._refreshing: bool = False
         self._person_list_config = None  # Will be set via apply_person_list_config
+        self._research_sort: str | None = None  # None, "desc" or "asc"
 
         self._setup_ui()
         self._connect_signals()
@@ -1067,10 +1156,10 @@ class PersonListPanel(QWidget):
 
         # Person list as QTreeWidget with columns
         # Columns: 0=Namn, 1=Födelsedatum, 2=Födelseort, 3=Dödsdatum, 4=Dödsort,
-        #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA, 9=Boende
+        #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA, 9=Boende, 10=Forskningsärenden
         self._tree_widget = QTreeWidget()
         self._tree_widget.setHeaderLabels(
-            ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende"]
+            ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende", "Forskningsärenden"]
         )
         self._tree_widget.setIconSize(QSize(20, 20))
         self._tree_widget.setRootIsDecorated(False)
@@ -1105,6 +1194,7 @@ class PersonListPanel(QWidget):
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(9, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(10, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(1, 90)
         header.resizeSection(2, 90)
         header.resizeSection(3, 90)
@@ -1114,6 +1204,12 @@ class PersonListPanel(QWidget):
         header.resizeSection(7, 70)
         header.resizeSection(8, 70)
         header.resizeSection(9, 120)
+        header.resizeSection(10, 110)
+        # Only the research column is sorted from the header; it sorts the data
+        # (see _on_header_clicked), not the tree widget, so other columns keep
+        # the alphabetical order.
+        header.setSectionsClickable(True)
+        header.sectionClicked.connect(self._on_header_clicked)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._show_column_visibility_menu)
 
@@ -1264,6 +1360,15 @@ class PersonListPanel(QWidget):
         )
         menu.addAction(action_boende)
 
+        # Forskningsärenden (column 10)
+        action_research = QAction("Forskningsärenden", menu)
+        action_research.setCheckable(True)
+        action_research.setChecked(getattr(visibility, "research", True))
+        action_research.toggled.connect(
+            lambda checked: self._on_column_visibility_changed("research", checked)
+        )
+        menu.addAction(action_research)
+
         global_pos = self._tree_widget.header().mapToGlobal(pos)
         menu.exec(global_pos)
 
@@ -1281,15 +1386,20 @@ class PersonListPanel(QWidget):
             "birth_date": 1, "birth_place": 2,
             "death_date": 3, "death_place": 4,
             "titel": 5, "yrke": 6, "kluster": 7, "dna_company": 8,
-            "boende": 9,
+            "boende": 9, "research": 10,
         }
         col_index = col_map.get(column)
         if col_index is not None:
             self._tree_widget.setColumnHidden(col_index, not visible)
 
-        # Persist the change
+        # Persist the change. The person list configuration is kept in step so
+        # the settings dialog and this menu never disagree.
         settings = self._app.app_settings_service._settings
         setattr(settings.column_visibility, column, visible)
+        if column == "research":
+            settings.person_list_config.research = visible
+            if self._person_list_config is not None:
+                self._person_list_config.research = visible
         self._app.app_settings_service.save(settings)
 
     def _restore_column_visibility(self) -> None:
@@ -1310,6 +1420,7 @@ class PersonListPanel(QWidget):
         self._tree_widget.setColumnHidden(7, not visibility.kluster)
         self._tree_widget.setColumnHidden(8, not visibility.dna_company)
         self._tree_widget.setColumnHidden(9, not getattr(visibility, 'boende', True))
+        self._tree_widget.setColumnHidden(10, not getattr(visibility, 'research', True))
 
     def _connect_signals(self) -> None:
         """Connect button signals and tree selection signals."""
@@ -1381,6 +1492,7 @@ class PersonListPanel(QWidget):
                 ancestor_ids=self._ancestor_ids,
                 descendant_ids=self._descendant_ids,
                 residences=data.residences if hasattr(data, "residences") else [],
+                research_index=self._build_research_index(),
             )
             self._apply_current_view()
         finally:
@@ -1397,7 +1509,10 @@ class PersonListPanel(QWidget):
         """
         self._current_criteria = criteria
         self._filtered_list = filter_persons(
-            self._display_list, criteria, self._get_all_persons_names()
+            self._display_list,
+            criteria,
+            self._get_all_persons_names(),
+            self._build_research_index(),
         )
         # Automatically switch to filtered view
         if not self._showing_filtered:
@@ -1511,6 +1626,7 @@ class PersonListPanel(QWidget):
         header.setSectionHidden(6, not config.occupation)
         header.setSectionHidden(7, not config.clusters)
         header.setSectionHidden(8, not config.dna)
+        header.setSectionHidden(10, not config.research)
 
         # Refresh the list to apply icon/date visibility changes
         self._apply_current_view()
@@ -1565,6 +1681,7 @@ class PersonListPanel(QWidget):
                 self._display_list,
                 self._current_criteria,
                 self._get_all_persons_names(),
+                self._build_research_index(),
             )
             self._update_list_widget()
         else:
@@ -1580,6 +1697,47 @@ class PersonListPanel(QWidget):
             self.person_count_changed.emit(total, filtered)
         else:
             self.person_count_changed.emit(total, None)
+
+    def _build_research_index(self) -> ResearchIndex | None:
+        """Build research lookups from the open project, or None without one."""
+        try:
+            return ResearchIndex(self._app.project_service.data)
+        except Exception:  # noqa: BLE001 - the list must still show without research
+            logger.exception("Kunde inte bygga forskningsindex för personlistan.")
+            return None
+
+    def _on_header_clicked(self, section: int) -> None:
+        """Cycle the research column sort: most open first, fewest first, default."""
+        if section != _RESEARCH_COLUMN:
+            return
+        order = {None: "desc", "desc": "asc", "asc": None}
+        self._research_sort = order[self._research_sort]
+        header = self._tree_widget.header()
+        if self._research_sort is None:
+            header.setSortIndicatorShown(False)
+        else:
+            header.setSortIndicatorShown(True)
+            header.setSortIndicator(
+                _RESEARCH_COLUMN,
+                Qt.SortOrder.DescendingOrder
+                if self._research_sort == "desc"
+                else Qt.SortOrder.AscendingOrder,
+            )
+        self._update_list_widget()
+
+    def _sorted_for_display(self) -> list[PersonDisplayInfo]:
+        """Return the filtered list, ordered by research counts when that sort is on.
+
+        The sort is stable, so persons with equal counts keep their
+        alphabetical order.
+        """
+        if self._research_sort is None:
+            return self._filtered_list
+        return sorted(
+            self._filtered_list,
+            key=lambda p: research_sort_key(p.research_counts),
+            reverse=self._research_sort == "desc",
+        )
 
     def _get_all_persons_names(self) -> dict[str, list[Name]]:
         """Build a mapping of person_id to all their Name records.
@@ -1625,7 +1783,7 @@ class PersonListPanel(QWidget):
         self._tree_widget.setUpdatesEnabled(False)
         try:
             items: list[QTreeWidgetItem] = []
-            for person_info in self._filtered_list:
+            for person_info in self._sorted_for_display():
                 # Build name display text
                 name_text = self._format_person_display(person_info)
 
@@ -1652,6 +1810,7 @@ class PersonListPanel(QWidget):
                     person_info.cluster_names_display,
                     "",
                     person_info.residence_intervals,
+                    format_research_counts(person_info.research_counts),
                 ])
 
                 # Store person_id in UserRole on column 0
@@ -1709,6 +1868,13 @@ class PersonListPanel(QWidget):
                     tree_item.setToolTip(8, dna_text)
                 if person_info.residence_intervals:
                     tree_item.setToolTip(9, person_info.residence_intervals)
+                state = indicator_state(person_info.research_counts)
+                color = indicator_color(state)
+                if color is not None:
+                    tree_item.setForeground(_RESEARCH_COLUMN, QBrush(QColor(color)))
+                    tree_item.setToolTip(
+                        _RESEARCH_COLUMN, indicator_tooltip(person_info.research_counts)
+                    )
                 if tooltip_parts:
                     tree_item.setToolTip(0, "\n".join(tooltip_parts))
 

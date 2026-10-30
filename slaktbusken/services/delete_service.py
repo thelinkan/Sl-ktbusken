@@ -16,6 +16,7 @@ from slaktbusken.model.event import Event
 from slaktbusken.model.family import Family
 from slaktbusken.model.project import ProjectData
 from slaktbusken.relationship.graph_builder import build_relationship_graph
+from slaktbusken.services.research_service import find_research_dependencies
 
 if TYPE_CHECKING:
     from slaktbusken.services.project_service import ProjectService
@@ -32,6 +33,10 @@ class DeletionConsequences:
     affected_families: list[Family]
     would_disconnect: bool
     disconnected_person_count: int
+    # Research data that refers to the person. It is kept on deletion; the
+    # reference then shows as a missing object (Requirement 15).
+    research_case_count: int = 0
+    research_hypothesis_count: int = 0
 
 
 @dataclass
@@ -410,6 +415,8 @@ class DeleteService:
             person_id, data
         )
 
+        research_dependencies = find_research_dependencies(data, "person", person_id)
+
         return DeletionConsequences(
             person_name=person_name,
             exclusive_events=exclusive_events,
@@ -418,14 +425,20 @@ class DeleteService:
             affected_families=affected_families,
             would_disconnect=would_disconnect,
             disconnected_person_count=disconnected_person_count,
+            research_case_count=len(research_dependencies.cases),
+            research_hypothesis_count=len(research_dependencies.hypotheses),
         )
 
     def execute_deletion(self, person_id: str) -> None:
         """Execute the deletion with all cascading cleanup.
 
         Calls execute_person_deletion to mutate ProjectData, then marks
-        the project as dirty (unsaved changes).
+        the project as dirty (unsaved changes). Research data that refers to
+        the person is kept, so views that show it are told to refresh.
         """
         data = self._project_service.data
+        had_research = not find_research_dependencies(data, "person", person_id).is_empty
         execute_person_deletion(person_id, data)
         self._project_service._dirty = True
+        if had_research:
+            self._project_service.notify_research_changed()
