@@ -17,7 +17,7 @@ from typing import Any
 from slaktbusken.model.project import ProjectData
 
 # Current format version supported by this application.
-CURRENT_VERSION = "0.2"
+CURRENT_VERSION = "0.3"
 
 
 class CorruptedFileError(Exception):

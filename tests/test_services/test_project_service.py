@@ -32,6 +32,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, Source, StructuredReference
+from slaktbusken.persistence.file_io import CURRENT_VERSION
 from slaktbusken.services.project_service import (
     ProjectNotOpenError,
     ProjectService,
@@ -81,7 +82,7 @@ class TestCreateProject:
         data = json.loads(raw)
 
         assert data["format"] == "släktbuske-file"
-        assert data["version"] == "0.2"
+        assert data["version"] == CURRENT_VERSION
         assert data["project"]["title"] == "MittProjekt"
         assert data["project"]["created_by"] == "Släktbuske"
         assert data["project"]["language"] == "sv-SE"

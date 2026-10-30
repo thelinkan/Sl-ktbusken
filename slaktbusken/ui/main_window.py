@@ -341,6 +341,9 @@ class MainWindow(QMainWindow):
         self._report_menu_builder.action_media.triggered.connect(
             self._generate_media
         )
+        self._report_menu_builder.action_research_consistency.triggered.connect(
+            self._generate_research_consistency
+        )
 
         # Hjälp (Help)
         self.menu_help = menu_bar.addMenu("&Hjälp")
@@ -694,6 +697,23 @@ class MainWindow(QMainWindow):
 
         service = ReportGeneratorService()
         content = service.generate_media_consistency(data, project_folder)
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
+    def _generate_research_consistency(self) -> None:
+        """Generate and display the research consistency report (Forskningskonsistens)."""
+        if self._app.project_service.project_path is None:
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        data = self._app.project_service.data
+
+        service = ReportGeneratorService()
+        content = service.generate_research_consistency(data)
 
         settings = self._app.project_service.settings
         dlg = ReportPreviewDialog(content, settings, parent=self)

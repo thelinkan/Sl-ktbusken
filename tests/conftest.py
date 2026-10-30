@@ -33,6 +33,7 @@ from slaktbusken.model.place import CustomFieldDef, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, RepositoryRef, Source, StructuredReference
+from slaktbusken.persistence.file_io import CURRENT_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -912,7 +913,7 @@ def project_data_strategy(draw: DrawFn) -> ProjectData:
 
     return ProjectData(
         format="släktbuske-file",
-        version="0.2",
+        version=CURRENT_VERSION,
         project=project,
         persons=persons,
         families=families,

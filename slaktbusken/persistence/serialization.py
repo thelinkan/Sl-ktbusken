@@ -24,6 +24,13 @@ from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import CustomFieldDef, ExternalId, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
+from slaktbusken.model.research_case import (
+    HypothesisComment,
+    ResearchAction,
+    ResearchCase,
+    ResearchEntityLink,
+    ResearchHypothesis,
+)
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import ArkivReferens, Kalltyp, Leverantor, Repository, RepositoryRef, Source, StructuredReference
@@ -57,6 +64,7 @@ def serialize(data: ProjectData) -> str:
         "media", "repositories", "dna_companies", "dna_profiles",
         "dna_matches", "dna_segments", "dna_clusters",
         "dna_triangulations", "research_notes", "leverantorer", "kalltyper",
+        "research_cases", "research_hypotheses", "research_actions",
     ]
     for field_name in entity_fields:
         items = getattr(data, field_name, [])
@@ -73,6 +81,11 @@ def serialize(data: ProjectData) -> str:
     # (Requirement 13.2).
     if data.connection_overrides:
         output["connection_overrides"] = dict(data.connection_overrides)
+
+    # Highest id suffix ever issued per research prefix, so a deleted research
+    # id is not reused after reopening. Omitted when empty, like the map above.
+    if data.id_high_water_marks:
+        output["id_high_water_marks"] = dict(data.id_high_water_marks)
 
     return json.dumps(output, ensure_ascii=False, indent=2)
 
@@ -110,6 +123,26 @@ def deserialize(json_str: str, log: list[str] | None = None) -> ProjectData:
         project_data.connection_overrides = {
             str(k): str(v) for k, v in overrides.items()
         }
+
+    # Highest research id suffix ever issued per prefix. Absent on a project
+    # that predates the feature; non-integer values are ignored rather than
+    # failing the load. Then make sure no mark lies below a live research id,
+    # so a project holding research data but no stored marks still never
+    # reuses an id.
+    marks = raw.get("id_high_water_marks")
+    if isinstance(marks, dict):
+        project_data.id_high_water_marks = {
+            str(prefix): value
+            for prefix, value in marks.items()
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+    from slaktbusken.services.research_service import reconcile_id_high_water_marks
+
+    reconcile_id_high_water_marks(project_data)
+
+    # Report research references that do not resolve; they are kept as stored.
+    if log is not None:
+        _log_unresolved_research_references(project_data, log)
 
     # Normalize Unicode in file paths to NFC for consistent handling of
     # Swedish characters (å, ä, ö). File systems on Windows use NFC but
@@ -247,6 +280,16 @@ _ENTITY_MAP: dict[str, type] = {
     "research_notes": ResearchNote,
     "leverantorer": Leverantor,
     "kalltyper": Kalltyp,
+    "research_cases": ResearchCase,
+    "research_hypotheses": ResearchHypothesis,
+    "research_actions": ResearchAction,
+}
+
+# The research sections and how a corrupt one is named to the user.
+_RESEARCH_SECTION_NAMES: dict[str, str] = {
+    "research_cases": "forskningsärenden",
+    "research_hypotheses": "hypoteser",
+    "research_actions": "forskningsåtgärder",
 }
 
 # Mapping of (parent_class, field_name) -> element type for list fields
@@ -261,6 +304,10 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (MediaItem, "linked_entities"): LinkedEntity,
     (MediaItem, "annotations"): Annotation,
     (ResearchNote, "linked_entities"): LinkedEntity,
+    (ResearchCase, "linked_entities"): ResearchEntityLink,
+    (ResearchHypothesis, "linked_entities"): ResearchEntityLink,
+    (ResearchHypothesis, "comments"): HypothesisComment,
+    (ResearchAction, "source_refs"): SourceRef,
     (Place, "external_ids"): ExternalId,
     (Place, "region_levels"): RegionLevel,
     (ResidenceFact, "observations"): Observation,
@@ -275,6 +322,7 @@ _NESTED_OPTIONAL_TYPES: dict[tuple[type, str], type] = {
     (ResidenceFact, "start"): Endpoint,
     (ResidenceFact, "end"): Endpoint,
     (Observation, "source_ref"): SourceRef,
+    (ResearchCase, "primary_entity_ref"): ResearchEntityLink,
 }
 
 # Mapping of nested list fields within nested types.
@@ -317,6 +365,16 @@ def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any], *, log
                 "Filens boendeavsnitt har ett ogiltigt format och kunde inte läsas."
             )
 
+    # Same for the research sections: a present, non-list value aborts the load
+    # naming the section, before any state is replaced.
+    for section_key, section_name in _RESEARCH_SECTION_NAMES.items():
+        section_value = raw.get(section_key)
+        if section_value is not None and not isinstance(section_value, list):
+            raise CorruptedFileError(
+                f"Filens avsnitt för {section_name} har ett ogiltigt format "
+                f"och kunde inte läsas."
+            )
+
     for field_name, cls in _ENTITY_MAP.items():
         raw_items = raw.get(field_name)
         if raw_items is None:
@@ -328,6 +386,8 @@ def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any], *, log
         if raw_items:
             if field_name == "residences" and log is not None:
                 deserialized = _deserialize_residences(raw_items, log)
+            elif field_name in _RESEARCH_SECTION_NAMES and log is not None:
+                deserialized = _deserialize_research(cls, raw_items, log)
             else:
                 deserialized = [_deserialize_typed(cls, item) for item in raw_items]
             setattr(project_data, field_name, deserialized)
@@ -370,6 +430,97 @@ def _deserialize_residences(raw_items: list[Any], log: list[str]) -> list[Any]:
         results.append(_deserialize_typed(ResidenceFact, item))
 
     return results
+
+
+def _deserialize_research(cls: type, raw_items: list[Any], log: list[str]) -> list[Any]:
+    """Deserialize research items with tolerant-loading semantics.
+
+    Unknown top-level fields are ignored and logged together with the entity
+    ``id``. Unresolved references are kept as stored (see
+    ``_log_unresolved_research_references``). An empty or blank
+    ``completed_date`` is normalized to ``None`` by ``ResearchAction`` itself.
+
+    Args:
+        cls: The research dataclass to build.
+        raw_items: The raw JSON list of dicts.
+        log: List to receive diagnostic messages about unknown fields.
+
+    Returns:
+        A list of deserialized instances of *cls*.
+    """
+    valid_field_names = {f.name for f in dc_fields(cls)}
+    results = []
+
+    for item in raw_items:
+        if isinstance(item, dict):
+            entity_id = item.get("id", "<unknown>")
+            for field_name in sorted(set(item.keys()) - valid_field_names):
+                log.append(
+                    f"{cls.__name__} {entity_id}: ignored unknown field '{field_name}'"
+                )
+        results.append(_deserialize_typed(cls, item))
+
+    return results
+
+
+def _log_unresolved_research_references(
+    project_data: ProjectData, log: list[str]
+) -> None:
+    """Append a line to *log* for each research reference that does not resolve.
+
+    Covers entity links on cases and hypotheses, the case a hypothesis or action
+    belongs to, and the sources an action cites. Nothing is changed or dropped:
+    the validator and the consistency report decide what to do about them.
+    Links with an unsupported type or a blank id are left to the validator.
+    """
+    ids_by_type: dict[str, set[str]] = {
+        "person": {x.id for x in project_data.persons},
+        "family": {x.id for x in project_data.families},
+        "event": {x.id for x in project_data.events},
+        "place": {x.id for x in project_data.places},
+        "source": {x.id for x in project_data.sources},
+        "media": {x.id for x in project_data.media},
+        "dna_match": {x.id for x in project_data.dna_matches},
+        "dna_cluster": {x.id for x in project_data.dna_clusters},
+    }
+    case_ids = {case.id for case in project_data.research_cases}
+
+    def check_link(owner: str, link: ResearchEntityLink) -> None:
+        known = ids_by_type.get(link.entity_type)
+        if known is not None and link.entity_id and link.entity_id not in known:
+            log.append(
+                f"{owner}: unresolved reference to {link.entity_type} "
+                f"'{link.entity_id}'"
+            )
+
+    for case in project_data.research_cases:
+        links = list(case.linked_entities)
+        if case.primary_entity_ref is not None:
+            links.insert(0, case.primary_entity_ref)
+        for link in links:
+            check_link(f"ResearchCase {case.id}", link)
+
+    for hypothesis in project_data.research_hypotheses:
+        if hypothesis.research_case_id not in case_ids:
+            log.append(
+                f"ResearchHypothesis {hypothesis.id}: unresolved reference to "
+                f"research case '{hypothesis.research_case_id}'"
+            )
+        for link in hypothesis.linked_entities:
+            check_link(f"ResearchHypothesis {hypothesis.id}", link)
+
+    for action in project_data.research_actions:
+        if action.research_case_id not in case_ids:
+            log.append(
+                f"ResearchAction {action.id}: unresolved reference to "
+                f"research case '{action.research_case_id}'"
+            )
+        for source_ref in action.source_refs:
+            if source_ref.source_id not in ids_by_type["source"]:
+                log.append(
+                    f"ResearchAction {action.id}: unresolved reference to "
+                    f"source '{source_ref.source_id}'"
+                )
 
 
 def _normalize_media_file_paths(project_data: ProjectData) -> None:

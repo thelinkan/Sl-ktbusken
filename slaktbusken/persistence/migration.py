@@ -75,7 +75,7 @@ class MigrationManager:
             migrated_data = MigrationManager.migrate(old_data, "0.1")
     """
 
-    CURRENT_VERSION: str = "0.2"
+    CURRENT_VERSION: str = "0.3"
 
     # Registry: maps source version → (target version, migration function)
     _migrations: dict[str, tuple[str, Callable[[dict], dict]]] = {}
@@ -215,4 +215,21 @@ def _migrate_0_1_to_0_2(data: dict) -> dict:
         data["residences"] = []
     data["format_version"] = "0.2"
     data["version"] = "0.2"
+    return data
+
+
+@MigrationManager.register("0.2", "0.3")
+def _migrate_0_2_to_0_3(data: dict) -> dict:
+    """Add the empty research collections when their keys are missing.
+
+    This migration supports the research cases, hypotheses and actions
+    introduced in format version 0.3. It is additive and idempotent: a
+    collection that already exists, including one that holds data, is left
+    unchanged, and no other part of the project is touched.
+    """
+    for key in ("research_cases", "research_hypotheses", "research_actions"):
+        if key not in data:
+            data[key] = []
+    data["format_version"] = "0.3"
+    data["version"] = "0.3"
     return data

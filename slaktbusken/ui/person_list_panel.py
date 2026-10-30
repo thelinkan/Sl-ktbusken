@@ -70,6 +70,17 @@ class FilterCriteria:
         marriage_year_to: Marriage year must be <= this (as string, compared as int).
         parish: Parish name to match (includes sub-places of parish).
         cluster: DNA cluster name to match (case-insensitive substring).
+        research_existence: ``"all"``, ``"has"`` (person has research cases) or
+            ``"none"`` (person has none).
+        research_status: ``"all"``, ``"open"`` (at least one case that is not
+            closed) or ``"closed_only"`` (has cases, and all are closed).
+        research_action: ``"all"``, ``"pending"`` (a case with an action that
+            has no completion date), ``"completed"`` (a case with a completed
+            action) or ``"none"`` (a case with no actions).
+
+    The three research fields concern only cases linked directly to the person.
+    When the status and action filters are both set, one and the same case must
+    satisfy both.
     """
 
     title: str = ""
@@ -85,6 +96,9 @@ class FilterCriteria:
     parish: str = ""
     cluster: str = ""
     occupation: str = ""
+    research_existence: str = "all"
+    research_status: str = "all"
+    research_action: str = "all"
 
 
 @dataclass

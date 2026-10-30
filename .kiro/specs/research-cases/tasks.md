@@ -24,7 +24,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - `entity_links()`, `hypothesis_comments()`, `hypotheses()`, `actions()`, `research_cases()`, `consistent_projects()`
     - Deliberately include empty cases, cases with no links, duplicate links, conflicting hypothesis assessments, pending and completed actions, length boundaries at 200/1000/10000 characters, absent vs empty-string fields, and unresolved references
     - _Requirements: 1.6, 3.2, 3.7, 4.6, 6.6_
-  - [ ] 1.4 Write unit + property tests for model helpers
+  - [x] 1.4 Write unit + property tests for model helpers
     - `is_pending` is true exactly when `completed_date is None`; `case_entity_links` yields primary first then linked and mutates nothing; defaults are status `open`, priority `normal`, assessment `unassessed`
     - _Requirements: 1.1, 4.1, 6.4_
 
@@ -34,11 +34,11 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Add `research_case`/`research_hypothesis`/`research_action`/`hypothesis_comment` prefixes to `IDGenerator._PREFIXES`
     - Add `ProjectData.id_high_water_marks: dict[str, int] = field(default_factory=dict)` for the non-reuse mechanism
     - _Requirements: 1.2, 1.3, 4.2, 6.2, 2.3_
-  - [ ] 2.2 Implement persistent id non-reuse for research entities
+  - [x] 2.2 Implement persistent id non-reuse for research entities
     - Add a `ResearchIdGenerator` helper (in `research_service.py`) that seeds an `IDGenerator` from live research ids **and** `max(stored_mark, live_high_water)` per research prefix, generates an id, and writes the new mark back into `ProjectData.id_high_water_marks`
     - On load, if research data is present but `id_high_water_marks` lacks a research prefix, initialize that prefix's mark from the maximum live suffix so non-reuse holds going forward
     - _Requirements: 2.1, 2.2, 2.3, 2.5, 2.6_
-  - [ ] 2.3 Write tests for collection order and identifier uniqueness
+  - [x] 2.3 Write tests for collection order and identifier uniqueness
     - Insertion order preserved; `IDGenerator.generate` yields unique ids per prefix
     - **Non-reuse across save/reopen**: create `case_7`, delete it, serialize+deserialize, create another case ⇒ the new id is not `case_7`; the persisted `id_high_water_marks` round-trips; a project with research data but no stored map reconstructs the mark on load; a freed id is not reused within one session
     - _Requirements: 1.2, 1.3, 4.3, 5.3, 6.3, 2.1, 2.3, 2.4, 2.5_
@@ -48,32 +48,32 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Return `list[str]` of the exact Swedish messages from the requirements; referential checks gated on optional id-set arguments; validate `completed_date` and comment `date` with `is_valid_calendar_date` (real calendar date, not shape-only), so "2026-02-30" is an error
     - Status/priority/assessment validity; length limits; unknown entity type; missing-entity reference; duplicate-link warning; missing-case reference for hypotheses/actions
     - _Requirements: 1.4, 1.5, 1.7, 1.9, 3.4, 3.5, 3.7, 4.4, 4.7, 4.10, 5.5, 6.5, 6.7, 6.8, 9.4_
-  - [ ] 3.2 Write tests for the validators
+  - [x] 3.2 Write tests for the validators
     - Empty case is valid at the model layer; each invalid value yields its one message; duplicate link yields the warning; missing references detected only when id-sets are supplied; valid entities yield an empty list; an impossible calendar date is rejected for both comment and completion dates
     - _Requirements: 1.4, 1.5, 1.6, 1.7, 3.2, 3.4, 3.5, 3.7, 4.4, 4.7, 5.5, 6.5, 6.7, 9_
 
 - [ ] 4. Persistence and migration
-  - [ ] 4.1 Extend `slaktbusken/persistence/serialization.py`
+  - [x] 4.1 Extend `slaktbusken/persistence/serialization.py`
     - Add the three collection names to `entity_fields`; add to `_ENTITY_MAP`; add nested registries for `linked_entities`, hypothesis `comments`, action `source_refs`, and the optional `primary_entity_ref`
     - Add `_deserialize_research` mirroring `_deserialize_residences`: ignore+log unknown fields, keep+log unresolved references, raise `CorruptedFileError` with a Swedish section-naming message for a present non-list section; normalize any empty-string `completed_date` to `None` on load
     - Persist `id_high_water_marks` as a plain `dict[str,int]`, omitted when empty like `connection_overrides`; on load reconstruct absent research-prefix marks from the max live suffix
     - _Requirements: 29.1, 29.6, 29.7, 2.4_
-  - [ ] 4.2 Bump format version to 0.3 and register the migration
+  - [x] 4.2 Bump format version to 0.3 and register the migration
     - `CURRENT_VERSION = "0.3"` in `migration.py` and `file_io.py`; `ProjectData.version` default and `ProjectService.create_project` write `"0.3"`
     - Register `@MigrationManager.register("0.2","0.3")` adding the three empty collections, idempotent, bumping both `version` and `format_version`
     - _Requirements: 29.4, 29.5_
-  - [ ] 4.3 Write persistence + migration tests
+  - [x] 4.3 Write persistence + migration tests
     - Round-trip equality: absent `completed_date` stays absent, empty strings stay empty, `sort_order` int preserved, nested comments and `source_refs` in order, zero-hypothesis/zero-action cases, zero-comment hypotheses
     - Missing/null sections ⇒ empty collections, zero errors; non-list section ⇒ `CorruptedFileError` leaving the open project unchanged; 0.2→0.3 migration idempotent; a real 0.2 project loads unchanged and saves at 0.3
     - _Requirements: 29.2, 29.3, 29.4, 29.5, 29.6, 29.7, 29.8_
 
 - [ ] 5. Research index
-  - [ ] 5.1 Create `slaktbusken/services/research_index.py`
+  - [x] 5.1 Create `slaktbusken/services/research_index.py`
     - `ResearchCaseCounts` and `ResearchIndex` built once from `ProjectData`, following `foster_sync._ProjectIndex`; reverse maps for cases-by-entity (deduped per case, only links whose target resolves), actions-by-case, hypotheses-by-case, actions-by-source, and a separate hypotheses-by-entity map; pure and read-only
     - Methods `cases_for_entity`, `counts_for_entity`, `actions_for_source`, `actions_for_case`, `hypotheses_for_case`, `pending_action_count`, `hypotheses_for_entity` (returns `(hypothesis, owning_case)` pairs, kept out of the case/count maps)
     - Broken (unresolved) links contribute to no entity-keyed lookup or count
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.9, 26.3_
-  - [ ] 5.2 Write index tests
+  - [x] 5.2 Write index tests
     - Case linked to an entity twice appears once and counts once; non-closed/total counts; actions-by-source spanning multiple cases; pending-action count; a freshly built index reflects a close/reopen; `hypotheses_for_entity` returns linking hypotheses with their case and does not change counts; a broken link is absent from entity lookups and counts; near-constant lookup on a large synthetic project
     - _Requirements: 3.8, 12.2, 12.3, 12.4, 12.6, 12.8, 12.9, 22.3, 26.3_
 
@@ -82,13 +82,13 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - `add/update/delete_research_case`, `add/update/delete_research_hypothesis`, `add/update/delete_research_action`; each validates (shape only), mutates in place, sets `self._dirty = True`, and triggers the Research_Changed_Notification; issues new ids through the `ResearchIdGenerator` so deleted ids are not reused
     - `commit_research_case_working_copy(working_copy)` — validate the entire case graph, write nothing on any error, else apply all creates/updates/deletes as one in-memory operation; `delete_case_cascade` removes a case and exactly its own hypotheses/comments/actions and returns the child counts
     - _Requirements: 1.10, 10.6, 10.7, 11.2, 19.8, 19.9, 19.10, 19.11, 20.3, 29.8_
-  - [ ] 6.2 Extend `slaktbusken/services/research_service.py` (created in task 2.2) with pure functions
+  - [x] 6.2 Extend `slaktbusken/services/research_service.py` (created in task 2.2) with pure functions
     - `find_research_dependencies(data, entity_type, entity_id)`; `rewire_entity_merge(data, entity_type, old_id, survivor_id)` moving every link and `source_ref` to the survivor **preserving `SourceRef.quality/note/aspects` and link `role`**, then collapsing within-case duplicates keeping a non-empty `role`; `remove_entity_association(case, entity_type, entity_id)` dropping one link and nulling `primary_entity_ref` with no auto-promote when it was the removed link; `delete_case_cascade` and a working-copy diff helper backing 6.1
     - _Requirements: 19.4, 21.2, 27.3, 27.4, 27.5, 27.6, 27.7_
   - [ ] 6.3 Integrate with delete service and merge paths
     - Confirm `execute_person_deletion` and other entity deletions remove no research and keep stale references; add `find_research_dependencies` reporting; call `rewire_entity_merge` from existing entity-merge entry points; emit the Research_Changed_Notification after a deletion or merge that affects research
     - _Requirements: 27.1, 27.2, 27.3, 13.1_
-  - [ ] 6.4 Add the Research_Changed_Notification and wire open-view refresh
+  - [x] 6.4 Add the Research_Changed_Notification and wire open-view refresh
     - Add an `Application.research_changed` signal emitted by every research mutation, merge rewire, and research-affecting deletion; connect it to `refresh()` on the person list, the diagram panel, open `ResearchOverview` windows, and the research tab/section of each open person/place/source/event/media/DNA editor; views register/deregister their slot on open/close; refresh preserves selection and never clobbers unrelated unsaved edits
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6_
   - [ ] 6.5 Write service and integrity tests
@@ -146,7 +146,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - _Requirements: 21.3, 21.9, 22.1, 22.3, 23.2, 23.3, 23.5, 30.4_
 
 - [ ] 10. Indicators and settings
-  - [ ] 10.1 Create `slaktbusken/ui/widgets/research_indicator.py`
+  - [x] 10.1 Create `slaktbusken/ui/widgets/research_indicator.py`
     - Helper mapping `ResearchCaseCounts` to indicator state (`none`/`grey`/`orange`, never green) and the tooltip "{total} forskningsärenden, varav {open} öppna"
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5_
   - [ ] 10.2 Add the person-list "Forskningsärenden" column
@@ -166,7 +166,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
   - [x] 11.1 Refactor `filter_dialog.py` into a two-column resizable layout
     - Left: Namnfilter, Datumintervall, Församling, DNA-kluster; right: Händelsetyper (scroll) and Forskningsärenden; resizable and scrollable; Filtrera/Rensa kept at the bottom
     - _Requirements: 24.1, 24.2_
-  - [ ] 11.2 Add research filters to the dialog and criteria
+  - [x] 11.2 Add research filters to the dialog and criteria
     - "Forskningsärenden" group with existence, status, and action combos using the exact Swedish options; extend `FilterCriteria` with `research_existence`/`research_status`/`research_action`; `_on_clear` resets them to "Alla"; disable/normalize impossible combinations
     - _Requirements: 24.3, 24.4, 24.5, 24.8, 24.9_
   - [ ] 11.3 Extend `filter_persons` to apply research filters
@@ -177,13 +177,13 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - _Requirements: 24.4, 24.5, 24.6, 24.7, 24.9_
 
 - [ ] 12. Consistency report and GEDCOM preservation
-  - [ ] 12.1 Create `slaktbusken/reports/research_consistency.py`
+  - [x] 12.1 Create `slaktbusken/reports/research_consistency.py`
     - `ResearchIssue(severity, check_type, message, case_id, hypothesis_id, action_id, comment_id, ref_entity_type, ref_entity_id)` carrying the affected research entity identity for future navigation; pure `check_research_consistency(data)` running every error and informational check and populating the identity fields; each `message` names the owning case by title or id; `generate_research_consistency_report(data)` grouping by severity then type into Swedish `HeadingBlock`+`ListBlock`/`EmptyStateBlock` sections ("Inga problem hittades." when empty)
     - _Requirements: 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7_
-  - [ ] 12.2 Wire the report into the menu and generator
+  - [x] 12.2 Wire the report into the menu and generator
     - Add `generate_research_consistency` to `ReportGeneratorService`; promote a Forskningsrapporter/Konsistensrapporter placeholder in `report_menu.py` to a stored action; connect it in `main_window` to a handler showing `ReportPreviewDialog`
     - _Requirements: 25.1_
-  - [ ] 12.3 Extend GEDCOM export omissions
+  - [x] 12.3 Extend GEDCOM export omissions
     - Add research-entity counts to `_collect_omissions` under a Swedish label ("Forskningsärenden"); make no importer change
     - _Requirements: 28.5_
   - [ ] 12.4 Write consistency and GEDCOM tests

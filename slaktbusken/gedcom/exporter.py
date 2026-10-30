@@ -1190,6 +1190,17 @@ class GEDCOMExporter:
         if data.research_notes:
             omitted["Forskningsanteckningar"] = len(data.research_notes)
 
+        # Research cases, hypotheses and actions are native Släktbusken data
+        # with no GEDCOM representation in this version.
+        if data.research_cases:
+            omitted["Forskningsärenden"] = len(data.research_cases)
+
+        if data.research_hypotheses:
+            omitted["Hypoteser"] = len(data.research_hypotheses)
+
+        if data.research_actions:
+            omitted["Forskningsåtgärder"] = len(data.research_actions)
+
         if data.media:
             omitted["Medieobjekt"] = len(data.media)
 

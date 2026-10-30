@@ -88,6 +88,14 @@ class Application:
         self.translation_service = TranslationService()
         self.delete_service = DeleteService(self.project_service)
 
+        # Research change notification: services call
+        # project_service.notify_research_changed(); that is bridged to a Qt
+        # signal so open views can connect their refresh slots to it.
+        from slaktbusken.ui.research_signals import ResearchSignals
+
+        self._research_signals = ResearchSignals()
+        self.project_service.add_research_listener(self._research_signals.changed.emit)
+
         # Application-level settings service
         from slaktbusken.persistence.app_settings_io import AppSettingsService
 
@@ -143,11 +151,44 @@ class Application:
             self.main_window._on_person_activated_for_detail
         )
 
+        # Refresh the person list and the diagram after research changes
+        self._research_signals.changed.connect(self._on_research_changed)
+
         # Apply saved theme
         self._apply_theme(self.app_settings_service._settings.theme)
 
         # Auto-open default project if configured
         self._auto_open_default_project()
+
+    # ------------------------------------------------------------------
+    # Research change notification
+    # ------------------------------------------------------------------
+
+    @property
+    def research_changed(self):
+        """Signal emitted after research data changes.
+
+        Connect a ``QObject`` method to it to refresh a view that shows
+        research-derived content; the connection is dropped automatically when
+        that object is destroyed.
+        """
+        return self._research_signals.changed
+
+    def _on_research_changed(self) -> None:
+        """Refresh the always-open views after research data changed.
+
+        Rebuilds the person list and re-renders the diagram, preserving the
+        active person, the same way saving a person does. Does nothing when no
+        project is open.
+        """
+        if self.project_service.project_path is None:
+            return
+
+        self._update_status()
+        self.main_window.person_list_panel.refresh()
+        panel = self.main_window.diagram_panel
+        panel.set_project_data(self.project_service.data)
+        panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
 
     # ------------------------------------------------------------------
     # Action callbacks (invoked by MainWindow actions)

@@ -15,6 +15,9 @@ from slaktbusken.reports.content import ReportContent
 from slaktbusken.reports.geographic import generate_geographic_report
 from slaktbusken.reports.kallrapport import generate_kallrapport
 from slaktbusken.reports.media_consistency import generate_media_report
+from slaktbusken.reports.research_consistency import (
+    generate_research_consistency_report,
+)
 
 
 class ReportGeneratorService:
@@ -71,6 +74,20 @@ class ReportGeneratorService:
             ReportContent with orphaned, unlinked, missing, and duplicate checks.
         """
         return generate_media_report(data, project_folder)
+
+    def generate_research_consistency(
+        self,
+        data: ProjectData,
+    ) -> ReportContent:
+        """Generate the research consistency report (Forskningskonsistens).
+
+        Args:
+            data: The full project data containing the research collections.
+
+        Returns:
+            ReportContent with the research errors and informational findings.
+        """
+        return generate_research_consistency_report(data)
 
     def generate_kallrapport(
         self,

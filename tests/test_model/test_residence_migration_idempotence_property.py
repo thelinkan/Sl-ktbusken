@@ -19,6 +19,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from slaktbusken.model.project import ProjectData
+from slaktbusken.persistence.file_io import CURRENT_VERSION
 from slaktbusken.persistence.migration import MigrationManager
 from slaktbusken.persistence.serialization import serialize
 from tests.test_model.residence_strategies import consistent_projects
@@ -69,12 +70,12 @@ class TestMigrationIdempotenceProperty:
         # First migration: should add residences: []
         migrated_once = MigrationManager.migrate(data_no_residences, "0.1")
         assert migrated_once["residences"] == []
-        assert migrated_once["format_version"] == "0.2"
-        assert migrated_once["version"] == "0.2"
+        assert migrated_once["format_version"] == CURRENT_VERSION
+        assert migrated_once["version"] == CURRENT_VERSION
 
-        # Second migration attempt: already at 0.2, should be a no-op
+        # Second migration attempt: already current, should be a no-op
         snapshot_after_first = copy.deepcopy(migrated_once)
-        migrated_twice = MigrationManager.migrate(migrated_once, "0.2")
+        migrated_twice = MigrationManager.migrate(migrated_once, CURRENT_VERSION)
         assert migrated_twice == snapshot_after_first
 
         # --- Scenario B: Data at 0.1 WITH existing residences ---
@@ -86,10 +87,10 @@ class TestMigrationIdempotenceProperty:
         # First migration: should leave existing residences unchanged
         migrated_b_once = MigrationManager.migrate(data_with_residences, "0.1")
         assert migrated_b_once["residences"] == original_residences
-        assert migrated_b_once["format_version"] == "0.2"
-        assert migrated_b_once["version"] == "0.2"
+        assert migrated_b_once["format_version"] == CURRENT_VERSION
+        assert migrated_b_once["version"] == CURRENT_VERSION
 
-        # Second migration: already at 0.2, should be a no-op
+        # Second migration: already current, should be a no-op
         snapshot_b = copy.deepcopy(migrated_b_once)
-        migrated_b_twice = MigrationManager.migrate(migrated_b_once, "0.2")
+        migrated_b_twice = MigrationManager.migrate(migrated_b_once, CURRENT_VERSION)
         assert migrated_b_twice == snapshot_b

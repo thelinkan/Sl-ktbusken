@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from slaktbusken.model.dna import (
     DnaCluster,
@@ -104,6 +104,49 @@ class ProjectService:
         self._project_path: Optional[Path] = None
         self._settings: Optional[ProjectSettings] = None
         self._dirty: bool = False
+        # Observers of research changes. They belong to the service, not to a
+        # project, so they survive opening and closing projects.
+        self._research_listeners: list[Callable[[], None]] = []
+
+    # ------------------------------------------------------------------
+    # Research change notification
+    # ------------------------------------------------------------------
+
+    def add_research_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback to run after research data changes.
+
+        Rebuilding a ``ResearchIndex`` does not repaint a widget that is already
+        on screen, so views that show research-derived content are told when
+        research data changed and rebuild themselves.
+
+        Args:
+            listener: Called with no arguments after every research change.
+
+        Returns:
+            A function that removes the listener again; calling it twice is
+            harmless.
+        """
+        self._research_listeners.append(listener)
+
+        def remove() -> None:
+            if listener in self._research_listeners:
+                self._research_listeners.remove(listener)
+
+        return remove
+
+    def notify_research_changed(self) -> None:
+        """Tell every registered listener that research data changed.
+
+        Call this after any committed create, update or delete of a research
+        case, hypothesis, comment or action, and after a merge or a deletion
+        that rewires or leaves behind research references. A listener that
+        raises is logged and does not stop the others or the caller.
+        """
+        for listener in list(self._research_listeners):
+            try:
+                listener()
+            except Exception:  # noqa: BLE001 - one broken view must not block the rest
+                logger.exception("Lyssnare på forskningsändring misslyckades.")
 
     # ------------------------------------------------------------------
     # Properties
@@ -173,7 +216,7 @@ class ProjectService:
         )
         project_data = ProjectData(
             format="släktbuske-file",
-            version="0.2",
+            version="0.3",
             project=metadata,
         )
 

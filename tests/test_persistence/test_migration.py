@@ -258,8 +258,9 @@ class TestMigration01To02:
         result = MigrationManager.migrate(data, "0.1")
 
         assert result["residences"] == []
-        assert result["format_version"] == "0.2"
-        assert result["version"] == "0.2"
+        # The chain continues past 0.2 to the current version.
+        assert result["format_version"] == CURRENT_VERSION
+        assert result["version"] == CURRENT_VERSION
 
     def test_migration_leaves_existing_residences_unchanged(self) -> None:
         """Migration leaves an existing residences collection unchanged (Req 13.4)."""
@@ -277,27 +278,31 @@ class TestMigration01To02:
         result = MigrationManager.migrate(data, "0.1")
 
         assert result["residences"] == existing_residences
-        assert result["format_version"] == "0.2"
+        assert result["format_version"] == CURRENT_VERSION
 
     def test_migration_is_idempotent(self) -> None:
-        """Applying the migration a second time (already at 0.2) is a no-op (Req 13.4)."""
+        """Migrating data that is already at the current version is a no-op (Req 13.4)."""
         data = {
             "format": "släktbuske-file",
-            "version": "0.2",
-            "format_version": "0.2",
+            "version": CURRENT_VERSION,
+            "format_version": CURRENT_VERSION,
             "project": {"title": "Test"},
             "residences": [{"id": "r1", "person_id": "p1", "place_id": "pl1"}],
         }
 
-        # migrate with from_version=0.2 should be a no-op (already current)
-        result = MigrationManager.migrate(data, "0.2")
+        # migrate with from_version=current should be a no-op (already current)
+        result = MigrationManager.migrate(data, CURRENT_VERSION)
 
         assert result is data  # No change, same object
         assert result["residences"] == [{"id": "r1", "person_id": "p1", "place_id": "pl1"}]
 
     def test_migration_noop_on_current_version_data(self) -> None:
         """Data at current version triggers no migration (Req 13.4)."""
-        assert MigrationManager.needs_migration("0.2") is False
+        assert MigrationManager.needs_migration(CURRENT_VERSION) is False
+
+    def test_version_0_2_needs_migration(self) -> None:
+        """Version 0.2 predates the research collections and needs migration."""
+        assert MigrationManager.needs_migration("0.2") is True
 
     def test_version_0_1_needs_migration(self) -> None:
         """Version 0.1 is detected as needing migration."""
@@ -318,7 +323,7 @@ class TestMigration01To02:
 
             result = FilePersistence.load(file_path)
 
-            assert result.version == "0.2"
+            assert result.version == CURRENT_VERSION
             assert result.residences == []
             assert result.project.title == "Migrated Project"
 

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QCompleter,
     QDialog,
     QFormLayout,
@@ -62,6 +63,38 @@ FAMILY_EVENT_TYPES = [
     ("marriage", "Vigsel"),
     ("custom_family_event", "Anpassad familjehändelse"),
 ]
+
+
+# Research filter options as (internal key, Swedish label). The first entry of
+# each is the "no filtering" choice.
+RESEARCH_EXISTENCE_OPTIONS = [
+    ("all", "Alla personer"),
+    ("has", "Har forskningsärenden"),
+    ("none", "Saknar forskningsärenden"),
+]
+
+RESEARCH_STATUS_OPTIONS = [
+    ("all", "Alla statusar"),
+    ("open", "Minst ett ej avslutat ärende"),
+    ("closed_only", "Enbart avslutade ärenden"),
+]
+
+RESEARCH_ACTION_OPTIONS = [
+    ("all", "Alla åtgärder"),
+    ("pending", "Minst en ej genomförd åtgärd"),
+    ("completed", "Minst en genomförd åtgärd"),
+    ("none", "Inga forskningsåtgärder"),
+]
+
+_RESEARCH_NOT_APPLICABLE_TIP = "Gäller inte personer som saknar forskningsärenden."
+
+
+def _make_option_combo(options: list[tuple[str, str]]) -> QComboBox:
+    """Build a combo box showing the labels and carrying the keys as item data."""
+    combo = QComboBox()
+    for key, label in options:
+        combo.addItem(label, key)
+    return combo
 
 
 class FilterDialog(QDialog):
@@ -173,6 +206,23 @@ class FilterDialog(QDialog):
         event_group.setLayout(event_layout)
         right_column.addWidget(event_group, 1)
 
+        # --- Research filters ---
+        # These look only at research cases linked directly to the person.
+        research_group = QGroupBox("Forskningsärenden")
+        research_layout = QFormLayout()
+
+        self._research_existence_combo = _make_option_combo(RESEARCH_EXISTENCE_OPTIONS)
+        research_layout.addRow("Ärenden:", self._research_existence_combo)
+
+        self._research_status_combo = _make_option_combo(RESEARCH_STATUS_OPTIONS)
+        research_layout.addRow("Status:", self._research_status_combo)
+
+        self._research_action_combo = _make_option_combo(RESEARCH_ACTION_OPTIONS)
+        research_layout.addRow("Åtgärder:", self._research_action_combo)
+
+        research_group.setLayout(research_layout)
+        right_column.addWidget(research_group)
+
         # --- Date range filters ---
         date_group = QGroupBox("Datumintervall")
         date_layout = QFormLayout()
@@ -258,6 +308,24 @@ class FilterDialog(QDialog):
         """Connect button signals."""
         self._apply_button.clicked.connect(self._on_apply)
         self._clear_button.clicked.connect(self._on_clear)
+        self._research_existence_combo.currentIndexChanged.connect(
+            self._on_research_existence_changed
+        )
+
+    def _on_research_existence_changed(self, _index: int) -> None:
+        """Keep the research filters consistent with "Saknar forskningsärenden".
+
+        A person with no research cases has no case that could be open or closed
+        and no action, so the status and action filters cannot apply. Rather
+        than let them silently match nobody, they are reset and disabled, with a
+        tooltip saying why.
+        """
+        applicable = self._research_existence_combo.currentData() != "none"
+        for combo in (self._research_status_combo, self._research_action_combo):
+            if not applicable:
+                combo.setCurrentIndex(0)
+            combo.setEnabled(applicable)
+            combo.setToolTip("" if applicable else _RESEARCH_NOT_APPLICABLE_TIP)
 
     def _on_apply(self) -> None:
         """Gather criteria from fields and emit filter_applied signal."""
@@ -280,6 +348,9 @@ class FilterDialog(QDialog):
             parish=self._parish_field.text(),
             cluster=self._cluster_field.text(),
             occupation=self._occupation_field.text(),
+            research_existence=self._research_existence_combo.currentData(),
+            research_status=self._research_status_combo.currentData(),
+            research_action=self._research_action_combo.currentData(),
         )
         self.filter_applied.emit(criteria)
 
@@ -299,6 +370,10 @@ class FilterDialog(QDialog):
         self._cluster_field.clear()
         for cb in self._event_checkboxes.values():
             cb.setChecked(False)
+        # Resetting existence first re-enables the status and action filters.
+        self._research_existence_combo.setCurrentIndex(0)
+        self._research_status_combo.setCurrentIndex(0)
+        self._research_action_combo.setCurrentIndex(0)
 
     def set_available_clusters(self, cluster_names: list[str]) -> None:
         """Update the autocomplete suggestions for the cluster field.
