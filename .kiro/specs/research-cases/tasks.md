@@ -17,14 +17,14 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Constants `SUPPORTED_ENTITY_TYPES`, `VALID_RESEARCH_STATUSES`, `VALID_RESEARCH_PRIORITIES`, `VALID_HYPOTHESIS_ASSESSMENTS`
     - Pure helpers `is_pending`, `case_entity_links`, link-count-for-entity, `normalize_completed_date` (None for empty/whitespace, else trimmed), and `is_valid_calendar_date` (ISO shape AND a real calendar date; compose `date_utils.parse_date_value` with `date_utils.is_valid_swedish_calendar` — `parse_date_value` alone accepts "2026-02-30", so the calendar check is required; accepts year/month/day precision); all leave inputs unchanged
     - _Requirements: 1.1, 3.1, 4.1, 5.1, 6.1, 6.4, 7.8, 6.9_
-  - [ ] 1.1a Write tests for `normalize_completed_date` and `is_valid_calendar_date`
+  - [ ] 1.2 Write tests for `normalize_completed_date` and `is_valid_calendar_date`
     - Empty/whitespace/`None` normalize to `None`; a valid date trims and stays; "2026-02-30" and "2026-13-01" are rejected by `is_valid_calendar_date`; year and month precision accepted; an action constructed with `completed_date=""` is pending
     - _Requirements: 6.4, 7.8, 6.9_
-  - [ ] 1.2 Create shared Hypothesis strategies in `tests/test_model/research_strategies.py`
+  - [ ] 1.3 Create shared Hypothesis strategies in `tests/test_model/research_strategies.py`
     - `entity_links()`, `hypothesis_comments()`, `hypotheses()`, `actions()`, `research_cases()`, `consistent_projects()`
     - Deliberately include empty cases, cases with no links, duplicate links, conflicting hypothesis assessments, pending and completed actions, length boundaries at 200/1000/10000 characters, absent vs empty-string fields, and unresolved references
     - _Requirements: 1.6, 3.2, 3.7, 4.6, 6.6_
-  - [ ] 1.3 Write unit + property tests for model helpers
+  - [ ] 1.4 Write unit + property tests for model helpers
     - `is_pending` is true exactly when `completed_date is None`; `case_entity_links` yields primary first then linked and mutates nothing; defaults are status `open`, priority `normal`, assessment `unassessed`
     - _Requirements: 1.1, 4.1, 6.4_
 
@@ -34,11 +34,11 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Add `research_case`/`research_hypothesis`/`research_action`/`hypothesis_comment` prefixes to `IDGenerator._PREFIXES`
     - Add `ProjectData.id_high_water_marks: dict[str, int] = field(default_factory=dict)` for the non-reuse mechanism
     - _Requirements: 1.2, 1.3, 4.2, 6.2, 2.3_
-  - [ ] 2.1a Implement persistent id non-reuse for research entities
+  - [ ] 2.2 Implement persistent id non-reuse for research entities
     - Add a `ResearchIdGenerator` helper (in `research_service.py`) that seeds an `IDGenerator` from live research ids **and** `max(stored_mark, live_high_water)` per research prefix, generates an id, and writes the new mark back into `ProjectData.id_high_water_marks`
     - On load, if research data is present but `id_high_water_marks` lacks a research prefix, initialize that prefix's mark from the maximum live suffix so non-reuse holds going forward
     - _Requirements: 2.1, 2.2, 2.3, 2.5, 2.6_
-  - [ ] 2.2 Write tests for collection order and identifier uniqueness
+  - [ ] 2.3 Write tests for collection order and identifier uniqueness
     - Insertion order preserved; `IDGenerator.generate` yields unique ids per prefix
     - **Non-reuse across save/reopen**: create `case_7`, delete it, serialize+deserialize, create another case ⇒ the new id is not `case_7`; the persisted `id_high_water_marks` round-trips; a project with research data but no stored map reconstructs the mark on load; a freed id is not reused within one session
     - _Requirements: 1.2, 1.3, 4.3, 5.3, 6.3, 2.1, 2.3, 2.4, 2.5_
@@ -88,10 +88,10 @@ Internal keys, identifiers, and comments are English; every user-facing string i
   - [ ] 6.3 Integrate with delete service and merge paths
     - Confirm `execute_person_deletion` and other entity deletions remove no research and keep stale references; add `find_research_dependencies` reporting; call `rewire_entity_merge` from existing entity-merge entry points; emit the Research_Changed_Notification after a deletion or merge that affects research
     - _Requirements: 27.1, 27.2, 27.3, 13.1_
-  - [ ] 6.3a Add the Research_Changed_Notification and wire open-view refresh
+  - [ ] 6.4 Add the Research_Changed_Notification and wire open-view refresh
     - Add an `Application.research_changed` signal emitted by every research mutation, merge rewire, and research-affecting deletion; connect it to `refresh()` on the person list, the diagram panel, open `ResearchOverview` windows, and the research tab/section of each open person/place/source/event/media/DNA editor; views register/deregister their slot on open/close; refresh preserves selection and never clobbers unrelated unsaved edits
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6_
-  - [ ] 6.4 Write service and integrity tests
+  - [ ] 6.5 Write service and integrity tests
     - Create/update/delete sets dirty; transactional commit writes nothing when any child is invalid and leaves `ProjectData` unchanged; a cancelled Working_Copy changes nothing; delete of a referenced entity keeps all research and leaves stale refs; merge rewires to survivor, collapses duplicates, and preserves `SourceRef.quality/note/aspects` and link `role`; remove-association drops one link without deleting the case and nulls primary with no auto-promote; `delete_case_cascade` returns correct counts and removes only that case's children; emitting `research_changed` refreshes a registered view and a deleted case disappears from an open overview
     - _Requirements: 1.10, 19.4, 19.9, 19.11, 21.2, 27.1, 27.2, 27.3, 27.6, 27.7, 13.2, 13.4_
 
@@ -113,18 +113,18 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - On save call `commit_research_case_working_copy`: validate the whole graph (incl. non-empty `title`, message "Forskningsärendet måste ha en rubrik."), write nothing on any error and keep the editor open, else commit atomically; cancel/failure leaves `ProjectData` unchanged
     - Closing warning dialog "Forskningsärendet har öppna åtgärder" only on a status transition into `closed` with pending actions, buttons "Gå tillbaka"/"Avsluta ändå", non-blocking; info message when adding a pending action to a closed case
     - _Requirements: 5.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 8.1, 8.2, 8.3, 8.4, 9.3, 9.8, 10.2, 10.3, 10.4, 10.5, 11.1, 11.3, 19.1, 19.2, 19.3, 19.4, 19.7, 19.8, 19.9, 19.10, 19.11, 19.12, 26.2_
-  - [ ] 8.1a Add the destructive case-deletion confirmation
+  - [ ] 8.2 Add the destructive case-deletion confirmation
     - Shared confirmation path for deleting a case from the Research_Overview and the Research_Case_Editor: a dialog naming the child counts ("Att ta bort forskningsärendet tar även bort {h} hypoteser, {k} hypoteskommentarer och {å} forskningsåtgärder. Detta kan inte ångras.") with "Ta bort"/"Avbryt"; confirm runs `delete_case_cascade`, cancel changes nothing; wording distinct from "ta bort kopplingen"
     - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5_
-  - [ ] 8.2 Create `slaktbusken/ui/research_overview.py`
+  - [ ] 8.3 Create `slaktbusken/ui/research_overview.py`
     - One window with three modes over the same data: **case mode** (sortable table Rubrik/Status/Prioritet/Huvudobjekt/Antal hypoteser/Nästa åtgärder/Antal åtgärder resolved at render time; filter bar for status, priority, linked entity type, specific linked entity, has/none pending actions, has/none hypotheses, free text; "visa avslutade" toggle; create/open); **to-do mode** (pending actions, default excluding closed cases with an include toggle, navigation to action and case); **hypothesis mode** (one row per Research_Hypothesis showing statement, assessment label, and owning case title, sortable and searchable, opening the owning case)
     - Register a `refresh()` slot for the Research_Changed_Notification
     - _Requirements: 18.3, 18.4, 18.5, 18.6, 18.7, 18.8, 18.9, 13.2_
-  - [ ] 8.3 Wire the Forskning menu and Application openers
+  - [ ] 8.4 Wire the Forskning menu and Application openers
     - `main_window.py`: add `action_research_overview`/`action_research_todo`/`action_research_hypotheses`, a `menu_bar.addMenu("&Forskning")`, and enable toggling in `_update_project_actions`
     - `app.py`: `show_research_overview(initial_mode)` and `open_research_case(case_id=None, prepopulate=None)` following the `show_dna_editor`/`open_person_editor` dialog pattern, writing back on accept, setting dirty; own the `research_changed` signal and fan it out to open views
     - _Requirements: 18.1, 18.2, 13.1_
-  - [ ] 8.4 Write overview/editor logic tests
+  - [ ] 8.5 Write overview/editor logic tests
     - Pure filter and to-do selection logic: default to-do excludes closed cases and the include toggle adds them; hypothesis mode lists one row per hypothesis with assessment and owning case; close-with-pending confirmation path keeps actions pending and cancel restores status; reopen keeps children; completion checkbox round-trips preserving title/text/sources/order and clearing the date never stores ""; reorder persists via `sort_order`; a validation error in the Working_Copy leaves `ProjectData` unchanged; mandatory title blocks save; case-delete confirmation counts children and cancel preserves them
     - _Requirements: 7.4, 7.5, 7.8, 8.2, 8.4, 10.2, 10.3, 10.4, 10.7, 18.6, 18.8, 19.9, 19.11, 19.12, 20.1, 20.2_
 
