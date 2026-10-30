@@ -39,7 +39,11 @@ from slaktbusken.model.project import ProjectData
 from slaktbusken.model.source import ArkivReferens, RepositoryRef, Source, StructuredReference
 from slaktbusken.parsing.reference_parser import ParsedReference, parse_reference
 from slaktbusken.services.media_utils import resolve_filename_conflict
-from slaktbusken.services.safe_io import is_safe_external_url
+from slaktbusken.services.safe_io import (
+    is_safe_external_url,
+    is_safe_media_extension,
+    resolve_within,
+)
 from slaktbusken.services.source_formatting import format_source_title
 from slaktbusken.services.source_links import generate_direct_link
 from slaktbusken.services.source_stats import compute_usage_stats
@@ -850,7 +854,31 @@ class SourceEditor(QWidget):
             self._update_status("Kunde inte hitta mediafilen.")
             return
 
-        full_path = self._project_folder / media_item.file
+        # The file reference comes from project data. Contain it within the
+        # project folder so a ``..`` sequence or absolute path cannot open a
+        # file elsewhere on disk.
+        full_path = resolve_within(self._project_folder, media_item.file)
+        if full_path is None:
+            self._update_status("Mediafilens sökväg pekar utanför projektmappen.")
+            return
+
+        # The OS handler launches whatever application is registered for the
+        # file's type, so only known-safe media types open directly; an unknown
+        # type (possibly an executable or script) needs explicit confirmation.
+        if not is_safe_media_extension(full_path.name):
+            proceed = QMessageBox.question(
+                self,
+                "Öppna okänd filtyp?",
+                "Filen är inte en känd mediatyp och kan vara ett program "
+                "eller skript som körs när den öppnas:\n\n"
+                f"{full_path.name}\n\n"
+                "Vill du öppna den ändå?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if proceed != QMessageBox.StandardButton.Yes:
+                return
+
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(full_path)))
 
     # ------------------------------------------------------------------

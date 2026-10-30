@@ -35,6 +35,54 @@ from urllib.parse import urlparse
 # rather than open a web page. Lower-cased for case-insensitive comparison.
 _ALLOWED_URL_SCHEMES = frozenset({"http", "https", "mailto"})
 
+# File extensions the app treats as viewable media and is therefore willing to
+# hand to the OS default handler without a confirmation prompt. These are inert
+# document/image/audio/video containers — not executables, scripts, shortcuts,
+# archives, or HTML. A reference to anything outside this set (e.g. ``.exe``,
+# ``.bat``, ``.lnk``, ``.html``, ``.js``) may launch a program rather than open
+# a document, so the caller must confirm with the user before opening it. Values
+# include the leading dot and are lower-cased for case-insensitive comparison.
+_SAFE_MEDIA_EXTENSIONS = frozenset(
+    {
+        # Images
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp",
+        # Documents
+        ".pdf", ".docx", ".doc", ".rtf", ".odt", ".txt", ".csv",
+        # Audio
+        ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac",
+        # Video
+        ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v",
+    }
+)
+
+
+def is_safe_media_extension(path_or_name: Optional[str]) -> bool:
+    """Return ``True`` when a file is a known-safe media type to open directly.
+
+    "Safe" means its extension is in :data:`_SAFE_MEDIA_EXTENSIONS` — an inert
+    document, image, audio, or video container the app is meant to display.
+    Handing a file to the OS default handler launches *whatever* application is
+    registered for its type, so a project-referenced ``.exe``, ``.bat``,
+    ``.lnk``, ``.html`` or similar could run code rather than open a document.
+    Such files return ``False`` so the caller can require explicit confirmation
+    before opening them.
+
+    Args:
+        path_or_name: A file path or name (the extension is read from it), or
+            ``None``.
+
+    Returns:
+        ``True`` only for an allow-listed media extension; ``False`` for an
+        unknown/executable extension, a file with no extension, or ``None``.
+    """
+    if not path_or_name or not str(path_or_name).strip():
+        return False
+    try:
+        suffix = Path(path_or_name).suffix.lower()
+    except (ValueError, TypeError):
+        return False
+    return suffix in _SAFE_MEDIA_EXTENSIONS
+
 
 def is_safe_external_url(url: Optional[str]) -> bool:
     """Return ``True`` when *url* is safe to open with the OS default handler.

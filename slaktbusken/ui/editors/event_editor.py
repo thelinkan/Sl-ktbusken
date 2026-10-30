@@ -54,7 +54,7 @@ from slaktbusken.services.source_aspects import (
     get_aspects_for_event_type,
 )
 from slaktbusken.ui.generated.ui_event_editor import Ui_EventEditor
-from slaktbusken.services.safe_io import resolve_within
+from slaktbusken.services.safe_io import is_safe_media_extension, resolve_within
 from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS, DATE_PRECISION_LABELS
 
 logger = logging.getLogger(__name__)
@@ -1751,7 +1751,24 @@ class EventEditor(QWidget):
             layout.addWidget(close_btn)
             dialog.exec()
         else:
-            # For video, audio, documents: open with OS default application
+            # For video, audio, documents: open with the OS default handler.
+            # The handler launches whatever application is registered for the
+            # file's type, so a project-referenced executable/script/shortcut
+            # could run code rather than open a document. Only known-safe media
+            # types open directly; anything else needs explicit confirmation.
+            if not is_safe_media_extension(file_path.name):
+                proceed = QMessageBox.question(
+                    self,
+                    "Öppna okänd filtyp?",
+                    "Filen är inte en känd mediatyp och kan vara ett program "
+                    "eller skript som körs när den öppnas:\n\n"
+                    f"{file_path.name}\n\n"
+                    "Vill du öppna den ändå?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if proceed != QMessageBox.StandardButton.Yes:
+                    return
             try:
                 os.startfile(str(file_path))
             except AttributeError:

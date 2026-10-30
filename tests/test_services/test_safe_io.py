@@ -11,7 +11,56 @@ from pathlib import Path
 
 import pytest
 
-from slaktbusken.services.safe_io import is_safe_external_url, resolve_within
+from slaktbusken.services.safe_io import (
+    is_safe_external_url,
+    is_safe_media_extension,
+    resolve_within,
+)
+
+
+class TestIsSafeMediaExtension:
+    """Only inert media types may open via the OS handler without a prompt."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "photo.jpg",
+            "scan.JPEG",  # case-insensitive
+            "doc.pdf",
+            "letter.docx",
+            "notes.txt",
+            "clip.mp4",
+            "song.mp3",
+            "media/photos/portrait.png",  # extension read from a path
+            "C:/archive/record.PDF",
+        ],
+    )
+    def test_allows_known_media_types(self, name: str) -> None:
+        assert is_safe_media_extension(name) is True
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "setup.exe",
+            "run.bat",
+            "script.cmd",
+            "macro.js",
+            "page.html",
+            "page.htm",
+            "shortcut.lnk",
+            "lib.dll",
+            "archive.zip",
+            "installer.msi",
+            "payload.ps1",
+            "app",  # no extension
+        ],
+    )
+    def test_rejects_executable_and_unknown_types(self, name: str) -> None:
+        assert is_safe_media_extension(name) is False
+
+    @pytest.mark.parametrize("name", [None, "", "   "])
+    def test_rejects_empty_or_missing(self, name) -> None:
+        assert is_safe_media_extension(name) is False
 
 
 class TestIsSafeExternalUrl:
