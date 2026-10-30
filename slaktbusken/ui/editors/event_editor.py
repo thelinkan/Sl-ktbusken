@@ -54,6 +54,7 @@ from slaktbusken.services.source_aspects import (
     get_aspects_for_event_type,
 )
 from slaktbusken.ui.generated.ui_event_editor import Ui_EventEditor
+from slaktbusken.services.safe_io import resolve_within
 from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS, DATE_PRECISION_LABELS
 
 logger = logging.getLogger(__name__)
@@ -1682,12 +1683,42 @@ class EventEditor(QWidget):
         if media_item is None:
             return
 
-        file_path = Path(media_item.file)
-        if not file_path.is_absolute() and self._project_folder:
-            file_path = self._project_folder / file_path
+        from PySide6.QtWidgets import QMessageBox
+
+        # The media reference comes from project data, which may be shared. An
+        # absolute path or a ``..`` sequence stored there would resolve outside
+        # the project folder, so "view this file" could display or launch an
+        # arbitrary file on disk. Resolve it strictly within the project folder
+        # and refuse anything that escapes it.
+        if not self._project_folder:
+            logger.warning(
+                "Ingen projektmapp satt; kan inte öppna media säkert: %s",
+                media_item.file,
+            )
+            QMessageBox.warning(
+                self,
+                "Kan inte öppna fil",
+                "Mediafilen kunde inte öppnas eftersom ingen projektmapp är satt.",
+            )
+            return
+
+        resolved = resolve_within(Path(self._project_folder), media_item.file)
+        if resolved is None:
+            logger.warning(
+                "Vägrade att öppna media utanför projektmappen: %s",
+                media_item.file,
+            )
+            QMessageBox.warning(
+                self,
+                "Osäker filsökväg",
+                "Mediafilen kunde inte öppnas eftersom dess sökväg pekar "
+                "utanför projektmappen.",
+            )
+            return
+
+        file_path = resolved
 
         if not file_path.exists():
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self,
                 "Fil saknas",

@@ -43,6 +43,7 @@ from slaktbusken.services.foster_sync import sync_parentage_links
 from slaktbusken.services.parent_service import ParentInfo, ParentService
 from slaktbusken.services.photo_service import PhotoService
 from slaktbusken.services.project_service import ValidationError
+from slaktbusken.services.safe_io import resolve_within
 from slaktbusken.ui.editors.dna_editor import (
     resolve_company_logo_icon,
     resolve_profile_logo_icon,
@@ -1626,18 +1627,24 @@ class PersonEditor(QWidget):
         # Normalize the file path to NFC for consistent Swedish character handling
         normalized_file = unicodedata.normalize("NFC", media_item.file)
 
-        # Resolve file path — try multiple strategies for backward compatibility
+        # Resolve file path — try multiple strategies for backward compatibility.
+        # The project-relative strategies are routed through resolve_within so a
+        # ``..`` sequence in the stored reference cannot climb out of the
+        # project folder / foto_mapp; the explicit absolute-path strategy is
+        # preserved for media that legitimately lives outside the project.
         file_path: Path | None = None
         if self._project_folder:
             # Strategy 1: file path relative to project folder (e.g. "media/photos/photo.jpg")
-            candidate = self._project_folder / Path(normalized_file)
-            if candidate.is_file():
-                file_path = candidate
+            contained = resolve_within(self._project_folder, normalized_file)
+            if contained is not None and contained.is_file():
+                file_path = contained
             else:
                 # Strategy 2: file path relative to foto_mapp (legacy, e.g. just "photo.jpg")
-                candidate = self._photo_service._foto_mapp / Path(normalized_file)
-                if candidate.is_file():
-                    file_path = candidate
+                contained = resolve_within(
+                    self._photo_service._foto_mapp, normalized_file
+                )
+                if contained is not None and contained.is_file():
+                    file_path = contained
         else:
             candidate = Path(normalized_file)
             if candidate.is_file():
@@ -2051,11 +2058,17 @@ class PersonEditor(QWidget):
         records: list[RawSnpRecord] | None = None
 
         try:
-            # Resolve the full path: project_folder / "dna" / raw_data_file
-            if self._project_folder is not None:
-                raw_path = self._project_folder / "dna" / selected_profile.raw_data_file
-            else:
-                raw_path = Path("dna") / selected_profile.raw_data_file
+            # Resolve the full path strictly within the project's "dna" folder.
+            # ``raw_data_file`` comes from project data; an absolute path or a
+            # ``..`` sequence must not let the load read an arbitrary file off
+            # disk, so a reference that escapes the dna folder is treated as
+            # unreadable (records stays None → error state).
+            dna_root = (self._project_folder or Path(".")) / "dna"
+            raw_path = resolve_within(dna_root, selected_profile.raw_data_file)
+            if raw_path is None:
+                raise OSError(
+                    f"DNA-sökväg utanför dna-mappen: {selected_profile.raw_data_file!r}"
+                )
 
             data = json.loads(raw_path.read_text(encoding="utf-8"))
             raw_records = data.get("records", [])

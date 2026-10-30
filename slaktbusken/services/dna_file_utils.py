@@ -11,7 +11,34 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from slaktbusken.services.safe_io import resolve_within
+
 logger = logging.getLogger(__name__)
+
+
+def _resolve_dna_file(dna_folder: Path, filename: str) -> Path:
+    """Resolve *filename* strictly within *dna_folder*.
+
+    The filename originates from project data (a profile's ``raw_data_file`` or
+    a match/triangulation ``segment_file``). An absolute path or a ``..``
+    sequence must not let a read, write, or delete touch a file outside the
+    dna/ folder, so a reference that escapes it is rejected rather than acted
+    on.
+
+    Args:
+        dna_folder: The project's dna/ subfolder.
+        filename: The stored filename within that folder.
+
+    Returns:
+        The resolved path inside ``dna_folder``.
+
+    Raises:
+        ValueError: When ``filename`` resolves outside ``dna_folder``.
+    """
+    resolved = resolve_within(dna_folder, filename)
+    if resolved is None:
+        raise ValueError(f"DNA-filnamn utanför dna-mappen: {filename!r}")
+    return resolved
 
 
 def get_dna_folder(project_path: Path) -> Path:
@@ -53,7 +80,7 @@ def write_dna_file(project_path: Path, filename: str, data: Any) -> None:
         data: Data to serialize as JSON.
     """
     dna_folder = ensure_dna_folder_exists(project_path)
-    file_path = dna_folder / filename
+    file_path = _resolve_dna_file(dna_folder, filename)
     file_path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -73,9 +100,10 @@ def read_dna_file(project_path: Path, filename: str) -> Any:
     Raises:
         FileNotFoundError: If the file doesn't exist.
         json.JSONDecodeError: If the file content is not valid JSON.
+        ValueError: If the filename resolves outside the dna/ folder.
     """
     dna_folder = get_dna_folder(project_path)
-    file_path = dna_folder / filename
+    file_path = _resolve_dna_file(dna_folder, filename)
     return json.loads(file_path.read_text(encoding="utf-8"))
 
 
@@ -89,7 +117,13 @@ def delete_dna_file(project_path: Path, filename: str) -> None:
         filename: The filename within the dna/ subfolder.
     """
     dna_folder = get_dna_folder(project_path)
-    file_path = dna_folder / filename
+    try:
+        file_path = _resolve_dna_file(dna_folder, filename)
+    except ValueError:
+        # A filename pointing outside the dna/ folder must never cause a delete
+        # elsewhere on disk; refuse it rather than unlinking an arbitrary file.
+        logger.warning("Vägrade att ta bort DNA-fil utanför dna-mappen: %s", filename)
+        return
     if file_path.exists():
         file_path.unlink()
     else:

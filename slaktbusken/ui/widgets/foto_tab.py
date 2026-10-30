@@ -34,6 +34,7 @@ from slaktbusken.model.media import LinkedEntity, MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.services.photo_service import PhotoService
+from slaktbusken.services.safe_io import resolve_within
 
 
 class FotoTab(QWidget):
@@ -282,15 +283,18 @@ class FotoTab(QWidget):
         # Normalize to NFC for consistent Swedish character handling
         normalized_file = unicodedata.normalize("NFC", media_item.file)
 
+        # Both strategies are routed through resolve_within so a ``..`` sequence
+        # in the stored reference cannot climb out of the project folder /
+        # foto_mapp.
         # Strategy 1: relative to project folder (e.g. "media/photos/photo.jpg")
-        candidate = project_folder / Path(normalized_file)
-        if candidate.is_file():
-            return candidate
+        contained = resolve_within(project_folder, normalized_file)
+        if contained is not None and contained.is_file():
+            return contained
 
         # Strategy 2: relative to foto_mapp directly (legacy, e.g. "photo.jpg")
-        candidate = foto_mapp / Path(normalized_file)
-        if candidate.is_file():
-            return candidate
+        contained = resolve_within(foto_mapp, normalized_file)
+        if contained is not None and contained.is_file():
+            return contained
 
         return None
 

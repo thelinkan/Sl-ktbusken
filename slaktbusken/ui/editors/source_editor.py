@@ -17,6 +17,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
+from html import escape as _html_escape
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -38,6 +39,7 @@ from slaktbusken.model.project import ProjectData
 from slaktbusken.model.source import ArkivReferens, RepositoryRef, Source, StructuredReference
 from slaktbusken.parsing.reference_parser import ParsedReference, parse_reference
 from slaktbusken.services.media_utils import resolve_filename_conflict
+from slaktbusken.services.safe_io import is_safe_external_url
 from slaktbusken.services.source_formatting import format_source_title
 from slaktbusken.services.source_links import generate_direct_link
 from slaktbusken.services.source_stats import compute_usage_stats
@@ -1398,7 +1400,12 @@ class SourceEditor(QWidget):
             return
 
         if url:
-            self._direct_link_label.setText(f'<a href="{url}">{url}</a>')
+            # The URL comes from project data, so escape it before splicing it
+            # into the label's rich text. ``quote=True`` also escapes the double
+            # quotes that delimit the href attribute, so a crafted value cannot
+            # break out of the attribute.
+            safe = _html_escape(url, quote=True)
+            self._direct_link_label.setText(f'<a href="{safe}">{safe}</a>')
             self._direct_link_label.setVisible(True)
         else:
             self._direct_link_label.setVisible(False)
@@ -1406,11 +1413,25 @@ class SourceEditor(QWidget):
     def _on_direct_link_clicked(self, url: str) -> None:
         """Handle click on the direct link label.
 
-        Opens the URL in the system default browser via QDesktopServices.
+        Opens the URL in the system default browser via QDesktopServices, but
+        only when it is a safe web/mail link. The URL comes from project data,
+        which may be shared; handing an arbitrary scheme (``file:``,
+        ``javascript:``, a custom protocol) to the OS handler could read local
+        files or launch an application rather than open a web page, so anything
+        outside the ``http``/``https``/``mailto`` allow-list is refused.
 
         Args:
             url: The URL string from the link's href attribute.
         """
+        if not is_safe_external_url(url):
+            logger.warning("Vägrade att öppna osäker länk: %s", url)
+            QMessageBox.warning(
+                self,
+                "Osäker länk",
+                "Länken kunde inte öppnas eftersom den inte är en säker "
+                "webb- eller e-postlänk (http, https eller mailto).",
+            )
+            return
         try:
             QDesktopServices.openUrl(QUrl(url))
         except Exception:

@@ -290,8 +290,29 @@ def build_markers_all_events(data: ProjectData) -> list[MapMarker]:
 
 
 def markers_to_json(markers: list[MapMarker]) -> str:
-    """Serialize markers to JSON string for injection into the HTML template.
+    """Serialize markers to a script-embeddable JSON string.
 
-    Returns a JSON array suitable for use in JavaScript.
+    The result is spliced directly into a ``<script>`` block in the map HTML
+    template (``window.MARKER_DATA = <here>;``). Marker fields such as place
+    and person names come from project data, so a value containing the literal
+    ``</script>`` would otherwise terminate the script element and let the rest
+    of the value be parsed as live HTML — a stored script-injection vector in
+    the embedded QWebEngineView.
+
+    ``json.dumps`` only escapes ``"`` and ``\\``, not ``<``, ``>`` or ``&``, so
+    those (plus the U+2028/U+2029 line separators that are valid in JSON but
+    break a JavaScript string literal) are replaced with their ``\\uXXXX``
+    escapes. The output stays valid JSON and parses to identical data, but can
+    no longer close the surrounding ``<script>`` tag.
+
+    Returns:
+        A JSON array string safe to embed inside an HTML ``<script>`` element.
     """
-    return json.dumps([asdict(m) for m in markers], ensure_ascii=False)
+    raw = json.dumps([asdict(m) for m in markers], ensure_ascii=False)
+    return (
+        raw.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )

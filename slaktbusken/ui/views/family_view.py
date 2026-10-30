@@ -29,6 +29,7 @@ from slaktbusken.model.name_parser import ParsedGivenName, parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.persistence.settings_io import DiagramSettings, PersonBoxConfig
+from slaktbusken.services.safe_io import resolve_within
 from slaktbusken.ui.views.parent_display import (
     ParentSetDisplay,
     _connection_type_for,
@@ -1087,17 +1088,21 @@ def _load_media_pixmap(
     # Normalize the file path to NFC for consistent Swedish character handling
     normalized_file = unicodedata.normalize("NFC", media_item.file)
 
-    # Resolve file path — try multiple strategies
+    # Resolve file path — try multiple strategies. The project-relative
+    # strategies are routed through resolve_within so a ``..`` sequence in the
+    # stored reference cannot climb out of the project folder; the explicit
+    # absolute-path strategy is preserved for media that legitimately lives
+    # outside the project.
     file_path: Path | None = None
     # Strategy 1: relative to project folder (e.g. "media/photos/photo.jpg")
-    candidate = project_folder / Path(normalized_file)
-    if candidate.is_file():
-        file_path = candidate
+    contained = resolve_within(project_folder, normalized_file)
+    if contained is not None and contained.is_file():
+        file_path = contained
     else:
         # Strategy 2: relative to media subfolder (legacy, e.g. just "photo.jpg")
-        candidate = project_folder / "media" / Path(normalized_file)
-        if candidate.is_file():
-            file_path = candidate
+        contained = resolve_within(project_folder / "media", normalized_file)
+        if contained is not None and contained.is_file():
+            file_path = contained
         else:
             # Strategy 3: absolute path
             candidate = Path(normalized_file)
