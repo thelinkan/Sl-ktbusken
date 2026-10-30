@@ -132,13 +132,6 @@
           </widget>
          </item>
          <item>
-          <widget class="QPushButton" name="edit_name_button">
-           <property name="text">
-            <string>Redigera namn</string>
-           </property>
-          </widget>
-         </item>
-         <item>
           <widget class="QPushButton" name="remove_name_button">
            <property name="text">
             <string>Ta bort namn</string>
@@ -151,69 +144,6 @@
             <enum>Qt::Horizontal</enum>
            </property>
           </spacer>
-         </item>
-        </layout>
-       </item>
-       <item>
-        <layout class="QHBoxLayout" name="name_edit_layout">
-         <item>
-          <widget class="QLabel" name="name_type_label">
-           <property name="text">
-            <string>Namntyp:</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QComboBox" name="name_type_combo">
-           <item>
-            <property name="text">
-             <string>birth</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>married</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>adopted</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>other</string>
-            </property>
-           </item>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="given_name_label">
-           <property name="text">
-            <string>Förnamn:</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLineEdit" name="given_name_input">
-           <property name="maxLength">
-            <number>100</number>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="surname_label">
-           <property name="text">
-            <string>Efternamn:</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLineEdit" name="surname_input">
-           <property name="maxLength">
-            <number>100</number>
-           </property>
-          </widget>
          </item>
         </layout>
        </item>
@@ -340,10 +270,10 @@
        </item>
       </layout>
      </widget>
-     <!-- DNA & Clusters Tab -->
+     <!-- DNA Tab -->
      <widget class="QWidget" name="dna_tab">
       <attribute name="title">
-       <string>DNA &amp; Kluster</string>
+       <string>DNA</string>
       </attribute>
       <layout class="QVBoxLayout" name="dna_tab_layout">
        <item>
@@ -366,6 +296,14 @@
        <item>
         <widget class="QListWidget" name="dna_matches_list"/>
        </item>
+      </layout>
+     </widget>
+     <!-- Clusters Tab -->
+     <widget class="QWidget" name="cluster_tab">
+      <attribute name="title">
+       <string>Kluster</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="cluster_tab_layout">
        <item>
         <widget class="QLabel" name="dna_clusters_label">
          <property name="text">

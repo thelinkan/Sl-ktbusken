@@ -18,6 +18,51 @@ from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.ui.editors.person_editor import PersonEditor
 
 
+# ---------------------------------------------------------------------------
+# Inline-editing test helpers
+#
+# The Namn tab edits names directly in the table: Förnamn/Efternamn are editable
+# cells, the Typ column holds a Namntyp QComboBox, and "Lägg till namn" appends a
+# blank row. These helpers drive that model so tests read like user actions.
+# ---------------------------------------------------------------------------
+
+_NAME_TYPE_INDEX = {"birth": 0, "married": 1, "adopted": 2, "other": 3}
+
+
+def _set_row_type(editor: PersonEditor, row: int, name_type: str) -> None:
+    """Set the Namntyp combo for a table row by internal type key."""
+    from PySide6.QtWidgets import QComboBox
+
+    combo = editor._ui.names_table.cellWidget(row, 0)
+    assert isinstance(combo, QComboBox)
+    combo.setCurrentIndex(_NAME_TYPE_INDEX[name_type])
+
+
+def _set_row_text(editor: PersonEditor, row: int, given: str, surname: str) -> None:
+    """Set the Förnamn/Efternamn cell text for a table row."""
+    table = editor._ui.names_table
+    table.item(row, 1).setText(given)
+    table.item(row, 2).setText(surname)
+
+
+def _add_name(
+    editor: PersonEditor,
+    given: str,
+    surname: str,
+    name_type: str = "birth",
+) -> int:
+    """Append a name row and populate it, mirroring the inline workflow.
+
+    Returns the index of the newly added row.
+    """
+    editor._on_add_name()
+    row = editor._ui.names_table.rowCount() - 1
+    if name_type != "birth":
+        _set_row_type(editor, row, name_type)
+    _set_row_text(editor, row, given, surname)
+    return row
+
+
 @pytest.fixture(scope="session")
 def qapp():
     """Create a QApplication for the test session."""
@@ -143,14 +188,11 @@ class TestPersonEditorNewPerson:
         assert editor._ui.tab_widget.currentWidget() == editor._ui.names_tab
 
     def test_add_name_and_save(self, qapp, empty_project: ProjectData):
-        """Adding a name and saving should produce a valid Person."""
+        """Adding a name inline and saving should produce a valid Person."""
         editor = PersonEditor(empty_project, person=None)
 
-        # Add a name via the input fields
-        editor._ui.name_type_combo.setCurrentIndex(0)  # birth
-        editor._ui.given_name_input.setText("Anna")
-        editor._ui.surname_input.setText("Svensson")
-        editor._on_add_name()
+        # Add a name by appending a row and typing into its cells
+        _add_name(editor, "Anna", "Svensson", name_type="birth")
 
         assert editor._ui.names_table.rowCount() == 1
 
@@ -168,27 +210,37 @@ class TestPersonEditorNewPerson:
         assert person.names[0].surname == "Svensson"
         assert person.id  # Should have a generated UUID
 
-    def test_add_name_clears_fields(self, qapp, empty_project: ProjectData):
-        """After adding a name, edit fields should be cleared."""
-        editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("Test")
-        editor._ui.surname_input.setText("Testsson")
-        editor._on_add_name()
-
-        assert editor._ui.given_name_input.text() == ""
-        assert editor._ui.surname_input.text() == ""
-
-    def test_add_name_requires_given_or_surname(
+    def test_add_name_appends_blank_editable_row(
         self, qapp, empty_project: ProjectData
     ):
-        """Adding a name with both fields empty should show error."""
+        """"Lägg till namn" should append a blank row ready for inline editing."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("")
-        editor._ui.surname_input.setText("")
         editor._on_add_name()
 
-        assert editor._ui.names_table.rowCount() == 0
-        assert editor._ui.status_label.text() == "Ange förnamn eller efternamn."
+        table = editor._ui.names_table
+        assert table.rowCount() == 1
+        assert table.item(0, 1).text() == ""
+        assert table.item(0, 2).text() == ""
+        # Förnamn/Efternamn cells must be editable
+        from PySide6.QtCore import Qt
+
+        assert table.item(0, 1).flags() & Qt.ItemFlag.ItemIsEditable
+        assert table.item(0, 2).flags() & Qt.ItemFlag.ItemIsEditable
+
+    def test_save_blank_name_requires_given_or_surname(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Saving with only a blank name row should be blocked with an error."""
+        editor = PersonEditor(empty_project, person=None)
+        editor._on_add_name()  # one blank row, no text
+
+        editor._on_save()
+
+        assert editor.saved_person is None
+        assert (
+            editor._ui.status_label.text()
+            == "Minst ett namn med förnamn eller efternamn krävs"
+        )
 
 
 class TestPersonEditorExistingPerson:
@@ -209,18 +261,21 @@ class TestPersonEditorExistingPerson:
     def test_load_person_names_in_table(
         self, qapp, empty_project: ProjectData, sample_person: Person
     ):
-        """Person names should appear in the table."""
-        from PySide6.QtCore import Qt
+        """Person names should appear in the table with type combos per row."""
+        from PySide6.QtWidgets import QComboBox
 
         editor = PersonEditor(empty_project, person=sample_person)
         table = editor._ui.names_table
 
-        assert table.item(0, 0).text() == "Födelsenamn"
-        assert table.item(0, 0).data(Qt.ItemDataRole.UserRole) == "birth"
+        type_combo_0 = table.cellWidget(0, 0)
+        assert isinstance(type_combo_0, QComboBox)
+        assert type_combo_0.currentText() == "Födelsenamn"
         assert table.item(0, 1).text() == "Erik"
         assert table.item(0, 2).text() == "Johansson"
-        assert table.item(1, 0).text() == "Gift namn"
-        assert table.item(1, 0).data(Qt.ItemDataRole.UserRole) == "married"
+
+        type_combo_1 = table.cellWidget(1, 0)
+        assert isinstance(type_combo_1, QComboBox)
+        assert type_combo_1.currentText() == "Gift namn"
         assert table.item(1, 1).text() == "Erik"
         assert table.item(1, 2).text() == "Eriksson"
 
@@ -245,22 +300,30 @@ class TestPersonEditorExistingPerson:
 
         assert editor._ui.names_table.rowCount() == 1
 
-    def test_edit_name(
+    def test_edit_name_inline(
         self, qapp, empty_project: ProjectData, sample_person: Person
     ):
-        """Editing a selected name should update the table."""
-        editor = PersonEditor(empty_project, person=sample_person)
-        # Select first row
-        editor._ui.names_table.selectRow(0)
-        editor._ui.given_name_input.setText("Karl")
-        editor._ui.surname_input.setText("Karlsson")
-        editor._ui.name_type_combo.setCurrentIndex(3)  # other
-        editor._on_edit_name()
+        """Editing cells inline should update the table and save correctly."""
+        from PySide6.QtWidgets import QComboBox
 
+        editor = PersonEditor(empty_project, person=sample_person)
         table = editor._ui.names_table
-        assert table.item(0, 0).text() == "Annat"
+
+        # Edit the first row directly in its cells
+        _set_row_text(editor, 0, "Karl", "Karlsson")
+        _set_row_type(editor, 0, "other")
+
+        type_combo = table.cellWidget(0, 0)
+        assert isinstance(type_combo, QComboBox)
+        assert type_combo.currentText() == "Annat"
         assert table.item(0, 1).text() == "Karl"
         assert table.item(0, 2).text() == "Karlsson"
+
+        editor._on_save()
+        assert editor.saved_person is not None
+        assert editor.saved_person.names[0].type == "other"
+        assert editor.saved_person.names[0].given == "Karl"
+        assert editor.saved_person.names[0].surname == "Karlsson"
 
 
 class TestPersonEditorLinkedData:
@@ -446,9 +509,7 @@ class TestPersonEditorValidation:
         assert editor._ui.status_label.text() == "Minst ett namn krävs"
 
         # Add a name and save
-        editor._ui.given_name_input.setText("Test")
-        editor._ui.surname_input.setText("Testsson")
-        editor._on_add_name()
+        _add_name(editor, "Test", "Testsson")
         editor._on_save()
 
         assert editor._ui.status_label.text() == ""
@@ -457,9 +518,7 @@ class TestPersonEditorValidation:
     def test_cancel_does_not_save(self, qapp, empty_project: ProjectData):
         """Cancelling should not produce a saved person."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("Test")
-        editor._ui.surname_input.setText("Testsson")
-        editor._on_add_name()
+        _add_name(editor, "Test", "Testsson")
         editor._on_cancel()
 
         assert editor.saved_person is None
@@ -471,9 +530,7 @@ class TestPersonEditorValidation:
         editor = PersonEditor(empty_project, person=None)
         editor._ui.title_input.setText("Professor")
         editor._ui.occupation_input.setText("Lärare")
-        editor._ui.given_name_input.setText("Test")
-        editor._ui.surname_input.setText("Testsson")
-        editor._on_add_name()
+        _add_name(editor, "Test", "Testsson")
         editor._on_save()
 
         person = editor.saved_person
@@ -485,9 +542,7 @@ class TestPersonEditorValidation:
         """Save should include notes from the text edit."""
         editor = PersonEditor(empty_project, person=None)
         editor._ui.notes_input.setPlainText("Viktiga anteckningar")
-        editor._ui.given_name_input.setText("Test")
-        editor._ui.surname_input.setText("Testsson")
-        editor._on_add_name()
+        _add_name(editor, "Test", "Testsson")
         editor._on_save()
 
         person = editor.saved_person
@@ -496,16 +551,19 @@ class TestPersonEditorValidation:
 
 
 class TestPersonEditorTilltalsnamn:
-    """Tests for tilltalsnamn marker validation in the save flow."""
+    """Tests for tilltalsnamn marker validation in the inline save flow.
+
+    With inline editing, marker validation runs when a Förnamn cell loses focus
+    (via itemChanged) and again at save time across all rows. Invalid markers
+    block the save rather than blocking a separate add-name step.
+    """
 
     def test_valid_single_marker_saves_successfully(
         self, qapp, empty_project: ProjectData
     ):
         """A given name with one valid marker should save without errors."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("Kent Torbjörn*")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_add_name()
+        _add_name(editor, "Kent Torbjörn*", "Johansson")
         editor._on_save()
 
         assert editor.saved_person is not None
@@ -514,51 +572,57 @@ class TestPersonEditorTilltalsnamn:
     def test_multiple_markers_blocks_save(
         self, qapp, empty_project: ProjectData
     ):
-        """Multiple asterisk markers should block add-name and show error."""
+        """Multiple asterisk markers should block save and show error."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("Kent* Torbjörn*")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_add_name()
+        _add_name(editor, "Kent* Torbjörn*", "Johansson")
+        editor._on_save()
 
-        # Name should NOT have been added to the table
-        assert editor._ui.names_table.rowCount() == 0
+        assert editor.saved_person is None
+        assert "Endast ett tilltalsnamn kan markeras" in editor._ui.status_label.text()
+
+    def test_marker_validation_fires_on_cell_commit(
+        self, qapp, empty_project: ProjectData
+    ):
+        """Committing an invalid Förnamn cell should surface the error immediately."""
+        editor = PersonEditor(empty_project, person=None)
+        _add_name(editor, "Kent* Torbjörn*", "Johansson")
+
+        # _set_row_text -> item.setText triggers itemChanged (focus-loss analogue)
         assert "Endast ett tilltalsnamn kan markeras" in editor._ui.status_label.text()
 
     def test_multiple_markers_switches_to_names_tab(
         self, qapp, empty_project: ProjectData
     ):
-        """Validation failure on add should show error (user is already on names tab)."""
+        """A blocked save should move focus to the names tab."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("Kent* Torbjörn*")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_add_name()
+        _add_name(editor, "Kent* Torbjörn*", "Johansson")
+        editor._ui.tab_widget.setCurrentIndex(1)
+        editor._on_save()
 
-        # Name was rejected — table is empty
-        assert editor._ui.names_table.rowCount() == 0
+        assert editor.saved_person is None
+        assert editor._ui.tab_widget.currentWidget() == editor._ui.names_tab
         assert "Endast ett tilltalsnamn kan markeras" in editor._ui.status_label.text()
 
     def test_standalone_asterisk_blocks_save(
         self, qapp, empty_project: ProjectData
     ):
-        """A standalone asterisk (not after a name) should block add-name."""
+        """A standalone asterisk (not after a name) should block save."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("Kent * Torbjörn")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_add_name()
+        _add_name(editor, "Kent * Torbjörn", "Johansson")
+        editor._on_save()
 
-        assert editor._ui.names_table.rowCount() == 0
+        assert editor.saved_person is None
         assert "Markören måste placeras direkt efter ett namn" in editor._ui.status_label.text()
 
     def test_leading_asterisk_blocks_save(
         self, qapp, empty_project: ProjectData
     ):
-        """A leading asterisk on a name part should block add-name."""
+        """A leading asterisk on a name part should block save."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("*Kent Torbjörn")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_add_name()
+        _add_name(editor, "*Kent Torbjörn", "Johansson")
+        editor._on_save()
 
-        assert editor._ui.names_table.rowCount() == 0
+        assert editor.saved_person is None
         assert "Markören måste placeras direkt efter ett namn" in editor._ui.status_label.text()
 
     def test_no_marker_saves_successfully(
@@ -566,29 +630,30 @@ class TestPersonEditorTilltalsnamn:
     ):
         """A given name without any marker should save without issues."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("Kent Torbjörn")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_add_name()
+        _add_name(editor, "Kent Torbjörn", "Johansson")
         editor._on_save()
 
         assert editor.saved_person is not None
         assert editor.saved_person.names[0].given == "Kent Torbjörn"
 
-    def test_given_name_input_max_length(
+    def test_given_name_cell_max_length(
         self, qapp, empty_project: ProjectData
     ):
-        """The given-name input field should enforce a 100-character limit."""
+        """Förnamn values up to 100 characters should be preserved on save."""
         editor = PersonEditor(empty_project, person=None)
-        assert editor._ui.given_name_input.maxLength() == 100
+        long_given = "A" * 100
+        _add_name(editor, long_given, "Johansson")
+        editor._on_save()
+
+        assert editor.saved_person is not None
+        assert editor.saved_person.names[0].given == long_given
 
     def test_raw_asterisk_preserved_in_saved_name(
         self, qapp, empty_project: ProjectData
     ):
         """The raw asterisk should remain in the stored Name.given field."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("Anna*")
-        editor._ui.surname_input.setText("Svensson")
-        editor._on_add_name()
+        _add_name(editor, "Anna*", "Svensson")
         editor._on_save()
 
         assert editor.saved_person is not None
@@ -599,34 +664,28 @@ class TestPersonEditorTilltalsnamn:
     ):
         """A name with empty given but valid surname should save fine."""
         editor = PersonEditor(empty_project, person=None)
-        editor._ui.given_name_input.setText("")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_add_name()
+        _add_name(editor, "", "Johansson")
         editor._on_save()
 
         assert editor.saved_person is not None
         assert editor.saved_person.names[0].given == ""
         assert editor.saved_person.names[0].surname == "Johansson"
 
-    def test_edit_name_with_invalid_marker_blocks_update(
+    def test_edit_cell_to_invalid_marker_blocks_save(
         self, qapp, empty_project: ProjectData
     ):
-        """Editing a name to have invalid markers should block the update."""
+        """Editing a cell to an invalid marker should block the save."""
         editor = PersonEditor(empty_project, person=None)
         # First add a valid name
-        editor._ui.given_name_input.setText("Kent Torbjörn*")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_add_name()
+        _add_name(editor, "Kent Torbjörn*", "Johansson")
         assert editor._ui.names_table.rowCount() == 1
 
-        # Select the row, then try to edit with invalid value
-        editor._ui.names_table.selectRow(0)
-        editor._ui.given_name_input.setText("Kent* Torbjörn*")
-        editor._ui.surname_input.setText("Johansson")
-        editor._on_edit_name()
+        # Edit the cell to an invalid value, then attempt to save
+        _set_row_text(editor, 0, "Kent* Torbjörn*", "Johansson")
+        editor._on_save()
 
-        # Original value should remain unchanged
-        assert editor._ui.names_table.item(0, 1).text() == "Kent Torbjörn*"
+        assert editor.saved_person is None
+        assert editor._ui.names_table.item(0, 1).text() == "Kent* Torbjörn*"
         assert "Endast ett tilltalsnamn kan markeras" in editor._ui.status_label.text()
 
 
@@ -1127,17 +1186,15 @@ class TestPersonEditorNameEventAssociation:
         )
         editor = PersonEditor(project, person=person)
 
-        # Add a married name
-        editor._ui.name_type_combo.setCurrentIndex(1)  # married
-        editor._ui.given_name_input.setText("Erik")
-        editor._ui.surname_input.setText("Larsson")
-        editor._on_add_name()
+        # Add a married name inline; setting the Typ combo to "Gift namn" builds
+        # the Händelse association control for the row.
+        row = _add_name(editor, "Erik", "Larsson", name_type="married")
 
         table = editor._ui.names_table
         assert table.rowCount() == 2
 
-        # New row should have a combo
-        combo = table.cellWidget(1, 3)
+        # New row should have an enabled event combo in the Händelse column
+        combo = table.cellWidget(row, 3)
         assert isinstance(combo, QComboBox)
         assert combo.isEnabled()
 

@@ -199,7 +199,6 @@ class PersonEditor(QWidget):
             p.id == person.id for p in project_data.persons
         )
         self._saved_person: Optional[Person] = None
-        self._editing_name_row: Optional[int] = None
         self._profile_media_id: Optional[str] = None
 
         # Set up UI from generated form
@@ -214,7 +213,7 @@ class PersonEditor(QWidget):
         self._ui.sex_combo.clear()
         self._ui.sex_combo.addItems(["Man", "Kvinna", "Annat", "Okänt"])
 
-        # Override name type combo with Swedish labels
+        # Swedish labels for the inline name-type dropdown shown in the Typ column
         self._name_type_label_to_internal = {
             "Födelsenamn": "birth",
             "Gift namn": "married",
@@ -222,8 +221,7 @@ class PersonEditor(QWidget):
             "Annat": "other",
         }
         self._name_type_internal_to_label = {v: k for k, v in self._name_type_label_to_internal.items()}
-        self._ui.name_type_combo.clear()
-        self._ui.name_type_combo.addItems(["Födelsenamn", "Gift namn", "Adoptivnamn", "Annat"])
+        self._name_type_labels = ["Födelsenamn", "Gift namn", "Adoptivnamn", "Annat"]
 
         # Parent service for managing parent relationships
         self._parent_service = ParentService(project_data)
@@ -270,17 +268,41 @@ class PersonEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _setup_table(self) -> None:
-        """Configure the names table appearance."""
+        """Configure the names table for inline editing.
+
+        Columns: Typ (combo widget), Förnamn (editable), Efternamn (editable),
+        Händelse (combo widget for non-birth names). Förnamn and Efternamn stretch
+        to take the available width; Typ fits its content and Händelse stays compact.
+        """
+        from PySide6.QtWidgets import QHeaderView
+
         table = self._ui.names_table
         # Add a 4th column for event association
         table.setColumnCount(4)
         header_item = QTableWidgetItem("Händelse")
         table.setHorizontalHeaderItem(3, header_item)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.setEditTriggers(table.EditTrigger.NoEditTriggers)
 
-        # Enforce maximum 100 characters for given-name input
-        self._ui.given_name_input.setMaxLength(100)
+        # Förnamn/Efternamn cells are edited directly in the table; the Typ and
+        # Händelse columns use embedded combo widgets rather than text editing.
+        table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.AnyKeyPressed
+        )
+
+        header = table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Typ
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Förnamn
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)           # Efternamn
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)             # Händelse
+        table.setColumnWidth(3, 170)
+
+        # Validate given-name markers when a Förnamn edit is committed (focus loss
+        # or Enter). itemChanged also fires for programmatic changes, so edits made
+        # by our own code guard against re-entrancy via _suppress_item_changed.
+        self._suppress_item_changed = False
+        table.itemChanged.connect(self._on_name_item_changed)
 
     def _setup_edit_event_button(self) -> None:
         """Add an 'Redigera händelse' button to the events tab button layout."""
@@ -568,13 +590,10 @@ class PersonEditor(QWidget):
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
-        # Name management
+        # Name management (inline editing; the names_table itemChanged signal is
+        # wired in _setup_table for marker validation).
         self._ui.add_name_button.clicked.connect(self._on_add_name)
-        self._ui.edit_name_button.clicked.connect(self._on_edit_name)
         self._ui.remove_name_button.clicked.connect(self._on_remove_name)
-        self._ui.names_table.itemSelectionChanged.connect(
-            self._on_name_selection_changed
-        )
 
         # Events
         self._ui.add_event_button.clicked.connect(self._on_add_event)
@@ -700,33 +719,118 @@ class PersonEditor(QWidget):
             self._add_name_row(name)
 
     def _add_name_row(self, name: Name) -> None:
-        """Append a single name row to the table.
+        """Append a single inline-editable name row to the table.
+
+        Column 0 (Typ) holds a Namntyp dropdown, columns 1-2 (Förnamn/Efternamn)
+        are directly editable cells, and column 3 (Händelse) holds the event combo
+        for non-birth names.
 
         Args:
             name: The Name entry to display.
         """
         table = self._ui.names_table
+        # Suppress itemChanged while we populate the row programmatically so the
+        # marker validation doesn't fire on our own inserts.
+        self._suppress_item_changed = True
         row = table.rowCount()
         table.insertRow(row)
 
-        # Display Swedish label in type column, store internal key as data
-        type_label = self._name_type_internal_to_label.get(name.type, name.type)
-        type_item = QTableWidgetItem(type_label)
-        type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-        type_item.setData(Qt.ItemDataRole.UserRole, name.type)
-
+        # Förnamn / Efternamn are editable text cells.
         given_item = QTableWidgetItem(name.given)
-        given_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-
         surname_item = QTableWidgetItem(name.surname)
-        surname_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-
-        table.setItem(row, 0, type_item)
         table.setItem(row, 1, given_item)
         table.setItem(row, 2, surname_item)
 
+        # Placeholder item for the Typ column so the cell is selectable; the
+        # actual value lives in the embedded combo widget set up below.
+        type_item = QTableWidgetItem("")
+        type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+        table.setItem(row, 0, type_item)
+
+        self._suppress_item_changed = False
+
+        # Namntyp dropdown embedded in the Typ column.
+        self._setup_type_combo_for_row(row, name)
+
         # Add event association control for non-birth name types
         self._setup_event_combo_for_row(row, name)
+
+    def _setup_type_combo_for_row(self, row: int, name: Name) -> None:
+        """Embed a Namntyp dropdown in the Typ column for the given row.
+
+        Changing the type re-runs the Händelse-column setup, since only non-birth
+        names get an event association control.
+
+        Args:
+            row: The table row index to configure.
+            name: The Name record whose type sets the initial selection.
+        """
+        table = self._ui.names_table
+        combo = QComboBox()
+        combo.addItems(self._name_type_labels)
+        combo.setProperty("row", row)
+
+        type_label = self._name_type_internal_to_label.get(name.type, None)
+        if type_label is not None:
+            index = combo.findText(type_label)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+
+        combo.currentIndexChanged.connect(
+            lambda _idx, c=combo: self._on_name_type_changed(c)
+        )
+        table.setCellWidget(row, 0, combo)
+
+    def _on_name_type_changed(self, combo: QComboBox) -> None:
+        """Re-configure the Händelse cell when a row's Namntyp changes.
+
+        Switching to/from Födelsenamn toggles whether the row has an event
+        association control, so rebuild it while preserving any current event_id.
+        """
+        table = self._ui.names_table
+        row = combo.property("row")
+        if row is None:
+            return
+
+        label = combo.currentText()
+        name_type = self._name_type_label_to_internal.get(label, label)
+
+        # Preserve an existing event_id if the current Händelse combo has one.
+        existing_event_id = None
+        existing_combo = table.cellWidget(row, 3)
+        if isinstance(existing_combo, QComboBox) and existing_combo.isEnabled():
+            current_data = existing_combo.currentData()
+            if current_data:
+                existing_event_id = current_data
+
+        given_item = table.item(row, 1)
+        surname_item = table.item(row, 2)
+        name = Name(
+            type=name_type,
+            given=given_item.text() if given_item else "",
+            surname=surname_item.text() if surname_item else "",
+            event_id=existing_event_id,
+        )
+        self._setup_event_combo_for_row(row, name)
+
+    def _on_name_item_changed(self, item: QTableWidgetItem) -> None:
+        """Validate tilltalsnamn markers when a Förnamn cell is committed.
+
+        Fires on both user edits and programmatic changes; the latter are guarded
+        by _suppress_item_changed. On an invalid Förnamn marker, show the error in
+        the status label (the value is left in place so the user can correct it).
+        """
+        if self._suppress_item_changed:
+            return
+        # Only the Förnamn column (1) carries marker validation.
+        if item.column() != 1:
+            return
+
+        errors = validate_given_name_markers(item.text())
+        if errors:
+            self._update_status(errors[0])
+        else:
+            self._clear_status()
 
     def _setup_event_combo_for_row(self, row: int, name: Name) -> None:
         """Set up the event association combo box for a name table row.
@@ -742,10 +846,14 @@ class PersonEditor(QWidget):
         table = self._ui.names_table
 
         if name.type == "birth":
-            # Birth names don't get event association
+            # Birth names don't get event association. Clear any combo left over
+            # from a previous non-birth type before placing the empty cell.
+            table.removeCellWidget(row, 3)
+            self._suppress_item_changed = True
             empty_item = QTableWidgetItem("")
             empty_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             table.setItem(row, 3, empty_item)
+            self._suppress_item_changed = False
             return
 
         # Get events where person is participant
@@ -795,71 +903,22 @@ class PersonEditor(QWidget):
         table.setCellWidget(row, 3, combo)
 
     def _on_add_name(self) -> None:
-        """Add a new name entry from the edit fields."""
-        name_type_label = self._ui.name_type_combo.currentText()
-        name_type = self._name_type_label_to_internal.get(name_type_label, name_type_label)
-        given = self._ui.given_name_input.text().strip()
-        surname = self._ui.surname_input.text().strip()
+        """Append a new, blank name row and focus its Förnamn cell.
 
-        if not given and not surname:
-            self._update_status("Ange förnamn eller efternamn.")
-            return
-
-        # Validate tilltalsnamn markers before adding
-        if given:
-            errors = validate_given_name_markers(given)
-            if errors:
-                self._update_status(errors[0])
-                return
-
-        name = Name(type=name_type, given=given, surname=surname)
-        self._add_name_row(name)
-        self._clear_name_fields()
-        self._clear_status()
-
-    def _on_edit_name(self) -> None:
-        """Update the selected name entry with current field values."""
-        selected = self._ui.names_table.selectedItems()
-        if not selected:
-            self._update_status("Välj ett namn att redigera.")
-            return
-
-        row = selected[0].row()
-        name_type_label = self._ui.name_type_combo.currentText()
-        name_type = self._name_type_label_to_internal.get(name_type_label, name_type_label)
-        given = self._ui.given_name_input.text().strip()
-        surname = self._ui.surname_input.text().strip()
-
-        if not given and not surname:
-            self._update_status("Ange förnamn eller efternamn.")
-            return
-
-        # Validate tilltalsnamn markers before updating
-        if given:
-            errors = validate_given_name_markers(given)
-            if errors:
-                self._update_status(errors[0])
-                return
-
+        The row defaults to Födelsenamn. The researcher types the names directly
+        into the table cells rather than into a separate field panel.
+        """
         table = self._ui.names_table
-        table.item(row, 0).setText(name_type_label)
-        table.item(row, 1).setText(given)
-        table.item(row, 2).setText(surname)
-
-        # Re-setup event combo in case name type changed (birth <-> non-birth)
-        # Preserve existing event_id if the combo already exists
-        existing_event_id = None
-        existing_combo = table.cellWidget(row, 3)
-        if isinstance(existing_combo, QComboBox) and existing_combo.isEnabled():
-            current_data = existing_combo.currentData()
-            if current_data:
-                existing_event_id = current_data
-
-        name = Name(type=name_type, given=given, surname=surname, event_id=existing_event_id)
-        self._setup_event_combo_for_row(row, name)
-
-        self._clear_name_fields()
+        self._add_name_row(Name(type="birth", given="", surname=""))
         self._clear_status()
+
+        # Select and begin editing the Förnamn cell of the new row.
+        new_row = table.rowCount() - 1
+        table.selectRow(new_row)
+        given_item = table.item(new_row, 1)
+        if given_item is not None:
+            table.setCurrentItem(given_item)
+            table.editItem(given_item)
 
     def _on_remove_name(self) -> None:
         """Remove the currently selected name entry."""
@@ -871,27 +930,6 @@ class PersonEditor(QWidget):
         row = selected[0].row()
         self._ui.names_table.removeRow(row)
         self._clear_status()
-
-    def _on_name_selection_changed(self) -> None:
-        """Populate edit fields when a name row is selected."""
-        selected = self._ui.names_table.selectedItems()
-        if not selected:
-            return
-
-        row = selected[0].row()
-        table = self._ui.names_table
-
-        name_type = table.item(row, 0).text()
-        given = table.item(row, 1).text()
-        surname = table.item(row, 2).text()
-
-        # Set type combo
-        type_index = self._ui.name_type_combo.findText(name_type)
-        if type_index >= 0:
-            self._ui.name_type_combo.setCurrentIndex(type_index)
-
-        self._ui.given_name_input.setText(given)
-        self._ui.surname_input.setText(surname)
 
     # ------------------------------------------------------------------
     # Private: parent relationship management
@@ -2641,6 +2679,16 @@ class PersonEditor(QWidget):
         """
         from PySide6.QtWidgets import QMessageBox
 
+        # Commit any in-progress inline cell edit so its text is harvested below.
+        # If the user typed into a cell and clicked Spara without pressing Enter
+        # or tabbing out, the editor is still open; closing it flushes the value.
+        table = self._ui.names_table
+        if table.state() == QAbstractItemView.State.EditingState:
+            current = table.currentItem()
+            if current is not None:
+                table.closePersistentEditor(current)
+            table.setCurrentItem(table.currentItem())
+
         # --- Hard validation: block save entirely if requirements not met ---
 
         # Validate: at least one name row required
@@ -2663,37 +2711,19 @@ class PersonEditor(QWidget):
             self._ui.tab_widget.setCurrentWidget(self._ui.names_tab)
             return
 
+        # Validate tilltalsnamn markers across all rows at save time. This catches
+        # edits the user made without triggering focus-loss validation (e.g. typing
+        # and clicking Spara directly).
+        for row in range(self._ui.names_table.rowCount()):
+            given = self._ui.names_table.item(row, 1).text()
+            errors = validate_given_name_markers(given)
+            if errors:
+                self._update_status(errors[0])
+                self._ui.tab_widget.setCurrentWidget(self._ui.names_tab)
+                self._ui.names_table.selectRow(row)
+                return
+
         # --- Soft warnings: ask user to confirm potential mistakes ---
-
-        # Check for unsaved name field text (applies to both new and existing persons)
-        pending_given = self._ui.given_name_input.text().strip()
-        pending_surname = self._ui.surname_input.text().strip()
-        if pending_given or pending_surname:
-            # Don't warn if the text matches a currently selected row (user is just viewing it)
-            is_viewing_existing = False
-            selected = self._ui.names_table.selectedItems()
-            if selected:
-                row = selected[0].row()
-                existing_given = self._ui.names_table.item(row, 1).text().strip()
-                existing_surname = self._ui.names_table.item(row, 2).text().strip()
-                if pending_given == existing_given and pending_surname == existing_surname:
-                    is_viewing_existing = True
-
-            if not is_viewing_existing:
-                msg = (
-                    "Namnfälten innehåller text som inte lagts till i namnlistan.\n\n"
-                    "Vill du spara utan att lägga till namnet?"
-                )
-                box = QMessageBox(self)
-                box.setWindowTitle("Bekräfta")
-                box.setText(msg)
-                box.setIcon(QMessageBox.Icon.Question)
-                ja_button = box.addButton("Ja", QMessageBox.ButtonRole.YesRole)
-                nej_button = box.addButton("Nej", QMessageBox.ButtonRole.NoRole)
-                box.setDefaultButton(nej_button)
-                box.exec()
-                if box.clickedButton() != ja_button:
-                    return
 
         # Additional new-person warnings
         if self._is_new:
@@ -2725,14 +2755,12 @@ class PersonEditor(QWidget):
         names: list[Name] = []
         table = self._ui.names_table
         for row in range(table.rowCount()):
-            # Get internal name type from stored data, fallback to label conversion
-            type_item = table.item(row, 0)
-            name_type_internal = type_item.data(Qt.ItemDataRole.UserRole)
-            if not name_type_internal:
-                # Fallback: convert displayed label to internal
-                name_type_internal = self._name_type_label_to_internal.get(
-                    type_item.text(), type_item.text()
-                )
+            # Internal name type comes from the Namntyp combo embedded in column 0.
+            name_type_internal = "birth"
+            type_combo = table.cellWidget(row, 0)
+            if isinstance(type_combo, QComboBox):
+                label = type_combo.currentText()
+                name_type_internal = self._name_type_label_to_internal.get(label, label)
             given = table.item(row, 1).text()
             surname = table.item(row, 2).text()
 
@@ -2789,12 +2817,6 @@ class PersonEditor(QWidget):
     # ------------------------------------------------------------------
     # Private: helpers
     # ------------------------------------------------------------------
-
-    def _clear_name_fields(self) -> None:
-        """Reset the name edit input fields to empty state."""
-        self._ui.name_type_combo.setCurrentIndex(0)
-        self._ui.given_name_input.clear()
-        self._ui.surname_input.clear()
 
     def _update_status(self, message: str) -> None:
         """Update the status label text with an error/info message.
