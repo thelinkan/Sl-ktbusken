@@ -12,10 +12,44 @@ from pathlib import Path
 import pytest
 
 from slaktbusken.services.safe_io import (
+    FileTooLargeError,
     is_safe_external_url,
     is_safe_media_extension,
+    read_text_capped,
     resolve_within,
 )
+
+
+class TestReadTextCapped:
+    """A bounded read refuses files larger than the cap before reading them."""
+
+    def test_reads_small_file(self, tmp_path: Path) -> None:
+        f = tmp_path / "small.json"
+        f.write_text('{"ok": true}', encoding="utf-8")
+        assert read_text_capped(f, max_bytes=1024) == '{"ok": true}'
+
+    def test_reads_file_at_exactly_the_cap(self, tmp_path: Path) -> None:
+        f = tmp_path / "exact.txt"
+        content = "x" * 100
+        f.write_text(content, encoding="utf-8")
+        assert read_text_capped(f, max_bytes=100) == content
+
+    def test_rejects_file_over_the_cap(self, tmp_path: Path) -> None:
+        f = tmp_path / "big.txt"
+        f.write_text("x" * 101, encoding="utf-8")
+        with pytest.raises(FileTooLargeError):
+            read_text_capped(f, max_bytes=100)
+
+    def test_file_too_large_is_an_os_error(self, tmp_path: Path) -> None:
+        # Existing ``except OSError`` handlers must catch the oversize case.
+        f = tmp_path / "big.txt"
+        f.write_text("x" * 50, encoding="utf-8")
+        with pytest.raises(OSError):
+            read_text_capped(f, max_bytes=10)
+
+    def test_missing_file_raises_os_error(self, tmp_path: Path) -> None:
+        with pytest.raises(OSError):
+            read_text_capped(tmp_path / "nope.txt")
 
 
 class TestIsSafeMediaExtension:

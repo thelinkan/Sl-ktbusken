@@ -146,3 +146,55 @@ def resolve_within(root: Path, candidate: str) -> Optional[Path]:
     if root_resolved in combined.parents:
         return combined
     return None
+
+
+# Default ceiling for a single project-referenced text/JSON read. Matches the
+# 100 MB cap the DNA import dialog already enforces, so a file accepted on
+# import reads back without a surprise rejection, while still bounding the
+# worst-case memory a malformed or hostile file can force the app to allocate.
+DEFAULT_MAX_READ_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+class FileTooLargeError(OSError):
+    """Raised when a file exceeds the size cap for a bounded read.
+
+    Subclasses :class:`OSError` so existing ``except OSError`` handlers around
+    file reads treat an oversized file the same as any other read failure (the
+    caller's error state) without needing to learn a new exception type.
+    """
+
+
+def read_text_capped(
+    path: Path,
+    max_bytes: int = DEFAULT_MAX_READ_BYTES,
+    encoding: str = "utf-8",
+) -> str:
+    """Read a text file whole, but refuse one larger than *max_bytes*.
+
+    The file's size is checked with ``stat`` *before* any content is read, so an
+    oversized file is rejected without first pulling it into memory. This bounds
+    the worst-case memory an accidental or hostile file (e.g. a multi-gigabyte
+    or deeply nested JSON blob referenced by a project) can force the app to
+    allocate, turning a potential freeze/crash into a clean error.
+
+    Args:
+        path: The file to read (callers should already have contained it to the
+            project folder via :func:`resolve_within`).
+        max_bytes: The inclusive size ceiling in bytes; defaults to
+            :data:`DEFAULT_MAX_READ_BYTES`.
+        encoding: Text encoding passed to :meth:`~pathlib.Path.read_text`.
+
+    Returns:
+        The file's full text content.
+
+    Raises:
+        FileTooLargeError: When the file is larger than ``max_bytes``.
+        OSError: Propagated from ``stat``/``read_text`` for a missing or
+            unreadable file (``FileTooLargeError`` is itself an ``OSError``).
+    """
+    size = Path(path).stat().st_size
+    if size > max_bytes:
+        raise FileTooLargeError(
+            f"Filen är för stor ({size} byte); gränsen är {max_bytes} byte."
+        )
+    return Path(path).read_text(encoding=encoding)

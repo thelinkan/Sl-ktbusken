@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from slaktbusken.services.safe_io import resolve_within
+from slaktbusken.services.safe_io import read_text_capped, resolve_within
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +101,11 @@ def read_dna_file(project_path: Path, filename: str) -> Any:
         FileNotFoundError: If the file doesn't exist.
         json.JSONDecodeError: If the file content is not valid JSON.
         ValueError: If the filename resolves outside the dna/ folder.
+        FileTooLargeError: If the file exceeds the read size cap.
     """
     dna_folder = get_dna_folder(project_path)
     file_path = _resolve_dna_file(dna_folder, filename)
-    return json.loads(file_path.read_text(encoding="utf-8"))
+    return json.loads(read_text_capped(file_path))
 
 
 def delete_dna_file(project_path: Path, filename: str) -> None:

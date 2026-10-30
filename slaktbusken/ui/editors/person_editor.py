@@ -43,7 +43,7 @@ from slaktbusken.services.foster_sync import sync_parentage_links
 from slaktbusken.services.parent_service import ParentInfo, ParentService
 from slaktbusken.services.photo_service import PhotoService
 from slaktbusken.services.project_service import ValidationError
-from slaktbusken.services.safe_io import resolve_within
+from slaktbusken.services.safe_io import read_text_capped, resolve_within
 from slaktbusken.ui.editors.dna_editor import (
     resolve_company_logo_icon,
     resolve_profile_logo_icon,
@@ -2070,7 +2070,7 @@ class PersonEditor(QWidget):
                     f"DNA-sökväg utanför dna-mappen: {selected_profile.raw_data_file!r}"
                 )
 
-            data = json.loads(raw_path.read_text(encoding="utf-8"))
+            data = json.loads(read_text_capped(raw_path))
             raw_records = data.get("records", [])
             records = [
                 RawSnpRecord(
