@@ -82,7 +82,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - `add/update/delete_research_case`, `add/update/delete_research_hypothesis`, `add/update/delete_research_action`; each validates (shape only), mutates in place, sets `self._dirty = True`, and triggers the Research_Changed_Notification; issues new ids through the `ResearchIdGenerator` so deleted ids are not reused
     - `commit_research_case_working_copy(working_copy)` — validate the entire case graph, write nothing on any error, else apply all creates/updates/deletes as one in-memory operation; `delete_case_cascade` removes a case and exactly its own hypotheses/comments/actions and returns the child counts
     - _Requirements: 1.10, 10.6, 10.7, 11.2, 19.8, 19.9, 19.10, 19.11, 20.3, 29.8_
-  - [ ] 6.2 Create `slaktbusken/services/research_service.py` pure functions
+  - [ ] 6.2 Extend `slaktbusken/services/research_service.py` (created in task 2.2) with pure functions
     - `find_research_dependencies(data, entity_type, entity_id)`; `rewire_entity_merge(data, entity_type, old_id, survivor_id)` moving every link and `source_ref` to the survivor **preserving `SourceRef.quality/note/aspects` and link `role`**, then collapsing within-case duplicates keeping a non-empty `role`; `remove_entity_association(case, entity_type, entity_id)` dropping one link and nulling `primary_entity_ref` with no auto-promote when it was the removed link; `delete_case_cascade` and a working-copy diff helper backing 6.1
     - _Requirements: 19.4, 21.2, 27.3, 27.4, 27.5, 27.6, 27.7_
   - [ ] 6.3 Integrate with delete service and merge paths
@@ -200,3 +200,33 @@ Internal keys, identifiers, and comments are English; every user-facing string i
   - [ ] 13.3 Confirm non-goals are not implemented
     - No automatic fact changes, no generated conclusions, no confidence percentages, no automatic DNA validation, no external services/reminders/calendar/multi-user, no automatic hypothesis revision history, no research GEDCOM export, no separate research database
     - _Requirements: 31.1, 31.2, 31.3, 31.4, 31.5, 31.6_
+
+## Notes
+
+- Each task references specific requirements for traceability (requirement numbers refer to `requirements.md`)
+- Property-based tests use Hypothesis with the shared strategies from task 1.3; unit tests cover specific examples and edge cases
+- UI behavior is verified through the pure helpers (`ResearchIndex`, validators, serialization, `filter_persons`, `build_person_display_list`) so most tests run without a live Qt event loop
+- Task 2.2 creates `research_service.py` (with `ResearchIdGenerator`); task 6.2 extends the same file
+- Task 6.4 defines the `Application.research_changed` signal early so CRUD (6.1) can emit it; each view registers its own `refresh()` slot in the task that builds it (8.3, 9.1, 9.4, 10.2, 10.3)
+- No Swedish user-facing string is hard-coded outside `swedish_locale.py` where a label dictionary applies; identifiers and comments stay in English
+- The research collections and `id_high_water_marks` are additive; the 0.2 to 0.3 migration (task 4.2) must not alter any existing data
+- Task 13 is a verification pass and should not introduce new behavior
+
+## Task Dependency Graph
+
+```json
+{
+  "waves": [
+    { "id": 0, "tasks": ["1.1", "7.1", "7.2", "11.1"] },
+    { "id": 1, "tasks": ["1.2", "1.3", "2.1", "3.1", "7.3"] },
+    { "id": 2, "tasks": ["1.4", "2.2", "3.2", "4.1", "4.2", "5.1", "6.4", "12.1", "12.3"] },
+    { "id": 3, "tasks": ["2.3", "4.3", "5.2", "6.2", "10.1", "11.2", "12.2"] },
+    { "id": 4, "tasks": ["6.1", "6.3", "9.1", "10.2", "11.3"] },
+    { "id": 5, "tasks": ["6.5", "8.1", "8.3", "10.4", "11.4", "12.4"] },
+    { "id": 6, "tasks": ["8.2", "8.4"] },
+    { "id": 7, "tasks": ["8.5", "9.2", "9.3", "9.4", "10.3"] },
+    { "id": 8, "tasks": ["9.5", "10.5", "13.1"] },
+    { "id": 9, "tasks": ["13.2", "13.3"] }
+  ]
+}
+```
