@@ -24,6 +24,19 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import ExternalId, Place, RegionLevel
+from slaktbusken.model.research_case import (
+    SUPPORTED_ENTITY_TYPES,
+    VALID_HYPOTHESIS_ASSESSMENTS,
+    VALID_RESEARCH_PRIORITIES,
+    VALID_RESEARCH_STATUSES,
+    HypothesisComment,
+    ResearchAction,
+    ResearchCase,
+    ResearchEntityLink,
+    ResearchHypothesis,
+    case_entity_links,
+    is_valid_calendar_date,
+)
 from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import Repository, Source
 
@@ -1419,5 +1432,240 @@ def validate_residence(
 
     for observation in residence.observations:
         _validate_observation(observation, valid_source_ids, errors)
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# 3.8 – Research validation
+# ---------------------------------------------------------------------------
+
+# Length limits (counted as Unicode code points).
+_RESEARCH_TITLE_MAX_LENGTH = 200
+_RESEARCH_LONG_TEXT_MAX_LENGTH = 10000
+_HYPOTHESIS_STATEMENT_MAX_LENGTH = 1000
+_RESEARCH_ACTION_TITLE_MAX_LENGTH = 200
+
+# The exact Swedish error messages, one constant per acceptance criterion.
+_MSG_RESEARCH_BAD_STATUS = "Ogiltig status för forskningsärendet."
+_MSG_RESEARCH_BAD_PRIORITY = "Ogiltig prioritet för forskningsärendet."
+_MSG_RESEARCH_TITLE_TOO_LONG = "Rubriken får vara högst 200 tecken."
+_MSG_RESEARCH_DESCRIPTION_TOO_LONG = "Frågeställningen får vara högst 10000 tecken."
+_MSG_RESEARCH_CONCLUSION_TOO_LONG = "Slutsatsen får vara högst 10000 tecken."
+_MSG_RESEARCH_UNKNOWN_ENTITY_TYPE = "Forskningslänken har en okänd objekttyp."
+_MSG_RESEARCH_UNKNOWN_ENTITY = "Forskningsärendet refererar till ett objekt som inte finns."
+_MSG_RESEARCH_DUPLICATE_LINK = "Forskningsärendet länkar till samma objekt mer än en gång."
+_MSG_HYPOTHESIS_BAD_ASSESSMENT = "Ogiltig bedömning för hypotesen."
+_MSG_HYPOTHESIS_UNKNOWN_CASE = "Hypotesen refererar till ett forskningsärende som inte finns."
+_MSG_HYPOTHESIS_STATEMENT_TOO_LONG = "Hypotesens påstående får vara högst 1000 tecken."
+_MSG_HYPOTHESIS_REASONING_TOO_LONG = "Hypotesens motivering får vara högst 10000 tecken."
+_MSG_COMMENT_BAD_DATE = (
+    "Hypoteskommentarens datum är inte ett giltigt datum "
+    "(förväntat ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD)."
+)
+_MSG_COMMENT_TEXT_TOO_LONG = "Hypoteskommentarens text får vara högst 10000 tecken."
+_MSG_ACTION_UNKNOWN_CASE = "Forskningsåtgärden refererar till ett forskningsärende som inte finns."
+_MSG_ACTION_BAD_COMPLETED_DATE = (
+    "Forskningsåtgärdens färdigdatum är inte ett giltigt datum "
+    "(förväntat ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD)."
+)
+_MSG_ACTION_TITLE_TOO_LONG = "Forskningsåtgärdens rubrik får vara högst 200 tecken."
+_MSG_ACTION_TEXT_TOO_LONG = "Forskningsåtgärdens text får vara högst 10000 tecken."
+_MSG_ACTION_UNKNOWN_SOURCE = "Forskningsåtgärden refererar till en källa som inte finns."
+
+
+def _validate_research_links(
+    links: list[ResearchEntityLink],
+    valid_entity_ids: Optional[dict[str, set[str]]],
+    errors: list[str],
+) -> None:
+    """Collect the errors of research entity links into *errors*.
+
+    One message per offending link. A link with an unsupported type is reported
+    as that only, never also as missing. The existence check is skipped for a
+    blank ``entity_id`` and for any entity type absent from *valid_entity_ids*,
+    so a caller may supply id sets for just the types it knows.
+    """
+    for link in links:
+        if link.entity_type not in SUPPORTED_ENTITY_TYPES:
+            errors.append(_MSG_RESEARCH_UNKNOWN_ENTITY_TYPE)
+            continue
+
+        if valid_entity_ids is None or not link.entity_id.strip():
+            continue
+
+        known_ids = valid_entity_ids.get(link.entity_type)
+        if known_ids is not None and link.entity_id not in known_ids:
+            errors.append(_MSG_RESEARCH_UNKNOWN_ENTITY)
+
+
+def validate_research_case(
+    case: ResearchCase,
+    valid_entity_ids: Optional[dict[str, set[str]]] = None,
+) -> list[str]:
+    """Validate a ResearchCase and return its hard errors.
+
+    *valid_entity_ids* maps an entity type (``"person"``, ``"source"``, ...) to
+    the set of ids that exist; passing ``None`` skips every existence check,
+    following the convention of the other ``validate_*`` functions.
+
+    Deliberately never an error: an empty ``title`` (the editor, not the model,
+    requires one before saving), a case with no linked entity, a closed case
+    with an empty ``conclusion``, an open case with a non-empty ``conclusion``,
+    and the same entity linked more than once (a warning, see
+    ``research_case_findings``).
+    """
+    errors: list[str] = []
+
+    if case.status not in VALID_RESEARCH_STATUSES:
+        errors.append(_MSG_RESEARCH_BAD_STATUS)
+
+    if case.priority not in VALID_RESEARCH_PRIORITIES:
+        errors.append(_MSG_RESEARCH_BAD_PRIORITY)
+
+    if len(case.title) > _RESEARCH_TITLE_MAX_LENGTH:
+        errors.append(_MSG_RESEARCH_TITLE_TOO_LONG)
+
+    if len(case.description) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_RESEARCH_DESCRIPTION_TOO_LONG)
+
+    if len(case.conclusion) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_RESEARCH_CONCLUSION_TOO_LONG)
+
+    _validate_research_links(case_entity_links(case), valid_entity_ids, errors)
+
+    return errors
+
+
+@dataclass
+class ResearchFinding:
+    """A warning-level observation about a ResearchCase.
+
+    Kept apart from ``validate_research_case``, which returns hard errors only,
+    in the same way ``EventFinding`` is kept apart from ``validate_event``.
+
+    Attributes:
+        case_id: The id of the ResearchCase the finding concerns.
+        severity: Always ``"warning"`` today.
+        message: The exact Swedish message to display.
+    """
+
+    case_id: str
+    severity: str
+    message: str
+
+
+def research_case_findings(case: ResearchCase) -> list[ResearchFinding]:
+    """Return the warning-level findings for a ResearchCase.
+
+    A case that links the same ``(entity_type, entity_id)`` more than once —
+    through ``primary_entity_ref`` and ``linked_entities``, or twice in
+    ``linked_entities`` — yields exactly one finding, however many duplicates
+    there are. Links with a blank ``entity_id`` are ignored.
+    """
+    seen: set[tuple[str, str]] = set()
+    for link in case_entity_links(case):
+        if not link.entity_id.strip():
+            continue
+        key = (link.entity_type, link.entity_id)
+        if key in seen:
+            return [ResearchFinding(case.id, "warning", _MSG_RESEARCH_DUPLICATE_LINK)]
+        seen.add(key)
+    return []
+
+
+def validate_hypothesis_comment(comment: HypothesisComment) -> list[str]:
+    """Validate a HypothesisComment and return its hard errors.
+
+    ``date`` may be empty (or whitespace-only, which the editor trims). A
+    non-empty ``date`` must be a real calendar date, so "2026-02-30" is an
+    error. Year and month precision are valid.
+    """
+    errors: list[str] = []
+
+    if comment.date.strip() and not is_valid_calendar_date(comment.date):
+        errors.append(_MSG_COMMENT_BAD_DATE)
+
+    if len(comment.text) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_COMMENT_TEXT_TOO_LONG)
+
+    return errors
+
+
+def validate_research_hypothesis(
+    hypothesis: ResearchHypothesis,
+    valid_case_ids: Optional[set[str]] = None,
+    valid_entity_ids: Optional[dict[str, set[str]]] = None,
+) -> list[str]:
+    """Validate a ResearchHypothesis, including its comments, and return its errors.
+
+    Passing ``None`` for *valid_case_ids* or *valid_entity_ids* skips the
+    corresponding existence check.
+
+    Deliberately never an error: several hypotheses on one case, including ones
+    whose assessments conflict, and any number of comments.
+    """
+    errors: list[str] = []
+
+    if hypothesis.assessment not in VALID_HYPOTHESIS_ASSESSMENTS:
+        errors.append(_MSG_HYPOTHESIS_BAD_ASSESSMENT)
+
+    if valid_case_ids is not None and hypothesis.research_case_id not in valid_case_ids:
+        errors.append(_MSG_HYPOTHESIS_UNKNOWN_CASE)
+
+    if len(hypothesis.statement) > _HYPOTHESIS_STATEMENT_MAX_LENGTH:
+        errors.append(_MSG_HYPOTHESIS_STATEMENT_TOO_LONG)
+
+    if len(hypothesis.reasoning) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_HYPOTHESIS_REASONING_TOO_LONG)
+
+    _validate_research_links(hypothesis.linked_entities, valid_entity_ids, errors)
+
+    for comment in hypothesis.comments:
+        errors.extend(validate_hypothesis_comment(comment))
+
+    return errors
+
+
+def validate_research_action(
+    action: ResearchAction,
+    valid_case_ids: Optional[set[str]] = None,
+    valid_source_ids: Optional[set[str]] = None,
+) -> list[str]:
+    """Validate a ResearchAction and return its hard errors.
+
+    ``completed_date`` is ``None`` for a pending action; anything else must be
+    a real calendar date of year, month or day precision. An empty string is
+    not ``None`` and so is reported: the model normalizes it to ``None`` on
+    construction, so seeing one means it was assigned afterwards.
+
+    Passing ``None`` for *valid_case_ids* or *valid_source_ids* skips the
+    corresponding existence check.
+
+    Deliberately never an error: an empty ``source_refs`` (research may be
+    documented before any formal source exists), several pending actions on
+    one case, and a source reference alongside a negative result.
+    """
+    errors: list[str] = []
+
+    if valid_case_ids is not None and action.research_case_id not in valid_case_ids:
+        errors.append(_MSG_ACTION_UNKNOWN_CASE)
+
+    if action.completed_date is not None and not is_valid_calendar_date(
+        action.completed_date
+    ):
+        errors.append(_MSG_ACTION_BAD_COMPLETED_DATE)
+
+    if len(action.title) > _RESEARCH_ACTION_TITLE_MAX_LENGTH:
+        errors.append(_MSG_ACTION_TITLE_TOO_LONG)
+
+    if len(action.text) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_ACTION_TEXT_TOO_LONG)
+
+    # One message per unresolved reference.
+    if valid_source_ids is not None:
+        for source_ref in action.source_refs:
+            if source_ref.source_id not in valid_source_ids:
+                errors.append(_MSG_ACTION_UNKNOWN_SOURCE)
 
     return errors

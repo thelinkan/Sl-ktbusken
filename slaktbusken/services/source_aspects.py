@@ -18,6 +18,9 @@ EVENT_SOURCE_ASPECTS: dict[str, list[str]] = {
 
 ENTITY_SOURCE_ASPECTS: dict[str, list[str]] = {
     "residence": ["place", "period", "household_role", "household_members"],
+    # A source cited from a research action is one that was examined, which is
+    # distinct from evidence supporting a hypothesis.
+    "research_case": ["examined", "result", "transcription"],
 }
 """Mapping from non-event entity type to the list of relevant source aspects."""
 
@@ -33,6 +36,9 @@ ASPECT_LABELS: dict[str, str] = {
     "period": "Period",
     "household_role": "Hushållsroll",
     "household_members": "Hushållsmedlemmar",
+    "examined": "Granskad",
+    "result": "Resultat",
+    "transcription": "Avskrift",
 }
 """Swedish display labels for each aspect key."""
 

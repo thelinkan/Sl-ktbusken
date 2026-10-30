@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QCompleter,
     QDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -83,15 +84,36 @@ class FilterDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle("Filtrera personlistan")
-        self.setMinimumWidth(400)
+        # Resizable; the content scrolls when the window is smaller than the
+        # two columns need.
+        self.setMinimumSize(360, 300)
+        self.resize(780, 560)
         self._event_checkboxes: dict[str, QCheckBox] = {}
 
         self._setup_ui()
         self._connect_signals()
 
     def _setup_ui(self) -> None:
-        """Build the dialog UI."""
+        """Build the dialog UI.
+
+        Two columns inside a scroll area, with the Filtrera/Rensa buttons kept
+        outside it so they stay visible at the bottom.
+        Left: name, date range, parish, DNA cluster. Right: event types.
+        """
         main_layout = QVBoxLayout(self)
+
+        content = QWidget()
+        columns = QHBoxLayout(content)
+        left_column = QVBoxLayout()
+        right_column = QVBoxLayout()
+        columns.addLayout(left_column, 1)
+        columns.addLayout(right_column, 1)
+
+        content_scroll = QScrollArea()
+        content_scroll.setWidgetResizable(True)
+        content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content_scroll.setWidget(content)
+        main_layout.addWidget(content_scroll, 1)
 
         # --- Name filters ---
         name_group = QGroupBox("Namnfilter")
@@ -114,7 +136,7 @@ class FilterDialog(QDialog):
         name_layout.addRow("Yrke:", self._occupation_field)
 
         name_group.setLayout(name_layout)
-        main_layout.addWidget(name_group)
+        left_column.addWidget(name_group)
 
         # --- Event type filters ---
         event_group = QGroupBox("Händelsetyper")
@@ -123,7 +145,7 @@ class FilterDialog(QDialog):
         # Scroll area for many checkboxes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setMaximumHeight(200)
+        scroll.setMinimumHeight(200)
         scroll_widget = QWidget()
         scroll_inner = QVBoxLayout(scroll_widget)
 
@@ -149,7 +171,7 @@ class FilterDialog(QDialog):
         scroll.setWidget(scroll_widget)
         event_layout.addWidget(scroll)
         event_group.setLayout(event_layout)
-        main_layout.addWidget(event_group)
+        right_column.addWidget(event_group, 1)
 
         # --- Date range filters ---
         date_group = QGroupBox("Datumintervall")
@@ -198,7 +220,7 @@ class FilterDialog(QDialog):
         date_layout.addRow("Vigselår:", marriage_row)
 
         date_group.setLayout(date_layout)
-        main_layout.addWidget(date_group)
+        left_column.addWidget(date_group)
 
         # --- Parish filter ---
         parish_group = QGroupBox("Församling")
@@ -207,7 +229,7 @@ class FilterDialog(QDialog):
         self._parish_field.setPlaceholderText("Församlingsnamn...")
         parish_layout.addRow("Församling:", self._parish_field)
         parish_group.setLayout(parish_layout)
-        main_layout.addWidget(parish_group)
+        left_column.addWidget(parish_group)
 
         # --- DNA Cluster filter ---
         cluster_group = QGroupBox("DNA-kluster")
@@ -220,7 +242,8 @@ class FilterDialog(QDialog):
         self._cluster_field.setCompleter(self._cluster_completer)
         cluster_layout.addRow("Kluster:", self._cluster_field)
         cluster_group.setLayout(cluster_layout)
-        main_layout.addWidget(cluster_group)
+        left_column.addWidget(cluster_group)
+        left_column.addStretch()
 
         # --- Buttons ---
         button_row = QHBoxLayout()

@@ -11,16 +11,16 @@ Internal keys, identifiers, and comments are English; every user-facing string i
 ## Tasks
 
 - [ ] 1. Research data model
-  - [ ] 1.1 Create `slaktbusken/model/research_case.py` with dataclasses and constants
+  - [x] 1.1 Create `slaktbusken/model/research_case.py` with dataclasses and constants
     - `ResearchEntityLink`, `HypothesisComment`, `ResearchHypothesis`, `ResearchAction`, `ResearchCase` exactly as in the design data model, `id` first, `from __future__ import annotations`, no Qt/IO imports, `source_refs: list[SourceRef]` reusing `model.event.SourceRef`
     - `ResearchAction.__post_init__` calls `normalize_completed_date` so an empty or whitespace-only `completed_date` becomes `None`; no path stores an empty string
     - Constants `SUPPORTED_ENTITY_TYPES`, `VALID_RESEARCH_STATUSES`, `VALID_RESEARCH_PRIORITIES`, `VALID_HYPOTHESIS_ASSESSMENTS`
     - Pure helpers `is_pending`, `case_entity_links`, link-count-for-entity, `normalize_completed_date` (None for empty/whitespace, else trimmed), and `is_valid_calendar_date` (ISO shape AND a real calendar date; compose `date_utils.parse_date_value` with `date_utils.is_valid_swedish_calendar` — `parse_date_value` alone accepts "2026-02-30", so the calendar check is required; accepts year/month/day precision); all leave inputs unchanged
     - _Requirements: 1.1, 3.1, 4.1, 5.1, 6.1, 6.4, 7.8, 6.9_
-  - [ ] 1.2 Write tests for `normalize_completed_date` and `is_valid_calendar_date`
+  - [x] 1.2 Write tests for `normalize_completed_date` and `is_valid_calendar_date`
     - Empty/whitespace/`None` normalize to `None`; a valid date trims and stays; "2026-02-30" and "2026-13-01" are rejected by `is_valid_calendar_date`; year and month precision accepted; an action constructed with `completed_date=""` is pending
     - _Requirements: 6.4, 7.8, 6.9_
-  - [ ] 1.3 Create shared Hypothesis strategies in `tests/test_model/research_strategies.py`
+  - [x] 1.3 Create shared Hypothesis strategies in `tests/test_model/research_strategies.py`
     - `entity_links()`, `hypothesis_comments()`, `hypotheses()`, `actions()`, `research_cases()`, `consistent_projects()`
     - Deliberately include empty cases, cases with no links, duplicate links, conflicting hypothesis assessments, pending and completed actions, length boundaries at 200/1000/10000 characters, absent vs empty-string fields, and unresolved references
     - _Requirements: 1.6, 3.2, 3.7, 4.6, 6.6_
@@ -29,7 +29,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - _Requirements: 1.1, 4.1, 6.4_
 
 - [ ] 2. Project collections and identifiers
-  - [ ] 2.1 Add the three collections and id prefixes
+  - [x] 2.1 Add the three collections and id prefixes
     - `ProjectData.research_cases`, `research_hypotheses`, `research_actions`, each `list[...] = field(default_factory=list)` after `residences`, empty for a new Project, preserving insertion order
     - Add `research_case`/`research_hypothesis`/`research_action`/`hypothesis_comment` prefixes to `IDGenerator._PREFIXES`
     - Add `ProjectData.id_high_water_marks: dict[str, int] = field(default_factory=dict)` for the non-reuse mechanism
@@ -44,7 +44,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - _Requirements: 1.2, 1.3, 4.3, 5.3, 6.3, 2.1, 2.3, 2.4, 2.5_
 
 - [ ] 3. Validation
-  - [ ] 3.1 Implement `validate_research_case`, `validate_research_hypothesis`, `validate_research_action`, `validate_hypothesis_comment` in `slaktbusken/model/validators.py`
+  - [x] 3.1 Implement `validate_research_case`, `validate_research_hypothesis`, `validate_research_action`, `validate_hypothesis_comment` in `slaktbusken/model/validators.py`
     - Return `list[str]` of the exact Swedish messages from the requirements; referential checks gated on optional id-set arguments; validate `completed_date` and comment `date` with `is_valid_calendar_date` (real calendar date, not shape-only), so "2026-02-30" is an error
     - Status/priority/assessment validity; length limits; unknown entity type; missing-entity reference; duplicate-link warning; missing-case reference for hypotheses/actions
     - _Requirements: 1.4, 1.5, 1.7, 1.9, 3.4, 3.5, 3.7, 4.4, 4.7, 4.10, 5.5, 6.5, 6.7, 6.8, 9.4_
@@ -96,13 +96,13 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - _Requirements: 1.10, 19.4, 19.9, 19.11, 21.2, 27.1, 27.2, 27.3, 27.6, 27.7, 13.2, 13.4_
 
 - [ ] 7. Source aspects and localization
-  - [ ] 7.1 Extend `slaktbusken/services/source_aspects.py`
+  - [x] 7.1 Extend `slaktbusken/services/source_aspects.py`
     - Add a `research_case` entry to `ENTITY_SOURCE_ASPECTS` and its Swedish labels to `ASPECT_LABELS`; frame action source refs as examined/consulted sources (a "Granskade källor" context), not hypothesis evidence
     - _Requirements: 9.6, 9.7, 9.8_
-  - [ ] 7.2 Extend `slaktbusken/ui/swedish_locale.py`
+  - [x] 7.2 Extend `slaktbusken/ui/swedish_locale.py`
     - Add `RESEARCH_STATUS_LABELS`, `RESEARCH_PRIORITY_LABELS`, `HYPOTHESIS_ASSESSMENT_LABELS`, `RESEARCH_ENTITY_TYPE_LABELS`, and getter + reverse-lookup helpers with the fallback-to-key convention
     - _Requirements: 19.7, 30.6_
-  - [ ] 7.3 Write label tests
+  - [x] 7.3 Write label tests
     - Every internal value maps to its Swedish label; reverse lookups round-trip; unknown keys fall back to the key
     - _Requirements: 30.6_
 
@@ -163,7 +163,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - _Requirements: 14.2, 14.3, 14.4, 14.5, 14.6, 15.4, 15.5, 16.5_
 
 - [ ] 11. Person list filter dialog
-  - [ ] 11.1 Refactor `filter_dialog.py` into a two-column resizable layout
+  - [x] 11.1 Refactor `filter_dialog.py` into a two-column resizable layout
     - Left: Namnfilter, Datumintervall, Församling, DNA-kluster; right: Händelsetyper (scroll) and Forskningsärenden; resizable and scrollable; Filtrera/Rensa kept at the bottom
     - _Requirements: 24.1, 24.2_
   - [ ] 11.2 Add research filters to the dialog and criteria

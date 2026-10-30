@@ -24,6 +24,8 @@ class IDGenerator:
         'dna_cluster': 'dna_cluster_', 'dna_triangulation': 'dna_triangulation_',
         'repository': 'repo_', 'research_note': 'note_',
         'residence': 'residence_',
+        'research_case': 'case_', 'research_hypothesis': 'hypothesis_',
+        'research_action': 'action_', 'hypothesis_comment': 'hypcomment_',
     }
 
     def __init__(self, existing_ids: set[str]) -> None:

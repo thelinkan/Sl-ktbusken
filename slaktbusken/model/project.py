@@ -18,6 +18,11 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
+from slaktbusken.model.research_case import (
+    ResearchAction,
+    ResearchCase,
+    ResearchHypothesis,
+)
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.source import Kalltyp, Leverantor, Repository, Source
@@ -57,6 +62,13 @@ class ProjectData:
     research_notes: list[ResearchNote] = field(default_factory=list)
     leverantorer: list[Leverantor] = field(default_factory=list)
     kalltyper: list[Kalltyp] = field(default_factory=list)
+    research_cases: list[ResearchCase] = field(default_factory=list)
+    research_hypotheses: list[ResearchHypothesis] = field(default_factory=list)
+    research_actions: list[ResearchAction] = field(default_factory=list)
+    id_high_water_marks: dict[str, int] = field(default_factory=dict)
+    """Maps an id prefix (for example ``"case_"``) to the highest numeric suffix
+    ever issued for it, so a deleted research id is not reused after the project
+    is saved and reopened. Empty for new and pre-feature projects."""
     connection_overrides: dict[str, str] = field(default_factory=dict)
     """Maps a child's person id to ``"biological"``, ``"foster"``, or
     ``"adoptive"``. Absent key means no override. Empty for new and

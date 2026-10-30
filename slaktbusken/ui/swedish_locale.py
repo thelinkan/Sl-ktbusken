@@ -207,6 +207,42 @@ NAME_TYPE_LABELS: dict[str, str] = {
     "other": "Övrigt",
 }
 
+# Research case status labels (forskningsärendets status)
+RESEARCH_STATUS_LABELS: dict[str, str] = {
+    "open": "Öppen",
+    "in_progress": "Pågår",
+    "on_hold": "Vilande",
+    "closed": "Avslutad",
+}
+
+# Research case priority labels
+RESEARCH_PRIORITY_LABELS: dict[str, str] = {
+    "low": "Låg",
+    "normal": "Normal",
+    "high": "Hög",
+}
+
+# Hypothesis assessment labels (hypotesens bedömning)
+HYPOTHESIS_ASSESSMENT_LABELS: dict[str, str] = {
+    "unassessed": "Ej bedömd",
+    "possible": "Möjlig",
+    "strong_support": "Starkt stöd",
+    "confirmed": "Bekräftad",
+    "rejected": "Avfärdad",
+}
+
+# Entity types a research case may be linked to
+RESEARCH_ENTITY_TYPE_LABELS: dict[str, str] = {
+    "person": "Person",
+    "family": "Familj",
+    "event": "Händelse",
+    "place": "Plats",
+    "source": "Källa",
+    "media": "Media",
+    "dna_match": "DNA-matchning",
+    "dna_cluster": "DNA-kluster",
+}
+
 
 # ---------------------------------------------------------------------------
 # 21.4 — Swedish date formatting (YYYY-MM-DD)
@@ -566,6 +602,45 @@ def event_type_from_label(label: str) -> Optional[str]:
     return reverse.get(label)
 
 
+def research_status_from_label(label: str) -> Optional[str]:
+    """Get internal research status key from Swedish display label.
+
+    Args:
+        label: The Swedish display label.
+
+    Returns:
+        The internal key, or None if not found.
+    """
+    reverse = {v: k for k, v in RESEARCH_STATUS_LABELS.items()}
+    return reverse.get(label)
+
+
+def research_priority_from_label(label: str) -> Optional[str]:
+    """Get internal research priority key from Swedish display label.
+
+    Args:
+        label: The Swedish display label.
+
+    Returns:
+        The internal key, or None if not found.
+    """
+    reverse = {v: k for k, v in RESEARCH_PRIORITY_LABELS.items()}
+    return reverse.get(label)
+
+
+def hypothesis_assessment_from_label(label: str) -> Optional[str]:
+    """Get internal hypothesis assessment key from Swedish display label.
+
+    Args:
+        label: The Swedish display label.
+
+    Returns:
+        The internal key, or None if not found.
+    """
+    reverse = {v: k for k, v in HYPOTHESIS_ASSESSMENT_LABELS.items()}
+    return reverse.get(label)
+
+
 # ---------------------------------------------------------------------------
 # Utility: get label with fallback
 # ---------------------------------------------------------------------------
@@ -653,3 +728,51 @@ def get_sex_label(sex: str) -> str:
         Swedish display label, or the key itself if not mapped.
     """
     return SEX_LABELS.get(sex, sex)
+
+
+def get_research_status_label(status: str) -> str:
+    """Get the Swedish label for a research status, with fallback to the key.
+
+    Args:
+        status: The internal research status key.
+
+    Returns:
+        Swedish display label, or the key itself if not mapped.
+    """
+    return RESEARCH_STATUS_LABELS.get(status, status)
+
+
+def get_research_priority_label(priority: str) -> str:
+    """Get the Swedish label for a research priority, with fallback to the key.
+
+    Args:
+        priority: The internal research priority key.
+
+    Returns:
+        Swedish display label, or the key itself if not mapped.
+    """
+    return RESEARCH_PRIORITY_LABELS.get(priority, priority)
+
+
+def get_hypothesis_assessment_label(assessment: str) -> str:
+    """Get the Swedish label for a hypothesis assessment, with fallback to the key.
+
+    Args:
+        assessment: The internal hypothesis assessment key.
+
+    Returns:
+        Swedish display label, or the key itself if not mapped.
+    """
+    return HYPOTHESIS_ASSESSMENT_LABELS.get(assessment, assessment)
+
+
+def get_research_entity_type_label(entity_type: str) -> str:
+    """Get the Swedish label for a research link entity type, with fallback to the key.
+
+    Args:
+        entity_type: The internal entity type key.
+
+    Returns:
+        Swedish display label, or the key itself if not mapped.
+    """
+    return RESEARCH_ENTITY_TYPE_LABELS.get(entity_type, entity_type)
