@@ -7,6 +7,7 @@ selected in the person list or diagram.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt
@@ -17,7 +18,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from slaktbusken.ui.swedish_locale import get_parentage_type_label
+from html import escape as _html_escape
+
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.swedish_locale import get_parentage_type_label, get_research_status_label
 
 if TYPE_CHECKING:
     from slaktbusken.app import Application
@@ -89,6 +93,35 @@ def _format_parent_entry(role_label: str, name: str, parentage_type: str) -> str
         label = get_parentage_type_label(parentage_type)
         return f"{role_label}: {name} ({label})"
     return f"{role_label}: {name}"
+
+
+@dataclass(frozen=True)
+class ResearchBriefRow:
+    """One line of the detail panel's research list."""
+
+    case_id: str
+    title: str
+    detail: str
+
+
+def research_brief_rows(index: ResearchIndex, person_id: str) -> list[ResearchBriefRow]:
+    """Return the cases linked directly to a person, open ones first.
+
+    *detail* reads like "Öppen" or "Pågår, 2 åtgärder kvar". Within open and
+    closed, the project order is kept.
+    """
+    cases = index.cases_for_entity("person", person_id)
+    ordered = [c for c in cases if c.status != "closed"] + [c for c in cases if c.status == "closed"]
+    rows: list[ResearchBriefRow] = []
+    for case in ordered:
+        pending = index.pending_action_count(case.id)
+        detail = get_research_status_label(case.status)
+        if pending:
+            detail += ", 1 åtgärd kvar" if pending == 1 else f", {pending} åtgärder kvar"
+        rows.append(
+            ResearchBriefRow(case.id, case.title.strip() or "(utan rubrik)", detail)
+        )
+    return rows
 
 
 class PersonDetailPanel(QWidget):
@@ -298,8 +331,52 @@ class PersonDetailPanel(QWidget):
                 cluster_widget.setStyleSheet("margin-left: 8px; margin-top: 2px;")
                 self._content_layout.addWidget(cluster_widget)
 
+        # --- Forskningsärenden section ---
+        self._add_research_section(data, self._current_person_id)
+
         # Spacer at bottom
         self._content_layout.addStretch()
+
+    def refresh(self) -> None:
+        """Rebuild the panel for the person it shows (for example after research changed)."""
+        if self._current_person_id is not None:
+            self._refresh()
+
+    def _add_research_section(self, data, person_id: str) -> None:
+        """Add a brief list of the research cases linked directly to the person.
+
+        One line per case: its title, status and number of waiting actions.
+        Open cases come first. Clicking a title opens the case. Nothing is shown
+        when the person has no research case.
+        """
+        index = ResearchIndex(data)
+        rows = research_brief_rows(index, person_id)
+        if not rows:
+            return
+
+        header = QLabel("<b>Forskningsärenden</b>")
+        header.setTextFormat(Qt.TextFormat.RichText)
+        header.setStyleSheet("margin-top: 12px;")
+        self._content_layout.addWidget(header)
+
+        for row in rows:
+            line = QLabel(
+                f"&nbsp;&nbsp;• <a href=\"{_html_escape(row.case_id)}\">"
+                f"{_html_escape(row.title)}</a> – {_html_escape(row.detail)}"
+            )
+            line.setTextFormat(Qt.TextFormat.RichText)
+            line.setWordWrap(True)
+            line.setStyleSheet("margin-left: 8px; margin-top: 2px;")
+            line.setToolTip("Öppna forskningsärendet")
+            line.linkActivated.connect(self._open_research_case)
+            self._content_layout.addWidget(line)
+
+    def _open_research_case(self, case_id: str) -> None:
+        from slaktbusken.ui.research_gateway import get_research_gateway
+
+        gateway = get_research_gateway()
+        if gateway is not None:
+            gateway.open_research_case(case_id)
 
     def _clear_content(self) -> None:
         """Remove all widgets from the content layout."""

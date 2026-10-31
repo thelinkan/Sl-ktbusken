@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -64,6 +65,10 @@ _NO_STATEMENT = "(utan formulering)"
 
 _ROLE_ID = Qt.ItemDataRole.UserRole
 _ROLE_CASE = Qt.ItemDataRole.UserRole + 1
+
+#: Status-filter choices that are not a single status.
+STATUS_NOT_CLOSED = ""
+STATUS_ALL = "*all*"
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +322,58 @@ class _SortItem(QTableWidgetItem):
         return super().__lt__(other)
 
 
+class _AutoWidthTable(QTableWidget):
+    """A table whose columns the user can resize, with a sensible automatic layout.
+
+    While the user has not resized any column, the table sizes the other columns
+    to their content and gives the remaining width to one main column, also
+    when the window is resized. Dragging a column border switches this off for
+    the table, so the user's widths are never overwritten.
+    """
+
+    def __init__(self, column_count: int, stretch_column: int) -> None:
+        super().__init__(0, column_count)
+        self._stretch_column = stretch_column
+        self._user_sized = False
+        self._auto_sizing = False
+        header = self.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.sectionResized.connect(self._on_section_resized)
+
+    @property
+    def user_sized(self) -> bool:
+        """True once the user has resized a column by hand."""
+        return self._user_sized
+
+    def _on_section_resized(self, *_args) -> None:
+        if not self._auto_sizing:
+            self._user_sized = True
+
+    def auto_size_columns(self) -> None:
+        """Lay out the columns automatically unless the user has sized them."""
+        if self._user_sized or self.columnCount() == 0:
+            return
+        self._auto_sizing = True
+        try:
+            header = self.horizontalHeader()
+            used = 0
+            for column in range(self.columnCount()):
+                if column == self._stretch_column:
+                    continue
+                self.resizeColumnToContents(column)
+                used += self.columnWidth(column)
+            available = self.viewport().width() - used
+            minimum = max(header.sectionSizeHint(self._stretch_column), 120)
+            self.setColumnWidth(self._stretch_column, max(available, minimum))
+        finally:
+            self._auto_sizing = False
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        self.auto_size_columns()
+
+
 def _item(text: str, sort_key=None) -> QTableWidgetItem:
     item = _SortItem(text)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -381,9 +438,9 @@ class ResearchOverview(QWidget):
         self._type_filter.blockSignals(True)
         self._type_filter.setCurrentIndex(max(0, self._type_filter.findData(entity_type)))
         self._type_filter.blockSignals(False)
-        self._show_closed.blockSignals(True)
-        self._show_closed.setChecked(True)
-        self._show_closed.blockSignals(False)
+        self._status_filter.blockSignals(True)
+        self._status_filter.setCurrentIndex(self._status_filter.findData(STATUS_ALL))
+        self._status_filter.blockSignals(False)
         self._update_entity_button()
         self._fill_cases()
 
@@ -410,14 +467,20 @@ class ResearchOverview(QWidget):
         self._tabs.addTab(self._build_hypotheses_page(), "Hypoteser")
 
     @staticmethod
-    def _make_table(headers: list[str]) -> QTableWidget:
-        table = QTableWidget(0, len(headers))
+    def _make_table(headers: list[str], stretch_column: int = 0) -> QTableWidget:
+        """Build a read-only, sortable table with user-resizable columns.
+
+        Until the user drags a column border, the columns are laid out
+        automatically: the others fit their content and *stretch_column* (the
+        text people read: title, case, hypothesis) takes the remaining width.
+        Once the user resizes a column, their widths are kept.
+        """
+        table = _AutoWidthTable(len(headers), stretch_column)
         table.setHorizontalHeaderLabels(headers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setStretchLastSection(True)
         table.setSortingEnabled(True)
         return table
 
@@ -426,8 +489,11 @@ class ResearchOverview(QWidget):
         layout = QVBoxLayout(page)
 
         bar = QHBoxLayout()
+        # The default hides closed cases; "Alla statusar" shows every status,
+        # closed included (Requirement 18.5).
         self._status_filter = QComboBox()
-        self._status_filter.addItem("Alla statusar", "")
+        self._status_filter.addItem("Ej avslutade", STATUS_NOT_CLOSED)
+        self._status_filter.addItem("Alla statusar", STATUS_ALL)
         for key, label in RESEARCH_STATUS_LABELS.items():
             self._status_filter.addItem(label, key)
         self._priority_filter = QComboBox()
@@ -464,12 +530,10 @@ class ResearchOverview(QWidget):
         self._case_search = QLineEdit()
         self._case_search.setPlaceholderText("Sök i rubrik och frågeställning...")
         self._case_search.setClearButtonEnabled(True)
-        self._show_closed = QCheckBox("Visa avslutade")
         self._new_case_button = QPushButton("Nytt ärende")
         self._open_case_button = QPushButton("Öppna")
         self._delete_case_button = QPushButton("Ta bort forskningsärendet...")
         bar2.addWidget(self._case_search, 1)
-        bar2.addWidget(self._show_closed)
         bar2.addWidget(self._new_case_button)
         bar2.addWidget(self._open_case_button)
         bar2.addWidget(self._delete_case_button)
@@ -498,7 +562,6 @@ class ResearchOverview(QWidget):
             combo.currentIndexChanged.connect(self._fill_cases)
         self._type_filter.currentIndexChanged.connect(self._on_type_filter_changed)
         self._case_search.textChanged.connect(self._fill_cases)
-        self._show_closed.toggled.connect(self._fill_cases)
         self._entity_button.clicked.connect(self._on_pick_entity)
         self._entity_clear.clicked.connect(self._on_clear_entity)
         self._new_case_button.clicked.connect(self.create_case_requested.emit)
@@ -523,7 +586,9 @@ class ResearchOverview(QWidget):
         bar.addWidget(self._todo_open_action)
         bar.addWidget(self._todo_open_case)
         layout.addLayout(bar)
-        self._todo_table = self._make_table(["Åtgärd", "Forskningsärende", "Ärendets status"])
+        self._todo_table = self._make_table(
+            ["Åtgärd", "Forskningsärende", "Ärendets status"], stretch_column=1
+        )
         layout.addWidget(self._todo_table)
 
         self._todo_search.textChanged.connect(self._fill_todo)
@@ -545,7 +610,9 @@ class ResearchOverview(QWidget):
         bar.addWidget(self._hyp_search, 1)
         bar.addWidget(self._hyp_open_case)
         layout.addLayout(bar)
-        self._hyp_table = self._make_table(["Hypotes", "Bedömning", "Forskningsärende"])
+        self._hyp_table = self._make_table(
+            ["Hypotes", "Bedömning", "Forskningsärende"], stretch_column=0
+        )
         layout.addWidget(self._hyp_table)
 
         self._hyp_search.textChanged.connect(self._fill_hypotheses)
@@ -585,6 +652,8 @@ class ResearchOverview(QWidget):
         table.setSortingEnabled(True)
         if sorted_before:
             table.sortItems(sort_column, sort_order)
+        if isinstance(table, _AutoWidthTable):
+            table.auto_size_columns()
 
         if selected is not None:
             for row in range(table.rowCount()):
@@ -593,15 +662,17 @@ class ResearchOverview(QWidget):
                     break
 
     def _current_case_filter(self) -> CaseFilter:
+        status_choice = self._status_filter.currentData() or STATUS_NOT_CLOSED
+        single_status = "" if status_choice in (STATUS_NOT_CLOSED, STATUS_ALL) else status_choice
         return CaseFilter(
-            status=self._status_filter.currentData() or "",
+            status=single_status,
             priority=self._priority_filter.currentData() or "",
             entity_type=self._type_filter.currentData() or "",
             entity_id=self._entity_filter[1] if self._type_filter.currentData() else "",
             pending=self._pending_filter.currentData(),
             hypotheses=self._hyp_filter.currentData(),
             text=self._case_search.text(),
-            include_closed=self._show_closed.isChecked(),
+            include_closed=status_choice == STATUS_ALL,
         )
 
     def case_rows(self) -> list[OverviewCaseRow]:

@@ -898,8 +898,6 @@ _ROLE_IS_DESCENDANT = Qt.ItemDataRole.UserRole + 2
 _ROLE_HAS_MULTI_NAMES = Qt.ItemDataRole.UserRole + 3
 _ROLE_IS_MAIN_PERSON = Qt.ItemDataRole.UserRole + 4
 _ROLE_DNA_COMPANY_IDS = Qt.ItemDataRole.UserRole + 10
-_ROLE_RESEARCH_COLOR = Qt.ItemDataRole.UserRole + 11  # magnifying-glass colour in the name column
-_RESEARCH_ICON_SIZE = 14
 
 _ANCESTOR_DOT_COLOR = QColor("#C0392B")
 _DESCENDANT_DOT_COLOR = QColor("#27AE60")
@@ -930,8 +928,6 @@ class _DotDelegate(QStyledItemDelegate):
             width += _DOT_DIAMETER + 3
         if is_descendant:
             width += _DOT_DIAMETER + 3
-        if index.data(_ROLE_RESEARCH_COLOR):
-            width += _RESEARCH_ICON_SIZE + 3
         return width
 
     def paint(
@@ -1001,15 +997,6 @@ class _DotDelegate(QStyledItemDelegate):
                 painter.setBrush(QBrush(_DESCENDANT_DOT_COLOR))
                 painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
                 x_offset += _DOT_DIAMETER + 3
-
-            # Research magnifying glass (orange: open research, grey: all closed)
-            research_color = index.data(_ROLE_RESEARCH_COLOR)
-            if research_color:
-                icon_y = rect.top() + (rect.height() - _RESEARCH_ICON_SIZE) // 2
-                painter.drawPixmap(
-                    x_offset, icon_y, research_icon(research_color, _RESEARCH_ICON_SIZE)
-                )
-                x_offset += _RESEARCH_ICON_SIZE + 3
 
             painter.restore()
 
@@ -1368,7 +1355,7 @@ class PersonListPanel(QWidget):
         # Boende (column 9)
         action_boende = QAction("Boende", menu)
         action_boende.setCheckable(True)
-        action_boende.setChecked(getattr(visibility, 'boende', True))
+        action_boende.setChecked(getattr(visibility, 'boende', False))
         action_boende.toggled.connect(
             lambda checked: self._on_column_visibility_changed("boende", checked)
         )
@@ -1433,7 +1420,7 @@ class PersonListPanel(QWidget):
         self._tree_widget.setColumnHidden(6, not visibility.yrke)
         self._tree_widget.setColumnHidden(7, not visibility.kluster)
         self._tree_widget.setColumnHidden(8, not visibility.dna_company)
-        self._tree_widget.setColumnHidden(9, not getattr(visibility, 'boende', True))
+        self._tree_widget.setColumnHidden(9, not getattr(visibility, 'boende', False))
         self._tree_widget.setColumnHidden(10, not getattr(visibility, 'research', True))
 
     def _connect_signals(self) -> None:
@@ -1887,10 +1874,6 @@ class PersonListPanel(QWidget):
                 if color is not None:
                     tree_item.setForeground(_RESEARCH_COLUMN, QBrush(QColor(color)))
                     tree_item.setIcon(_RESEARCH_COLUMN, QIcon(research_icon(color, 16)))
-                    # Also shown in the name column, which is always in view.
-                    if cfg is None or cfg.research:
-                        tree_item.setData(0, _ROLE_RESEARCH_COLOR, color)
-                        tooltip_parts.append(indicator_tooltip(person_info.research_counts))
                     tree_item.setToolTip(
                         _RESEARCH_COLUMN, indicator_tooltip(person_info.research_counts)
                     )

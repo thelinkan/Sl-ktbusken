@@ -191,6 +191,7 @@ class Application:
 
         self._update_status()
         self.main_window.person_list_panel.refresh()
+        self.main_window.detail_panel.refresh()
         panel = self.main_window.diagram_panel
         panel.set_project_data(self.project_service.data)
         panel.set_person_box_config(self.app_settings_service._settings.person_box_config)

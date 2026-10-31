@@ -34,14 +34,15 @@ class ColumnVisibility:
     """Per-column visibility flags for the person list table.
 
     Each field corresponds to an optional column that the user can
-    show or hide. All columns are visible by default.
+    show or hide. All columns are visible by default except "Boende", which
+    is shown only when the user turns it on.
     """
 
     titel: bool = True
     yrke: bool = True
     kluster: bool = True
     dna_company: bool = True
-    boende: bool = True
+    boende: bool = False
     research: bool = True
 
 
@@ -270,6 +271,7 @@ class AppSettingsService:
                 "yrke": cv.yrke,
                 "kluster": cv.kluster,
                 "dna_company": cv.dna_company,
+                "boende": cv.boende,
                 "research": cv.research,
             },
         }
@@ -337,6 +339,7 @@ class AppSettingsService:
             kluster = cv_data.get("kluster", True)
             dna_company = cv_data.get("dna_company", True)
             research = cv_data.get("research", True)
+            boende = cv_data.get("boende", False)
             # Fall back to True for non-boolean values
             column_visibility = ColumnVisibility(
                 titel=titel if isinstance(titel, bool) else True,
@@ -344,6 +347,7 @@ class AppSettingsService:
                 kluster=kluster if isinstance(kluster, bool) else True,
                 dna_company=dna_company if isinstance(dna_company, bool) else True,
                 research=research if isinstance(research, bool) else True,
+                boende=boende if isinstance(boende, bool) else False,
             )
         else:
             column_visibility = ColumnVisibility()
