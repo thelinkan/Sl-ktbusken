@@ -60,6 +60,25 @@ logger = logging.getLogger(__name__)
 #: Index of the "Forskningsärenden" column in the person list.
 _RESEARCH_COLUMN = 10
 
+#: Stable keys for the person list columns, in column order. Used to save
+#: column widths; never shown to the user.
+PERSON_LIST_COLUMN_KEYS: tuple[str, ...] = (
+    "name",
+    "birth_date",
+    "birth_place",
+    "death_date",
+    "death_place",
+    "title",
+    "occupation",
+    "clusters",
+    "dna",
+    "boende",
+    "research",
+)
+_DEFAULT_NAME_WIDTH = 200
+_MIN_COLUMN_WIDTH = 20
+_MAX_COLUMN_WIDTH = 2000
+
 
 # ---------------------------------------------------------------------------
 # Pure filtering logic (no Qt dependency)
@@ -1185,7 +1204,10 @@ class PersonListPanel(QWidget):
         # Configure header
         header = self._tree_widget.header()
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        # Namn is the column that matters most, so it gets a generous fixed
+        # default instead of whatever width is left over; when the columns do
+        # not fit, the list scrolls sideways.
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
@@ -1196,6 +1218,7 @@ class PersonListPanel(QWidget):
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(9, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(10, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(0, _DEFAULT_NAME_WIDTH)
         header.resizeSection(1, 90)
         header.resizeSection(2, 90)
         header.resizeSection(3, 90)
@@ -1225,6 +1248,8 @@ class PersonListPanel(QWidget):
 
         # Apply saved column visibility settings on startup
         self._restore_column_visibility()
+        # Apply the column widths saved when the program was last closed
+        self._restore_column_widths()
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Check panel width and toggle compact column mode accordingly."""
@@ -1402,6 +1427,33 @@ class PersonListPanel(QWidget):
             if self._person_list_config is not None:
                 self._person_list_config.research = visible
         self._app.app_settings_service.save(settings)
+
+    def save_column_widths(self) -> None:
+        """Store the current column widths in the application settings.
+
+        Called when the program closes. Hidden columns keep their previously
+        saved width, so hiding a column does not forget how wide it was.
+        """
+        settings = self._app.app_settings_service._settings
+        widths = dict(settings.person_list_column_widths)
+        header = self._tree_widget.header()
+        for index, key in enumerate(PERSON_LIST_COLUMN_KEYS):
+            if header.isSectionHidden(index):
+                continue
+            size = header.sectionSize(index)
+            if size > 0:
+                widths[key] = size
+        settings.person_list_column_widths = widths
+
+    def _restore_column_widths(self) -> None:
+        """Apply the saved column widths, ignoring unknown or unusable values."""
+        settings = self._app.app_settings_service._settings
+        saved = getattr(settings, "person_list_column_widths", {}) or {}
+        header = self._tree_widget.header()
+        for index, key in enumerate(PERSON_LIST_COLUMN_KEYS):
+            width = saved.get(key)
+            if isinstance(width, int) and _MIN_COLUMN_WIDTH <= width <= _MAX_COLUMN_WIDTH:
+                header.resizeSection(index, width)
 
     def _restore_column_visibility(self) -> None:
         """Restore column visibility from persisted application settings.

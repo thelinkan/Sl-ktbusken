@@ -162,8 +162,53 @@ class Application:
         # Apply saved theme
         self._apply_theme(self.app_settings_service._settings.theme)
 
+        # Remember window sizes and positions (all windows, app-wide).
+        self._install_window_geometry_keeper()
+
         # Auto-open default project if configured
         self._auto_open_default_project()
+
+    # ------------------------------------------------------------------
+    # Window geometry
+    # ------------------------------------------------------------------
+
+    def _install_window_geometry_keeper(self) -> None:
+        """Restore and record the size and position of every window.
+
+        Geometries are kept in the application settings (per computer, never in
+        a project) and written when the application quits.
+        """
+        from PySide6.QtWidgets import QApplication as _QApp
+
+        from slaktbusken.ui.window_geometry import (
+            KEY_PROPERTY,
+            MAIN_WINDOW_KEY,
+            TRACK_PROPERTY,
+            WindowGeometryKeeper,
+        )
+
+        qt_app = _QApp.instance()
+        if qt_app is None:
+            return
+        self._geometry_keeper = WindowGeometryKeeper(
+            lambda: self.app_settings_service._settings.window_geometries
+        )
+        qt_app.installEventFilter(self._geometry_keeper)
+
+        self.main_window.setProperty(TRACK_PROPERTY, True)
+        self.main_window.setProperty(KEY_PROPERTY, MAIN_WINDOW_KEY)
+        qt_app.aboutToQuit.connect(self._save_window_geometries)
+
+    def _save_window_geometries(self) -> None:
+        """Write window geometries and person list column widths to the settings file."""
+        keeper = getattr(self, "_geometry_keeper", None)
+        if keeper is None:
+            return
+        # The main window may still be visible when quitting starts.
+        if self.main_window.isVisible():
+            keeper.remember(self.main_window)
+        self.main_window.person_list_panel.save_column_widths()
+        self.app_settings_service.save(self.app_settings_service._settings)
 
     # ------------------------------------------------------------------
     # Research change notification
@@ -1456,6 +1501,8 @@ class Application:
             window = ResearchOverview(data, initial_mode, parent=self.main_window)
             window.setWindowFlag(_Qt.WindowType.Window, True)
             window.resize(900, 520)
+            # Not a dialog, so it opts in to remembering its size and place.
+            window.setProperty("rememberGeometry", True)
             window.open_case_requested.connect(self.open_research_case)
             window.create_case_requested.connect(lambda: self.open_research_case())
             window.open_action_requested.connect(

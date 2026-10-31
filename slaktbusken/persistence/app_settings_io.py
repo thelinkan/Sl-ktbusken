@@ -68,6 +68,14 @@ class AppSettings:
         person_list_config: Configuration for person list columns/icons.
         column_visibility: Visibility flags for optional columns in the
             person list table.
+        window_geometries: Last size and position of each kind of window,
+            keyed by window type (for example "PersonEditor" or
+            "main_window"), as base64 of Qt's saveGeometry(). Stored per
+            computer here rather than in projects, since projects move
+            between computers with other screens.
+        person_list_column_widths: Width in pixels of each person list
+            column, keyed by a stable column key (for example "name"), saved
+            when the program closes.
     """
 
     recent_projects: list[str] = field(default_factory=list)
@@ -79,6 +87,8 @@ class AppSettings:
     diagram_settings: DiagramSettings = field(default_factory=DiagramSettings)
     person_list_config: PersonListConfig = field(default_factory=PersonListConfig)
     column_visibility: ColumnVisibility = field(default_factory=ColumnVisibility)
+    window_geometries: dict[str, str] = field(default_factory=dict)
+    person_list_column_widths: dict[str, int] = field(default_factory=dict)
 
 
 class AppSettingsService:
@@ -274,6 +284,8 @@ class AppSettingsService:
                 "boende": cv.boende,
                 "research": cv.research,
             },
+            "window_geometries": dict(settings.window_geometries),
+            "person_list_column_widths": dict(settings.person_list_column_widths),
         }
 
     def _deserialize(self, data: dict) -> AppSettings:
@@ -420,4 +432,44 @@ class AppSettingsService:
             diagram_settings=diagram_settings,
             person_list_config=person_list_config,
             column_visibility=column_visibility,
+            window_geometries=_deserialize_window_geometries(
+                data.get("window_geometries")
+            ),
+            person_list_column_widths=_deserialize_column_widths(
+                data.get("person_list_column_widths")
+            ),
         )
+
+
+def _deserialize_window_geometries(value: object) -> dict[str, str]:
+    """Return the stored window geometries, dropping anything malformed.
+
+    Only string keys with string values are kept, so a hand-edited or damaged
+    entry is ignored and that window simply opens at its default size.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: item
+        for key, item in value.items()
+        if isinstance(key, str) and isinstance(item, str) and key and item
+    }
+
+
+def _deserialize_column_widths(value: object) -> dict[str, int]:
+    """Return the stored column widths, dropping anything malformed.
+
+    Only string keys with positive integer widths are kept (``bool`` is not
+    accepted as an integer), so a damaged entry leaves that column at its
+    default width.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: width
+        for key, width in value.items()
+        if isinstance(key, str)
+        and isinstance(width, int)
+        and not isinstance(width, bool)
+        and width > 0
+    }
