@@ -124,6 +124,74 @@ def research_brief_rows(index: ResearchIndex, person_id: str) -> list[ResearchBr
     return rows
 
 
+#: How a child is listed, by its parentage link to the person shown.
+#: Unlisted types are shown as ordinary children.
+_CHILD_GROUP_LABELS: dict[str, str] = {
+    "biological": "Barn",
+    "foster": "Fosterbarn",
+    "adoptive": "Adoptivbarn",
+    "step": "Styvbarn",
+    "legal": "Juridiska barn",
+}
+_CHILD_GROUP_ORDER: tuple[str, ...] = ("Barn", "Adoptivbarn", "Fosterbarn", "Styvbarn", "Juridiska barn")
+
+
+def _display_name(person) -> str:
+    if not person.names:
+        return person.id
+    return f"{person.names[0].given} {person.names[0].surname}".strip() or person.id
+
+
+def family_summary_lines(data, person_id: str, families: list) -> list[str]:
+    """Return one line per partner set for the families of a person.
+
+    Families sharing the same partners are merged into one line, so a couple
+    with biological children in one family record and foster children in
+    another reads "Partner: Janne Karlsson · Barn: Rut Karlsson · Fosterbarn:
+    Bertil Svensson". Each child is grouped by its parentage link to
+    *person_id* (biological when there is no explicit link) and listed once.
+    A family without partners other than the person reads without "Partner".
+    """
+    persons = {p.id: p for p in data.persons}
+    groups: dict[frozenset, list] = {}
+    for family in families:
+        key = frozenset(
+            partner.person_id
+            for partner in family.partners
+            if partner.person_id != person_id
+        )
+        groups.setdefault(key, []).append(family)
+
+    lines: list[str] = []
+    for partner_ids, grouped in groups.items():
+        partner_names = [
+            _display_name(persons[pid])
+            for family in grouped[:1]
+            for partner in family.partners
+            if (pid := partner.person_id) in partner_ids and pid in persons
+        ]
+
+        children: dict[str, list[str]] = {}
+        seen: set[str] = set()
+        for family in grouped:
+            for child_id in family.children:
+                if child_id in seen or child_id not in persons:
+                    continue
+                seen.add(child_id)
+                parentage = _parentage_type_for(family, child_id, person_id)
+                label = _CHILD_GROUP_LABELS.get(parentage, "Barn")
+                children.setdefault(label, []).append(_display_name(persons[child_id]))
+
+        parts: list[str] = []
+        if partner_names:
+            parts.append(f"Partner: {', '.join(partner_names)}")
+        for label in _CHILD_GROUP_ORDER:
+            if label in children:
+                parts.append(f"{label}: {', '.join(children[label])}")
+        lines.append(" · ".join(parts) if parts else "(inga detaljer)")
+    return lines
+
+
 class PersonDetailPanel(QWidget):
     """Panel showing detailed information about the currently selected person.
 
@@ -282,11 +350,15 @@ class PersonDetailPanel(QWidget):
                 entry_widget.setStyleSheet("margin-left: 8px; margin-top: 2px;")
                 self._content_layout.addWidget(entry_widget)
 
-        # Partner/barn familjer
+        # Partner/barn familjer. Families with the same partners (for example
+        # one holding the biological children and one the foster children) are
+        # shown as one line.
         families = self._get_person_families(self._current_person_id)
         if families:
-            for family in families:
-                fam_widget = self._build_family_widget(family)
+            for line in family_summary_lines(data, self._current_person_id, families):
+                fam_widget = QLabel(f"  {line}")
+                fam_widget.setWordWrap(True)
+                fam_widget.setStyleSheet("margin-left: 8px; margin-top: 2px;")
                 self._content_layout.addWidget(fam_widget)
 
         if not parents_siblings and not families:
@@ -418,39 +490,6 @@ class PersonDetailPanel(QWidget):
         text = " — ".join(parts)
         label = QLabel(f"  {text}")
         label.setTextFormat(Qt.TextFormat.RichText)
-        label.setWordWrap(True)
-        label.setStyleSheet("margin-left: 8px; margin-top: 2px;")
-        return label
-
-    def _build_family_widget(self, family) -> QWidget:
-        """Build a compact widget for a family relationship."""
-        data = self._app.project_service.data
-
-        # Find partner(s)
-        partner_names = []
-        for partner in family.partners:
-            if partner.person_id != self._current_person_id:
-                person = next((p for p in data.persons if p.id == partner.person_id), None)
-                if person and person.names:
-                    name = f"{person.names[0].given} {person.names[0].surname}".strip()
-                    partner_names.append(name)
-
-        # Children
-        child_names = []
-        for child_id in family.children:
-            person = next((p for p in data.persons if p.id == child_id), None)
-            if person and person.names:
-                name = f"{person.names[0].given} {person.names[0].surname}".strip()
-                child_names.append(name)
-
-        parts = []
-        if partner_names:
-            parts.append(f"Partner: {', '.join(partner_names)}")
-        if child_names:
-            parts.append(f"Barn: {', '.join(child_names)}")
-
-        text = "  " + " · ".join(parts) if parts else "  (inga detaljer)"
-        label = QLabel(text)
         label.setWordWrap(True)
         label.setStyleSheet("margin-left: 8px; margin-top: 2px;")
         return label
