@@ -96,6 +96,11 @@ class Application:
         self._research_signals = ResearchSignals()
         self.project_service.add_research_listener(self._research_signals.changed.emit)
 
+        # Entity editors reach the research actions through this gateway.
+        from slaktbusken.ui.research_gateway import set_research_gateway
+
+        set_research_gateway(self)
+
         # Application-level settings service
         from slaktbusken.persistence.app_settings_io import AppSettingsService
 
@@ -1415,6 +1420,13 @@ class Application:
     # Research
     # ------------------------------------------------------------------
 
+    def show_research_for_entity(self, entity_type: str, entity_id: str) -> None:
+        """Show the research overview filtered to the cases about one entity."""
+        self.show_research_overview("cases")
+        window = getattr(self, "_research_overview", None)
+        if window is not None:
+            window.filter_to_entity(entity_type, entity_id)
+
     def show_research_overview(self, initial_mode: str = "cases") -> None:
         """Show the research overview window in the given mode.
 
@@ -1500,7 +1512,15 @@ class Application:
         if self.project_service.project_path is None:
             return
 
-        parent = getattr(self, "_research_overview", None) or self.main_window
+        # Open on top of whatever dialog the user came from (an entity editor
+        # keeps its unsaved edits underneath), else the overview or main window.
+        from PySide6.QtWidgets import QApplication as _QApp
+
+        parent = (
+            _QApp.activeModalWidget()
+            or getattr(self, "_research_overview", None)
+            or self.main_window
+        )
         dialog = QDialog(parent)
         dialog.setWindowTitle("Forskningsärende")
         dialog.setMinimumSize(760, 700)
@@ -1526,6 +1546,63 @@ class Application:
         dialog.exec()
         self._update_status()
 
+    # --- ResearchGateway (used by the entity editors' research tabs) ---
+
+    def open_research_action(self, case_id: str, action_id: str) -> None:
+        """Open the case that owns an action and select the action."""
+        self.open_research_case(case_id, select_action_id=action_id)
+
+    def create_research_case(self, entity_type: str, entity_id: str) -> None:
+        """Create a case about an entity; the entity becomes its primary entity."""
+        from slaktbusken.model.research_case import ResearchEntityLink
+
+        self.open_research_case(None, ResearchEntityLink(entity_type, entity_id))
+
+    def link_research_case(self, entity_type: str, entity_id: str) -> None:
+        """Let the user pick an existing case and link the entity to it."""
+        from slaktbusken.ui.dialogs.research_case_picker_dialog import (
+            ResearchCasePickerDialog,
+        )
+        from PySide6.QtWidgets import QApplication as _QApp
+
+        if self.project_service.project_path is None:
+            return
+        parent = _QApp.activeModalWidget() or self.main_window
+        case_id = ResearchCasePickerDialog.pick(
+            self.project_service.data, entity_type, entity_id, parent
+        )
+        if case_id:
+            self.project_service.link_research_case_entity(case_id, entity_type, entity_id)
+            self._update_status()
+
+    def unlink_research_case(self, case_id: str, entity_type: str, entity_id: str) -> None:
+        """Remove the association between a case and an entity after confirming.
+
+        Only the link is removed; the case and everything in it are kept.
+        """
+        from PySide6.QtWidgets import QApplication as _QApp
+        from PySide6.QtWidgets import QMessageBox
+
+        parent = _QApp.activeModalWidget() or self.main_window
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Ta bort kopplingen")
+        box.setText(
+            "Kopplingen mellan forskningsärendet och objektet tas bort. "
+            "Själva forskningsärendet och dess innehåll behålls."
+        )
+        cancel = box.addButton("Avbryt", QMessageBox.ButtonRole.RejectRole)
+        confirm = box.addButton("Ta bort kopplingen", QMessageBox.ButtonRole.AcceptRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if box.clickedButton() is not confirm:
+            return
+        try:
+            self.project_service.unlink_research_case_entity(case_id, entity_type, entity_id)
+        except KeyError:
+            pass
+        self._update_status()
+
     def _open_research_linked_entity(self, entity_type: str, entity_id: str) -> None:
         """Go to a linked entity from the case editor, keeping its unsaved edits.
 
@@ -1534,6 +1611,52 @@ class Application:
         """
         if entity_type == "person":
             self.open_person_editor(entity_id)
+        elif entity_type in ("source", "media"):
+            self._open_single_entity_editor(entity_type, entity_id)
+
+    def _open_single_entity_editor(self, entity_type: str, entity_id: str) -> None:
+        """Open the source or media editor on one entity (modal, on top)."""
+        from PySide6.QtWidgets import QApplication as _QApp
+
+        data = self.project_service.data
+        parent = _QApp.activeModalWidget() or self.main_window
+        dialog = QDialog(parent)
+        dialog.setMinimumSize(800, 600)
+        layout = QVBoxLayout(dialog)
+        if entity_type == "source":
+            from slaktbusken.ui.editors.source_editor import SourceEditor
+
+            source = next((s for s in data.sources if s.id == entity_id), None)
+            if source is None:
+                return
+            dialog.setWindowTitle("Källredigerare")
+            editor = SourceEditor(
+                project_data=data,
+                source=source,
+                project_folder=self.project_service.project_path.parent
+                if self.project_service.project_path
+                else None,
+                parent=dialog,
+            )
+        else:
+            from slaktbusken.ui.editors.media_editor import MediaEditor
+
+            media = next((m for m in data.media if m.id == entity_id), None)
+            if media is None:
+                return
+            dialog.setWindowTitle("Mediaredigerare")
+            editor = MediaEditor(project_data=data, media_item=media, parent=dialog)
+        layout.addWidget(editor)
+        if hasattr(editor, "cancel_requested"):
+            editor.cancel_requested.connect(dialog.reject)
+        saved: list[bool] = []
+        if hasattr(editor, "save_requested"):
+            editor.save_requested.connect(lambda: saved.append(True))
+        dialog.exec()
+        # The editors change project data in place, so a save marks it changed.
+        if saved or entity_type == "media":
+            self.project_service._dirty = True
+            self._update_status()
 
     def show_provider_editor(self) -> None:
         """Open the provider editor dialog.

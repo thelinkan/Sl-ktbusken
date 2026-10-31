@@ -21,6 +21,11 @@ from PySide6.QtWidgets import (
 )
 
 from slaktbusken.ui.icons.icon_registry import icon_registry
+from slaktbusken.ui.widgets.research_indicator import (
+    indicator_color,
+    indicator_state,
+    indicator_tooltip,
+)
 
 if TYPE_CHECKING:
     from slaktbusken.model.name_parser import ParsedGivenName
@@ -31,6 +36,7 @@ _BOX_WIDTH = 240.0
 _BOX_HEIGHT_MIN = 50.0
 _LINE_HEIGHT = 16.0
 _PADDING = 8.0
+_RESEARCH_DOT_DIAMETER = 8.0
 _CORNER_RADIUS = 4.0
 _GENDER_ICON_SIZE = 14.0
 _EVENT_ICON_SIZE = 12.0
@@ -288,6 +294,48 @@ class PersonBoxItem(QGraphicsItem):
 
         # DNA company logos in bottom-right corner (Req 2.1–2.6)
         self._paint_dna_logos(painter)
+
+        # Compact research indicator in the top-right corner
+        self._paint_research_indicator(painter)
+
+    # ------------------------------------------------------------------
+    # Research indicator
+    # ------------------------------------------------------------------
+
+    def _research_indicator(self) -> Optional[tuple[QRectF, str, str]]:
+        """Return ``(hit rect, colour, tooltip)`` for the research dot, or None.
+
+        None when the diagram setting is off or the person has no research case
+        linked directly. Occupies no text row: it is a small dot in the corner.
+        """
+        if not getattr(self._config, "research", False):
+            return None
+        counts = self._display_data.get("research_counts")
+        if counts is None:
+            return None
+        color = indicator_color(indicator_state(counts))
+        if color is None:
+            return None
+        rect = QRectF(
+            _BOX_WIDTH - _PADDING - _RESEARCH_DOT_DIAMETER - 2,
+            _PADDING + 2,
+            _RESEARCH_DOT_DIAMETER,
+            _RESEARCH_DOT_DIAMETER,
+        )
+        return (rect, color, indicator_tooltip(counts))
+
+    def _paint_research_indicator(self, painter: QPainter) -> None:
+        """Paint the compact research dot (orange: open research, grey: all closed)."""
+        indicator = self._research_indicator()
+        if indicator is None:
+            return
+        rect, color, _tooltip = indicator
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QBrush(QColor(color)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(rect)
+        painter.restore()
 
     def _paint_multiple_names_icon(self, painter: QPainter) -> None:
         """Paint the multiple-names indicator to the left of the name line.
@@ -601,8 +649,18 @@ class PersonBoxItem(QGraphicsItem):
             event: The mouse press event.
         """
         if event.button() == Qt.MouseButton.LeftButton:
+            # A click on the research dot opens the person's research and leaves
+            # selection and navigation as they were (Requirement 16.3, 16.4).
+            indicator = self._research_indicator()
+            if indicator is not None and indicator[0].adjusted(-3, -3, 3, 3).contains(event.pos()):
+                from slaktbusken.ui.research_gateway import get_research_gateway
+
+                gateway = get_research_gateway()
+                if gateway is not None:
+                    gateway.show_research_for_entity("person", self._person_id)
+                event.accept()
+                return
             # Selection is managed by the scene/panel
-            pass
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -622,6 +680,10 @@ class PersonBoxItem(QGraphicsItem):
         Args:
             event: The hover move event.
         """
+        research = self._research_indicator()
+        if research is not None and research[0].adjusted(-3, -3, 3, 3).contains(event.pos()):
+            QToolTip.showText(event.screenPos(), research[2])
+            return
         if self._display_data.get("has_multiple_names"):
             # Match the indicator position from _paint_multiple_names_icon
             photo_offset = self._get_photo_text_offset()

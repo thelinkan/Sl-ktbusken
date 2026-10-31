@@ -39,6 +39,8 @@ class PersonBoxConfig:
         notes: Show research notes excerpt.
         cause_of_death: Show the cause of death field.
         clusters: Show DNA cluster names on the card.
+        research: Show a compact research indicator (independent of the person
+            list research column).
     """
 
     name: bool = True
@@ -55,6 +57,7 @@ class PersonBoxConfig:
     cause_of_death: bool = True
     clusters: bool = True
     age: bool = True
+    research: bool = True
 
 
 @dataclass
@@ -336,6 +339,7 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         cause_of_death=person_box_data.get("cause_of_death", True),
         clusters=person_box_data.get("clusters", True),
         age=person_box_data.get("age", True),
+        research=person_box_data.get("research", True),
     )
 
     diagram_settings = DiagramSettings(

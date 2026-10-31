@@ -173,6 +173,16 @@ class ResearchTab(QWidget):
         self._update_summary(index)
         self._update_button_states()
 
+    def entity(self) -> tuple[str, Optional[str]]:
+        """Return the ``(entity_type, entity_id)`` the tab currently shows."""
+        return (self._entity_type, self._entity_id)
+
+    def set_entity(self, entity_type: str, entity_id: Optional[str]) -> None:
+        """Show another entity (or none, for a new unsaved one) and refresh."""
+        self._entity_type = entity_type
+        self._entity_id = entity_id
+        self.refresh()
+
     # ------------------------------------------------------------------
     # Private
     # ------------------------------------------------------------------
@@ -269,6 +279,13 @@ class ResearchTab(QWidget):
         has_selection = self._selected_case_id() is not None
         self._open_button.setEnabled(has_selection)
         self._remove_button.setEnabled(has_selection)
+        # A new, unsaved entity has no id to link to yet.
+        has_entity = bool(self._entity_id)
+        self._new_button.setEnabled(has_entity)
+        self._link_button.setEnabled(has_entity)
+        tip = "" if has_entity else "Spara objektet först."
+        self._new_button.setToolTip(tip)
+        self._link_button.setToolTip(tip)
 
     def _on_open_clicked(self) -> None:
         case_id = self._selected_case_id()

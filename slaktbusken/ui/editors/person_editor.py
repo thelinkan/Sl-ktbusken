@@ -60,7 +60,10 @@ from slaktbusken.ui.widgets.boenden_tab import BoendenTab
 from slaktbusken.model.residence import Endpoint, ResidenceFact
 from slaktbusken.ui.widgets.foto_tab import FotoTab
 from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.research_gateway import connect_research_tab
 from slaktbusken.ui.widgets.research_marker import apply_research_marker, paint_research_dot
+from slaktbusken.ui.widgets.family_research_panel import FamilyResearchPanel
+from slaktbusken.ui.widgets.research_tab import ResearchTab
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +257,7 @@ class PersonEditor(QWidget):
         self._setup_parents_section()
         self._setup_foto_tab()
         self._setup_boenden_tab()
+        self._setup_forskning_tab()
         self._connect_signals()
 
         if self._person is not None:
@@ -600,6 +604,31 @@ class PersonEditor(QWidget):
         self._boenden_tab.create_requested.connect(self._on_create_residence)
         self._boenden_tab.edit_requested.connect(self._on_edit_residence)
         self._boenden_tab.delete_requested.connect(self._on_delete_residence)
+
+    def _setup_forskning_tab(self) -> None:
+        """Insert the "Forskning" tab listing research cases linked to the person.
+
+        Follows the programmatic insertion of the Boenden tab. Opening, creating,
+        linking and unlinking go through the application's research gateway, so
+        the person editor's unsaved edits are not touched.
+        """
+        person_id = self._person.id if self._person is not None else ""
+        self._forskning_tab = ResearchTab(self._project_data, "person", person_id)
+        connect_research_tab(self._forskning_tab)
+
+        # Research about the person's families (parentage, marriage, adoption).
+        self._family_research = FamilyResearchPanel(self._project_data, person_id)
+        family_group = QGroupBox("Familjens forskning")
+        family_layout = QVBoxLayout(family_group)
+        family_layout.addWidget(self._family_research)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.addWidget(self._forskning_tab)
+        container_layout.addWidget(family_group)
+
+        photos_index = self._ui.tab_widget.indexOf(self._ui.photos_tab)
+        self._ui.tab_widget.insertTab(photos_index, container, "Forskning")
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""

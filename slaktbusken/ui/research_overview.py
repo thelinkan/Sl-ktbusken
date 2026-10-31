@@ -370,6 +370,23 @@ class ResearchOverview(QWidget):
             mode = MODE_CASES
         self._tabs.setCurrentIndex(_MODES.index(mode))
 
+    def filter_to_entity(self, entity_type: str, entity_id: str) -> None:
+        """Show the case table filtered to the cases that link one entity.
+
+        Closed cases are included, since an entity with only closed research
+        should still lead to it.
+        """
+        self.set_mode(MODE_CASES)
+        self._entity_filter = (entity_type, entity_id)
+        self._type_filter.blockSignals(True)
+        self._type_filter.setCurrentIndex(max(0, self._type_filter.findData(entity_type)))
+        self._type_filter.blockSignals(False)
+        self._show_closed.blockSignals(True)
+        self._show_closed.setChecked(True)
+        self._show_closed.blockSignals(False)
+        self._update_entity_button()
+        self._fill_cases()
+
     def mode(self) -> str:
         """Return the mode currently shown."""
         return _MODES[self._tabs.currentIndex()]

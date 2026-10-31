@@ -366,6 +366,7 @@ class AppSettingsService:
                 cause_of_death=pbc_data.get("cause_of_death", True),
                 clusters=pbc_data.get("clusters", True),
                 age=pbc_data.get("age", True),
+                research=pbc_data.get("research", True),
             )
         else:
             person_box_config = PersonBoxConfig()

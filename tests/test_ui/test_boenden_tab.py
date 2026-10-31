@@ -98,14 +98,15 @@ class TestBoendenTabInPersonEditor:
         assert "Boenden" in tab_texts
 
     def test_boenden_tab_before_foton(self, qapp, project_with_residences, person):
-        """The Boenden tab comes immediately before the Foton tab."""
+        """The Boenden tab comes before the Foton tab (Forskning sits between them)."""
         editor = PersonEditor(project_with_residences, person)
         tab_texts = [
             editor._ui.tab_widget.tabText(i)
             for i in range(editor._ui.tab_widget.count())
         ]
         foton_idx = tab_texts.index("Foton")
-        assert tab_texts[foton_idx - 1] == "Boenden"
+        assert tab_texts[foton_idx - 1] == "Forskning"
+        assert tab_texts[foton_idx - 2] == "Boenden"
 
     def test_boenden_tab_not_created_for_new_person(self, qapp, project_no_residences):
         """No Boenden tab when creating a new person (person is None)."""

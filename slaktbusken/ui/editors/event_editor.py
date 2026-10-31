@@ -54,6 +54,7 @@ from slaktbusken.services.source_aspects import (
     get_aspects_for_event_type,
 )
 from slaktbusken.ui.generated.ui_event_editor import Ui_EventEditor
+from slaktbusken.ui.research_gateway import ResearchSection
 from slaktbusken.services.safe_io import is_safe_media_extension, resolve_within
 from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS, DATE_PRECISION_LABELS
 
@@ -300,6 +301,7 @@ class EventEditor(QWidget):
         self._setup_aspect_checkboxes()
         self._setup_photo_section()
         self._setup_event_media_section()
+        self._setup_research_section()
         self._connect_signals()
 
         # Hide the old "Media" section from the .ui file (replaced by Foton + Annan media)
@@ -424,6 +426,22 @@ class EventEditor(QWidget):
         self._new_place_button = QPushButton("Ny plats...", self._ui.place_group)
         # Add the button to the place group layout (after the place combo)
         self._ui.place_group_layout.addWidget(self._new_place_button)
+
+    def _setup_research_section(self) -> None:
+        """Add a compact "Forskning" section for cases linked to this event.
+
+        Opening or creating a case goes through the application and leaves this
+        editor, with its unsaved changes, open underneath. A new event has no id
+        yet, so the section asks the user to save first.
+        """
+        self._research_section = ResearchSection(
+            self._project_data,
+            "event",
+            lambda: self._event.id if self._event is not None else None,
+        )
+        main_layout = self._ui.main_layout
+        status_index = main_layout.indexOf(self._ui.status_label)
+        main_layout.insertWidget(status_index, self._research_section)
 
     def _setup_photo_section(self) -> None:
         """Create the "Foton" section for death/funeral events.

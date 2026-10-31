@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from slaktbusken.services.lineage_computer import LineageComputer
 from slaktbusken.ui.widgets.person_box import PersonBoxItem
+from slaktbusken.ui.widgets.research_marker import begin_diagram_render
 from slaktbusken.ui.widgets.placeholder_box import (
     PlaceholderBoxItem,
     PlaceholderRole,
@@ -723,6 +724,12 @@ class DiagramPanel(QWidget):
                     lineage = LineageComputer(self._project_data)
                     ancestor_set = lineage.get_ancestors(main_person_id)
                     descendant_set = lineage.get_descendants(main_person_id)
+
+            # One research index for all boxes of this render (diagram indicator).
+            begin_diagram_render(
+                self._project_data,
+                self._person_box_config is not None and self._person_box_config.research,
+            )
 
             if (
                 self._current_view == ViewType.FAMILY

@@ -127,7 +127,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - `main_window.py`: add `action_research_overview`/`action_research_todo`/`action_research_hypotheses`, a `menu_bar.addMenu("&Forskning")`, and enable toggling in `_update_project_actions`
     - `app.py`: `show_research_overview(initial_mode)` and `open_research_case(case_id=None, prepopulate=None)` following the `show_dna_editor`/`open_person_editor` dialog pattern, writing back on accept, setting dirty; own the `research_changed` signal and fan it out to open views
     - _Requirements: 18.1, 18.2, 13.1_
-  - [ ] 8.5 Write overview/editor logic tests
+  - [x] 8.5 Write overview/editor logic tests
     - Pure filter and to-do selection logic: default to-do excludes closed cases and the include toggle adds them; hypothesis mode lists one row per hypothesis with assessment and owning case; close-with-pending confirmation path keeps actions pending and cancel restores status; reopen keeps children; completion checkbox round-trips preserving title/text/sources/order and clearing the date never stores ""; reorder persists via `sort_order`; a validation error in the Working_Copy leaves `ProjectData` unchanged; mandatory title blocks save; case-delete confirmation counts children and cancel preserves them
     - _Requirements: 7.4, 7.5, 7.8, 8.2, 8.4, 10.2, 10.3, 10.4, 10.7, 18.6, 18.8, 19.9, 19.11, 19.12, 20.1, 20.2_
 
@@ -135,13 +135,16 @@ Internal keys, identifiers, and comments are English; every user-facing string i
   - [x] 9.1 Create `slaktbusken/ui/widgets/research_tab.py`
     - `ResearchTab(QWidget)` modeled on `BoendenTab`, taking project data, an `(entity_type, entity_id)`, and a `ResearchIndex`; a directly-linked-cases list (status, priority, pending indication) with signals `open_case_requested`, `create_case_requested`, `link_existing_requested`, `remove_association_requested`; a separate **"Förekommer i hypoteser"** section listing `index.hypotheses_for_entity(...)` (statement, assessment, owning case title; opens the owning case) that never feeds counts; a `refresh()` method that rebuilds its own `ResearchIndex` (the "(saknat objekt)" marker lives in the case editor, task 8.1, because the index never returns a case for a missing entity and the host entity always exists), called on the Research_Changed_Notification
     - _Requirements: 17.1, 21.1, 21.2, 22.1, 22.2, 22.3, 22.4, 22.5, 26.2, 30.5_
-  - [ ] 9.2 Integrate the tab into person, place, media editors
+  - [x] 9.2 Integrate the tab into person, place, media editors
+    - Implementation note: the editors only hold project data, so the tab's open/create/link/unlink actions go through `ui/research_gateway.py` (`ResearchGateway`, registered by `Application`, which also supplies `research_changed`). The person editor gets a real "Forskning" tab; the place and media editors have no tab widget, so they get a "Forskning" group box (`ResearchSection`) that follows the editor's selection. `ProjectService.link_research_case_entity`/`unlink_research_case_entity` back "koppla befintligt" and "ta bort kopplingen"
     - Insert via `tab_widget.insertTab(...)` like `_setup_boenden_tab`; create-from-editor prepopulates the current entity as `primary_entity_ref`; remove-association drops the link without deleting the case; register the tab's `refresh()` for the Research_Changed_Notification
     - _Requirements: 21.1, 21.2, 21.3, 21.4, 21.7, 13.2_
-  - [ ] 9.3 Integrate contextual research into event, family/relationship, and DNA views
+  - [x] 9.3 Integrate contextual research into event, family/relationship, and DNA views
+    - Implementation note: event editor and DNA match/cluster views use the same `ResearchSection`; families have no editor of their own, so the person editor's Forskning tab has a "Familjens forskning" panel (`FamilyResearchPanel`) with a chooser over the person's families
     - Event editor compact research section that does not discard unsaved event changes; family/parent-child contextual access using `family`/`event` types; DNA match and cluster views using `dna_match`/`dna_cluster` types
     - _Requirements: 21.5, 21.6, 21.8, 21.9_
-  - [ ] 9.4 Build the source editor "Forskning" tab
+  - [x] 9.4 Build the source editor "Forskning" tab
+    - Implementation note: the source editor has no tab widget, so this is a "Forskning" group box in its scroll area (`SourceResearchSection`); navigating from an action to its source opens the source editor from the case editor ("Gå till objektet" works for persons, sources and media)
     - Two sections: "Forskningsärenden om denna källa" (`cases_for_entity`) and "Forskningsåtgärder där källan används" (`actions_for_source`) showing action title, completion state, completed date, owning case title and status, framed as an examined source and never as hypothesis evidence; unique-case aggregate counts; navigation to action, to owning case, to a source-linked case, and from an action to its source; register `refresh()` for the notification
     - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 9.7, 13.2_
   - [ ] 9.5 Write integration-logic tests
@@ -155,7 +158,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
   - [x] 10.2 Add the person-list "Forskningsärenden" column
     - Add `research: bool` to `PersonListConfig` and `ColumnVisibility`; add a `research_counts` field to `PersonDisplayInfo` filled from a `ResearchIndex` in `build_person_display_list`; render "{open}/{total}" with the indicator colour and empty when none; make it sortable by non-closed then total; wire visibility through `apply_person_list_config` and the header context menu; persist via existing settings
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6_
-  - [ ] 10.3 Add the diagram research indicator
+  - [x] 10.3 Add the diagram research indicator
     - Add `research: bool` to `PersonBoxConfig`; paint a compact indicator in `PersonBoxItem._build_lines` using the helper; add a "Forskningsärenden" checkbox to the settings diagram tab "Personruta – synliga fält"; click opens the person's research; keep selection/navigation unchanged; keep this setting independent of the person-list column
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5_
   - [x] 10.4 Add indicators to other entity views where markers already exist

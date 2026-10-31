@@ -37,6 +37,7 @@ from slaktbusken.ui.views.parent_display import (
 )
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
 from slaktbusken.ui.widgets.person_box import PersonBoxItem, _BOX_WIDTH
+from slaktbusken.ui.widgets.research_marker import diagram_research_counts
 from slaktbusken.ui.widgets.placeholder_box import PlaceholderBoxItem, PlaceholderRole
 
 logger = logging.getLogger(__name__)
@@ -949,6 +950,7 @@ def _build_display_data(
         "name": display_name,
         "name_parsed": name_parsed,
         "has_multiple_names": len(person.names) > 1,
+        "research_counts": diagram_research_counts(person.id),
         "names_tooltip": _build_names_tooltip(person) if len(person.names) > 1 else "",
         "profile_photo": None,
         "dna_companies": [],

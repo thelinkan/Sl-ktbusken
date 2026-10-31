@@ -96,6 +96,36 @@ def paint_research_dot(
     painter.restore()
 
 
+# ---------------------------------------------------------------------------
+# Diagram render context
+# ---------------------------------------------------------------------------
+#
+# The diagram builds the display data of dozens of boxes per render. Building a
+# ResearchIndex for each would be wasteful, so the panel builds one index at the
+# start of a render and the box data builders read counts from it.
+
+_diagram_index = None
+
+
+def begin_diagram_render(project_data, enabled: bool = True) -> None:
+    """Build the research index used by the person boxes of one render.
+
+    Pass ``enabled=False`` (or no data) when the diagram research indicator is
+    switched off, so no index is built.
+    """
+    global _diagram_index
+    from slaktbusken.services.research_index import ResearchIndex
+
+    _diagram_index = ResearchIndex(project_data) if enabled and project_data is not None else None
+
+
+def diagram_research_counts(person_id: str) -> ResearchCaseCounts:
+    """Return the direct research counts of a person for the current render."""
+    if _diagram_index is None:
+        return ResearchCaseCounts(0, 0)
+    return _diagram_index.counts_for_entity("person", person_id)
+
+
 class ResearchMarkerDelegate(QStyledItemDelegate):
     """Delegate that paints the research dot after an item's text."""
 

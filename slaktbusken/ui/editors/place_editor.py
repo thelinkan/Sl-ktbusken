@@ -58,6 +58,7 @@ from slaktbusken.ui.generated.ui_place_editor import Ui_PlaceEditor
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.widgets.coordinate_spin_box import CoordinateSpinBox
 from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.research_gateway import ResearchSection
 from slaktbusken.ui.widgets.research_marker import apply_research_marker, paint_research_dot
 
 logger = logging.getLogger(__name__)
@@ -428,6 +429,7 @@ class PlaceEditor(QWidget):
         self._setup_preset_section()
         self._setup_custom_fields_section()
         self._setup_photo_section()
+        self._setup_research_section()
 
         # Now that all scrollable sections have been inserted (they anchor on
         # status_label's position), pin the status label and action buttons
@@ -991,10 +993,33 @@ class PlaceEditor(QWidget):
         # Photo section
         self._refresh_photo_section(place)
 
+        self._set_research_entity(place.id)
+
         self._clear_status()
+
+    def _setup_research_section(self) -> None:
+        """Add the "Forskning" section for research cases linked to the place."""
+        self._research_entity_id: Optional[str] = None
+        self._research_section = ResearchSection(
+            self._project_data, "place", lambda: self._research_entity_id
+        )
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._research_section)
+        else:
+            right_layout.addWidget(self._research_section)
+
+    def _set_research_entity(self, place_id: Optional[str]) -> None:
+        """Point the research section at the place the editor now shows."""
+        self._research_entity_id = place_id
+        section = getattr(self, "_research_section", None)
+        if section is not None:
+            section.refresh()
 
     def _clear_form(self) -> None:
         """Reset all form fields to their default empty state."""
+        self._set_research_entity(None)
         self._ui.type_combo.setCurrentIndex(0)
         self._ui.name_input.clear()
         self._ui.parent_combo.clear()
@@ -1892,6 +1917,8 @@ class PlaceEditor(QWidget):
         else:
             # New place — add to project
             self._project_data.places.append(self._saved_place)
+
+        self._set_research_entity(place_id)
 
         # Refresh place list so red dot indicator reflects updated parent assignment
         self._refresh_place_list()

@@ -77,19 +77,19 @@ def project_with_clusters(sample_person: Person) -> ProjectData:
 
 
 class TestTabOrder:
-    """Tests verifying the tab order is (Namn, Händelser, Boenden, Foton, DNA, Kluster)."""
+    """Tests verifying the tab order is (Namn, Händelser, Boenden, Forskning, Foton, DNA, Kluster)."""
 
     def test_tab_count_is_five(self, qapp, minimal_project_data, sample_person):
-        """PersonEditor should have exactly 6 tabs (existing person includes Boenden)."""
+        """PersonEditor should have exactly 7 tabs (existing person includes Boenden and Forskning)."""
         editor = PersonEditor(minimal_project_data, person=sample_person)
-        assert editor._ui.tab_widget.count() == 6
+        assert editor._ui.tab_widget.count() == 7
 
     def test_tab_order(self, qapp, minimal_project_data, sample_person):
-        """Tabs should be in order: Namn, Händelser, Boenden, Foton, DNA, Kluster."""
+        """Tabs should be in order: Namn, Händelser, Boenden, Forskning, Foton, DNA, Kluster."""
         editor = PersonEditor(minimal_project_data, person=sample_person)
         tw = editor._ui.tab_widget
 
-        expected_order = ["Namn", "Händelser", "Boenden", "Foton", "DNA", "Kluster"]
+        expected_order = ["Namn", "Händelser", "Boenden", "Forskning", "Foton", "DNA", "Kluster"]
         actual_order = [tw.tabText(i) for i in range(tw.count())]
         assert actual_order == expected_order
 
@@ -106,22 +106,22 @@ class TestTabOrder:
         assert tw.indexOf(editor._ui.events_tab) == 1
 
     def test_photos_tab_is_index_2(self, qapp, minimal_project_data, sample_person):
-        """Foton tab should be at index 3 (Boenden occupies index 2)."""
+        """Foton tab should be at index 4 (Boenden and Forskning occupy 2 and 3)."""
         editor = PersonEditor(minimal_project_data, person=sample_person)
         tw = editor._ui.tab_widget
-        assert tw.indexOf(editor._ui.photos_tab) == 3
+        assert tw.indexOf(editor._ui.photos_tab) == 4
 
     def test_dna_tab_is_index_3(self, qapp, minimal_project_data, sample_person):
-        """DNA tab should be at index 4."""
+        """DNA tab should be at index 5."""
         editor = PersonEditor(minimal_project_data, person=sample_person)
         tw = editor._ui.tab_widget
-        assert tw.indexOf(editor._ui.dna_tab) == 4
+        assert tw.indexOf(editor._ui.dna_tab) == 5
 
     def test_cluster_tab_is_index_4(self, qapp, minimal_project_data, sample_person):
-        """Kluster tab should be at index 5."""
+        """Kluster tab should be at index 6."""
         editor = PersonEditor(minimal_project_data, person=sample_person)
         tw = editor._ui.tab_widget
-        assert tw.indexOf(editor._ui.cluster_tab) == 5
+        assert tw.indexOf(editor._ui.cluster_tab) == 6
 
 
 class TestTabLabels:

@@ -110,6 +110,7 @@ class SettingsDialog(QDialog):
             cause_of_death=self._check_cause_of_death.isChecked(),
             clusters=self._check_clusters.isChecked(),
             age=self._check_age.isChecked(),
+            research=self._check_research.isChecked(),
         )
 
     @property
@@ -369,6 +370,7 @@ class SettingsDialog(QDialog):
         self._check_cause_of_death = QCheckBox("Dödsorsak")
         self._check_clusters = QCheckBox("DNA-kluster")
         self._check_age = QCheckBox("Ålder")
+        self._check_research = QCheckBox("Forskningsärenden")
 
         for cb in [
             self._check_name, self._check_birth_date, self._check_birth_place,
@@ -376,7 +378,7 @@ class SettingsDialog(QDialog):
             self._check_marriage_date, self._check_marriage_place,
             self._check_occupation, self._check_photo, self._check_dna_info,
             self._check_notes, self._check_cause_of_death,
-            self._check_clusters, self._check_age,
+            self._check_clusters, self._check_age, self._check_research,
         ]:
             person_layout.addWidget(cb)
 
@@ -395,6 +397,7 @@ class SettingsDialog(QDialog):
         self._check_cause_of_death.setChecked(config.cause_of_death)
         self._check_clusters.setChecked(config.clusters)
         self._check_age.setChecked(config.age)
+        self._check_research.setChecked(config.research)
 
         layout.addWidget(person_group)
 

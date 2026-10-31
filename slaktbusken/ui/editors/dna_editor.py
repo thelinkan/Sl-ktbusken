@@ -55,6 +55,7 @@ from slaktbusken.ui.dna_match_display import format_match_entry, matches_filter
 from slaktbusken.ui.generated.ui_dna_editor import Ui_DnaEditor
 from slaktbusken.ui.widgets.person_search_widget import PersonSearchWidget
 from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.research_gateway import ResearchSection
 from slaktbusken.ui.widgets.research_marker import ResearchMarkerDelegate, apply_research_marker
 
 logger = logging.getLogger(__name__)
@@ -520,6 +521,7 @@ class DnaEditor(QWidget):
 
         # Redesign cluster tab with split-panel layout (Req 8.1–8.7)
         self._setup_cluster_panel()
+        self._setup_match_research_section()
 
         # Redesign triangulation tab — read-only detail view (Req 7.1–7.5)
         self._setup_triangulation_detail_view()
@@ -635,6 +637,22 @@ class DnaEditor(QWidget):
         # Add the new detail group to the triangulations tab layout
         self._ui.triangulations_layout.addWidget(self._triangulation_detail_group)
 
+    def _setup_match_research_section(self) -> None:
+        """Add the "Forskning" section to the match form for the selected match."""
+        self._match_research_section = ResearchSection(
+            self._project_data,
+            "dna_match",
+            lambda: self._editing_match.id if self._editing_match is not None else None,
+        )
+        self._ui.match_form_layout.addRow(self._match_research_section)
+
+    def _refresh_dna_research(self) -> None:
+        """Re-point the match and cluster research sections at the current selection."""
+        for name in ("_match_research_section", "_cluster_research_section"):
+            section = getattr(self, name, None)
+            if section is not None:
+                section.refresh()
+
     def _setup_cluster_panel(self) -> None:
         """Replace the cluster tab content with a split-panel layout.
 
@@ -732,6 +750,14 @@ class DnaEditor(QWidget):
         self._cluster_save_notes_button.setEnabled(False)
         self._cluster_save_notes_button.clicked.connect(self._on_save_cluster_notes)
         right_layout.addWidget(self._cluster_save_notes_button)
+
+        # Research cases linked to the selected cluster
+        self._cluster_research_section = ResearchSection(
+            self._project_data,
+            "dna_cluster",
+            lambda: self._editing_cluster.id if self._editing_cluster is not None else None,
+        )
+        right_layout.addWidget(self._cluster_research_section)
 
         # Add panels to splitter
         self._cluster_splitter.addWidget(left_widget)
@@ -1453,6 +1479,7 @@ class DnaEditor(QWidget):
             if match.id == match_id:
                 self._editing_match = match
                 self._load_match(match)
+                self._refresh_dna_research()
                 break
 
     def _load_match(self, match: DnaMatch) -> None:
@@ -1482,6 +1509,7 @@ class DnaEditor(QWidget):
     def _on_add_match(self) -> None:
         """Clear form for new match entry."""
         self._editing_match = None
+        self._refresh_dna_research()
         self._ui.match_profile1_combo.setCurrentIndex(0)
         self._ui.match_profile2_combo.setCurrentIndex(0)
         self._ui.match_shared_cm_input.setValue(0.0)
@@ -1513,6 +1541,7 @@ class DnaEditor(QWidget):
         ]
         self._editing_match = None
         self._refresh_matches_list()
+        self._refresh_dna_research()
         self._refresh_match_combos()
         self._clear_status()
 
@@ -1565,6 +1594,7 @@ class DnaEditor(QWidget):
             )
             self._project_data.dna_matches.append(new_match)
             self._editing_match = new_match
+            self._refresh_dna_research()
 
         self._refresh_matches_list()
         self._refresh_match_combos()
@@ -1753,6 +1783,7 @@ class DnaEditor(QWidget):
             # Empty state (Req 8.6)
             self._editing_cluster = None
             self._previous_cluster_id = None
+            self._refresh_dna_research()
             self._cluster_persons_list.clear()
             self._cluster_notes_edit.clear()
             self._cluster_notes_edit.setEnabled(False)
@@ -1765,6 +1796,7 @@ class DnaEditor(QWidget):
                 self._editing_cluster = cluster
                 self._previous_cluster_id = cluster.id
                 self._load_cluster_panel(cluster)
+                self._refresh_dna_research()
                 break
 
     def _persist_cluster_notes(self) -> None:

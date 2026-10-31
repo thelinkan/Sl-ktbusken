@@ -71,6 +71,7 @@ from slaktbusken.services.research_service import (
     apply_working_copy,
     delete_case_cascade,
     diff_working_copy,
+    open_working_copy,
     reconcile_id_high_water_marks,
     rewire_entity_merge,
 )
@@ -1054,6 +1055,50 @@ class ProjectService:
         apply_working_copy(data, working_copy)
         self._commit_research_change()
         return diff
+
+    def link_research_case_entity(
+        self, case_id: str, entity_type: str, entity_id: str, role: str = ""
+    ) -> bool:
+        """Link an entity to an existing case ("koppla befintligt").
+
+        Does nothing, and notifies no one, if the entity is already linked.
+
+        Returns:
+            True if a link was added.
+
+        Raises:
+            KeyError: If there is no case with that id.
+        """
+        from slaktbusken.services.research_editing import add_link
+
+        working_copy = open_working_copy(self.data, case_id)
+        if not add_link(working_copy.case, entity_type, entity_id, role):
+            return False
+        self.commit_research_case_working_copy(working_copy)
+        return True
+
+    def unlink_research_case_entity(
+        self, case_id: str, entity_type: str, entity_id: str
+    ) -> bool:
+        """Remove the association between a case and an entity ("ta bort kopplingen").
+
+        Only the links to that entity are removed. The case, its hypotheses and
+        actions are kept, and no other entity is promoted to primary.
+
+        Returns:
+            True if anything was removed.
+
+        Raises:
+            KeyError: If there is no case with that id.
+        """
+        from slaktbusken.services.research_editing import is_linked, remove_link
+
+        working_copy = open_working_copy(self.data, case_id)
+        if not is_linked(working_copy.case, entity_type, entity_id):
+            return False
+        remove_link(working_copy.case, entity_type, entity_id)
+        self.commit_research_case_working_copy(working_copy)
+        return True
 
     def merge_research_references(
         self, entity_type: str, old_id: str, survivor_id: str

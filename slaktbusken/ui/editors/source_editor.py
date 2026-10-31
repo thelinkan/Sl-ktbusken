@@ -23,7 +23,9 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHeaderView,
+    QVBoxLayout,
     QLabel,
     QLineEdit,
     QListWidgetItem,
@@ -49,7 +51,9 @@ from slaktbusken.services.source_links import generate_direct_link
 from slaktbusken.services.source_stats import compute_usage_stats
 from slaktbusken.services.research_index import ResearchIndex
 from slaktbusken.ui.dialogs.usage_detail_dialog import UsageDetailDialog
+from slaktbusken.ui.research_gateway import connect_source_research
 from slaktbusken.ui.widgets.research_marker import ResearchMarkerDelegate, apply_research_marker
+from slaktbusken.ui.widgets.source_research_tab import SourceResearchSection
 from slaktbusken.ui.generated.ui_source_editor import Ui_SourceEditor
 
 logger = logging.getLogger(__name__)
@@ -130,6 +134,8 @@ class SourceEditor(QWidget):
         # Set up UI from generated form
         self._ui = Ui_SourceEditor()
         self._ui.setupUi(self)
+
+        self._setup_research_section()
 
         # Add direct link label programmatically (after basic_group)
         self._direct_link_label = QLabel(self._ui.scroll_content)
@@ -457,6 +463,24 @@ class SourceEditor(QWidget):
         )
         dialog.exec()
 
+    def _setup_research_section(self) -> None:
+        """Add the "Forskning" group: cases about the source and actions using it."""
+        self._research_group = QGroupBox("Forskning", self._ui.scroll_content)
+        group_layout = QVBoxLayout(self._research_group)
+        self._research_section = SourceResearchSection(
+            self._project_data,
+            lambda: self._source.id if self._source is not None else None,
+            self._research_group,
+        )
+        group_layout.addWidget(self._research_section)
+        connect_source_research(self._research_section)
+        self._ui.scroll_content_layout.addWidget(self._research_group)
+
+    def _refresh_research_section(self) -> None:
+        section = getattr(self, "_research_section", None)
+        if section is not None:
+            section.refresh()
+
     def _on_source_selected(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
         """Handle source list selection change.
 
@@ -472,12 +496,14 @@ class SourceEditor(QWidget):
             if source.id == source_id:
                 self._source = source
                 self._load_source()
+                self._refresh_research_section()
                 break
 
     def _on_add_source(self) -> None:
         """Clear the form to create a new source."""
         self._source = None
         self._clear_form()
+        self._refresh_research_section()
         self._clear_status()
 
     def _on_delete_source(self) -> None:
@@ -521,6 +547,7 @@ class SourceEditor(QWidget):
         ]
         self._source = None
         self._clear_form()
+        self._refresh_research_section()
         self._refresh_source_list(self._ui.search_input.text())
         self._clear_status()
 
@@ -1268,6 +1295,7 @@ class SourceEditor(QWidget):
 
         # Update the in-memory editing source
         self._source = self._saved_source
+        self._refresh_research_section()
 
         # Refresh the source list
         self._refresh_source_list()
