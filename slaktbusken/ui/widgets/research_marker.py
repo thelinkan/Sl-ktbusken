@@ -16,8 +16,8 @@ Usage in a list view::
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QListWidgetItem, QStyledItemDelegate, QStyleOptionViewItem
 
 from slaktbusken.services.research_index import ResearchCaseCounts
@@ -30,8 +30,51 @@ from slaktbusken.ui.widgets.research_indicator import (
 #: Item data role holding the marker colour (a "#RRGGBB" string); absent for no marker.
 MARKER_COLOR_ROLE = Qt.ItemDataRole.UserRole + 20
 
-DOT_DIAMETER = 8
+DOT_DIAMETER = 12  # width of the marker icon in lists
 DOT_SPACING = 4
+
+_icon_cache: dict[tuple[str, int], QPixmap] = {}
+
+
+def research_icon(color: str, size: int = 14) -> QPixmap:
+    """Return a magnifying-glass pixmap in the given colour.
+
+    The glass is drawn rather than loaded from a file so it can take the
+    indicator colour (orange for open research, grey when all is closed).
+    """
+    key = (color, size)
+    cached = _icon_cache.get(key)
+    if cached is not None:
+        return cached
+
+    scale = 4  # draw large and scale down for smooth edges
+    big = size * scale
+    pixmap = QPixmap(big, big)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(QColor(color))
+    pen.setWidthF(big * 0.13)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    # Lens: upper-left circle; handle: diagonal to the lower-right corner.
+    lens = big * 0.60
+    margin = big * 0.10
+    painter.drawEllipse(QRectF(margin, margin, lens, lens))
+    start = margin + lens * 0.5 + (lens * 0.5) * 0.7071
+    end = big - margin * 1.3
+    painter.drawLine(QPointF(start, start), QPointF(end, end))
+    painter.end()
+
+    result = pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    _icon_cache[key] = result
+    return result
 
 
 def apply_research_marker(item: QListWidgetItem, counts: ResearchCaseCounts) -> bool:
@@ -88,12 +131,7 @@ def paint_research_dot(
     x = option.rect.left() + text_margin + icon_width + text_width + DOT_SPACING + extra_offset
     y = option.rect.top() + (option.rect.height() - DOT_DIAMETER) // 2
 
-    painter.save()
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    painter.setBrush(QBrush(QColor(color)))
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawEllipse(QRect(x, y, DOT_DIAMETER, DOT_DIAMETER))
-    painter.restore()
+    painter.drawPixmap(x, y, research_icon(color, DOT_DIAMETER))
 
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,7 @@ from slaktbusken.services.lineage_computer import LineageComputer
 from slaktbusken.services.research_index import ResearchCaseCounts, ResearchIndex
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import format_residence_interval
+from slaktbusken.ui.widgets.research_marker import research_icon
 from slaktbusken.ui.widgets.research_indicator import (
     format_research_counts,
     indicator_color,
@@ -897,6 +898,8 @@ _ROLE_IS_DESCENDANT = Qt.ItemDataRole.UserRole + 2
 _ROLE_HAS_MULTI_NAMES = Qt.ItemDataRole.UserRole + 3
 _ROLE_IS_MAIN_PERSON = Qt.ItemDataRole.UserRole + 4
 _ROLE_DNA_COMPANY_IDS = Qt.ItemDataRole.UserRole + 10
+_ROLE_RESEARCH_COLOR = Qt.ItemDataRole.UserRole + 11  # magnifying-glass colour in the name column
+_RESEARCH_ICON_SIZE = 14
 
 _ANCESTOR_DOT_COLOR = QColor("#C0392B")
 _DESCENDANT_DOT_COLOR = QColor("#27AE60")
@@ -927,6 +930,8 @@ class _DotDelegate(QStyledItemDelegate):
             width += _DOT_DIAMETER + 3
         if is_descendant:
             width += _DOT_DIAMETER + 3
+        if index.data(_ROLE_RESEARCH_COLOR):
+            width += _RESEARCH_ICON_SIZE + 3
         return width
 
     def paint(
@@ -996,6 +1001,15 @@ class _DotDelegate(QStyledItemDelegate):
                 painter.setBrush(QBrush(_DESCENDANT_DOT_COLOR))
                 painter.drawEllipse(x_offset, dot_y, _DOT_DIAMETER, _DOT_DIAMETER)
                 x_offset += _DOT_DIAMETER + 3
+
+            # Research magnifying glass (orange: open research, grey: all closed)
+            research_color = index.data(_ROLE_RESEARCH_COLOR)
+            if research_color:
+                icon_y = rect.top() + (rect.height() - _RESEARCH_ICON_SIZE) // 2
+                painter.drawPixmap(
+                    x_offset, icon_y, research_icon(research_color, _RESEARCH_ICON_SIZE)
+                )
+                x_offset += _RESEARCH_ICON_SIZE + 3
 
             painter.restore()
 
@@ -1872,6 +1886,11 @@ class PersonListPanel(QWidget):
                 color = indicator_color(state)
                 if color is not None:
                     tree_item.setForeground(_RESEARCH_COLUMN, QBrush(QColor(color)))
+                    tree_item.setIcon(_RESEARCH_COLUMN, QIcon(research_icon(color, 16)))
+                    # Also shown in the name column, which is always in view.
+                    if cfg is None or cfg.research:
+                        tree_item.setData(0, _ROLE_RESEARCH_COLOR, color)
+                        tooltip_parts.append(indicator_tooltip(person_info.research_counts))
                     tree_item.setToolTip(
                         _RESEARCH_COLUMN, indicator_tooltip(person_info.research_counts)
                     )

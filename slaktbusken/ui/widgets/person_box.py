@@ -26,6 +26,7 @@ from slaktbusken.ui.widgets.research_indicator import (
     indicator_state,
     indicator_tooltip,
 )
+from slaktbusken.ui.widgets.research_marker import research_icon
 
 if TYPE_CHECKING:
     from slaktbusken.model.name_parser import ParsedGivenName
@@ -36,7 +37,7 @@ _BOX_WIDTH = 240.0
 _BOX_HEIGHT_MIN = 50.0
 _LINE_HEIGHT = 16.0
 _PADDING = 8.0
-_RESEARCH_DOT_DIAMETER = 8.0
+_RESEARCH_ICON_SIZE = 14.0
 _CORNER_RADIUS = 4.0
 _GENDER_ICON_SIZE = 14.0
 _EVENT_ICON_SIZE = 12.0
@@ -316,26 +317,22 @@ class PersonBoxItem(QGraphicsItem):
         color = indicator_color(indicator_state(counts))
         if color is None:
             return None
+        # Directly under the gender icon in the top-right corner.
         rect = QRectF(
-            _BOX_WIDTH - _PADDING - _RESEARCH_DOT_DIAMETER - 2,
-            _PADDING + 2,
-            _RESEARCH_DOT_DIAMETER,
-            _RESEARCH_DOT_DIAMETER,
+            _BOX_WIDTH - _GENDER_ICON_SIZE - _PADDING / 2,
+            _PADDING / 2 + _GENDER_ICON_SIZE + 2,
+            _RESEARCH_ICON_SIZE,
+            _RESEARCH_ICON_SIZE,
         )
         return (rect, color, indicator_tooltip(counts))
 
     def _paint_research_indicator(self, painter: QPainter) -> None:
-        """Paint the compact research dot (orange: open research, grey: all closed)."""
+        """Paint the magnifying glass (orange: open research, grey: all closed)."""
         indicator = self._research_indicator()
         if indicator is None:
             return
         rect, color, _tooltip = indicator
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setBrush(QBrush(QColor(color)))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(rect)
-        painter.restore()
+        painter.drawPixmap(rect.toRect(), research_icon(color, int(_RESEARCH_ICON_SIZE)))
 
     def _paint_multiple_names_icon(self, painter: QPainter) -> None:
         """Paint the multiple-names indicator to the left of the name line.

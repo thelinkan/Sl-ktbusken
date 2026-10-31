@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -354,7 +355,8 @@ class SettingsDialog(QDialog):
 
         # --- Personruta group ---
         person_group = QGroupBox("Personruta – synliga fält", tab)
-        person_layout = QVBoxLayout(person_group)
+        # Two columns keep the dialog from growing taller than a normal screen.
+        person_layout = QGridLayout(person_group)
 
         self._check_name = QCheckBox("Namn")
         self._check_birth_date = QCheckBox("Födelsedatum")
@@ -372,15 +374,18 @@ class SettingsDialog(QDialog):
         self._check_age = QCheckBox("Ålder")
         self._check_research = QCheckBox("Forskningsärenden")
 
-        for cb in [
+        person_checks = [
             self._check_name, self._check_birth_date, self._check_birth_place,
             self._check_death_date, self._check_death_place,
             self._check_marriage_date, self._check_marriage_place,
             self._check_occupation, self._check_photo, self._check_dna_info,
             self._check_notes, self._check_cause_of_death,
             self._check_clusters, self._check_age, self._check_research,
-        ]:
-            person_layout.addWidget(cb)
+        ]
+        rows = (len(person_checks) + 1) // 2
+        for position, cb in enumerate(person_checks):
+            # Fill the left column first, then the right, so reading order is kept.
+            person_layout.addWidget(cb, position % rows, position // rows)
 
         # Load config values
         self._check_name.setChecked(config.name)
