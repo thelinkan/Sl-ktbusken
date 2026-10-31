@@ -10,7 +10,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
 
 ## Tasks
 
-- [ ] 1. Research data model
+- [x] 1. Research data model
   - [x] 1.1 Create `slaktbusken/model/research_case.py` with dataclasses and constants
     - `ResearchEntityLink`, `HypothesisComment`, `ResearchHypothesis`, `ResearchAction`, `ResearchCase` exactly as in the design data model, `id` first, `from __future__ import annotations`, no Qt/IO imports, `source_refs: list[SourceRef]` reusing `model.event.SourceRef`
     - `ResearchAction.__post_init__` calls `normalize_completed_date` so an empty or whitespace-only `completed_date` becomes `None`; no path stores an empty string
@@ -28,7 +28,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - `is_pending` is true exactly when `completed_date is None`; `case_entity_links` yields primary first then linked and mutates nothing; defaults are status `open`, priority `normal`, assessment `unassessed`
     - _Requirements: 1.1, 4.1, 6.4_
 
-- [ ] 2. Project collections and identifiers
+- [x] 2. Project collections and identifiers
   - [x] 2.1 Add the three collections and id prefixes
     - `ProjectData.research_cases`, `research_hypotheses`, `research_actions`, each `list[...] = field(default_factory=list)` after `residences`, empty for a new Project, preserving insertion order
     - Add `research_case`/`research_hypothesis`/`research_action`/`hypothesis_comment` prefixes to `IDGenerator._PREFIXES`
@@ -43,7 +43,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - **Non-reuse across save/reopen**: create `case_7`, delete it, serialize+deserialize, create another case ⇒ the new id is not `case_7`; the persisted `id_high_water_marks` round-trips; a project with research data but no stored map reconstructs the mark on load; a freed id is not reused within one session
     - _Requirements: 1.2, 1.3, 4.3, 5.3, 6.3, 2.1, 2.3, 2.4, 2.5_
 
-- [ ] 3. Validation
+- [x] 3. Validation
   - [x] 3.1 Implement `validate_research_case`, `validate_research_hypothesis`, `validate_research_action`, `validate_hypothesis_comment` in `slaktbusken/model/validators.py`
     - Return `list[str]` of the exact Swedish messages from the requirements; referential checks gated on optional id-set arguments; validate `completed_date` and comment `date` with `is_valid_calendar_date` (real calendar date, not shape-only), so "2026-02-30" is an error
     - Status/priority/assessment validity; length limits; unknown entity type; missing-entity reference; duplicate-link warning; missing-case reference for hypotheses/actions
@@ -52,7 +52,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Empty case is valid at the model layer; each invalid value yields its one message; duplicate link yields the warning; missing references detected only when id-sets are supplied; valid entities yield an empty list; an impossible calendar date is rejected for both comment and completion dates
     - _Requirements: 1.4, 1.5, 1.6, 1.7, 3.2, 3.4, 3.5, 3.7, 4.4, 4.7, 5.5, 6.5, 6.7, 9_
 
-- [ ] 4. Persistence and migration
+- [x] 4. Persistence and migration
   - [x] 4.1 Extend `slaktbusken/persistence/serialization.py`
     - Add the three collection names to `entity_fields`; add to `_ENTITY_MAP`; add nested registries for `linked_entities`, hypothesis `comments`, action `source_refs`, and the optional `primary_entity_ref`
     - Add `_deserialize_research` mirroring `_deserialize_residences`: ignore+log unknown fields, keep+log unresolved references, raise `CorruptedFileError` with a Swedish section-naming message for a present non-list section; normalize any empty-string `completed_date` to `None` on load
@@ -67,7 +67,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Missing/null sections ⇒ empty collections, zero errors; non-list section ⇒ `CorruptedFileError` leaving the open project unchanged; 0.2→0.3 migration idempotent; a real 0.2 project loads unchanged and saves at 0.3
     - _Requirements: 29.2, 29.3, 29.4, 29.5, 29.6, 29.7, 29.8_
 
-- [ ] 5. Research index
+- [x] 5. Research index
   - [x] 5.1 Create `slaktbusken/services/research_index.py`
     - `ResearchCaseCounts` and `ResearchIndex` built once from `ProjectData`, following `foster_sync._ProjectIndex`; reverse maps for cases-by-entity (deduped per case, only links whose target resolves), actions-by-case, hypotheses-by-case, actions-by-source, and a separate hypotheses-by-entity map; pure and read-only
     - Methods `cases_for_entity`, `counts_for_entity`, `actions_for_source`, `actions_for_case`, `hypotheses_for_case`, `pending_action_count`, `hypotheses_for_entity` (returns `(hypothesis, owning_case)` pairs, kept out of the case/count maps)
@@ -77,7 +77,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Case linked to an entity twice appears once and counts once; non-closed/total counts; actions-by-source spanning multiple cases; pending-action count; a freshly built index reflects a close/reopen; `hypotheses_for_entity` returns linking hypotheses with their case and does not change counts; a broken link is absent from entity lookups and counts; near-constant lookup on a large synthetic project
     - _Requirements: 3.8, 12.2, 12.3, 12.4, 12.6, 12.8, 12.9, 22.3, 26.3_
 
-- [ ] 6. Research service, CRUD, and reference integrity
+- [x] 6. Research service, CRUD, and reference integrity
   - [x] 6.1 Add research CRUD to `slaktbusken/services/project_service.py`
     - `add/update/delete_research_case`, `add/update/delete_research_hypothesis`, `add/update/delete_research_action`; each validates (shape only), mutates in place, sets `self._dirty = True`, and triggers the Research_Changed_Notification; issues new ids through the `ResearchIdGenerator` so deleted ids are not reused
     - `commit_research_case_working_copy(working_copy)` — validate the entire case graph, write nothing on any error, else apply all creates/updates/deletes as one in-memory operation; `delete_case_cascade` removes a case and exactly its own hypotheses/comments/actions and returns the child counts
@@ -96,7 +96,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Create/update/delete sets dirty; transactional commit writes nothing when any child is invalid and leaves `ProjectData` unchanged; a cancelled Working_Copy changes nothing; delete of a referenced entity keeps all research and leaves stale refs; merge rewires to survivor, collapses duplicates, and preserves `SourceRef.quality/note/aspects` and link `role`; remove-association drops one link without deleting the case and nulls primary with no auto-promote; `delete_case_cascade` returns correct counts and removes only that case's children; emitting `research_changed` refreshes a registered view and a deleted case disappears from an open overview
     - _Requirements: 1.10, 19.4, 19.9, 19.11, 21.2, 27.1, 27.2, 27.3, 27.6, 27.7, 13.2, 13.4_
 
-- [ ] 7. Source aspects and localization
+- [x] 7. Source aspects and localization
   - [x] 7.1 Extend `slaktbusken/services/source_aspects.py`
     - Add a `research_case` entry to `ENTITY_SOURCE_ASPECTS` and its Swedish labels to `ASPECT_LABELS`; frame action source refs as examined/consulted sources (a "Granskade källor" context), not hypothesis evidence
     - _Requirements: 9.6, 9.7, 9.8_
@@ -107,7 +107,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Every internal value maps to its Swedish label; reverse lookups round-trip; unknown keys fall back to the key
     - _Requirements: 30.6_
 
-- [ ] 8. Central research interface
+- [x] 8. Central research interface
   - [x] 8.1 Create `slaktbusken/ui/editors/research_case_editor.py`
     - `ResearchCaseEditor(QWidget)` with `save_requested`/`cancel_requested` that **edits a deep-copied Working_Copy** and never mutates `ProjectData` until a validated commit; sections Frågeställning, Status, Prioritet, Berörda objekt, Hypoteser, Nästa åtgärder, Genomförda åtgärder, Slutsats; status/priority combos using the locale getters; hypotheses with assessment combo, reasoning, dated-comments sub-list defaulting comment date to today and never storing an empty-string date; two action lists split by `completed_date` with the "Åtgärden genomförd" checkbox, editable "Färdigdatum" (clearing while checked normalizes to `None`, never ""), drag-reorder for pending, and an examined-source attach/detach under "Granskade källor"
     - "Berörda objekt": set/clear primary with no auto-promote on primary removal; a dangling link renders "(saknat objekt)" and offers removal only
@@ -131,7 +131,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Pure filter and to-do selection logic: default to-do excludes closed cases and the include toggle adds them; hypothesis mode lists one row per hypothesis with assessment and owning case; close-with-pending confirmation path keeps actions pending and cancel restores status; reopen keeps children; completion checkbox round-trips preserving title/text/sources/order and clearing the date never stores ""; reorder persists via `sort_order`; a validation error in the Working_Copy leaves `ProjectData` unchanged; mandatory title blocks save; case-delete confirmation counts children and cancel preserves them
     - _Requirements: 7.4, 7.5, 7.8, 8.2, 8.4, 10.2, 10.3, 10.4, 10.7, 18.6, 18.8, 19.9, 19.11, 19.12, 20.1, 20.2_
 
-- [ ] 9. Reusable research tab and existing-editor integration
+- [x] 9. Reusable research tab and existing-editor integration
   - [x] 9.1 Create `slaktbusken/ui/widgets/research_tab.py`
     - `ResearchTab(QWidget)` modeled on `BoendenTab`, taking project data, an `(entity_type, entity_id)`, and a `ResearchIndex`; a directly-linked-cases list (status, priority, pending indication) with signals `open_case_requested`, `create_case_requested`, `link_existing_requested`, `remove_association_requested`; a separate **"Förekommer i hypoteser"** section listing `index.hypotheses_for_entity(...)` (statement, assessment, owning case title; opens the owning case) that never feeds counts; a `refresh()` method that rebuilds its own `ResearchIndex` (the "(saknat objekt)" marker lives in the case editor, task 8.1, because the index never returns a case for a missing entity and the host entity always exists), called on the Research_Changed_Notification
     - _Requirements: 17.1, 21.1, 21.2, 22.1, 22.2, 22.3, 22.4, 22.5, 26.2, 30.5_
@@ -151,7 +151,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Create-from-person sets primary ref; the same case is returned for every linked entity by the index; "Förekommer i hypoteser" lists a hypothesis that names a person whose case is not directly linked to that person, without changing the person's indicator counts; source-editor direct cases and action-usage (incl. cases not directly linked to the source) resolve correctly; unique-case counts; navigation helpers preserve unsaved edits (tested at the controller level)
     - _Requirements: 21.3, 21.9, 22.1, 22.3, 23.2, 23.3, 23.5, 30.4_
 
-- [ ] 10. Indicators and settings
+- [x] 10. Indicators and settings
   - [x] 10.1 Create `slaktbusken/ui/widgets/research_indicator.py`
     - Helper mapping `ResearchCaseCounts` to indicator state (`none`/`grey`/`orange`, never green) and the tooltip "{total} forskningsärenden, varav {open} öppna"
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5_
@@ -169,7 +169,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - State/colour rules incl. never-green and empty-when-none; tooltip text; counts update on close/reopen; column visibility respects and persists the setting; diagram and person-list settings are independent
     - _Requirements: 14.2, 14.3, 14.4, 14.5, 14.6, 15.4, 15.5, 16.5_
 
-- [ ] 11. Person list filter dialog
+- [x] 11. Person list filter dialog
   - [x] 11.1 Refactor `filter_dialog.py` into a two-column resizable layout
     - Left: Namnfilter, Datumintervall, Församling, DNA-kluster; right: Händelsetyper (scroll) and Forskningsärenden; resizable and scrollable; Filtrera/Rensa kept at the bottom
     - _Requirements: 24.1, 24.2_
@@ -183,7 +183,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Each research filter selection; the same-case combination rule (a person with one closed case with a pending action and a separate open case with a completed action is handled per-case); existing filters still function; clear resets research filters
     - _Requirements: 24.4, 24.5, 24.6, 24.7, 24.9_
 
-- [ ] 12. Consistency report and GEDCOM preservation
+- [x] 12. Consistency report and GEDCOM preservation
   - [x] 12.1 Create `slaktbusken/reports/research_consistency.py`
     - `ResearchIssue(severity, check_type, message, case_id, hypothesis_id, action_id, comment_id, ref_entity_type, ref_entity_id)` carrying the affected research entity identity for future navigation; pure `check_research_consistency(data)` running every error and informational check and populating the identity fields; each `message` names the owning case by title or id; `generate_research_consistency_report(data)` grouping by severity then type into Swedish `HeadingBlock`+`ListBlock`/`EmptyStateBlock` sections ("Inga problem hittades." when empty)
     - _Requirements: 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7_
@@ -197,14 +197,14 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Each error check fires on crafted broken data and the finding carries the affected entity identity; each informational check fires; a case with no entity and no action is valid and not deleted; a GEDCOM re-import preserves research and creates no duplicates; a person absent from a later GEDCOM does not delete its research; export reports the research omission counts
     - _Requirements: 25.2, 25.3, 25.5, 25.6, 28.2, 28.3, 28.4, 28.5_
 
-- [ ] 13. Full regression pass
+- [x] 13. Full regression pass
   - [x] 13.1 Verify descriptive-only invariant across the feature
     - Assert that closing a case, rejecting a hypothesis, completing an action, and setting a conclusion change no `Person`/`Event`/`Family`/`Place`/`Source`/`Media`/DNA data
     - _Requirements: 10.6, 23.8, 31.1_
-  - [ ] 13.2 Run the full existing test suite and confirm no regressions
+  - [x] 13.2 Run the full existing test suite and confirm no regressions
     - Confirm pre-feature projects still load, existing person-list filters and columns still behave, existing reports and GEDCOM round-trips are unchanged, and the diagram renders unchanged when the research indicator is off
     - _Requirements: 24.9, 28.1, 29.3, 31.6_
-  - [ ] 13.3 Confirm non-goals are not implemented
+  - [x] 13.3 Confirm non-goals are not implemented
     - No automatic fact changes, no generated conclusions, no confidence percentages, no automatic DNA validation, no external services/reminders/calendar/multi-user, no automatic hypothesis revision history, no research GEDCOM export, no separate research database
     - _Requirements: 31.1, 31.2, 31.3, 31.4, 31.5, 31.6_
 
