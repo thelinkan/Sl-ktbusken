@@ -301,10 +301,10 @@ class TestIdAllocator:
         wc = new_case_working_copy(service.data)
         alloc = WorkingCopyIdAllocator(service.data, wc)
         hypothesis = ResearchHypothesis(id="hypothesis_1", research_case_id=wc.case.id,
-                                        assessment="likely")
+                                        assessment="strong_support")
         comment = add_comment(hypothesis, alloc, today="2026-05-06")
         assert comment.date == "2026-05-06" and comment.id.startswith("hypcomment_")
-        assert hypothesis.assessment == "likely"
+        assert hypothesis.assessment == "strong_support"
 
 
 # ---------------------------------------------------------------------------

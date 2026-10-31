@@ -147,7 +147,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Implementation note: the source editor has no tab widget, so this is a "Forskning" group box in its scroll area (`SourceResearchSection`); navigating from an action to its source opens the source editor from the case editor ("Gå till objektet" works for persons, sources and media)
     - Two sections: "Forskningsärenden om denna källa" (`cases_for_entity`) and "Forskningsåtgärder där källan används" (`actions_for_source`) showing action title, completion state, completed date, owning case title and status, framed as an examined source and never as hypothesis evidence; unique-case aggregate counts; navigation to action, to owning case, to a source-linked case, and from an action to its source; register `refresh()` for the notification
     - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 9.7, 13.2_
-  - [ ] 9.5 Write integration-logic tests
+  - [x] 9.5 Write integration-logic tests
     - Create-from-person sets primary ref; the same case is returned for every linked entity by the index; "Förekommer i hypoteser" lists a hypothesis that names a person whose case is not directly linked to that person, without changing the person's indicator counts; source-editor direct cases and action-usage (incl. cases not directly linked to the source) resolve correctly; unique-case counts; navigation helpers preserve unsaved edits (tested at the controller level)
     - _Requirements: 21.3, 21.9, 22.1, 22.3, 23.2, 23.3, 23.5, 30.4_
 
@@ -165,7 +165,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - Implementation note: a shared `ResearchMarkerDelegate`/`apply_research_marker` (`ui/widgets/research_marker.py`) draws the dot in the place, person-editor event, media, source, and DNA match/cluster lists. Detail-view indicators come with the research tabs/sections in 9.2-9.4, and these lists are rebuilt when the host editor refreshes (live refresh on the notification is wired there)
     - Place/event/source/media/DNA list and detail indicators from directly linked cases, excluding indirect action references (the source-editor action section remains the sole exception); broken links never render as valid navigable links anywhere
     - _Requirements: 17.1, 17.2, 17.3, 26.2, 26.3_
-  - [ ] 10.5 Write indicator and settings tests
+  - [x] 10.5 Write indicator and settings tests
     - State/colour rules incl. never-green and empty-when-none; tooltip text; counts update on close/reopen; column visibility respects and persists the setting; diagram and person-list settings are independent
     - _Requirements: 14.2, 14.3, 14.4, 14.5, 14.6, 15.4, 15.5, 16.5_
 
@@ -198,7 +198,7 @@ Internal keys, identifiers, and comments are English; every user-facing string i
     - _Requirements: 25.2, 25.3, 25.5, 25.6, 28.2, 28.3, 28.4, 28.5_
 
 - [ ] 13. Full regression pass
-  - [ ] 13.1 Verify descriptive-only invariant across the feature
+  - [x] 13.1 Verify descriptive-only invariant across the feature
     - Assert that closing a case, rejecting a hypothesis, completing an action, and setting a conclusion change no `Person`/`Event`/`Family`/`Place`/`Source`/`Media`/DNA data
     - _Requirements: 10.6, 23.8, 31.1_
   - [ ] 13.2 Run the full existing test suite and confirm no regressions
