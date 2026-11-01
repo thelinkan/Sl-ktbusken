@@ -7,6 +7,9 @@ before save. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import uuid
 from pathlib import Path
@@ -40,7 +43,11 @@ from slaktbusken.model.name_parser import validate_given_name_markers
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.services.foster_sync import sync_parentage_links
-from slaktbusken.services.parent_service import ParentInfo, ParentService
+from slaktbusken.services.parent_service import (
+    ParentInfo,
+    ParentService,
+    _format_person_name,
+)
 from slaktbusken.services.photo_service import PhotoService
 from slaktbusken.services.project_service import ValidationError
 from slaktbusken.services.safe_io import read_text_capped, resolve_within
@@ -172,7 +179,7 @@ class EventListMapIconDelegate(QStyledItemDelegate):
         )
 
 
-class PersonEditor(QWidget):
+class PersonEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Person records with tabs for names, events, photos, and DNA.
 
     Displays and edits a Person record with associated names, sex, profile photo,
@@ -199,6 +206,7 @@ class PersonEditor(QWidget):
         parent: QWidget | None = None,
         project_folder: Path | None = None,
         project_service=None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the person editor.
 
@@ -211,6 +219,7 @@ class PersonEditor(QWidget):
                 and to refresh the candidate section on merge notifications.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Personredigerare")
 
         self._project_service = project_service
         self._project_data = project_data
@@ -267,6 +276,72 @@ class PersonEditor(QWidget):
 
         if self._person is not None:
             self._load_person()
+            self.editor_title = (
+                f"Personredigerare: {_format_person_name(self._person)} "
+                f"({self._person.id})"
+            )
+        else:
+            self.editor_title = "Personredigerare: ny person"
+
+        # Baseline for has_unsaved_changes(): the widgets as just loaded.
+        self._baseline = self._form_snapshot()
+
+    # ------------------------------------------------------------------
+    # Editor registry participation (Requirement 26.14, 27.23)
+    # ------------------------------------------------------------------
+
+    def _form_snapshot(self) -> tuple:
+        """Return the editable form content as a comparable value."""
+        table = self._ui.names_table
+        names = []
+        for row in range(table.rowCount()):
+            type_combo = table.cellWidget(row, 0)
+            name_type = type_combo.currentText() if isinstance(type_combo, QComboBox) else ""
+            given_item = table.item(row, 1)
+            surname_item = table.item(row, 2)
+            event_combo = table.cellWidget(row, 3)
+            event_id = (
+                event_combo.currentData() if isinstance(event_combo, QComboBox) else None
+            )
+            names.append((
+                name_type,
+                given_item.text() if given_item else "",
+                surname_item.text() if surname_item else "",
+                event_id,
+            ))
+        return (
+            self._ui.sex_combo.currentText(),
+            self._ui.title_input.text(),
+            self._ui.occupation_input.text(),
+            self._ui.notes_input.toPlainText(),
+            self._profile_media_id,
+            tuple(names),
+        )
+
+    def has_unsaved_changes(self) -> bool:
+        """True when the widgets differ from the loaded (or last saved) person."""
+        baseline = getattr(self, "_baseline", None)
+        if baseline is None:
+            return False
+        return self._form_snapshot() != baseline
+
+    def _discard_for_resolution(self) -> None:
+        """Reset the widgets to the loaded person and close the editor."""
+        self._ui.title_input.clear()
+        self._ui.occupation_input.clear()
+        self._ui.notes_input.clear()
+        self._profile_media_id = None
+        if self._person is not None:
+            self._load_person()
+        else:
+            self._ui.names_table.setRowCount(0)
+            self._ui.sex_combo.setCurrentIndex(0)
+        self._baseline = self._form_snapshot()
+        self._on_cancel()
+
+    def _save_for_resolution(self) -> None:
+        """Run the normal save; validation failures leave the editor unsaved."""
+        self._on_save()
 
     # ------------------------------------------------------------------
     # Public API
@@ -2898,6 +2973,7 @@ class PersonEditor(QWidget):
             occupation=occupation,
         )
 
+        self._baseline = self._form_snapshot()
         self._clear_status()
         logger.info("Person sparad: %s", person_id)
         self.save_requested.emit()

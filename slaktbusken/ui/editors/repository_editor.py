@@ -9,6 +9,9 @@ All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import uuid
 from typing import Optional
@@ -36,7 +39,7 @@ _TYPE_TO_DISPLAY: dict[str, str] = {
 _DISPLAY_TO_TYPE: dict[str, str] = {v: k for k, v in _TYPE_TO_DISPLAY.items()}
 
 
-class RepositoryEditor(QWidget):
+class RepositoryEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Repository records with list and detail panels.
 
     Left panel shows a filterable list of all repositories in the project.
@@ -55,6 +58,7 @@ class RepositoryEditor(QWidget):
         project_data: ProjectData,
         repository: Optional[Repository] = None,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the repository editor.
 
@@ -64,6 +68,7 @@ class RepositoryEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Arkivredigerare")
 
         self._project_data = project_data
         self._repository = repository

@@ -10,6 +10,9 @@ saving a new item. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import os
 import uuid
@@ -78,7 +81,7 @@ MENTIONED_TYPES: set[str] = {
 }
 
 
-class MediaEditor(QWidget):
+class MediaEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for MediaItem records with list and form panels.
 
     Displays a filterable media list on the left and a full edit form on the
@@ -96,6 +99,7 @@ class MediaEditor(QWidget):
         project_data: ProjectData,
         media_item: Optional[MediaItem] = None,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the media editor.
 
@@ -105,6 +109,7 @@ class MediaEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Mediaredigerare")
 
         self._project_data = project_data
         self._media_item = media_item

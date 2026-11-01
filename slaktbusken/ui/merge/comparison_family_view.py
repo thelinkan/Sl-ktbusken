@@ -34,6 +34,13 @@ from slaktbusken.services.diagram_lookup import (
 )
 from slaktbusken.ui.diagram_panel import ZoomableGraphicsView
 from slaktbusken.ui.views.family_view import FamilyView, _build_display_data
+from slaktbusken.ui.merge.comparison_markers import (
+    BADGE_HEIGHT,
+    MARKER_SIZE,
+    CandidateAssessmentBadge,
+    SharedPersonMarker,
+    _TooltipItem,
+)
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
 from slaktbusken.ui.widgets.person_box import PersonBoxItem, _BOX_WIDTH
 
@@ -84,6 +91,7 @@ class ComparisonFamilyView(QWidget):
         self.view_index = view_index
         self._family_view = FamilyView()
         self._extra_boxes: list[PersonBoxItem] = []
+        self._markers: list[_TooltipItem] = []
         self._focal_id: Optional[str] = None
         self._selected_id: Optional[str] = None
         self._expanded: tuple[str, ...] = ()
@@ -188,6 +196,7 @@ class ComparisonFamilyView(QWidget):
         """Redraw the view; zoom and scroll position are kept."""
         self._lookup = lookup
         self._extra_boxes = []
+        self._markers = []
         self._family_view._person_boxes = []
         self._family_view._placeholder_boxes = []
         self._scene.blockSignals(True)
@@ -338,6 +347,52 @@ class ComparisonFamilyView(QWidget):
                     )
             x += width + _BAND_GAP
 
+    # -- markers -------------------------------------------------------------------
+
+    def clear_markers(self) -> None:
+        """Remove every marker added by :meth:`add_shared_marker` / :meth:`add_candidate_badge`."""
+        for item in self._markers:
+            if shiboken6.isValid(item):
+                scene = item.scene()
+                if scene is not None:
+                    scene.removeItem(item)
+        self._markers = []
+
+    def markers(self) -> list[_TooltipItem]:
+        return [m for m in self._markers if shiboken6.isValid(m)]
+
+    def add_shared_marker(self, person_id: str, tooltip: str) -> list[SharedPersonMarker]:
+        """Put a Shared_Person marker on every box of ``person_id`` in this view."""
+        added = []
+        for box in self.person_boxes():
+            if box.person_id != person_id:
+                continue
+            marker = SharedPersonMarker(tooltip, box)
+            marker.setPos(_BOX_WIDTH - MARKER_SIZE - 3.0, 3.0)
+            self._markers.append(marker)
+            added.append(marker)
+        return added
+
+    def add_candidate_badge(
+        self,
+        person_id: str,
+        text: str,
+        tooltip: str,
+        candidate_id: str,
+        callback: Callable[[str], None],
+        slot: int = 0,
+    ) -> list[CandidateAssessmentBadge]:
+        """Put a Candidate_Assessment badge on every box of ``person_id``."""
+        added = []
+        for box in self.person_boxes():
+            if box.person_id != person_id:
+                continue
+            badge = CandidateAssessmentBadge(text, tooltip, candidate_id, callback, box)
+            badge.setPos(4.0, box.box_height - BADGE_HEIGHT - 3.0 - slot * (BADGE_HEIGHT + 2.0))
+            self._markers.append(badge)
+            added.append(badge)
+        return added
+
     # -- selection ---------------------------------------------------------------
 
     def set_selected(self, person_id: Optional[str]) -> None:
@@ -359,6 +414,12 @@ class ComparisonFamilyView(QWidget):
                 QEvent.Type.MouseButtonPress,
                 QEvent.Type.MouseButtonDblClick,
             ):
+                marker = self._marker_at(event.position().toPoint())
+                if marker is not None and event.button() == Qt.MouseButton.LeftButton:
+                    marker.setFocus()
+                    if etype == QEvent.Type.MouseButtonPress:
+                        marker.activate()
+                    return True
                 box = self._box_at(event.position().toPoint())
                 if box is not None and event.button() == Qt.MouseButton.LeftButton:
                     if etype == QEvent.Type.MouseButtonDblClick:
@@ -369,6 +430,10 @@ class ComparisonFamilyView(QWidget):
                     self.show_context_menu(box.person_id, event.globalPosition().toPoint())
                     return True
         return super().eventFilter(obj, event)
+
+    def _marker_at(self, view_pos) -> Optional[_TooltipItem]:
+        item = self._scene.itemAt(self._view.mapToScene(view_pos), self._view.transform())
+        return item if isinstance(item, _TooltipItem) else None
 
     def _box_at(self, view_pos) -> Optional[PersonBoxItem]:
         item = self._scene.itemAt(self._view.mapToScene(view_pos), self._view.transform())

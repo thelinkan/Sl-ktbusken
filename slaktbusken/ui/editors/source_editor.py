@@ -9,6 +9,9 @@ Validates that title and type are set before save. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import shutil
 import uuid
@@ -85,7 +88,7 @@ IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", 
 DOCUMENT_EXTENSIONS: set[str] = {".pdf", ".docx", ".rtf", ".odt"}
 
 
-class SourceEditor(QWidget):
+class SourceEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Source records with list and form panels.
 
     Displays a filterable source list on the left and a full edit form on the
@@ -111,6 +114,7 @@ class SourceEditor(QWidget):
         source: Optional[Source] = None,
         project_folder: Optional[Path] = None,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the source editor.
 
@@ -121,6 +125,7 @@ class SourceEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Källredigerare")
 
         self._project_data = project_data
         self._source = source

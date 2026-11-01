@@ -219,7 +219,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Show the person's candidates with a "Visa historiska" toggle, a create action disabled until the person is first saved, and links to the editor, comparison and register
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.12_
 
-  - [~] 5.11 Write widget tests for the editor dialog, register and editor section
+  - [x] 5.11 Write widget tests for the editor dialog, register and editor section
     - Module `tests/test_ui/test_candidate_register.py`
     - Columns, filters, empty state, comment deletion prompt, unsaved text protection, section visibility toggle (pytest-qt, offscreen)
     - _Requirements: 4.4, 4.7, 4.8, 15.1, 15.12, 16.1_
@@ -239,7 +239,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 3.9, 6.4, 13.7**
     - Module `tests/properties/test_property_09_failed_edits.py`
 
-  - [~] 5.15 Write property test for editor section visibility
+  - [x] 5.15 Write property test for editor section visibility
     - **Property 22: Editor section visibility**
     - **Validates: Requirements 16.1, 16.8**
     - Module `tests/properties/test_property_22_editor_section_visibility.py`
@@ -262,7 +262,7 @@ The design's remaining open questions are implemented with the design's stated d
     - The registry never calls a save or discard method of an editor
     - _Requirements: 26.14, 27.23_
 
-  - [~] 5.19 Make the Person_Editor and all other editors participate in the registry (R2)
+  - [x] 5.19 Make the Person_Editor and all other editors participate in the registry (R2)
     - In `slaktbusken/ui/editors/`: `PersonEditor` implements `has_unsaved_changes()` by comparing its widgets to the loaded person and `request_resolution()` by showing its own modal prompt ("Spara", "Kasta ändringar", "Avbryt") parented to the editor; the event, family, place, source, media, DNA, research case and translation editors register on construction and unregister on `destroyed`; editors that already expose `is_dirty()` delegate to it
     - `request_resolution()` is called only when the user presses "Gå till redigeraren" in the wizard; nothing is saved or discarded automatically
     - _Requirements: 26.14, 27.23_
@@ -301,7 +301,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Apply the same diagram settings as the main diagram
     - _Requirements: 9.2, 9.3, 9.4, 9.5, 9.7, 9.8, 9.9, 9.11, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.10, 10.11, 10.12, 10.13, 10.14, 11.1, 11.6, 11.7, 11.10, 11.11, 18.13_
 
-  - [~] 7.6 Add shared markers, pair selection, candidate panel and sub-comparison
+  - [x] 7.6 Add shared markers, pair selection, candidate panel and sub-comparison
     - Shared_Person marker in both views (ids only, siblings included), candidate relation display, one selected person per view with pair actions "Markera som sammanslagningskandidater" and "Jämför dessa", candidate panel for the current pair, navigation back, depth-20 message, "Fortsätt till sammanslagning" button
     - _Requirements: 10.5, 12.1, 12.2, 12.3, 12.4, 12.8, 13.1, 13.2, 13.3, 13.5, 13.6, 13.8, 13.9, 13.11, 14.5, 14.6, 14.7, 14.8, 14.10, 9.12, 20.1_
 
@@ -405,7 +405,7 @@ The design's remaining open questions are implemented with the design's stated d
     - A click on the research glyph emits `research_indicator_clicked(person_id)` (connected to the research gateway with a person filter in 9.13); a click on the candidate indicator opens the candidate or register for that person and never reaches the research glyph handler
     - _Requirements: 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10, 17.11, 19.6_
 
-  - [~] 9.5 Add candidate indicators to diagram person boxes
+  - [x] 9.5 Add candidate indicators to diagram person boxes
     - Draw the indicator in `PersonBoxItem` independent of the research marker, with its own hit rectangle, 500 ms hover tooltip, click handling through the gateway, and no overlap with the research marker or the Shared_Person marker
     - The research marker's `mousePressEvent` calls `show_research_for_entity("person", id, person_filter=id)` (comparison family views reuse `PersonBoxItem` and behave the same)
     - _Requirements: 18.4, 18.5, 18.6, 18.7, 18.8, 18.9, 18.10, 18.13, 18.14, 19.6_
@@ -446,7 +446,7 @@ The design's remaining open questions are implemented with the design's stated d
     - One overview window is reused: a call with a person filter raises it, sets the filter and switches to the cases page
     - _Requirements: 17.6, 17.8, 17.16, 18.14_
 
-  - [~] 9.13 Connect the person-list research indicator to the gateway (R6)
+  - [x] 9.13 Connect the person-list research indicator to the gateway (R6)
     - In `Application` connect `PersonListPanel.research_indicator_clicked` to `show_research_for_entity("person", pid, person_filter=pid)`
     - _Requirements: 17.6, 17.8, 17.16_
 
@@ -481,7 +481,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Source references untouched, media person links, mentions and annotations, DNA profiles, admin ids and clusters with warnings, research rewire through `rewire_entity_merge` on copies, main person, remaining inventory locations with counts and rules
     - _Requirements: 1.5, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.7, 22.8, 22.9, 22.10, 22.11, 22.12, 22.13, 22.14, 22.15, 22.16, 22.17_
 
-  - [~] 11.4 Implement family and relative planning with synchronised preview (user decisions 3 and 6)
+  - [x] 11.4 Implement family and relative planning with synchronised preview (user decisions 3 and 6)
     - Rewire families on structural clones, collapse duplicates, keep different-type links with one warning per pair, build the working copy and run the real `sync_parentage_links` on it, reconcile intended and synchronised links, run `validate_family` on every changed family, detect cycles and self-relationships, warn about equivalent families without merging them, never pair relatives (two-Brita example gives seven distinct children)
     - Compute the ledger and post-merge validation inputs; the preview is computed after the sync
     - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10, 23.11, 23.12, 23.13, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6, 24.7, 24.8, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 26.2_
@@ -491,17 +491,17 @@ The design's remaining open questions are implemented with the design's stated d
     - Collision: keep the existing id and `enabled`, take the redirected research case only when the existing one is empty, keep the common effective assessment or set `unreviewed` with one dated explanatory Swedish comment naming both assessments and ids, comments ordered existing then redirected then redirect comment then explanatory comment, archive the redirected candidate, result independent of storage order
     - _Requirements: 29.1, 29.2, 29.3, 29.4, 29.5, 29.6, 29.7, 29.8, 29.9, 29.10, 29.12, 29.13, 29.14, 29.15_
 
-  - [~] 11.6 Write property test for read-only planning
+  - [x] 11.6 Write property test for read-only planning
     - **Property 24: Read-only operations leave all stored state equal**
     - **Validates: Requirements 11.8, 20.4, 20.11, 26.8, 31.6**
     - Module `tests/properties/test_property_24_read_only_planning.py`
 
-  - [~] 11.7 Write property test for attribute resolution (Mandatory group a: reference preservation)
+  - [x] 11.7 Write property test for attribute resolution (Mandatory group a: reference preservation)
     - **Property 25: Attribute resolution**
     - **Validates: Requirements 1.3, 20.8, 21.2, 21.3, 21.4, 21.5, 21.7, 21.17, 22.4, 22.5, 22.15, 22.16, 26.4**
     - Module `tests/test_services/test_merge_reference_rules.py` (mandatory marker); function named `test_property_25_attribute_resolution`; required, never skipped
 
-  - [~] 11.8 Write property test for duplicate-event warnings
+  - [x] 11.8 Write property test for duplicate-event warnings
     - **Property 28: Duplicate-event warnings (Similar_Event_Rule)**
     - **Validates: Requirements 21.14, 21.15**
     - Module `tests/test_services/test_similar_events.py` (required; not part of the six Mandatory_Test_Groups)

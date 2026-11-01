@@ -670,6 +670,9 @@ class PlanContext:
     candidate_ops: CandidateOps = CandidateOps()
     identity_ops: IdentityOps = IdentityOps()
     sync_view: Optional[ProjectData] = None
+    #: Scratch space a step may use to hand data to a later step (for example
+    #: the intended links of "families" to "reconcile").
+    state: dict[str, Any] = field(default_factory=dict)
     _item_keys: set[tuple[str, str]] = field(default_factory=set)
 
     def add_item(
@@ -828,3 +831,4 @@ def build_plan(
 # Imported last so `plan_step` and the planner classes already exist.
 from slaktbusken.services import merge_planner_person  # noqa: E402,F401
 from slaktbusken.services import merge_planner_refs  # noqa: E402,F401
+from slaktbusken.services import merge_planner_families  # noqa: E402,F401

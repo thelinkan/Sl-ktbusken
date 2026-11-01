@@ -13,6 +13,9 @@ All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import copy
 import logging
 from typing import Optional, Sequence
@@ -132,7 +135,7 @@ def _build_event_label(event: Event) -> str:
     return label
 
 
-class ResidenceEditor(QWidget):
+class ResidenceEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for ResidenceFact records.
 
     Displays and edits a ResidenceFact with four endpoint bound fields,
@@ -158,6 +161,7 @@ class ResidenceEditor(QWidget):
         residence: Optional[ResidenceFact] = None,
         person_id: Optional[str] = None,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the residence editor.
 
@@ -169,6 +173,7 @@ class ResidenceEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Boenderedigerare")
 
         self._project_data = project_data
         self._residence = residence

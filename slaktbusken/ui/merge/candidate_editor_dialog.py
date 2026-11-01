@@ -1,4 +1,4 @@
-"""Dialog for editing one merge candidate: assessment, active flag, research
+﻿"""Dialog for editing one merge candidate: assessment, active flag, research
 case and dated comments.
 
 Every change goes through a ``ProjectService`` candidate method and is
@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -63,15 +63,27 @@ def delete_prompt_text(comment: MergeCandidateComment) -> str:
     return f"Vill du ta bort kommentaren? ({MSG_NO_DATE})"
 
 
-class CandidateEditorDialog(QDialog):
-    """Edit a merge candidate.
+class _CandidateEditorMixin:
+    """Shared logic of :class:`CandidateEditorDialog` and :class:`CandidatePanel`.
 
     Args:
         service: The project service owning the data.
         candidate_id: Id of the candidate to edit.
         parent: Optional parent widget.
-        registry: Optional editor registry; the dialog registers itself.
+        registry: Optional editor registry; the editor registers itself.
     """
+
+    CLOSE_TEXT = "Stäng"
+
+    @property
+    def candidate_id(self) -> str:
+        return self._candidate_id
+
+    def _init_geometry(self) -> None:
+        """Hook for subclasses to size themselves."""
+
+    def _on_close_clicked(self) -> None:
+        self.close()
 
     def __init__(
         self,
@@ -88,7 +100,7 @@ class CandidateEditorDialog(QDialog):
         self._loading = False
         self.editor_title = f"Kandidatredigerare: {candidate_id}"
         self.setWindowTitle("Sammanslagningskandidat")
-        self.resize(560, 640)
+        self._init_geometry()
         self._build_ui()
         self._start_new_comment()
         self.refresh()
@@ -153,7 +165,7 @@ class CandidateEditorDialog(QDialog):
         self._save_button = QPushButton("Spara kommentar")
         bottom.addWidget(self._save_button)
         bottom.addStretch(1)
-        self._close_button = QPushButton("Stäng")
+        self._close_button = QPushButton(self.CLOSE_TEXT)
         bottom.addWidget(self._close_button)
         layout.addLayout(bottom)
 
@@ -166,7 +178,7 @@ class CandidateEditorDialog(QDialog):
         self._edit_button.clicked.connect(self._on_edit_comment)
         self._delete_button.clicked.connect(self._on_delete_comment)
         self._save_button.clicked.connect(self.save_comment)
-        self._close_button.clicked.connect(self.close)
+        self._close_button.clicked.connect(self._on_close_clicked)
         self._comments.itemSelectionChanged.connect(self._update_buttons)
 
     # -- data access -----------------------------------------------------
@@ -424,8 +436,38 @@ class CandidateEditorDialog(QDialog):
             return ResolutionResult.DISCARDED
         return ResolutionResult.STILL_UNSAVED
 
+
+
+class CandidateEditorDialog(_CandidateEditorMixin, QDialog):
+    """Modal-capable dialog editing one merge candidate."""
+
+    def _init_geometry(self) -> None:
+        self.resize(560, 640)
+
     def done(self, result: int) -> None:
         """Close only when unsaved comment text has been resolved."""
         if not self._resolve_unsaved():
             return
         super().done(result)
+
+
+class CandidatePanel(_CandidateEditorMixin, QWidget):
+    """The same editor as an embedded widget (used inside the comparison window).
+
+    ``close_requested`` is emitted once unsaved comment text has been resolved
+    and the user asked to return to the comparison.
+    """
+
+    CLOSE_TEXT = "Tillbaka till jämförelsen"
+    close_requested = Signal()
+
+    def _on_close_clicked(self) -> None:
+        if self._resolve_unsaved():
+            self.close_requested.emit()
+
+    def request_close(self) -> bool:
+        """Ask to close; False when the user chose to stay."""
+        if not self._resolve_unsaved():
+            return False
+        self.close_requested.emit()
+        return True

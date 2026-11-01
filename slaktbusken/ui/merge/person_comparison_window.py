@@ -1,4 +1,4 @@
-"""Person_Comparison_Window: two persons side by side (comparison stage).
+﻿"""Person_Comparison_Window: two persons side by side (comparison stage).
 
 Layout (design 15.2): a toolbar row, a horizontal ``QSplitter`` with
 Comparison_Family_View 1, Comparison_Family_View 2 and the Comparison_Table in
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import shiboken6
 from PySide6.QtCore import QTimer, Qt, Signal
@@ -39,11 +39,18 @@ from PySide6.QtWidgets import (
 from slaktbusken.model.project import ProjectData
 from slaktbusken.persistence.settings_io import DiagramSettings, PersonBoxConfig
 from slaktbusken.services.candidate_index import CandidateIndex
-from slaktbusken.services.comparison_session import ComparisonSession
+from slaktbusken.services.comparison_session import (
+    DEPTH_REACHED_MESSAGE,
+    SHARED_PERSON_TOOLTIP,
+    ComparisonSession,
+    PushResult,
+)
+from slaktbusken.services.editor_registry import EditorRegistry
 from slaktbusken.services.diagram_lookup import active_lookup, set_active_lookup
 from slaktbusken.services.person_search import PersonSearchIndex
 from slaktbusken.services.person_summary import PersonSummaryIndex
 from slaktbusken.services.project_service import ProjectNotOpenError, ProjectService
+from slaktbusken.ui.merge.candidate_editor_dialog import SAVE, DISCARD, CandidatePanel
 from slaktbusken.ui.merge.comparison_family_view import MAX_EXPANDED, ComparisonFamilyView
 from slaktbusken.ui.merge.comparison_table import ComparisonTable
 from slaktbusken.ui.merge.slot_search import SlotSearchControl
@@ -54,6 +61,14 @@ logger = logging.getLogger(__name__)
 
 WINDOW_TITLE = "Jämför personer"
 SWAP_TEXT = "Byt plats"
+BACK_TEXT = "Tillbaka till föregående jämförelse"
+CONTINUE_TEXT = "Fortsätt till sammanslagning"
+MARK_TEXT = "Markera som kandidater"
+COMPARE_TEXT = "Jämför dessa"
+REGISTER_ERROR_TEXT = "Kandidaterna kunde inte registreras."
+SAVE_ERROR_TEXT = "Kommentaren kunde inte sparas."
+NO_PAIR_TEXT = "Välj en person i vardera familjevyn för att markera eller jämföra dem."
+MAX_BADGES_PER_BOX = 3
 SPLITTER_PROPORTIONS = (0.35, 0.35, 0.30)
 REFRESH_DELAY_MS = 50
 
@@ -83,6 +98,10 @@ class PersonComparisonWindow(QMainWindow):
     """
 
     refreshed = Signal()
+    #: Emitted with (person_1_id, person_2_id) by "Fortsätt till sammanslagning".
+    #: The Merge_Review wizard (a later task) connects here or sets
+    #: :attr:`continue_to_merge_callback`; this window never merges anything.
+    continue_to_merge_requested = Signal(str, str)
 
     def __init__(
         self,
@@ -92,9 +111,13 @@ class PersonComparisonWindow(QMainWindow):
         parent: Optional[QWidget] = None,
         person_box_config: Optional[PersonBoxConfig] = None,
         diagram_settings: Optional[DiagramSettings] = None,
+        editor_registry: Optional[EditorRegistry] = None,
     ) -> None:
         super().__init__(parent)
         self._service = project_service
+        self._registry = editor_registry or getattr(parent, "editor_registry", None)
+        self.continue_to_merge_callback: Optional[Callable[[str, str], None]] = None
+        self._panel: Optional[CandidatePanel] = None
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1400, 800)
 
@@ -139,7 +162,13 @@ class PersonComparisonWindow(QMainWindow):
         self._swap_button = QPushButton(SWAP_TEXT, central)
         self._swap_button.clicked.connect(self.swap)
         self.toolbar_layout.addWidget(self._swap_button)
+        self._back_button = QPushButton(BACK_TEXT, central)
+        self._back_button.clicked.connect(self.go_back)
+        self.toolbar_layout.addWidget(self._back_button)
         self.toolbar_layout.addStretch(1)
+        self._continue_button = QPushButton(CONTINUE_TEXT, central)
+        self._continue_button.clicked.connect(self.continue_to_merge)
+        self.toolbar_layout.addWidget(self._continue_button)
         outer.addLayout(self.toolbar_layout)
 
         self._message = QLabel("", central)
@@ -186,10 +215,27 @@ class PersonComparisonWindow(QMainWindow):
         self._splitter.splitterMoved.connect(self._on_splitter_moved)
         outer.addWidget(self._splitter, stretch=1)
 
-        # Filled by the pair-action task; empty and hidden until then.
+        # The candidate panel (embedded, never a nested dialog) sits here.
+        self.candidate_panel_host = QFrame(central)
+        host_layout = QVBoxLayout(self.candidate_panel_host)
+        host_layout.setContentsMargins(0, 0, 0, 0)
+        self.candidate_panel_host.setMaximumHeight(360)
+        self.candidate_panel_host.setVisible(False)
+        outer.addWidget(self.candidate_panel_host)
+
         self.pair_action_bar = QFrame(central)
-        self.pair_action_bar.setLayout(QHBoxLayout())
-        self.pair_action_bar.setVisible(False)
+        bar = QHBoxLayout(self.pair_action_bar)
+        bar.setContentsMargins(0, 0, 0, 0)
+        self._pair_label = QLabel(NO_PAIR_TEXT, self.pair_action_bar)
+        self._pair_label.setWordWrap(True)
+        self._pair_label.setAccessibleName("Valt par")
+        bar.addWidget(self._pair_label, 1)
+        self._mark_button = QPushButton(MARK_TEXT, self.pair_action_bar)
+        self._compare_button = QPushButton(COMPARE_TEXT, self.pair_action_bar)
+        self._mark_button.clicked.connect(self.mark_as_candidates)
+        self._compare_button.clicked.connect(self.compare_selected)
+        bar.addWidget(self._mark_button)
+        bar.addWidget(self._compare_button)
         outer.addWidget(self.pair_action_bar)
 
         self._candidate_label = QLabel("", central)
@@ -225,6 +271,30 @@ class PersonComparisonWindow(QMainWindow):
     @property
     def swap_button(self) -> QPushButton:
         return self._swap_button
+
+    @property
+    def back_button(self) -> QPushButton:
+        return self._back_button
+
+    @property
+    def continue_button(self) -> QPushButton:
+        return self._continue_button
+
+    @property
+    def mark_button(self) -> QPushButton:
+        return self._mark_button
+
+    @property
+    def compare_button(self) -> QPushButton:
+        return self._compare_button
+
+    @property
+    def candidate_panel(self) -> Optional[CandidatePanel]:
+        """The embedded candidate panel while it is open, else None."""
+        return self._panel
+
+    def pair_text(self) -> str:
+        return self._pair_label.text()
 
     def slot_persons(self) -> tuple[Optional[str], Optional[str]]:
         return self._session.slot_persons()
@@ -273,6 +343,9 @@ class PersonComparisonWindow(QMainWindow):
             self.apply_initial_proportions()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if not self.resolve_unsaved_comment():
+            event.ignore()
+            return
         self._remove_listener()
         self._refresh_timer.stop()
         _open_windows.discard(self)
@@ -331,6 +404,7 @@ class PersonComparisonWindow(QMainWindow):
         self._session.select(view, person_id)
         self._family_views[view].set_selected(self._session.selection(view))
         self._update_selected_labels()
+        self._update_controls()
 
     def navigate(self, view: int, person_id: str) -> None:
         """Re-centre one view; the slot person stays unchanged (10.9)."""
@@ -400,6 +474,167 @@ class PersonComparisonWindow(QMainWindow):
         self._render_views([0, 1], data)
         self.refreshed.emit()
 
+    # ------------------------------------------------- markers (Requirement 12)
+
+    def _update_markers(self, data: ProjectData) -> None:
+        """Shared_Person markers and candidate badges, rebuilt from current content."""
+        views = self._family_views
+        for view in views:
+            view.clear_markers()
+        left_ids = views[0].visible_person_ids()
+        right_ids = views[1].visible_person_ids()
+        for pid in sorted(self._session.shared_person_ids(left_ids, right_ids)):
+            for view in views:
+                view.add_shared_marker(pid, SHARED_PERSON_TOOLTIP)
+        index = CandidateIndex.build(data)
+        placed: dict[tuple[int, str], int] = {}
+        done: set[tuple[int, str, str]] = set()
+        for a in sorted(left_ids):
+            for b in sorted(right_ids):
+                candidate = self._session.candidate_relation(a, b, index)
+                if candidate is None:
+                    continue
+                label = get_candidate_assessment_label(candidate.assessment)
+                tip = f"Kandidatbedömning: {label}. Aktivera för att öppna kommentarerna."
+                for view_index, pid in ((0, a), (1, b)):
+                    key = (view_index, pid, candidate.id)
+                    if key in done:
+                        continue
+                    done.add(key)
+                    slot = placed.get((view_index, pid), 0)
+                    if slot >= MAX_BADGES_PER_BOX:
+                        continue
+                    placed[(view_index, pid)] = slot + 1
+                    views[view_index].add_candidate_badge(
+                        pid, label, tip, candidate.id, self.open_candidate_comments, slot
+                    )
+
+    def open_candidate_comments(self, candidate_id: str) -> None:
+        """Open the comments of a candidate inside this window (12.4)."""
+        self.open_candidate_panel(candidate_id)
+
+    # ----------------------------------------- pair actions (Requirements 13, 14)
+
+    def _update_controls(self) -> None:
+        state = self._session.pair_action_state()
+        self._mark_button.setEnabled(state.enabled)
+        self._compare_button.setEnabled(state.enabled)
+        summaries = self._summaries
+        if state.left_id and state.right_id and summaries is not None:
+            text = f"{_fmt(state.left_id, summaries)} ({state.left_id})  \u2194  " \
+                   f"{_fmt(state.right_id, summaries)} ({state.right_id})"
+            if state.reason:
+                text += f"\n{state.reason}"
+        elif state.reason:
+            text = state.reason
+        else:
+            text = NO_PAIR_TEXT
+        self._pair_label.setText(text)
+        self._back_button.setEnabled(self._session.can_go_back())
+        self._continue_button.setEnabled(self._session.can_continue_to_merge())
+
+    def resolve_unsaved_comment(self) -> bool:
+        """Ask save / discard / stay for unsaved comment text; True to go on (14.6)."""
+        panel = self._panel
+        if panel is None or not shiboken6.isValid(panel) or not panel.has_unsaved_text():
+            return True
+        choice = panel._ask_unsaved()
+        if choice == SAVE:
+            if panel.save_comment():
+                return True
+            self._show_message(SAVE_ERROR_TEXT)
+            return False
+        if choice == DISCARD:
+            panel._start_new_comment()
+            return True
+        return False
+
+    def open_candidate_panel(self, candidate_id: str) -> bool:
+        """Show the candidate panel for ``candidate_id`` inside the window."""
+        if self._panel is not None and self._panel.candidate_id == candidate_id:
+            return True
+        if not self.resolve_unsaved_comment():
+            return False
+        self._close_panel()
+        panel = CandidatePanel(
+            self._service, candidate_id, self.candidate_panel_host, self._registry
+        )
+        panel.close_requested.connect(self._close_panel)
+        self.candidate_panel_host.layout().addWidget(panel)
+        self.candidate_panel_host.setVisible(True)
+        self._panel = panel
+        self._show_message("")
+        return True
+
+    def _close_panel(self) -> None:
+        panel = self._panel
+        self._panel = None
+        if panel is not None and shiboken6.isValid(panel):
+            if self._registry is not None:
+                self._registry.unregister(panel)
+            panel.setParent(None)
+            panel.deleteLater()
+        self.candidate_panel_host.setVisible(False)
+
+    def mark_as_candidates(self) -> bool:
+        """"Markera som kandidater": get or create, then open the panel (13.6, 13.7)."""
+        state = self._session.pair_action_state()
+        if not state.enabled:
+            return False
+        if not self.resolve_unsaved_comment():
+            return False
+        try:
+            candidate, _created = self._service.get_or_create_merge_candidate(
+                state.left_id, state.right_id
+            )
+        except Exception:  # noqa: BLE001 - any failure is reported, selection kept
+            logger.exception("Kandidaterna kunde inte registreras.")
+            self._show_message(REGISTER_ERROR_TEXT)
+            return False
+        self._show_message("")
+        return self.open_candidate_panel(candidate.id)
+
+    def compare_selected(self) -> bool:
+        """"Jämför dessa": show the selected pair in the slots (13.8, 14.1)."""
+        if not self._session.pair_action_state().enabled:
+            return False
+        if not self.resolve_unsaved_comment():
+            return False
+        result = self._session.compare_selected()
+        if result is PushResult.DEPTH_REACHED:
+            self._show_message(DEPTH_REACHED_MESSAGE)
+            return False
+        if result is not PushResult.PUSHED:
+            return False
+        self._close_panel()
+        self._expansion_order = [[], []]
+        self._show_message("")
+        self.refresh()
+        return True
+
+    def go_back(self) -> bool:
+        """"Tillbaka till föregående jämförelse": pop exactly one level (14.4)."""
+        if not self._session.can_go_back():
+            return False
+        if not self.resolve_unsaved_comment():
+            return False
+        self._session.back()
+        self._close_panel()
+        self._expansion_order = [[], []]
+        self._show_message("")
+        self.refresh()
+        return True
+
+    def continue_to_merge(self) -> bool:
+        """"Fortsätt till sammanslagning": only signals; nothing is merged here (20.1)."""
+        if not self._session.can_continue_to_merge():
+            return False
+        left, right = self._session.slot_persons()
+        self.continue_to_merge_requested.emit(left, right)
+        if self.continue_to_merge_callback is not None:
+            self.continue_to_merge_callback(left, right)
+        return True
+
     def _project_folder(self) -> Optional[Path]:
         path = self._service.project_path
         return path.parent if path else None
@@ -410,8 +645,13 @@ class PersonComparisonWindow(QMainWindow):
             for view in views:
                 self._family_views[view].render(ProjectData(), None, self._config)
             self._table.set_rows([], filled=(False, False))
+            self._update_controls()
             return
-        begin_diagram_render(data, bool(getattr(self._config, "research", False)))
+        begin_diagram_render(
+            data,
+            bool(getattr(self._config, "research", False)),
+            bool(getattr(self._config, "merge_candidates", False)),
+        )
         lookup = active_lookup(data)
         self.last_lookup = lookup
         try:
@@ -432,7 +672,9 @@ class PersonComparisonWindow(QMainWindow):
         self._update_table(data)
         self._update_selected_labels()
         self._update_candidate(data)
+        self._update_markers(data)
         self._swap_button.setEnabled(True)
+        self._update_controls()
 
     def _update_table(self, data: ProjectData) -> None:
         summaries = self._summaries or PersonSummaryIndex.build(data)
@@ -499,6 +741,7 @@ def open_comparison_window(
     focus_search: Optional[bool] = None,
     person_box_config: Optional[PersonBoxConfig] = None,
     diagram_settings: Optional[DiagramSettings] = None,
+    editor_registry: Optional[EditorRegistry] = None,
 ) -> PersonComparisonWindow:
     """Open a non-modal comparison window and return it.
 
@@ -514,6 +757,8 @@ def open_comparison_window(
             person and slot 2 is empty (Requirement 9.2, 9.4).
         person_box_config: Optional person-box configuration override.
         diagram_settings: Optional diagram settings override.
+        editor_registry: Registry that lets the embedded candidate panel take
+            part in unsaved-text checks (defaults to ``parent.editor_registry``).
     """
     window = PersonComparisonWindow(
         project_service,
@@ -522,6 +767,7 @@ def open_comparison_window(
         parent,
         person_box_config,
         diagram_settings,
+        editor_registry,
     )
     window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
     _open_windows.add(window)

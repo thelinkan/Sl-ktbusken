@@ -16,6 +16,8 @@ Usage in a list view::
 
 from __future__ import annotations
 
+from typing import Optional
+
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QListWidgetItem, QStyledItemDelegate, QStyleOptionViewItem
@@ -143,18 +145,33 @@ def paint_research_dot(
 # start of a render and the box data builders read counts from it.
 
 _diagram_index = None
+_diagram_candidate_index = None
+_diagram_data = None
+_diagram_summaries = None
 
 
-def begin_diagram_render(project_data, enabled: bool = True) -> None:
-    """Build the research index used by the person boxes of one render.
+def begin_diagram_render(
+    project_data, enabled: bool = True, candidates_enabled: bool = False
+) -> None:
+    """Build the research and candidate indexes used by the person boxes of one render.
 
     Pass ``enabled=False`` (or no data) when the diagram research indicator is
-    switched off, so no index is built.
+    switched off, so no research index is built. ``candidates_enabled`` is
+    ``PersonBoxConfig.merge_candidates``; when false no ``CandidateIndex`` is
+    built at all. Exactly one of each index is built per render.
     """
-    global _diagram_index
+    global _diagram_index, _diagram_candidate_index, _diagram_data, _diagram_summaries
     from slaktbusken.services.research_index import ResearchIndex
 
     _diagram_index = ResearchIndex(project_data) if enabled and project_data is not None else None
+
+    _diagram_data = project_data
+    _diagram_summaries = None
+    _diagram_candidate_index = None
+    if candidates_enabled and project_data is not None:
+        from slaktbusken.services.candidate_index import CandidateIndex
+
+        _diagram_candidate_index = CandidateIndex.build(project_data)
 
     # Render-scoped lookup that replaces the per-box scans of the diagram views.
     from slaktbusken.services.diagram_lookup import begin_lookup
@@ -167,6 +184,35 @@ def diagram_research_counts(person_id: str) -> ResearchCaseCounts:
     if _diagram_index is None:
         return ResearchCaseCounts(0, 0)
     return _diagram_index.counts_for_entity("person", person_id)
+
+
+def diagram_candidate_state(person_id: str) -> Optional[dict]:
+    """Return the candidate indicator state of a person for the current render.
+
+    ``None`` when the candidate setting is off or the person has no indicator.
+    Otherwise a dict with ``colour`` ("blue", "orange" or "grey"), ``kind``
+    ("candidates", or "history" when grey only because of Merge_History) and
+    ``tooltip`` (a callable building the lines lazily on hover).
+    """
+    index = _diagram_candidate_index
+    if index is None:
+        return None
+    from slaktbusken.services.candidate_index import NONE
+
+    colour = index.colour(person_id)
+    if colour == NONE:
+        return None
+    kind = "candidates" if index.relations(person_id).candidates else "history"
+
+    def tooltip() -> list[str]:
+        global _diagram_summaries
+        if _diagram_summaries is None:
+            from slaktbusken.services.person_summary import PersonSummaryIndex
+
+            _diagram_summaries = PersonSummaryIndex.build(_diagram_data)
+        return index.tooltip_lines(person_id, _diagram_summaries)
+
+    return {"colour": colour, "kind": kind, "tooltip": tooltip}
 
 
 class ResearchMarkerDelegate(QStyledItemDelegate):

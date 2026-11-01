@@ -8,6 +8,9 @@ deleting places referenced by events. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import uuid
 from pathlib import Path
@@ -333,7 +336,7 @@ class PlaceListItemDelegate(QStyledItemDelegate):
         return None
 
 
-class PlaceEditor(QWidget):
+class PlaceEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Place records with list/detail split layout.
 
     Displays a filterable list of all places on the left and an edit form
@@ -360,6 +363,7 @@ class PlaceEditor(QWidget):
         place: Optional[Place] = None,
         parent: QWidget | None = None,
         photo_service: "Optional[PhotoService]" = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the place editor.
 
@@ -370,6 +374,7 @@ class PlaceEditor(QWidget):
             photo_service: Optional PhotoService for photo management operations.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Platsredigerare")
 
         self._project_data = project_data
         self._place = place

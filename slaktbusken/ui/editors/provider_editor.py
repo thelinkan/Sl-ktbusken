@@ -8,6 +8,9 @@ All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import uuid
 
@@ -49,7 +52,7 @@ _MODE_ADD_KALLTYP = "add_kalltyp"
 _MODE_EDIT_KALLTYP = "edit_kalltyp"
 
 
-class ProviderEditor(QWidget):
+class ProviderEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Leverantörer and their Källtyper.
 
     Split-panel layout with leverantör list (top-left), källtyp sub-list
@@ -67,6 +70,7 @@ class ProviderEditor(QWidget):
         self,
         project_data: ProjectData,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the provider editor.
 
@@ -75,6 +79,7 @@ class ProviderEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Leverantörsredigerare")
 
         self._project_data = project_data
         self._edit_mode: str = _MODE_NONE

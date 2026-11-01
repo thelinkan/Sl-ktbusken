@@ -15,6 +15,9 @@ them. The host (a dialog or window) connects ``save_requested`` and
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -88,7 +91,7 @@ _ROLE_ID = Qt.ItemDataRole.UserRole
 _ROLE_TYPE = Qt.ItemDataRole.UserRole + 1
 
 
-class ResearchCaseEditor(QWidget):
+class ResearchCaseEditor(EditorRegistryParticipant, QWidget):
     """Editor for one research case and everything that belongs to it.
 
     Signals:
@@ -119,8 +122,10 @@ class ResearchCaseEditor(QWidget):
         case_id: Optional[str] = None,
         primary: Optional[ResearchEntityLink] = None,
         parent: Optional[QWidget] = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         super().__init__(parent)
+        self._join_registry(registry, "Forskningsärenderedigerare")
         self._service = project_service
         data = project_service.data
         if case_id is None:

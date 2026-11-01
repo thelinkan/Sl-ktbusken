@@ -290,6 +290,7 @@ class Application:
             project_data=self.project_service.data,
             person=person,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             project_service=self.project_service,
         )
@@ -371,6 +372,7 @@ class Application:
             project_data=data,
             person=new_person,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             project_service=self.project_service,
         )
@@ -758,6 +760,7 @@ class Application:
             project_data=data,
             person=new_person,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             project_service=self.project_service,
         )
@@ -1307,6 +1310,7 @@ class Application:
             project_data=project_data,
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
         )
         layout.addWidget(editor)
 
@@ -1341,6 +1345,7 @@ class Application:
         editor = PlaceEditor(
             project_data=project_data,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
             photo_service=photo_service,
         )
         layout.addWidget(editor)
@@ -1383,6 +1388,7 @@ class Application:
             project_data=project_data,
             project_path=project_path.parent,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
         )
         layout.addWidget(editor)
 
@@ -1425,6 +1431,7 @@ class Application:
             project_data=project_data,
             project_path=project_path.parent,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
         )
         layout.addWidget(editor)
 
@@ -1461,6 +1468,7 @@ class Application:
             project_data=project_data,
             project_path=self.project_service.project_path,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
         )
         layout.addWidget(editor)
 
@@ -1749,7 +1757,8 @@ class Application:
 
         try:
             editor = ResearchCaseEditor(
-                self.project_service, case_id, prepopulate, parent=dialog
+                self.project_service, case_id, prepopulate, parent=dialog,
+                registry=getattr(self, "editor_registry", None),
             )
         except KeyError:
             # The case was deleted (for example in another window) before opening.
@@ -1858,6 +1867,7 @@ class Application:
                 if self.project_service.project_path
                 else None,
                 parent=dialog,
+                registry=getattr(self, "editor_registry", None),
             )
         else:
             from slaktbusken.ui.editors.media_editor import MediaEditor
@@ -1866,7 +1876,12 @@ class Application:
             if media is None:
                 return
             dialog.setWindowTitle("Mediaredigerare")
-            editor = MediaEditor(project_data=data, media_item=media, parent=dialog)
+            editor = MediaEditor(
+                project_data=data,
+                media_item=media,
+                parent=dialog,
+                registry=getattr(self, "editor_registry", None),
+            )
         layout.addWidget(editor)
         if hasattr(editor, "cancel_requested"):
             editor.cancel_requested.connect(dialog.reject)
@@ -1900,6 +1915,7 @@ class Application:
         editor = ProviderEditor(
             project_data=project_data,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
         )
         layout.addWidget(editor)
 

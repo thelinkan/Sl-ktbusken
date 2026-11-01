@@ -8,6 +8,9 @@ All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import uuid
 from pathlib import Path
@@ -219,7 +222,7 @@ def is_plausible_parent(
     return True
 
 
-class EventEditor(QWidget):
+class EventEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Event records.
 
     Displays and edits an Event record with type selection, participants,
@@ -252,6 +255,7 @@ class EventEditor(QWidget):
         parent: QWidget | None = None,
         project_folder: Path | None = None,
         photo_service: "Optional[PhotoService]" = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the event editor.
 
@@ -264,6 +268,7 @@ class EventEditor(QWidget):
             photo_service: Optional PhotoService for photo management operations.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Händelseredigerare")
 
         self._project_data = project_data
         self._event = event

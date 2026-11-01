@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QGraphicsItem,
@@ -39,6 +39,10 @@ _LINE_HEIGHT = 16.0
 _PADDING = 8.0
 _RESEARCH_ICON_SIZE = 14.0
 _CORNER_RADIUS = 4.0
+_CANDIDATE_ICON_SIZE = 14.0
+_CANDIDATE_ICON_GAP = 2.0
+#: Hover time before the candidate tooltip appears (Requirement 18.5).
+CANDIDATE_TOOLTIP_DELAY_MS = 500
 _GENDER_ICON_SIZE = 14.0
 _EVENT_ICON_SIZE = 12.0
 _EVENT_ICON_GAP = 2.0
@@ -64,6 +68,41 @@ _MAIN_PERSON_BORDER_COLOR = QColor(0xF3, 0x9C, 0x12)
 _TEXT_COLOR = QColor(30, 30, 30)
 _LABEL_COLOR = QColor(100, 100, 100)
 _MULTI_NAMES_COLOR = QColor("#2980B9")  # Blue marker for multiple names
+
+#: Candidate indicator colours (blue: confirmed, orange: possible, grey: history/rejected).
+CANDIDATE_COLOURS = {"blue": "#1E6FD9", "orange": "#E67E22", "grey": "#8A8A8A"}
+
+_candidate_icon_cache: dict[tuple[str, int], QPixmap] = {}
+
+
+def candidate_icon(colour: str, size: int = 14) -> QPixmap:
+    """Return the two-person silhouette used by the candidate indicator.
+
+    Distinct from the magnifying glass of the research marker and from the
+    teal "=" circle of the Shared_Person marker.
+    """
+    key = (colour, size)
+    cached = _candidate_icon_cache.get(key)
+    if cached is not None:
+        return cached
+    scale = 4
+    big = size * scale
+    pixmap = QPixmap(big, big)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(CANDIDATE_COLOURS.get(colour, colour)))
+    r = big * 0.17
+    for cx in (big * 0.30, big * 0.70):
+        painter.drawEllipse(QRectF(cx - r, big * 0.12, 2 * r, 2 * r))
+        painter.drawRoundedRect(QRectF(cx - big * 0.22, big * 0.52, big * 0.44, big * 0.36), r, r)
+    painter.end()
+    result = pixmap.scaled(
+        size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+    )
+    _candidate_icon_cache[key] = result
+    return result
 
 
 class PersonBoxItem(QGraphicsItem):
@@ -111,6 +150,8 @@ class PersonBoxItem(QGraphicsItem):
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
+        self._candidate_timer: Optional[QTimer] = None
+        self._candidate_hover_pos = None
         self._build_lines()
 
     @property
@@ -299,6 +340,9 @@ class PersonBoxItem(QGraphicsItem):
         # Compact research indicator in the top-right corner
         self._paint_research_indicator(painter)
 
+        # Candidate indicator immediately left of it (same row, no overlap)
+        self._paint_candidate_indicator(painter)
+
     # ------------------------------------------------------------------
     # Research indicator
     # ------------------------------------------------------------------
@@ -325,6 +369,81 @@ class PersonBoxItem(QGraphicsItem):
             _RESEARCH_ICON_SIZE,
         )
         return (rect, color, indicator_tooltip(counts))
+
+    @staticmethod
+    def _research_hit_rect(rect: QRectF) -> QRectF:
+        """Hit rectangle of the research marker; stops 1 px short of the candidate one."""
+        return rect.adjusted(-1, -3, 3, 3)
+
+    # ------------------------------------------------------------------
+    # Candidate indicator
+    #
+    # Placement (top-right corner area, no text row, box size unchanged):
+    #   gender icon   y 4..18   x 222..236
+    #   research      y 18..32  x 222..236
+    #   candidate     y 18..32  x 206..220  (left of the research marker)
+    #   Shared_Person badge (comparison window) bottom-left, so it never
+    #   collides with these; the indicators are painted on the box itself
+    #   (below any child item such as that badge) and never hide it.
+    # ------------------------------------------------------------------
+
+    def _candidate_indicator(self) -> Optional[tuple[QRectF, str, object]]:
+        """Return ``(hit rect, colour, tooltip callable)`` or None.
+
+        None when the diagram setting is off or the person's colour is none.
+        """
+        if not getattr(self._config, "merge_candidates", False):
+            return None
+        state = self._display_data.get("candidate_state")
+        if not state or state.get("colour") not in CANDIDATE_COLOURS:
+            return None
+        research_x = _BOX_WIDTH - _GENDER_ICON_SIZE - _PADDING / 2
+        rect = QRectF(
+            research_x - _CANDIDATE_ICON_GAP - _CANDIDATE_ICON_SIZE,
+            _PADDING / 2 + _GENDER_ICON_SIZE + 2,
+            _CANDIDATE_ICON_SIZE,
+            _CANDIDATE_ICON_SIZE,
+        )
+        return (rect, state["colour"], state.get("tooltip"))
+
+    def _candidate_hit_rect(self) -> Optional[QRectF]:
+        indicator = self._candidate_indicator()
+        if indicator is None:
+            return None
+        return indicator[0].adjusted(-3, -3, 0, 3)
+
+    def _paint_candidate_indicator(self, painter: QPainter) -> None:
+        indicator = self._candidate_indicator()
+        if indicator is None:
+            return
+        rect, colour, _tooltip = indicator
+        painter.drawPixmap(rect.toRect(), candidate_icon(colour, int(_CANDIDATE_ICON_SIZE)))
+
+    def _candidate_tooltip_text(self) -> str:
+        indicator = self._candidate_indicator()
+        if indicator is None or indicator[2] is None:
+            return ""
+        return "\n".join(indicator[2]())
+
+    def _start_candidate_tooltip(self, screen_pos) -> None:
+        self._candidate_hover_pos = screen_pos
+        if self._candidate_timer is None:
+            timer = QTimer()
+            timer.setSingleShot(True)
+            timer.setInterval(CANDIDATE_TOOLTIP_DELAY_MS)
+            timer.timeout.connect(self._show_candidate_tooltip)
+            self._candidate_timer = timer
+        if not self._candidate_timer.isActive():
+            self._candidate_timer.start()
+
+    def _stop_candidate_tooltip(self) -> None:
+        if self._candidate_timer is not None:
+            self._candidate_timer.stop()
+
+    def _show_candidate_tooltip(self) -> None:
+        text = self._candidate_tooltip_text()
+        if text and self._candidate_hover_pos is not None:
+            QToolTip.showText(self._candidate_hover_pos, text)
 
     def _paint_research_indicator(self, painter: QPainter) -> None:
         """Paint the magnifying glass (orange: open research, grey: all closed)."""
@@ -648,13 +767,30 @@ class PersonBoxItem(QGraphicsItem):
         if event.button() == Qt.MouseButton.LeftButton:
             # A click on the research dot opens the person's research and leaves
             # selection and navigation as they were (Requirement 16.3, 16.4).
+            # The candidate indicator is checked first; a click on one marker
+            # never triggers the other (Requirement 18.10).
+            hit = self._candidate_hit_rect()
+            if hit is not None and hit.contains(event.pos()):
+                from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
+
+                gateway = get_merge_gateway()
+                state = self._display_data.get("candidate_state") or {}
+                if gateway is not None:
+                    if state.get("kind") == "history":
+                        gateway.open_history(self._person_id)
+                    else:
+                        gateway.open_register(self._person_id)
+                event.accept()
+                return
             indicator = self._research_indicator()
-            if indicator is not None and indicator[0].adjusted(-3, -3, 3, 3).contains(event.pos()):
+            if indicator is not None and self._research_hit_rect(indicator[0]).contains(event.pos()):
                 from slaktbusken.ui.research_gateway import get_research_gateway
 
                 gateway = get_research_gateway()
                 if gateway is not None:
-                    gateway.show_research_for_entity("person", self._person_id)
+                    gateway.show_research_for_entity(
+                        "person", self._person_id, person_filter=self._person_id
+                    )
                 event.accept()
                 return
             # Selection is managed by the scene/panel
@@ -677,8 +813,13 @@ class PersonBoxItem(QGraphicsItem):
         Args:
             event: The hover move event.
         """
+        hit = self._candidate_hit_rect()
+        if hit is not None and hit.contains(event.pos()):
+            self._start_candidate_tooltip(event.screenPos())
+            return
+        self._stop_candidate_tooltip()
         research = self._research_indicator()
-        if research is not None and research[0].adjusted(-3, -3, 3, 3).contains(event.pos()):
+        if research is not None and self._research_hit_rect(research[0]).contains(event.pos()):
             QToolTip.showText(event.screenPos(), research[2])
             return
         if self._display_data.get("has_multiple_names"):
@@ -704,6 +845,7 @@ class PersonBoxItem(QGraphicsItem):
         Args:
             event: The hover leave event.
         """
+        self._stop_candidate_tooltip()
         QToolTip.hideText()
         super().hoverLeaveEvent(event)
 

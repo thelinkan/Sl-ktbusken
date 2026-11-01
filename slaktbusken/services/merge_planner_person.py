@@ -17,6 +17,7 @@ from typing import Optional
 from slaktbusken.model.event import Event
 from slaktbusken.model.person import Person
 from slaktbusken.services import merge_rules as rules
+from slaktbusken.services import person_reference_index as pri
 from slaktbusken.services.merge_planner import (
     SEVERITY_BLOCKING,
     SEVERITY_WARNING,
@@ -333,3 +334,20 @@ def plan_residences(ctx: PlanContext) -> None:
                          "Flyttas till behållen person")
         elif fact.person_id == ctx.survivor_id:
             ctx.add_item("residences", fact.id, label, Disposition.PRESERVED, "Bevaras")
+
+
+# ---------------------------------------------------------------------------
+# Handler registration (inventory rows this module applies)
+# ---------------------------------------------------------------------------
+
+_HANDLERS = {
+    "person.sex": plan_attributes,
+    "person.title_occupation": plan_attributes,
+    "person.notes": plan_attributes,
+    "person.names": plan_names,
+    "event.participants": plan_events,
+    "residence.person": plan_residences,
+}
+
+for _key, _func in _HANDLERS.items():
+    pri.register_handler(_key, _func)

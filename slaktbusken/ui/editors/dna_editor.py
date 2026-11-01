@@ -8,6 +8,9 @@ All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import shutil
 import uuid
@@ -378,7 +381,7 @@ def resolve_profile_logo_icon(
     return QIcon(scaled)
 
 
-class DnaEditor(QWidget):
+class DnaEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for DNA-related records with tabbed interface.
 
     Provides management of DNA companies, profiles, matches,
@@ -396,6 +399,7 @@ class DnaEditor(QWidget):
         project_data: ProjectData,
         project_path: Path | None = None,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the DNA editor.
 
@@ -405,6 +409,7 @@ class DnaEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "DNA-redigerare")
 
         self._project_data = project_data
         self._project_path = project_path

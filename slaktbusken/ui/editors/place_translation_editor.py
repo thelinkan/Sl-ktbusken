@@ -9,6 +9,9 @@ unmapped GEDCOM place strings. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 from pathlib import Path
 
@@ -329,7 +332,7 @@ class CreatePlaceDialog(QDialog):
         self.accept()
 
 
-class PlaceTranslationEditor(QWidget):
+class PlaceTranslationEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for GEDCOM place → App_JSON place translation mappings.
 
     Displays a searchable table of existing place mappings with hierarchy
@@ -361,6 +364,7 @@ class PlaceTranslationEditor(QWidget):
         project_data: ProjectData,
         project_path: Path,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the place translation editor.
 
@@ -371,6 +375,7 @@ class PlaceTranslationEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Platsöversättningsredigerare")
 
         self._translation_service = translation_service
         self._project_data = project_data

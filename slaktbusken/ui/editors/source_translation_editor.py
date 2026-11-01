@@ -7,6 +7,9 @@ source records exist before persisting changes. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 from pathlib import Path
 
@@ -26,7 +29,7 @@ from slaktbusken.ui.generated.ui_source_translation_editor import (
 logger = logging.getLogger(__name__)
 
 
-class SourceTranslationEditor(QWidget):
+class SourceTranslationEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for GEDCOM source → App_JSON source translation mappings.
 
     Displays a searchable table of existing source mappings and provides
@@ -46,6 +49,7 @@ class SourceTranslationEditor(QWidget):
         project_data: ProjectData,
         project_path: Path,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the source translation editor.
 
@@ -56,6 +60,7 @@ class SourceTranslationEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Källöversättningsredigerare")
 
         self._translation_service = translation_service
         self._project_data = project_data

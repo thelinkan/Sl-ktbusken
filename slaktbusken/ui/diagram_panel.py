@@ -729,6 +729,8 @@ class DiagramPanel(QWidget):
             begin_diagram_render(
                 self._project_data,
                 self._person_box_config is not None and self._person_box_config.research,
+                self._person_box_config is not None
+                and getattr(self._person_box_config, "merge_candidates", False),
             )
 
             if (
