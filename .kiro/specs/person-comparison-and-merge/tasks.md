@@ -210,12 +210,12 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `CandidateEditorDialog` with assessment selector, enabled toggle, research case picker (reusing `research_case_picker_dialog`), dated comments with the confirmation prompt for deletion, and unsaved-text protection
     - _Requirements: 3.1, 3.4, 3.9, 4.2, 4.4, 4.7, 4.8, 6.2, 6.3, 6.5, 13.6, 13.11, 13.12_
 
-  - [~] 5.9 Build the Candidate_Register window and register it in the application
+  - [x] 5.9 Build the Candidate_Register window and register it in the application
     - Create the "Sammanslagningskandidater" window with the columns, filters, search, sorting, empty-table message and edit actions from Requirement 15
     - Make `Application` implement and register the `MergeGateway`; create the single `EditorRegistry` instance (5.18) owned by `Application`; add the main-window action to open the register
     - _Requirements: 8.1, 8.8, 8.9, 15.1, 15.2, 15.6, 15.7, 15.8, 15.10, 15.11, 15.12, 26.14_
 
-  - [~] 5.10 Add the candidate section to the Person_Editor
+  - [x] 5.10 Add the candidate section to the Person_Editor
     - Show the person's candidates with a "Visa historiska" toggle, a create action disabled until the person is first saved, and links to the editor, comparison and register
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.12_
 
@@ -234,7 +234,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 3.6, 4.5, 5.1**
     - Module `tests/properties/test_property_08_field_local_edits.py`
 
-  - [~] 5.14 Write property test for failed edits
+  - [x] 5.14 Write property test for failed edits
     - **Property 9: A failed candidate edit leaves the stored state unchanged**
     - **Validates: Requirements 3.9, 6.4, 13.7**
     - Module `tests/properties/test_property_09_failed_edits.py`
@@ -296,7 +296,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 8.4, 8.5, 8.6, 8.7, 9.1**
     - Module `tests/properties/test_property_11_menu_enablement.py`
 
-  - [~] 7.5 Build the Person_Comparison_Window
+  - [x] 7.5 Build the Person_Comparison_Window
     - Create `ui/merge/` comparison window: horizontal `QSplitter` with two Person_Slots (Slot_Search_Control above a Comparison_Family_View with independent navigation, expansion and zoom) and the Comparison_Table; each Comparison_Family_View shows parents, partners, children and siblings (sibling row); resizable and maximizable; empty-state indication; clear a slot when its person is deleted; refresh within the stated times on project change
     - Apply the same diagram settings as the main diagram
     - _Requirements: 9.2, 9.3, 9.4, 9.5, 9.7, 9.8, 9.9, 9.11, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.10, 10.11, 10.12, 10.13, 10.14, 11.1, 11.6, 11.7, 11.10, 11.11, 18.13_
@@ -400,7 +400,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Person-list checkbox exactly "Forskningsuppslag och dubletter" (controls both the research indicator and the Candidate_Indicator); diagram checkboxes exactly "Forskningsuppslag" (existing `PersonBoxConfig.research`) and "Sammanslagningskandidater", independent of each other and of the person-list setting; keep attribute names `_pl_check_research` and `_check_research`
     - _Requirements: 17.1, 17.2, 17.3, 18.1, 18.2, 18.3_
 
-  - [~] 9.4 Add the person-list `ResearchColumnDelegate`
+  - [x] 9.4 Add the person-list `ResearchColumnDelegate`
     - Draw research glyph and candidate indicator with non-overlapping hit rectangles, set the research column header to exactly "Forskningsuppslag" (replacing "Forskningsärenden"; the column count is unchanged), tooltips via the 500 ms wake-up hint
     - A click on the research glyph emits `research_indicator_clicked(person_id)` (connected to the research gateway with a person filter in 9.13); a click on the candidate indicator opens the candidate or register for that person and never reaches the research glyph handler
     - _Requirements: 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10, 17.11, 19.6_
@@ -477,7 +477,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Both events of every warned pair stay as separate records with unchanged ids; the plan contains no combined, merged or deleted event because of a warning and requests no choice
     - _Requirements: 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 21.8, 21.9, 21.10, 21.11, 21.12, 21.13, 21.14, 21.15, 21.16, 21.17_
 
-  - [~] 11.3 Implement source, media, DNA, research and other-reference planning
+  - [x] 11.3 Implement source, media, DNA, research and other-reference planning
     - Source references untouched, media person links, mentions and annotations, DNA profiles, admin ids and clusters with warnings, research rewire through `rewire_entity_merge` on copies, main person, remaining inventory locations with counts and rules
     - _Requirements: 1.5, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.7, 22.8, 22.9, 22.10, 22.11, 22.12, 22.13, 22.14, 22.15, 22.16, 22.17_
 

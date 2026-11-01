@@ -221,6 +221,13 @@ class MainWindow(QMainWindow):
         self.action_research_hypotheses.triggered.connect(
             lambda: self._app.show_research_overview("hypotheses")
         )
+        self.action_research_candidates = QAction("&Sammanslagningskandidater", self)
+        self.action_research_candidates.setToolTip(
+            "Visa alla kandidater för sammanslagning av personer"
+        )
+        self.action_research_candidates.triggered.connect(
+            lambda: self._app.open_register()
+        )
 
         # Verktyg (Tools)
         self.action_relationship = QAction("&Släktskapsberäknare...", self)
@@ -326,6 +333,7 @@ class MainWindow(QMainWindow):
         self.menu_research.addAction(self.action_research_overview)
         self.menu_research.addAction(self.action_research_todo)
         self.menu_research.addAction(self.action_research_hypotheses)
+        self.menu_research.addAction(self.action_research_candidates)
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
@@ -587,6 +595,7 @@ class MainWindow(QMainWindow):
         self.action_research_overview.setEnabled(project_open)
         self.action_research_todo.setEnabled(project_open)
         self.action_research_hypotheses.setEnabled(project_open)
+        self.action_research_candidates.setEnabled(project_open)
         self.action_view_family.setEnabled(project_open)
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)

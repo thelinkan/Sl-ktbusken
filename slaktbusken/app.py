@@ -101,6 +101,10 @@ class Application:
 
         set_research_gateway(self)
 
+        # Merge: one editor registry owned here, and this object is the
+        # gateway through which merge widgets reach the application.
+        self._register_merge_gateway()
+
         # Application-level settings service
         from slaktbusken.persistence.app_settings_io import AppSettingsService
 
@@ -287,6 +291,7 @@ class Application:
             person=person,
             parent=dialog,
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
 
@@ -367,6 +372,7 @@ class Application:
             person=new_person,
             parent=dialog,
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
         editor.save_requested.connect(dialog.accept)
@@ -753,6 +759,7 @@ class Application:
             person=new_person,
             parent=dialog,
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
         editor.save_requested.connect(dialog.accept)
@@ -1155,6 +1162,7 @@ class Application:
             return
 
         self._close_research_overview()
+        self._close_candidate_register()
         self.project_service.close_project()
         self._update_status()
         self._update_diagram_panel()
@@ -1538,6 +1546,160 @@ class Application:
         window.show()
         window.raise_()
         window.activateWindow()
+
+    # ------------------------------------------------------------------
+    # Merge gateway (MergeGateway protocol)
+    # ------------------------------------------------------------------
+
+    def _register_merge_gateway(self) -> None:
+        """Create the editor registry and signal bridge, and register as gateway."""
+        from slaktbusken.services.editor_registry import EditorRegistry
+        from slaktbusken.ui.merge.merge_gateway import set_merge_gateway
+        from slaktbusken.ui.merge.merge_signals import MergeSignals
+
+        self.editor_registry = EditorRegistry()
+        self._merge_signals = MergeSignals()
+        self.project_service.add_merge_listener(self._merge_signals.changed.emit)
+        self._candidate_register = None
+        self._comparison_window = None
+        set_merge_gateway(self)
+
+    @property
+    def merge_changed(self):
+        """Signal emitted after merge candidates or merge history changed."""
+        return self._merge_signals.changed
+
+    def open_comparison(self, person_1_id: str = "", person_2_id: str = "") -> None:
+        """Open the person comparison window with the given persons preselected.
+
+        The window module is imported here so the application still starts
+        when it is not available; a short status message is shown instead.
+        """
+        if self.project_service.project_path is None:
+            return
+        try:
+            from slaktbusken.ui.merge.person_comparison_window import (
+                open_comparison_window,
+            )
+        except ImportError:
+            self.main_window.statusBar().showMessage(
+                "Jämförelsefönstret är inte tillgängligt.", 5000
+            )
+            return
+
+        import shiboken6
+
+        window = self._comparison_window
+        if window is not None and not shiboken6.isValid(window):
+            window = self._comparison_window = None
+        if window is not None:
+            # Reuse the existing window when it already shows the requested
+            # pair (or no pair was requested); otherwise open a new one.
+            wanted = {p for p in (person_1_id, person_2_id) if p}
+            shown = {p for p in window.slot_persons() if p}
+            if not wanted or wanted == shown:
+                window.show()
+                window.raise_()
+                window.activateWindow()
+                return
+
+        window = open_comparison_window(
+            self.main_window,
+            self.project_service,
+            person_1_id or None,
+            person_2_id or None,
+        )
+        window.setProperty("rememberGeometry", True)
+        window.destroyed.connect(
+            lambda *_a, w=window: self._forget_comparison_window(w)
+        )
+        self._comparison_window = window
+
+    def _forget_comparison_window(self, window) -> None:
+        if self._comparison_window is window:
+            self._comparison_window = None
+
+    def mark_candidates(self, person_1_id: str, person_2_id: str) -> None:
+        """Mark two persons as merge candidates, or open the existing candidate."""
+        from slaktbusken.services.project_service import ValidationError
+
+        if self.project_service.project_path is None:
+            return
+        try:
+            candidate, _created = self.project_service.get_or_create_merge_candidate(
+                person_1_id, person_2_id
+            )
+        except (ValidationError, KeyError) as exc:
+            text = "\n".join(exc.errors) if isinstance(exc, ValidationError) else str(exc)
+            QMessageBox.warning(self.main_window, "Sammanslagningskandidat", text)
+            return
+        self._update_status()
+        self.open_candidate(candidate.id)
+
+    def open_candidate(self, candidate_id: str) -> None:
+        """Open the editor for one merge candidate."""
+        from slaktbusken.ui.merge.candidate_editor_dialog import CandidateEditorDialog
+
+        if self.project_service.project_path is None:
+            return
+        dialog = CandidateEditorDialog(
+            self.project_service,
+            candidate_id,
+            parent=self.main_window,
+            registry=self.editor_registry,
+        )
+        dialog.exec()
+        self._update_status()
+
+    def open_register(self, person_id: str | None = None) -> None:
+        """Show the candidate register, optionally filtered to one person."""
+        from PySide6.QtCore import Qt as _Qt
+
+        from slaktbusken.ui.merge.candidate_register_window import (
+            CandidateRegisterWindow,
+        )
+
+        if self.project_service.project_path is None:
+            return
+        window = self._candidate_register
+        if window is None:
+            window = CandidateRegisterWindow(
+                self.project_service,
+                gateway=self,
+                registry=self.editor_registry,
+                parent=self.main_window,
+            )
+            window.setWindowFlag(_Qt.WindowType.Window, True)
+            window.setAttribute(_Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            window.setProperty("rememberGeometry", True)
+            window.destroyed.connect(lambda *_: setattr(self, "_candidate_register", None))
+            self.research_changed.connect(window.schedule_refresh)
+            self._candidate_register = window
+        window.set_person_filter(person_id)
+        window.refresh()
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def open_history(self, person_id: str | None = None) -> None:
+        """Open the merge history view (provided by a later part of the feature)."""
+        try:
+            from slaktbusken.ui.merge.merge_history_window import (  # type: ignore
+                MergeHistoryWindow,
+            )
+        except ImportError:
+            self.main_window.statusBar().showMessage(
+                "Sammanslagningshistoriken är inte tillgänglig.", 5000
+            )
+            return
+        window = MergeHistoryWindow(self.project_service, person_id, parent=self.main_window)
+        window.show()
+
+    def _close_candidate_register(self) -> None:
+        window = getattr(self, "_candidate_register", None)
+        if window is not None:
+            window.close()
+            self._candidate_register = None
 
     def _forget_research_overview(self) -> None:
         self._research_overview = None

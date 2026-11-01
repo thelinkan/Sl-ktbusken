@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -54,6 +54,7 @@ from slaktbusken.services.name_event_service import (
     is_event_id_valid,
 )
 from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
+from slaktbusken.ui.merge.candidate_section import CandidatesSection
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import get_event_type_label
 from slaktbusken.ui.widgets.boenden_tab import BoendenTab
@@ -197,6 +198,7 @@ class PersonEditor(QWidget):
         person: Optional[Person] = None,
         parent: QWidget | None = None,
         project_folder: Path | None = None,
+        project_service=None,
     ) -> None:
         """Initialise the person editor.
 
@@ -205,9 +207,12 @@ class PersonEditor(QWidget):
             person: Optional existing Person to edit. If None, creates a new person.
             parent: Optional parent widget.
             project_folder: Optional path to the project folder for resolving media files.
+            project_service: Optional ProjectService used to create merge candidates
+                and to refresh the candidate section on merge notifications.
         """
         super().__init__(parent)
 
+        self._project_service = project_service
         self._project_data = project_data
         self._project_folder = project_folder
         self._person = person
@@ -627,8 +632,38 @@ class PersonEditor(QWidget):
         container_layout.addWidget(self._forskning_tab)
         container_layout.addWidget(family_group)
 
+        # Merge candidates of this person (Requirement 16).
+        self._candidates_section = CandidatesSection(
+            self._project_data,
+            self._edited_person_id,
+            lambda: self._project_service,
+        )
+        self._candidates_section.connect_service(self._project_service)
+        container_layout.addWidget(self._candidates_section)
+        # Enable creation after the first save, once the application stored the person.
+        self.save_requested.connect(
+            lambda: QTimer.singleShot(0, self._candidates_section.refresh)
+        )
+
         photos_index = self._ui.tab_widget.indexOf(self._ui.photos_tab)
         self._ui.tab_widget.insertTab(photos_index, container, "Forskning")
+
+    def _edited_person_id(self) -> str:
+        """Id of the edited person; "" while a new person has none yet."""
+        if self._person is not None:
+            return self._person.id
+        if self._saved_person is not None:
+            return self._saved_person.id
+        return ""
+
+    def refresh_candidates(self) -> None:
+        """Rebuild the candidate section (e.g. after the person was stored)."""
+        self._candidates_section.refresh()
+
+    def set_project_service(self, project_service) -> None:
+        """Provide the ProjectService used by the candidate section."""
+        self._project_service = project_service
+        self._candidates_section.connect_service(project_service)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""

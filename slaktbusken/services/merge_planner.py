@@ -827,3 +827,4 @@ def build_plan(
 # Registers the person planning steps (attributes, names, events, residences).
 # Imported last so `plan_step` and the planner classes already exist.
 from slaktbusken.services import merge_planner_person  # noqa: E402,F401
+from slaktbusken.services import merge_planner_refs  # noqa: E402,F401
