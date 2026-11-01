@@ -112,6 +112,7 @@ class SettingsDialog(QDialog):
             clusters=self._check_clusters.isChecked(),
             age=self._check_age.isChecked(),
             research=self._check_research.isChecked(),
+            merge_candidates=self._check_merge_candidates.isChecked(),
         )
 
     @property
@@ -310,7 +311,7 @@ class SettingsDialog(QDialog):
         self._pl_check_occupation = QCheckBox("Yrke")
         self._pl_check_clusters = QCheckBox("Kluster")
         self._pl_check_dna = QCheckBox("DNA")
-        self._pl_check_research = QCheckBox("Forskningsärenden")
+        self._pl_check_research = QCheckBox("Forskningsuppslag och dubletter")
 
         for cb in [
             self._pl_check_sex, self._pl_check_relation,
@@ -372,7 +373,8 @@ class SettingsDialog(QDialog):
         self._check_cause_of_death = QCheckBox("Dödsorsak")
         self._check_clusters = QCheckBox("DNA-kluster")
         self._check_age = QCheckBox("Ålder")
-        self._check_research = QCheckBox("Forskningsärenden")
+        self._check_research = QCheckBox("Forskningsuppslag")
+        self._check_merge_candidates = QCheckBox("Sammanslagningskandidater")
 
         person_checks = [
             self._check_name, self._check_birth_date, self._check_birth_place,
@@ -381,6 +383,7 @@ class SettingsDialog(QDialog):
             self._check_occupation, self._check_photo, self._check_dna_info,
             self._check_notes, self._check_cause_of_death,
             self._check_clusters, self._check_age, self._check_research,
+            self._check_merge_candidates,
         ]
         rows = (len(person_checks) + 1) // 2
         for position, cb in enumerate(person_checks):
@@ -403,6 +406,7 @@ class SettingsDialog(QDialog):
         self._check_clusters.setChecked(config.clusters)
         self._check_age.setChecked(config.age)
         self._check_research.setChecked(config.research)
+        self._check_merge_candidates.setChecked(config.merge_candidates)
 
         layout.addWidget(person_group)
 

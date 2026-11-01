@@ -822,3 +822,8 @@ def build_plan(
         ledger_before=ledger_before,
         ledger_after_expected=ledger_before.adjusted(deltas),
     )
+
+
+# Registers the person planning steps (attributes, names, events, residences).
+# Imported last so `plan_step` and the planner classes already exist.
+from slaktbusken.services import merge_planner_person  # noqa: E402,F401

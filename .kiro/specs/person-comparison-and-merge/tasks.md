@@ -174,12 +174,12 @@ The design's remaining open questions are implemented with the design's stated d
     - Never create a candidate from computed similarity
     - _Requirements: 2.3, 2.4, 2.5, 2.6, 2.7, 2.9, 2.10, 3.3, 3.4, 3.6, 3.7, 4.2, 4.4, 4.5, 5.1, 5.5, 5.6, 5.7, 33.9_
 
-  - [~] 5.2 Write property test for unordered pair identity (required by Requirement 32.6)
+  - [x] 5.2 Write property test for unordered pair identity (required by Requirement 32.6)
     - **Property 6: Unordered pair identity and uniqueness**
     - **Validates: Requirements 2.9, 5.5, 5.6, 5.7**
     - Module `tests/test_services/test_merge_candidate_service.py`; required, no skip, xfail or deselect; not part of the six Mandatory_Test_Groups
 
-  - [~] 5.3 Integrate candidates with research cases
+  - [x] 5.3 Integrate candidates with research cases
     - Implement "Skapa forskningsärende" as one operation creating the `ResearchCase` and two `ResearchEntityLink` entries (one per person) and setting `research_case_id`, rolled back completely on failure
     - Implement removing the association without deleting case, links or candidate
     - Ensure `delete_service` leaves candidates that reference a deleted research case unmodified
@@ -204,7 +204,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 3.8, 5.2, 5.3, 5.4, 15.2, 15.3, 15.4, 15.5, 15.9**
     - Module `tests/properties/test_property_10_register_filtering.py`
 
-  - [~] 5.8 Add Swedish labels, `MergeGateway` and the candidate editor dialog
+  - [x] 5.8 Add Swedish labels, `MergeGateway` and the candidate editor dialog
     - Add `get_candidate_assessment_label` and `get_candidate_section_label` to `ui/swedish_locale.py`
     - Create `ui/merge/merge_gateway.py` mirroring `research_gateway.py` (`open_comparison`, `mark_candidates`, `open_candidate`, `open_register`, `open_history`, `merge_changed`, `set_merge_gateway`, `get_merge_gateway`)
     - Create `CandidateEditorDialog` with assessment selector, enabled toggle, research case picker (reusing `research_case_picker_dialog`), dated comments with the confirmation prompt for deletion, and unsaved-text protection
@@ -224,12 +224,12 @@ The design's remaining open questions are implemented with the design's stated d
     - Columns, filters, empty state, comment deletion prompt, unsaved text protection, section visibility toggle (pytest-qt, offscreen)
     - _Requirements: 4.4, 4.7, 4.8, 15.1, 15.12, 16.1_
 
-  - [~] 5.12 Write property test for read-only candidate operations
+  - [x] 5.12 Write property test for read-only candidate operations
     - **Property 7: Candidate operations never change genealogical data and are always explicit**
     - **Validates: Requirements 2.4, 2.7, 3.4, 3.7, 13.10, 15.7, 33.9**
     - Module `tests/properties/test_property_07_candidate_read_only.py`
 
-  - [~] 5.13 Write property test for field-local edits
+  - [x] 5.13 Write property test for field-local edits
     - **Property 8: Assessment, enabled and comment edits change only their own field**
     - **Validates: Requirements 3.6, 4.5, 5.1**
     - Module `tests/properties/test_property_08_field_local_edits.py`
@@ -291,7 +291,7 @@ The design's remaining open questions are implemented with the design's stated d
     - No similarity logic anywhere
     - _Requirements: 9.1, 9.6, 9.10, 9.12, 10.5, 11.2, 11.3, 11.4, 11.5, 11.9, 12.1, 12.3, 12.5, 12.6, 12.7, 13.1, 13.3, 13.4, 13.5, 14.1, 14.2, 14.3, 14.4, 14.9, 14.10, 20.2, 20.3, 33.3_
 
-  - [~] 7.4 Write property test for menu enablement and selection order
+  - [x] 7.4 Write property test for menu enablement and selection order
     - **Property 11: Menu enablement and selection order**
     - **Validates: Requirements 8.4, 8.5, 8.6, 8.7, 9.1**
     - Module `tests/properties/test_property_11_menu_enablement.py`
@@ -317,37 +317,37 @@ The design's remaining open questions are implemented with the design's stated d
     - Layout, search widget results, shared badge, action area, entry-point enablement, diagram lookup equivalence
     - _Requirements: 10.1, 12.1, 8.4, 8.5_
 
-  - [~] 7.9 Write property test for slot search
+  - [x] 7.9 Write property test for slot search
     - **Property 12: Slot search**
     - **Validates: Requirements 9.7**
     - Module `tests/properties/test_property_12_slot_search.py`
 
-  - [~] 7.10 Write property test for slot operations
+  - [x] 7.10 Write property test for slot operations
     - **Property 13: Slot operations**
     - **Validates: Requirements 9.6, 9.10, 9.12, 20.2, 20.3**
     - Module `tests/properties/test_property_13_slot_operations.py`
 
-  - [~] 7.11 Write property test for independent view state
+  - [x] 7.11 Write property test for independent view state
     - **Property 14: Independent view state**
     - **Validates: Requirements 10.7, 10.8, 10.9, 10.14**
     - Module `tests/properties/test_property_14_independent_view_state.py`
 
-  - [~] 7.12 Write property test for comparison row classification
+  - [x] 7.12 Write property test for comparison row classification
     - **Property 15: Comparison row classification**
     - **Validates: Requirements 11.2, 11.3, 11.4, 11.5, 11.9**
     - Module `tests/properties/test_property_15_row_classification.py`
 
-  - [~] 7.13 Write property test for shared persons and candidate relations
+  - [x] 7.13 Write property test for shared persons and candidate relations
     - **Property 16: Shared persons and candidate relations depend on ids only**
     - **Validates: Requirements 12.1, 12.3, 12.5, 12.6, 12.7, 33.3**
     - Module `tests/properties/test_property_16_shared_persons.py`
 
-  - [~] 7.14 Write property test for pair selection
+  - [x] 7.14 Write property test for pair selection
     - **Property 17: Pair selection**
     - **Validates: Requirements 13.1, 13.3, 13.4, 13.5**
     - Module `tests/properties/test_property_17_pair_selection.py`
 
-  - [~] 7.15 Write property test for the navigation stack
+  - [x] 7.15 Write property test for the navigation stack
     - **Property 18: Navigation stack**
     - **Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.9, 14.10**
     - Module `tests/properties/test_property_18_navigation_stack.py`
@@ -357,7 +357,7 @@ The design's remaining open questions are implemented with the design's stated d
     - A focal person with two siblings renders three boxes in the sibling row of the `ComparisonFamilyView`; the sibling ids are part of the visible id set used for Shared_Person markers
     - _Requirements: 10.5, 12.1_
 
-  - [~] 7.17 Write example tests for same-ID relatives and same-named siblings (required by Requirement 32.7)
+  - [x] 7.17 Write example tests for same-ID relatives and same-named siblings (required by Requirement 32.7)
     - Module `tests/test_services/test_comparison_session_examples.py`; required, no skip, xfail or deselect
     - Same-ID relatives present in both views get the Shared_Person marker in both (12.1); two siblings with the same name in one view and across both views get no shared marker unless their ids are identical (12.7)
     - _Requirements: 12.1, 12.7, 32.7_
@@ -396,7 +396,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Label the Person_List header context-menu toggle for the research column exactly "Forskningsuppslag och dubletter" (the same text as the Settings_Dialog checkbox of 9.3); both controls change the same combined setting (`PersonListConfig.research`)
     - _Requirements: 17.1, 17.3, 17.12, 17.13, 17.14, 18.3, 18.11, 18.12_
 
-  - [~] 9.3 Update Settings_Dialog labels (user decision 5)
+  - [x] 9.3 Update Settings_Dialog labels (user decision 5)
     - Person-list checkbox exactly "Forskningsuppslag och dubletter" (controls both the research indicator and the Candidate_Indicator); diagram checkboxes exactly "Forskningsuppslag" (existing `PersonBoxConfig.research`) and "Sammanslagningskandidater", independent of each other and of the person-list setting; keep attribute names `_pl_check_research` and `_check_research`
     - _Requirements: 17.1, 17.2, 17.3, 18.1, 18.2, 18.3_
 
@@ -471,7 +471,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Planning never mutates `ProjectData`, translation files or settings
     - _Requirements: 20.4, 20.11, 26.2, 26.8, 26.9, 33.5, 33.6_
 
-  - [~] 11.2 Implement attribute, name, event and residence planning
+  - [x] 11.2 Implement attribute, name, event and residence planning
     - Attributes with unresolved choices, names with primary-name choice, event copies with rewritten participants, role conflicts, residences reassigned and never collapsed, connection override handling
     - Duplicate-event warnings: call `find_similar_event_pairs` (from 1.2) on the events that have Person 1 and Person 2 as participants before the merge; each pair yields a non-blocking `MergeConflict(severity="warning", code="similar_event", section="events", subjects=(id_1, id_2))` with the Swedish text "Händelserna kan vara dubbletter: <typ> <datum> och <typ> <datum>"
     - Both events of every warned pair stay as separate records with unchanged ids; the plan contains no combined, merged or deleted event because of a warning and requests no choice
@@ -596,7 +596,7 @@ The design's remaining open questions are implemented with the design's stated d
     - The Recovery_Point copies `translation/persons.json` when present and completes without it otherwise (Req 7.9, 7.10, shared helper of 3.5); this is one of the only two backups to which those criteria apply, and no general-purpose backup feature is added
     - _Requirements: 7.9, 7.10, 7.12, 27.14, 27.15, 27.16, 27.17, 27.18_
 
-  - [~] 13.4 Implement checksum-based startup recovery with Recovery_Refusal (R3)
+  - [x] 13.4 Implement checksum-based startup recovery with Recovery_Refusal (R3)
     - Create `services/commit/recovery.py` with `recover_if_needed` and the deterministic algorithm of design sections 13.7 and 13.8, deciding only by SHA-256 content checksums: a target equal to the expected NEW checksum is already replaced, equal to OLD (or absent where it did not exist) is not yet replaced, anything else is OTHER
     - Roll forward when every target is NEW, or OLD with a temp file equal to the NEW checksum (order T then P); otherwise roll back from a verified backup (order P then T); completed when all targets are NEW; encode decision tables A (two targets), B (all combinations of target, temp and backup state), C (every crash point) and D (refusal rows R1 to R10) as data used by the classifier
     - Refuse (`RecoveryRefusedError` carrying `RecoveryRefusal(code, project_path, journal_path, temp_paths, backup_dir, target_states)`) when a target matches neither state, when the journal is damaged and the manifest unusable, when the backup needed for a roll back is missing or corrupt, or when the journal is absent and the targets are in mixed states; the refusal path is read-only: it writes, renames, deletes and touches nothing, does not call `FilePersistence.load` and opens no project
@@ -759,7 +759,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `tests/benchmarks/synthetic_project.py`: seeded generator for 20,000 persons and 2,000 candidates with generations, multiple partnerships, shared ancestors, all four parentage types and the stated candidate mix; identical output for the same seed
     - _Requirements: 32.9_
 
-  - [~] 17.2 Write property test for benchmark determinism
+  - [x] 17.2 Write property test for benchmark determinism
     - **Property 46: Benchmark data is deterministic**
     - **Validates: Requirements 32.9**
     - Module `tests/properties/test_property_46_benchmark_determinism.py`

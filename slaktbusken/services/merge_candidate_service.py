@@ -21,11 +21,14 @@ from slaktbusken.model.merge_candidate import (
     pair_key,
 )
 from slaktbusken.model.project import ProjectData
+from slaktbusken.model.research_case import ResearchCase, ResearchEntityLink
 from slaktbusken.model.validators import (
     validate_merge_candidate,
     validate_merge_candidate_comment,
+    validate_research_case,
 )
 from slaktbusken.services.id_registry import ProtectedIdGenerator
+from slaktbusken.services.research_service import ResearchIdGenerator
 
 MSG_SELF_PAIR = "En person kan inte vara kandidat till sig själv."
 MSG_UNKNOWN_PERSON = "Personen finns inte: {id}."
@@ -140,6 +143,65 @@ def set_research_case(
     new = _copy(data.merge_candidates[i])
     new.research_case_id = case_id
     return _swap(data, i, new, {c.id for c in data.research_cases})
+
+
+MSG_CASE_NOT_CREATED = "Forskningsärendet skapades inte: {reason}"
+MSG_CASE_TITLE = "Möjlig sammanslagning: {a} och {b}"
+MSG_CASE_TITLE_REQUIRED = "Forskningsärendet måste ha en rubrik."
+
+
+def create_research_case_for_candidate(
+    data: ProjectData, candidate_id: str, title: str = ""
+) -> ResearchCase:
+    """Create a research case for a candidate's pair as one all-or-nothing step.
+
+    Creates one ``ResearchCase`` with exactly two person ``ResearchEntityLink``
+    entries (one per person) and sets ``research_case_id`` on the candidate.
+    Any failure restores cases, candidate and id high-water marks.
+
+    No assessment is copied between the candidate and the case; the case is
+    created with the default hypothesis-free state.
+
+    Raises:
+        KeyError: Unknown candidate.
+        CandidateError: Validation or any other failure; nothing was changed.
+    """
+    i = _index(data, candidate_id)
+    cand = data.merge_candidates[i]
+    old_cand = cand
+    old_marks = dict(data.id_high_water_marks)
+    cases_before = len(data.research_cases)
+    try:
+        names = {p.id: p.id for p in data.persons}
+        case_title = title.strip() or MSG_CASE_TITLE.format(
+            a=names.get(cand.person_1_id, cand.person_1_id),
+            b=names.get(cand.person_2_id, cand.person_2_id),
+        )
+        case = ResearchCase(
+            id="",
+            title=case_title,
+            linked_entities=[
+                ResearchEntityLink("person", cand.person_1_id, "candidate"),
+                ResearchEntityLink("person", cand.person_2_id, "candidate"),
+            ],
+        )
+        errors = validate_research_case(case, None)
+        if errors:
+            raise CandidateError(errors)
+        case.id = ResearchIdGenerator(data).generate("research_case")
+        data.research_cases.append(case)
+        set_research_case(data, candidate_id, case.id)
+        return case
+    except Exception as exc:
+        del data.research_cases[cases_before:]
+        data.merge_candidates[i] = old_cand
+        data.id_high_water_marks.clear()
+        data.id_high_water_marks.update(old_marks)
+        if isinstance(exc, CandidateError):
+            errors = [MSG_CASE_NOT_CREATED.format(reason=m) for m in exc.errors]
+        else:
+            errors = [MSG_CASE_NOT_CREATED.format(reason=str(exc))]
+        raise CandidateError(errors) from exc
 
 
 def add_comment(

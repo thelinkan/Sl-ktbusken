@@ -970,6 +970,26 @@ class ProjectService:
 
         return self._candidate_op(mcs.set_research_case, candidate_id, case_id)
 
+    def create_research_case_for_candidate(
+        self, candidate_id: str, title: str = ""
+    ) -> ResearchCase:
+        """Create a research case for the candidate's pair in one step.
+
+        Raises:
+            ValidationError: Creation failed; no case, link or candidate change
+                remains and the dirty flag is unchanged.
+            KeyError: Unknown candidate.
+        """
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        data = self.data
+        try:
+            case = mcs.create_research_case_for_candidate(data, candidate_id, title)
+        except mcs.CandidateError as exc:
+            raise ValidationError(exc.errors) from exc
+        self._commit_research_change()
+        return case
+
     def add_candidate_comment(self, candidate_id: str, date: str, text: str):
         from slaktbusken.services import merge_candidate_service as mcs
 
@@ -995,6 +1015,16 @@ class ProjectService:
         if not any(c.id == comment_id for c in cand.comments):
             return False
         return self._candidate_op(mcs.delete_comment, candidate_id, comment_id)
+
+    def create_research_case_for_candidate(self, candidate_id: str, title: str = ""):
+        """Create a research case for a candidate's pair (all or nothing).
+
+        Raises:
+            ValidationError: The case was not created; nothing changed.
+        """
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.create_research_case_for_candidate, candidate_id, title)
 
     def add_research_case(self, case: ResearchCase) -> ResearchCase:
         """Validate and add a research case; assigns an id when it has none.

@@ -776,3 +776,39 @@ def get_research_entity_type_label(entity_type: str) -> str:
         Swedish display label, or the key itself if not mapped.
     """
     return RESEARCH_ENTITY_TYPE_LABELS.get(entity_type, entity_type)
+
+
+CANDIDATE_SECTION_LABELS = {
+    "candidates": "Sammanslagningskandidater",
+    "register": "Sammanslagningskandidater",
+    "history": "Sammanslagningshistorik",
+    "comments": "Kommentarer",
+    "research_case": "Forskningsärende",
+    "show_historical": "Visa historiska",
+}
+
+
+def get_candidate_assessment_label(assessment: str) -> str:
+    """Get the Swedish label for a merge-candidate assessment, falling back to the key.
+
+    Args:
+        assessment: The internal assessment key.
+
+    Returns:
+        Swedish display label, or the key itself if not mapped.
+    """
+    from slaktbusken.model.merge_candidate import ASSESSMENT_LABELS_SV
+
+    return ASSESSMENT_LABELS_SV.get(assessment, assessment)
+
+
+def get_candidate_section_label(section: str) -> str:
+    """Get the Swedish heading for a merge-candidate UI section, falling back to the key.
+
+    Args:
+        section: The internal section key.
+
+    Returns:
+        Swedish display label, or the key itself if not mapped.
+    """
+    return CANDIDATE_SECTION_LABELS.get(section, section)
