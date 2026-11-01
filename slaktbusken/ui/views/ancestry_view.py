@@ -27,6 +27,14 @@ from slaktbusken.model.name_parser import ParsedGivenName, parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.persistence.settings_io import DiagramSettings, PersonBoxConfig
+from slaktbusken.services.diagram_lookup import (
+    find_parent_families,
+    find_person,
+    find_place,
+    person_box_events,
+    person_clusters as lookup_person_clusters,
+    person_dna_company_ids,
+)
 from slaktbusken.services.safe_io import resolve_within
 from slaktbusken.ui.views.parent_display import resolve_parent_display
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
@@ -450,9 +458,7 @@ class AncestryView:
         even_slot = (parent_gen, child_pos * 2)
         odd_slot = (parent_gen, child_pos * 2 + 1)
 
-        parent_families = [
-            fam for fam in project_data.families if person_id in fam.children
-        ]
+        parent_families = find_parent_families(project_data, person_id)
         if not parent_families:
             return None, None
 
@@ -718,10 +724,7 @@ def _find_person(project_data: ProjectData, person_id: str) -> Optional[Person]:
     Returns:
         Person-instansen eller None om ej hittad.
     """
-    for p in project_data.persons:
-        if p.id == person_id:
-            return p
-    return None
+    return find_person(project_data, person_id)
 
 
 def _find_parent_family(
@@ -736,10 +739,8 @@ def _find_parent_family(
     Returns:
         Den familj där personen förekommer som barn, eller None.
     """
-    for family in project_data.families:
-        if person_id in family.children:
-            return family
-    return None
+    families = find_parent_families(project_data, person_id)
+    return families[0] if families else None
 
 
 def _split_parents_by_role(
@@ -827,13 +828,7 @@ def _build_display_data(
         "sex": person.sex,
     }
 
-    for event in project_data.events:
-        is_participant = any(
-            p.person_id == person.id for p in event.participants
-        )
-        if not is_participant:
-            continue
-
+    for event in person_box_events(project_data, person.id):
         if event.type == "birth":
             if event.date:
                 data["birth_date"] = event.date.value
@@ -868,10 +863,7 @@ def _build_display_data(
         )
 
     # Build dna_companies list from DnaProfile records
-    company_ids: set[str] = set()
-    for profile in project_data.dna_profiles:
-        if profile.person_id == person.id:
-            company_ids.add(profile.company_id)
+    company_ids = person_dna_company_ids(project_data, person.id)
 
     if company_ids:
         from slaktbusken.ui.icons.icon_registry import icon_registry
@@ -892,9 +884,8 @@ def _build_display_data(
 
     # Build clusters list from DnaCluster records
     person_clusters: list[dict] = []
-    for cluster in project_data.dna_clusters:
-        if person.id in cluster.person_ids:
-            person_clusters.append({"name": cluster.name, "color": cluster.color})
+    for cluster in lookup_person_clusters(project_data, person.id):
+        person_clusters.append({"name": cluster.name, "color": cluster.color})
     person_clusters.sort(key=lambda c: c["name"])
     data["clusters"] = person_clusters[:5]
 
@@ -1037,10 +1028,7 @@ def _find_place(project_data: ProjectData, place_id: str):
     Returns:
         Place-objektet eller None.
     """
-    for place in project_data.places:
-        if place.id == place_id:
-            return place
-    return None
+    return find_place(project_data, place_id)
 
 
 def _build_names_tooltip(person: Person) -> str:

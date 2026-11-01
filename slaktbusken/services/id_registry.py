@@ -61,12 +61,23 @@ def live_protected_ids(data: ProjectData) -> dict[str, set[str]]:
     hypothesis_comments = ids[protected_id_prefix("hypothesis_comment")]
     for hypothesis in data.research_hypotheses:
         hypothesis_comments.update(c.id for c in hypothesis.comments)
-    ids[protected_id_prefix("merge_candidate")].update(c.id for c in data.merge_candidates)
+    ids[protected_id_prefix("merge_candidate")].update(_readable_ids(data.merge_candidates))
     candidate_comments = ids[protected_id_prefix("merge_candidate_comment")]
     for candidate in data.merge_candidates:
-        candidate_comments.update(c.id for c in candidate.comments)
-    ids[protected_id_prefix("merge_history")].update(e.id for e in data.merge_history)
+        candidate_comments.update(_readable_ids(candidate.comments))
+    ids[protected_id_prefix("merge_history")].update(_readable_ids(data.merge_history))
     return ids
+
+
+def _readable_ids(items: object) -> set[str]:
+    """String ids of *items*, skipping malformed merge data kept as stored."""
+    if not isinstance(items, list):
+        return set()
+    return {
+        item_id
+        for item in items
+        if isinstance(item_id := getattr(item, "id", None), str)
+    }
 
 
 def _highest_suffix(ids: set[str], prefix: str) -> int:

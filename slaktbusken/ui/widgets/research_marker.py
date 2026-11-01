@@ -156,6 +156,11 @@ def begin_diagram_render(project_data, enabled: bool = True) -> None:
 
     _diagram_index = ResearchIndex(project_data) if enabled and project_data is not None else None
 
+    # Render-scoped lookup that replaces the per-box scans of the diagram views.
+    from slaktbusken.services.diagram_lookup import begin_lookup
+
+    begin_lookup(project_data)
+
 
 def diagram_research_counts(person_id: str) -> ResearchCaseCounts:
     """Return the direct research counts of a person for the current render."""

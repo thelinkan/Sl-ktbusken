@@ -26,7 +26,7 @@ The design's remaining open questions are implemented with the design's stated d
 
 ## Tasks
 
-- [ ] 1. Phase 1: Reference inventory, merge rules and mandatory-test infrastructure
+- [x] 1. Phase 1: Reference inventory, merge rules and mandatory-test infrastructure
   - [x] 1.1 Create the Person_Reference_Inventory and `PersonReferenceIndex`
     - Create `slaktbusken/services/person_reference_index.py` with `PERSON_REFERENCE_INVENTORY`: one row per location of design section 4, each with exactly one Reference_Rule, a handler name and a dedupe statement
     - Implement `PersonReferenceIndex.build(data, {survivor, retired})` as one pass per collection, with dictionary lookups afterwards and per-location counts for the preview
@@ -46,17 +46,17 @@ The design's remaining open questions are implemented with the design's stated d
     - `test_inventory_check_fails_for_unlisted_field`: a synthetic dataclass with a `person_id` field fails the check and names class and field
     - _Requirements: 1.8, 35.1, 35.2_
 
-  - [~] 1.4 Write property test for names and notes
+  - [x] 1.4 Write property test for names and notes
     - **Property 26: Notes and names**
     - **Validates: Requirements 21.6, 21.8, 21.9, 21.10**
     - Module `tests/properties/test_property_26_notes_names.py` (not mapped to a Mandatory_Test_Group by the design)
 
-  - [~] 1.5 Write property test for event participants
+  - [x] 1.5 Write property test for event participants
     - **Property 27: Event participants**
     - **Validates: Requirements 21.12, 21.13**
     - Module `tests/properties/test_property_27_participants.py` (not mapped to a Mandatory_Test_Group by the design)
 
-  - [~] 1.6 Write property test for link collapse (Mandatory group a: reference preservation)
+  - [x] 1.6 Write property test for link collapse (Mandatory group a: reference preservation)
     - **Property 30: Link collapse**
     - **Validates: Requirements 22.3, 22.9, 23.2, 23.3, 23.4, 23.5, 24.7**
     - Module `tests/test_services/test_merge_reference_rules.py` with `pytestmark = pytest.mark.mandatory_integrity`; function named `test_property_30_link_collapse`; at least 100 examples; required, never skipped
@@ -73,7 +73,7 @@ The design's remaining open questions are implemented with the design's stated d
 - [~] 2. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 3. Phase 2: Candidate model, persistence and version 0.4
+- [x] 3. Phase 2: Candidate model, persistence and version 0.4
   - [x] 3.1 Create the candidate model, id prefixes, project fields and validators
     - Create `slaktbusken/model/merge_candidate.py` with `MergeCandidate`, `MergeCandidateComment`, `MergeHistoryEntry`, `ArchivedCandidate`, `MergedIdentityMapping`, constants, `pair_key`, `ASSESSMENT_LABELS_SV`
     - Add `merge_candidates`, `merge_history` and the transient `merge_load_findings` to `ProjectData`
@@ -93,7 +93,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Keep `id_high_water_marks` empty for projects without research or merge data
     - _Requirements: 2.3, 7.5, 7.6, 28.3, 34.9_
 
-  - [~] 3.4 Write property test for candidate, comment and history id prefixes
+  - [x] 3.4 Write property test for candidate, comment and history id prefixes
     - **Property 3: Ids of candidates, comments, history entries and retired persons are never reissued** (prefix part)
     - **Validates: Requirements 2.3, 7.5, 7.6, 28.3, 34.9**
     - Module `tests/test_services/test_id_registry.py`; the retired-person part is the required task 13.19
@@ -107,7 +107,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Must run after 3.13 so the golden 0.3 fixtures are produced by the pre-feature code
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.7, 7.8, 7.9, 7.10, 7.11, 7.14, 32.1_
 
-  - [~] 3.6 Write property test for the project round trip (required by Requirement 32.6)
+  - [x] 3.6 Write property test for the project round trip (required by Requirement 32.6)
     - **Property 1: Project round trip with merge data**
     - **Validates: Requirements 2.1, 4.6, 7.1, 7.4, 28.11**
     - Module `tests/test_persistence/test_merge_persistence.py`; required, no skip, xfail or deselect; not part of the six Mandatory_Test_Groups
@@ -117,17 +117,17 @@ The design's remaining open questions are implemented with the design's stated d
     - A file without `identity_aliases` loads with an empty list; reading then writing gives equal content
     - _Requirements: 30.1, 30.2, 30.3, 30.10_
 
-  - [~] 3.8 Write example tests for alias read and write
+  - [x] 3.8 Write example tests for alias read and write
     - Module `tests/test_persistence/test_translation_aliases.py`
     - File without aliases, aliases round trip, `dumps_persons` equals bytes written by `write_persons`
     - _Requirements: 30.2, 30.3_
 
-  - [~] 3.9 Write property test for the 0.4 migration
+  - [x] 3.9 Write property test for the 0.4 migration
     - **Property 2: Migration to 0.4 is additive and idempotent**
     - **Validates: Requirements 7.2, 7.3**
     - Module `tests/properties/test_property_02_migration.py`
 
-  - [~] 3.10 Write property test for malformed merge data
+  - [x] 3.10 Write property test for malformed merge data
     - **Property 4: Malformed merge data is kept and reported**
     - **Validates: Requirements 7.7**
     - Module `tests/properties/test_property_04_malformed_merge_data.py`
@@ -137,7 +137,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 3.2, 4.3, 4.4**
     - Module `tests/properties/test_property_05_validators.py`
 
-  - [~] 3.12 Write property test and example tests for unaffected projects
+  - [x] 3.12 Write property test and example tests for unaffected projects
     - **Property 45: Projects without merge data are unaffected**
     - **Validates: Requirements 7.14, 32.1**
     - Module `tests/properties/test_property_45_unaffected_projects.py`; compare with the frozen 0.3 serialiser only through `assert_equal_except_version_fields` (3.13)
@@ -150,13 +150,13 @@ The design's remaining open questions are implemented with the design's stated d
     - No other helper may normalise anything else; every compatibility and regression test uses this helper only
     - _Requirements: 7.14, 32.1_
 
-  - [~] 3.14 Write meta-tests for the compat helper and golden-fixture tests
+  - [x] 3.14 Write meta-tests for the compat helper and golden-fixture tests
     - Module `tests/test_persistence/test_version_compat.py`
     - Meta-tests: only `version`/`format_version` differences pass; any other top-level difference fails; a nested key called `version` or `format_version` differing fails; a missing `version` fails; an extra empty `merge_candidates` or `merge_history` list fails; inputs unchanged; `before` 0.4 or `after` 0.3 fails
     - Golden tests: load, migrate and save each golden 0.3 file and compare; build the same project in code, serialise with the new code and compare
     - _Requirements: 7.14, 32.1_
 
-  - [~] 3.15 Write tests for the migration backup scope (Req 7.9, 7.10)
+  - [x] 3.15 Write tests for the migration backup scope (Req 7.9, 7.10)
     - Module `tests/test_persistence/test_backup_scope.py`
     - `MigrationManager.create_backup` copies `translation/persons.json` next to the project backup when it exists, and completes without error and without that file when it does not exist; naming and location are the same as for earlier migrations
     - A static test asserts that `backup_project_files` is referenced only by `MigrationManager.create_backup` and the Merge_Transaction backup, and that no other backup API was added
@@ -190,7 +190,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `slaktbusken/services/redirect_resolution.py` with `RedirectResolver` over `merge_history`: terminating resolution, cycle detection with no person resolved and a reported cycle, ordering by merge date then creation sequence, `merged_into(survivor)`
     - _Requirements: 28.5, 28.6, 28.7, 28.8, 28.9_
 
-  - [~] 5.5 Write property test for redirect resolution
+  - [x] 5.5 Write property test for redirect resolution
     - **Property 23: Redirect resolution**
     - **Validates: Requirements 28.5, 28.6, 28.7, 28.8**
     - Module `tests/properties/test_property_23_redirect_resolution.py`
@@ -199,7 +199,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `slaktbusken/services/candidate_register.py` (Qt-free): default view of enabled candidates with assessment `unreviewed`, `possible` or `confirmed`; filters for rejected and disabled; case-insensitive search over person name, person id, comment text and research case title that includes disabled candidates when either person matches; sorting; latest-comment cell rule
     - _Requirements: 3.8, 5.2, 5.3, 5.4, 15.2, 15.3, 15.4, 15.5, 15.9, 15.12_
 
-  - [~] 5.7 Write property test for register filtering
+  - [x] 5.7 Write property test for register filtering
     - **Property 10: Register filtering, search and sorting**
     - **Validates: Requirements 3.8, 5.2, 5.3, 5.4, 15.2, 15.3, 15.4, 15.5, 15.9**
     - Module `tests/properties/test_property_10_register_filtering.py`
@@ -244,7 +244,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 16.1, 16.8**
     - Module `tests/properties/test_property_22_editor_section_visibility.py`
 
-  - [~] 5.16 Implement the Revision_Counter, content revision and saved state in `ProjectService` (R1)
+  - [x] 5.16 Implement the Revision_Counter, content revision and saved state in `ProjectService` (R1)
     - In `slaktbusken/services/project_service.py` turn `_dirty` into a property that keeps its name and meaning; the setter with `True` calls `_record_change()` which increments `revision` and `content_revision` and notifies merge listeners; `False` increments nothing
     - Add `revision`, `content_revision`, `clean_content_revision` (set by `open_project`, `save_project` and the adopt step), `is_saved_state()` returning `not _dirty and content_revision == clean_content_revision`, `add_merge_listener`, `notify_merge_changed`
     - `save_project` increments `revision` but not `content_revision`; `save_project` raises `MergeInProgressError` while the engine runs
@@ -280,7 +280,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `services/person_summary.py` (one pass over events and persons: name, lifespan text, birth and death text) and `services/person_search.py` (substring search over name, id and dates, at least two characters, at most 50 results, results distinguishable by dates, places and ids)
     - _Requirements: 9.7, 9.8, 19.8, 19.10_
 
-  - [~] 7.2 Implement `DiagramLookup` and remove per-box scans from the diagram views
+  - [x] 7.2 Implement `DiagramLookup` and remove per-box scans from the diagram views
     - Create `services/diagram_lookup.py` with render-scoped indexes for events, DNA profiles, clusters and persons; use it in the family, ancestry and descendants views and in `PersonBoxItem` data building
     - Keep siblings in the family view (Requirement 10.5); the lookup must expose siblings so the Comparison_Family_View can render them
     - Output of every `display_data` must be equal with and without the lookup
@@ -387,11 +387,11 @@ The design's remaining open questions are implemented with the design's stated d
   - Includes `tests/test_ui/test_person_list_selection.py` (Property 51 and the Req 8.16 regression tests) and the existing person-list tests, unmodified.
 
 - [ ] 9. Phase 5: Indicators, settings and research person filter
-  - [~] 9.1 Implement `CandidateIndex`, indicator colour and tooltips
+  - [x] 9.1 Implement `CandidateIndex`, indicator colour and tooltips
     - Create `services/candidate_index.py` with the single `indicator_colour` function (blue, orange, grey, none), per-person relations, tooltip lines in the specified Swedish form ordered by group then name, five-line limit with a summary line, lifespan rendering without empty parentheses, "Okänd person" fallback, names from current data or Merge_History
     - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8, 19.9, 19.10, 19.11, 28.4_
 
-  - [~] 9.2 Add `PersonBoxConfig.merge_candidates` and settings readers
+  - [x] 9.2 Add `PersonBoxConfig.merge_candidates` and settings readers
     - Add the field and read it in `settings_io.read_settings` and `app_settings_io` with a default for files lacking the key; map a missing `PersonListConfig.research` to the combined setting enabled
     - Label the Person_List header context-menu toggle for the research column exactly "Forskningsuppslag och dubletter" (the same text as the Settings_Dialog checkbox of 9.3); both controls change the same combined setting (`PersonListConfig.research`)
     - _Requirements: 17.1, 17.3, 17.12, 17.13, 17.14, 18.3, 18.11, 18.12_
@@ -441,7 +441,7 @@ The design's remaining open questions are implemented with the design's stated d
     - The person filter is independent of the case page's "Valfritt objekt..." filter
     - _Requirements: 17.8, 17.15, 17.16_
 
-  - [~] 9.12 Extend the research gateway and `Application` with the optional `person_filter` (R6)
+  - [x] 9.12 Extend the research gateway and `Application` with the optional `person_filter` (R6)
     - Add `person_filter: Optional[str] = None` to `show_research_for_entity` in `ui/research_gateway.py` (Protocol) and `Application`, and to `Application.show_research_overview`; `show_research_overview` clears any earlier person filter when called without one so every existing caller (menu entries, editors' tabs, `show_research_for_entity("place", id)`) behaves exactly as before
     - One overview window is reused: a call with a person filter raises it, sets the filter and switches to the cases page
     - _Requirements: 17.6, 17.8, 17.16, 18.14_
@@ -450,7 +450,7 @@ The design's remaining open questions are implemented with the design's stated d
     - In `Application` connect `PersonListPanel.research_indicator_clicked` to `show_research_for_entity("person", pid, person_filter=pid)`
     - _Requirements: 17.6, 17.8, 17.16_
 
-  - [~] 9.14 Write property test for the research overview person filter
+  - [x] 9.14 Write property test for the research overview person filter
     - **Property 50: Research overview person filter**
     - **Validates: Requirements 17.6, 17.8, 17.15, 17.16, 18.14**
     - Module `tests/test_ui/test_research_person_filter.py` (pure tests, no Qt): rows under a person scope equal the unfiltered rows restricted by an independent brute-force definition; a `None` scope returns the pre-feature rows; case row ids equal `cases_for_entity` and their count equals the indicator total
@@ -586,7 +586,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `services/commit/fs_ops.py` (`CommitFs` protocol, `RealFs` with fsync, Windows replace with retry) and `services/commit/preflight.py` (locked file, read-only file, disk space, existing lock file) returning the Swedish messages naming the file; a refusal changes nothing
     - _Requirements: 27.14, 27.20_
 
-  - [~] 13.2 Implement Merge_Journal and backup manifest
+  - [x] 13.2 Implement Merge_Journal and backup manifest
     - Create `services/commit/journal.py`: journal with txid, targets, temp files, `existed_before`, `old_sha256`, `new_sha256` and its own `journal_sha256`; manifest of the Recovery_Point with its own checksum; VALID, DAMAGED and ABSENT journal and VALID, UNUSABLE and ABSENT manifest detection; a leftover `journal.tmp` does not count as a journal
     - _Requirements: 27.14, 27.15, 27.25, 7.12_
 
@@ -662,7 +662,7 @@ The design's remaining open questions are implemented with the design's stated d
     - `test_os_exit_at_representative_points`: real `os._exit(42)` at representative operation numbers, asserting the same all-or-nothing checks as the crash matrix
     - _Requirements: 27.19, 35.1_
 
-  - [~] 13.16 Implement the fault-injection filesystem wrappers
+  - [x] 13.16 Implement the fault-injection filesystem wrappers
     - Create `tests/helpers/fault_fs.py` with `CountingFs`, `FaultFs` (crash before or after, I/O error, partial write, persistent permission error) and `PowerLossFs` implementing the `CommitFs` protocol, plus an in-memory `CommitFs` for table-driven classifier tests; a restart is simulated by constructing a new `ProjectService` and calling `open_project`
     - _Requirements: 27.19_
 

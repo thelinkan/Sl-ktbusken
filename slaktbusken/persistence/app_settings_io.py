@@ -383,6 +383,7 @@ class AppSettingsService:
                 clusters=pbc_data.get("clusters", True),
                 age=pbc_data.get("age", True),
                 research=pbc_data.get("research", True),
+                merge_candidates=pbc_data.get("merge_candidates", True),
             )
         else:
             person_box_config = PersonBoxConfig()

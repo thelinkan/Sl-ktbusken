@@ -1,4 +1,4 @@
-"""Application shell — thin wiring layer between services and UI.
+﻿"""Application shell — thin wiring layer between services and UI.
 
 Instantiates all services, creates the main window, and forwards
 UI events (menu actions) to the appropriate service methods.
@@ -1466,19 +1466,27 @@ class Application:
     # Research
     # ------------------------------------------------------------------
 
-    def show_research_for_entity(self, entity_type: str, entity_id: str) -> None:
-        """Show the research overview filtered to the cases about one entity."""
-        self.show_research_overview("cases")
+    def show_research_for_entity(
+        self, entity_type: str, entity_id: str, person_filter: str | None = None
+    ) -> None:
+        """Show the research overview filtered to the cases about one entity.
+
+        With *person_filter* the overview is also filtered to that person.
+        """
+        self.show_research_overview("cases", person_filter=person_filter)
         window = getattr(self, "_research_overview", None)
         if window is not None:
             window.filter_to_entity(entity_type, entity_id)
 
-    def show_research_overview(self, initial_mode: str = "cases") -> None:
+    def show_research_overview(
+        self, initial_mode: str = "cases", person_filter: str | None = None
+    ) -> None:
         """Show the research overview window in the given mode.
 
         There is one overview window. When it is already open it is raised and
         switched to *initial_mode*. The window refreshes itself whenever
-        research data changes.
+        research data changes. An earlier person filter is cleared unless
+        *person_filter* is given.
         """
         from PySide6.QtCore import Qt as _Qt
 
@@ -1523,6 +1531,9 @@ class Application:
         else:
             window.set_mode(initial_mode)
             window.refresh()
+
+        if person_filter is not None or window.person_filter() is not None:
+            window.set_person_filter(person_filter)
 
         window.show()
         window.raise_()

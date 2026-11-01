@@ -41,6 +41,8 @@ class PersonBoxConfig:
         clusters: Show DNA cluster names on the card.
         research: Show a compact research indicator (independent of the person
             list research column).
+        merge_candidates: Show the merge-candidate (duplicate) indicator;
+            defaults to enabled when the key is missing from a settings file.
     """
 
     name: bool = True
@@ -58,6 +60,7 @@ class PersonBoxConfig:
     clusters: bool = True
     age: bool = True
     research: bool = True
+    merge_candidates: bool = True
 
 
 @dataclass
@@ -340,6 +343,7 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         clusters=person_box_data.get("clusters", True),
         age=person_box_data.get("age", True),
         research=person_box_data.get("research", True),
+        merge_candidates=person_box_data.get("merge_candidates", True),
     )
 
     diagram_settings = DiagramSettings(

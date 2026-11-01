@@ -134,6 +134,10 @@ class ProjectNotOpenError(Exception):
     """Raised when an operation requires an open project but none is loaded."""
 
 
+class MergeInProgressError(Exception):
+    """Raised when a save is attempted while a merge is running."""
+
+
 class ProjectService:
     """Manages project lifecycle: create, open, save, close.
 
@@ -146,7 +150,13 @@ class ProjectService:
         self._project_data: Optional[ProjectData] = None
         self._project_path: Optional[Path] = None
         self._settings: Optional[ProjectSettings] = None
-        self._dirty: bool = False
+        self._dirty_value: bool = False
+        # In-memory only counters (never serialised); see design section 5.
+        self._revision: int = 0
+        self._content_revision: int = 0
+        self._clean_content_revision: int = 0
+        self._merge_in_progress: bool = False
+        self._merge_listeners: list[Callable[[], None]] = []
         # Observers of research changes. They belong to the service, not to a
         # project, so they survive opening and closing projects.
         self._research_listeners: list[Callable[[], None]] = []
@@ -190,6 +200,105 @@ class ProjectService:
                 listener()
             except Exception:  # noqa: BLE001 - one broken view must not block the rest
                 logger.exception("Lyssnare på forskningsändring misslyckades.")
+
+    # ------------------------------------------------------------------
+    # Merge change notification, revision counters and saved state
+    # ------------------------------------------------------------------
+
+    def add_merge_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback to run after a change notification.
+
+        Returns:
+            A function that removes the listener again; calling it twice is
+            harmless.
+        """
+        self._merge_listeners.append(listener)
+
+        def remove() -> None:
+            if listener in self._merge_listeners:
+                self._merge_listeners.remove(listener)
+
+        return remove
+
+    def notify_merge_changed(self) -> None:
+        """Tell every merge listener that the project changed.
+
+        A listener that raises is logged and does not stop the others.
+        """
+        for listener in list(self._merge_listeners):
+            try:
+                listener()
+            except Exception:  # noqa: BLE001 - one broken view must not block the rest
+                logger.exception("Lyssnare på sammanslagningsändring misslyckades.")
+
+    def _record_change(self, content: bool = True, notify: bool = True) -> None:
+        """Count one completed change and optionally notify listeners."""
+        self._revision += 1
+        if content:
+            self._content_revision += 1
+        if notify:
+            self.notify_merge_changed()
+
+    @property
+    def _dirty(self) -> bool:
+        """Unsaved-changes flag. Setting True records a content change."""
+        return self._dirty_value
+
+    @_dirty.setter
+    def _dirty(self, value: bool) -> None:
+        self._dirty_value = bool(value)
+        if value:
+            self._record_change()
+
+    @property
+    def revision(self) -> int:
+        """Number of completed change notifications (in-memory only)."""
+        return self._revision
+
+    @property
+    def content_revision(self) -> int:
+        """Number of notifications that changed project content."""
+        return self._content_revision
+
+    @property
+    def clean_content_revision(self) -> int:
+        """The content revision at the last open, save or merge commit."""
+        return self._clean_content_revision
+
+    def is_saved_state(self) -> bool:
+        """Whether the project is clean and content equals the last saved state."""
+        return (
+            not self._dirty_value
+            and self._content_revision == self._clean_content_revision
+        )
+
+    def set_merge_in_progress(self, running: bool) -> None:
+        """Mark whether the merge engine is running; saving is refused meanwhile."""
+        self._merge_in_progress = bool(running)
+
+    def adopt_committed_state(
+        self,
+        project_data: Optional[ProjectData] = None,
+        project_path: Optional[Path] = None,
+    ) -> None:
+        """Adopt the state of a committed merge as the saved state.
+
+        Clears the dirty flag without going through the ``True`` setter, adds
+        one to ``revision`` and ``content_revision`` each and notifies
+        listeners exactly once.
+
+        Args:
+            project_data: The committed project data to adopt, if replaced.
+            project_path: The project path, if it changed.
+        """
+        if project_data is not None:
+            self._project_data = project_data
+        if project_path is not None:
+            self._project_path = project_path
+        self._dirty_value = False
+        self._record_change(content=True, notify=False)
+        self._clean_content_revision = self._content_revision
+        self.notify_merge_changed()
 
     # ------------------------------------------------------------------
     # Properties
@@ -298,7 +407,8 @@ class ProjectService:
         self._project_data = project_data
         self._project_path = data_file
         self._settings = settings
-        self._dirty = False
+        self._dirty_value = False
+        self._clean_content_revision = self._content_revision
 
         logger.info("Projekt skapat: %s", project_folder)
         return project_data
@@ -323,7 +433,8 @@ class ProjectService:
 
         self._project_data = project_data
         self._project_path = path
-        self._dirty = False
+        self._dirty_value = False
+        self._clean_content_revision = self._content_revision
 
         # Establish the placement-event source-of-truth invariant on load:
         # back-fill a dateless placement start event for every pre-feature
@@ -356,8 +467,15 @@ class ProjectService:
         if self._project_data is None or self._project_path is None:
             raise ProjectNotOpenError("Inget projekt är öppet att spara.")
 
+        if self._merge_in_progress:
+            raise MergeInProgressError(
+                "En sammanslagning pågår. Projektet kan inte sparas just nu."
+            )
+
         FilePersistence.save(self._project_data, self._project_path)
-        self._dirty = False
+        self._dirty_value = False
+        self._clean_content_revision = self._content_revision
+        self._record_change(content=False)
         logger.info("Projekt sparat: %s", self._project_path)
 
     def close_project(self) -> None:
@@ -369,7 +487,8 @@ class ProjectService:
         self._project_data = None
         self._project_path = None
         self._settings = None
-        self._dirty = False
+        self._dirty_value = False
+        self._clean_content_revision = self._content_revision
         logger.info("Projekt stängt.")
 
     # ------------------------------------------------------------------
