@@ -15,6 +15,9 @@ from slaktbusken.reports.content import ReportContent
 from slaktbusken.reports.geographic import generate_geographic_report
 from slaktbusken.reports.kallrapport import generate_kallrapport
 from slaktbusken.reports.media_consistency import generate_media_report
+from slaktbusken.reports.merge_consistency import (
+    generate_merge_consistency_report,
+)
 from slaktbusken.reports.research_consistency import (
     generate_research_consistency_report,
 )
@@ -88,6 +91,14 @@ class ReportGeneratorService:
             ReportContent with the research errors and informational findings.
         """
         return generate_research_consistency_report(data)
+
+    def generate_merge_consistency(self, data: ProjectData) -> ReportContent:
+        """Generate the merge consistency report (Sammanslagning och dubletter).
+
+        Read-only. Unexpected errors propagate so the caller can show a
+        failure message instead of a partial report.
+        """
+        return generate_merge_consistency_report(data)
 
     def generate_kallrapport(
         self,

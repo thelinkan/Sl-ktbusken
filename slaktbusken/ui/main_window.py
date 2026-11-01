@@ -386,6 +386,9 @@ class MainWindow(QMainWindow):
         self._report_menu_builder.action_research_consistency.triggered.connect(
             self._generate_research_consistency
         )
+        self._report_menu_builder.action_merge_consistency.triggered.connect(
+            self._generate_merge_consistency
+        )
 
         # Hjälp (Help)
         self.menu_help = menu_bar.addMenu("&Hjälp")
@@ -761,6 +764,27 @@ class MainWindow(QMainWindow):
 
         service = ReportGeneratorService()
         content = service.generate_research_consistency(data)
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
+    def _generate_merge_consistency(self) -> None:
+        """Generate and display the merge consistency report (Sammanslagning och dubletter)."""
+        if self._app.project_service.project_path is None:
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        try:
+            data = self._app.project_service.data
+            content = ReportGeneratorService().generate_merge_consistency(data)
+        except Exception:
+            QMessageBox.warning(
+                self, "Sammanslagning och dubletter", "Rapporten kunde inte skapas."
+            )
+            return
 
         settings = self._app.project_service.settings
         dlg = ReportPreviewDialog(content, settings, parent=self)

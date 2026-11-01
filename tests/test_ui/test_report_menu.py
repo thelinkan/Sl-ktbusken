@@ -1,4 +1,4 @@
-"""Unit tests for the Report Menu structure.
+﻿"""Unit tests for the Report Menu structure.
 
 Verifies category submenus, item placement, placeholder/implemented states,
 tooltip behaviour, and project-open/closed toggling.
@@ -64,6 +64,7 @@ _IMPLEMENTED_LABELS = {
     "Geografisk konsistens",
     "Mediakonsistens",
     "Forskningskonsistens",
+    "Sammanslagning och dubletter",
 }
 
 
@@ -193,6 +194,7 @@ class TestSubmenuItems:
             "Familjekonsistens",
             "Mediakonsistens",
             "Forskningskonsistens",
+            "Sammanslagning och dubletter",
             "Källkonsistens",
         ]
 

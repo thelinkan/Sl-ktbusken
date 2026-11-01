@@ -629,3 +629,650 @@ def test_property_31_information_never_lost(project):
     if ledger_after["candidate_comments"] < ledger_before["candidate_comments"]:
         assert ledger_after["candidates"] < ledger_before["candidates"]
     del sources_before
+
+
+# ---------------------------------------------------------------------------
+# Task 13.17: one example test per row of the Person_Reference_Inventory
+#
+# One project holds a reference to the retired person at every inventory
+# location. It is merged once with the real engine (plan, commit to disk,
+# adopt); each row test then checks its own Reference_Rule on the result.
+# Conflicts that need a user choice are resolved by the decisions; the
+# "no choice made" and "blocking" variants are planned separately.
+# ---------------------------------------------------------------------------
+
+import sys as _rr_sys  # noqa: E402
+from collections import namedtuple as _rr_namedtuple  # noqa: E402
+from dataclasses import fields as _rr_fields, is_dataclass as _rr_is_dc  # noqa: E402
+from typing import get_args as _rr_get_args, get_type_hints as _rr_get_type_hints  # noqa: E402
+
+from slaktbusken.model.dna import DnaMatch as _RRMatch  # noqa: E402
+from slaktbusken.model.event import SourceRef as _RRSourceRef  # noqa: E402
+from slaktbusken.model.merge_candidate import (  # noqa: E402
+    ArchivedCandidate as _RRArchived,
+    MergeCandidateComment as _RRComment,
+    MergeHistoryEntry as _RRHistory,
+)
+from slaktbusken.model.research_case import ResearchAction as _RRAction  # noqa: E402
+from slaktbusken.model.residence import Observation as _RRObservation  # noqa: E402
+from slaktbusken.persistence import translation_io as _rr_tio  # noqa: E402
+from slaktbusken.persistence.translation_io import FamilyMapping as _RRFamilyMapping  # noqa: E402
+from slaktbusken.services.project_service import ProjectService as _RRService  # noqa: E402
+
+_S = "person_1"  # survivor
+_R = "person_2"  # retired
+_RR_CONNECTION = "o_survivor"
+
+_RRMerged = _rr_namedtuple(
+    "_RRMerged",
+    "before_data before_translation plan outcome after after_translation "
+    "settings_before settings_after reloaded",
+)
+
+
+def _rr_project() -> ProjectData:
+    ids = ["person_1", "person_2", "person_3", "person_4", "person_5", "person_6",
+           "person_7", "person_8", "person_9", "child_a", "child_b", "child_c"]
+    persons = [Person(id=i, sex="F", names=[Name("birth", i, "Berg")]) for i in ids]
+    persons[0] = Person(
+        id=_S, sex="F", names=[Name("birth", "Anna", "Berg")], notes="Överlevande",
+        occupation="Lektor", profile_media_id="m_s",
+    )
+    persons[1] = Person(
+        id=_R, sex="F", names=[Name("birth", "Anna", "Berg"), Name("alias", "Annika", "Lind")],
+        notes="Avförd", title="Dr", occupation="Smed", profile_media_id="m_r",
+    )
+
+    def partner(pid):
+        return _P29Partner(pid, "partner")
+
+    def link(child, parent, kind="biological"):
+        return ParentChildLink(child, parent, kind)
+
+    families = [
+        # retired as partner and as parent of a link
+        _P29Family("fam_a", [partner(_R), partner("person_3")], ["child_a"],
+                   [link("child_a", _R), link("child_a", "person_3")], ["ev_marr"]),
+        # both persons are children of one family: children and child links collapse
+        _P29Family("fam_b", [partner("person_4"), partner("person_5")], [_S, _R],
+                   [link(_S, "person_4"), link(_S, "person_5"),
+                    link(_R, "person_4"), link(_R, "person_5")]),
+        # retired as a child only; the unknown-donor link (parent None) is left alone
+        _P29Family("fam_d", [partner("person_7"), partner("person_8")], [_R, "child_c"],
+                   [link(_R, "person_7"), link(_R, None, "unknown_donor"),
+                    link("child_c", "person_7"), link("child_c", "person_8")]),
+        # untouched family
+        _P29Family("fam_z", [partner("person_6"), partner("person_9")], ["child_b"],
+                   [link("child_b", "person_6"), link("child_b", "person_9")]),
+    ]
+    events = [
+        _P29Event("ev_birth", "birth", [_P29Participant(_R, "child")]),
+        _P29Event("ev_wit", "baptism", [
+            _P29Participant(_S, "witness"), _P29Participant(_R, "witness"),
+            _P29Participant("person_3", "child")]),
+        _P29Event("ev_roles", "baptism", [
+            _P29Participant(_S, "father"), _P29Participant(_R, "witness")]),
+        _P29Event("ev_marr", "marriage", [_P29Participant("person_3", "groom"),
+                                           _P29Participant("person_9", "bride")]),
+    ]
+    obs = _RRObservation(_RRSourceRef("s1", "A"), "1900", "1901")
+    residences = [
+        _P29Residence("res_1", _R, "place_1", observations=[obs], notes="lika"),
+        _P29Residence("res_2", _S, "place_1", observations=[obs], notes="lika"),
+    ]
+    media = [
+        _P29Media("m_s", "image", "m_s.jpg", "Profil"),
+        _P29Media("m_r", "image", "m_r.jpg", "Profil"),
+        _P29Media(
+            "m_1", "image", "m_1.jpg", "Bild",
+            linked_entities=[LinkedEntity("person", _S, ""), LinkedEntity("person", _R, "fotograf"),
+                             LinkedEntity("place", "place_1", "")],
+            mentioned_person_ids=[_R, "person_3", _S],
+            mentioned_names=["Anna Berg"],
+            annotations=[_P29Annotation(0.1, 0.1, 0.1, 0.1, "person", _R),
+                         _P29Annotation(0.5, 0.5, 0.1, 0.1, "person", _S)],
+            publication={"title": "Bok", "text": _R}, photo_date={"year": 1900},
+        ),
+    ]
+    notes = [_P29Note("n_1", "Anteckning", f"om {_R}",
+                      [LinkedEntity("person", _R, ""), LinkedEntity("person", _S, "")])]
+    profiles = [
+        _P29Profile("dna_r", _R, "c1", "autosomal", admin_person_id=_R),
+        _P29Profile("dna_s", _S, "c1", "autosomal"),
+        _P29Profile("dna_x", "person_3", "c1", "autosomal", admin_person_id=_R),
+    ]
+    clusters = [_P29Cluster("cl_1", "Grupp", person_ids=[_R, "person_3", _S, "person_4"])]
+    matches = [_RRMatch("dm_1", "dna_r", "dna_s", 40.0)]
+    cases = [_P29Case(
+        "case_1", primary_entity_ref=_P29Link("person", _R),
+        linked_entities=[_P29Link("person", _R), _P29Link("person", _S)])]
+    hypotheses = [_P29Hypothesis(
+        "hyp_1", "case_1", linked_entities=[_P29Link("person", _R), _P29Link("person", "person_3")])]
+    actions = [_RRAction("act_1", "case_1", "Gör något")]
+    candidates = [
+        _P29Candidate("cand_1", _R, "person_3", comments=[_RRComment("cc_1", "2024-01-01", "x")]),
+        _P29Candidate("cand_2", "person_3", _S),   # collides with cand_1 after the redirect
+        _P29Candidate("cand_3", _S, _R),            # becomes a self pair
+        _P29Candidate("cand_4", "person_4", _R),    # plain redirect
+    ]
+    history = [_RRHistory(
+        "merge_old", _R, "person_8", "Gammal", "1800-1850", "2020-01-01",
+        archived_candidates=[_RRArchived("cand_old", _R, "person_8", "possible", True)],
+    )]
+    return ProjectData(
+        project=_P29Meta("T", main_person_id=_R), persons=persons, families=families,
+        events=events, residences=residences, media=media, research_notes=notes,
+        dna_profiles=profiles, dna_matches=matches, dna_clusters=clusters,
+        research_cases=cases, research_hypotheses=hypotheses, research_actions=actions,
+        merge_candidates=candidates, merge_history=history,
+        connection_overrides={_S: _RR_CONNECTION, _R: "o_retired"},
+    )
+
+
+def _rr_translation() -> _P29Translation:
+    return _P29Translation(
+        persons=[_P29Mapping("@I2@", _R, "fp2"), _P29Mapping("@I3@", "person_3", "fp3")],
+        families=[_RRFamilyMapping("@F1@", "fam_a")],
+        person_aliases=[_P29Alias("@I9@", "fp9", _R, "merge_0")],
+    )
+
+
+def _rr_decisions(**overrides) -> MergeDecisions:
+    choices = dict(
+        survivor_id=_S, survivor_confirmed=True, occupation_from=_S, profile_media_id="m_s",
+        primary_name=("Anna", "Berg", "birth", None),
+        participant_roles={"ev_roles": "father"}, connection_override=_RR_CONNECTION,
+    )
+    choices.update(overrides)
+    return MergeDecisions(_S, _R, **choices)
+
+
+def _rr_settings_bytes(svc) -> bytes:
+    return (svc.project_path.parent / "settings.json").read_bytes()
+
+
+@pytest.fixture(scope="module")
+def merged(tmp_path_factory) -> _RRMerged:
+    svc = _RRService()
+    svc.create_project("Test", tmp_path_factory.mktemp("rr"))
+    svc.data.project.main_person_id = _R
+    for name in ("persons", "families", "events", "residences", "media", "research_notes",
+                 "dna_profiles", "dna_matches", "dna_clusters", "research_cases",
+                 "research_hypotheses", "research_actions", "merge_candidates",
+                 "merge_history"):
+        setattr(svc.data, name, getattr(_rr_project(), name))
+    svc.data.connection_overrides = dict(_rr_project().connection_overrides)
+    translation = _rr_translation()
+    _rr_tio.write_persons(
+        translation.persons, translation.families,
+        svc.project_path.parent / "translation" / "persons.json", translation.person_aliases,
+    )
+    svc._dirty = True
+    svc.save_project()
+
+    before = copy.deepcopy(svc.data)
+    before_translation = _rr_tio.read_all(svc.project_path.parent / "translation")
+    settings_before = _rr_settings_bytes(svc)
+    plan = build_plan(svc.data, before_translation, _rr_decisions(), svc.content_revision)
+    outcome = _P29Engine(svc, None).execute(plan)
+    assert outcome.success, outcome.message
+    from slaktbusken.persistence.file_io import FilePersistence as _FP
+
+    return _RRMerged(
+        before, before_translation, plan, outcome, svc.data,
+        _rr_tio.read_all(svc.project_path.parent / "translation"),
+        settings_before, _rr_settings_bytes(svc), _FP.load(svc.project_path),
+    )
+
+
+def _rr_by_id(items):
+    return {x.id: x for x in items}
+
+
+def _rr_plan_without_choices(merged: _RRMerged, **choices):
+    return build_plan(
+        merged.before_data, merged.before_translation,
+        MergeDecisions(_S, _R, survivor_id=_S, survivor_confirmed=True, **choices),
+    )
+
+
+def _rr_unresolved(plan) -> set[str]:
+    return {u.key for u in plan.unresolved}
+
+
+def test_merge_of_the_reference_project_succeeds_and_persists(merged):
+    assert merged.outcome.success
+    assert [p.id for p in merged.after.persons if p.id == _R] == []
+    assert [p.id for p in merged.reloaded.persons if p.id == _R] == []
+    assert merged.reloaded.project.main_person_id == _S
+
+
+# --- family rows ------------------------------------------------------------
+
+
+def test_reference_rule_family_partners(merged):
+    """R + block: rewritten to the survivor; both in one family is blocking."""
+    after = _rr_by_id(merged.after.families)
+    assert [p.person_id for p in after["fam_a"].partners] == [_S, "person_3"]
+    assert [p.role for p in after["fam_a"].partners] == ["partner", "partner"]
+    data = copy.deepcopy(merged.before_data)
+    data.families.append(_P29Family("fam_both", [_P29Partner(_S, "partner"), _P29Partner(_R, "partner")], []))
+    plan = build_plan(data, merged.before_translation,
+                      MergeDecisions(_S, _R, survivor_id=_S, survivor_confirmed=True))
+    assert any(c.code == "self_partner" and c.is_blocking for c in plan.conflicts)
+    assert not plan.can_execute
+
+
+def test_reference_rule_family_children(merged):
+    """M + collapse: duplicate child entry collapses to the first position."""
+    after = _rr_by_id(merged.after.families)
+    assert after["fam_b"].children == [_S]
+    assert after["fam_d"].children == [_S, "child_c"]
+    assert any(c.code == "duplicate_child" and "fam_b" in c.message for c in merged.plan.warnings)
+
+
+def test_reference_rule_family_parent_child_links_child(merged):
+    """M + collapse: the child side is rewritten and equal links collapse."""
+    links = [(l.child_id, l.parent_id, l.parentage_type)
+             for l in _rr_by_id(merged.after.families)["fam_b"].parent_child_links]
+    assert links == [(_S, "person_4", "biological"), (_S, "person_5", "biological")]
+    d_links = _rr_by_id(merged.after.families)["fam_d"].parent_child_links
+    assert (_S, "person_7", "biological") in [(l.child_id, l.parent_id, l.parentage_type) for l in d_links]
+    # Different parentage types stay separate (one warning per pair).
+    outcome = collapse_parent_child_links(
+        [ParentChildLink(_S, "person_4", "biological"), ParentChildLink(_R, "person_4", "adopted")],
+        _R, _S,
+    )
+    assert [l.parentage_type for l in outcome.links] == ["biological", "adopted"]
+    assert outcome.type_conflicts == [(_S, "person_4", ("biological", "adopted"))]
+
+
+def test_reference_rule_family_parent_child_links_parent(merged):
+    """M + collapse: the parent side is rewritten; None (unknown donor) is left alone."""
+    a_links = _rr_by_id(merged.after.families)["fam_a"].parent_child_links
+    assert sorted((l.child_id, l.parent_id) for l in a_links) == [
+        ("child_a", _S), ("child_a", "person_3")]
+    d_links = _rr_by_id(merged.after.families)["fam_d"].parent_child_links
+    donor = [l for l in d_links if l.parent_id is None]
+    assert [(l.child_id, l.parentage_type) for l in donor] == [(_S, "unknown_donor")]
+    # A child equal to its own parent after the rewrite is a Blocking_Conflict.
+    data = copy.deepcopy(merged.before_data)
+    data.families.append(_P29Family(
+        "fam_self", [_P29Partner(_R, "partner"), _P29Partner("person_3", "partner")], [_S],
+        [ParentChildLink(_S, _R, "biological")]))
+    plan = build_plan(data, merged.before_translation,
+                      MergeDecisions(_S, _R, survivor_id=_S, survivor_confirmed=True))
+    assert any(c.code == "self_parent_child" and c.is_blocking for c in plan.conflicts)
+
+
+def test_reference_rule_family_event_ids(merged):
+    """S: event ids of a family are not person ids and stay unchanged."""
+    before = _rr_by_id(merged.before_data.families)
+    after = _rr_by_id(merged.after.families)
+    assert after["fam_a"].event_ids == before["fam_a"].event_ids == ["ev_marr"]
+    assert "ev_marr" in _rr_by_id(merged.after.events)
+
+
+# --- events and residences --------------------------------------------------
+
+
+def test_reference_rule_event_participants(merged):
+    """M + collapse: same person and role collapse; different roles need a choice."""
+    after = _rr_by_id(merged.after.events)
+    assert [(p.person_id, p.role) for p in after["ev_birth"].participants] == [(_S, "child")]
+    assert [(p.person_id, p.role) for p in after["ev_wit"].participants] == [
+        (_S, "witness"), ("person_3", "child")]
+    assert [(p.person_id, p.role) for p in after["ev_roles"].participants] == [(_S, "father")]
+    # Without the role choice the plan is blocked and asks for the role.
+    plan = _rr_plan_without_choices(merged)
+    assert "participant_role:ev_roles" in _rr_unresolved(plan)
+    assert any(c.code == "participant_role" and c.is_blocking for c in plan.conflicts)
+    assert not plan.can_execute
+
+
+def test_reference_rule_residence_person(merged):
+    """R + none: reassigned, never collapsed, also when date and place are equal."""
+    after = merged.after.residences
+    assert [(r.id, r.person_id, r.place_id) for r in after] == [
+        ("res_1", _S, "place_1"), ("res_2", _S, "place_1")]
+    assert after[0].observations == after[1].observations == merged.before_data.residences[0].observations
+
+
+def test_reference_rule_residence_refs(merged):
+    """S: source references and observations are unchanged."""
+    before = _rr_by_id(merged.before_data.residences)
+    after = _rr_by_id(merged.after.residences)
+    for rid in ("res_1", "res_2"):
+        assert after[rid].observations == before[rid].observations
+        assert after[rid].observations[0].source_ref.source_id == "s1"
+
+
+# --- person attributes ------------------------------------------------------
+
+
+def test_reference_rule_person_profile_media_id(merged):
+    """E: both non-empty and different, the user chooses."""
+    assert "profile_media_id" in _rr_unresolved(_rr_plan_without_choices(merged))
+    survivor = _rr_by_id(merged.after.persons)[_S]
+    assert survivor.profile_media_id == "m_s"
+    other = merged.before_data.persons[1].profile_media_id
+    plan = _rr_plan_without_choices(merged, profile_media_id=other)
+    assert "profile_media_id" not in _rr_unresolved(plan)
+    assert plan.change_set.replaced["persons"][_S].profile_media_id == other
+
+
+def test_reference_rule_person_sex(merged):
+    """E: two different known values need a choice; U counts as unknown."""
+    data = copy.deepcopy(merged.before_data)
+    next(p for p in data.persons if p.id == _R).sex = "M"
+    plan = build_plan(data, merged.before_translation,
+                      MergeDecisions(_S, _R, survivor_id=_S, survivor_confirmed=True))
+    assert "sex" in _rr_unresolved(plan)
+    assert any(c.code == "sex_conflict" and c.is_blocking for c in plan.conflicts)
+    chosen = build_plan(data, merged.before_translation,
+                        MergeDecisions(_S, _R, survivor_id=_S, survivor_confirmed=True, sex="M"))
+    assert "sex" not in _rr_unresolved(chosen)
+    assert chosen.change_set.replaced["persons"][_S].sex == "M"
+    next(p for p in data.persons if p.id == _R).sex = "U"
+    unknown = build_plan(data, merged.before_translation,
+                         MergeDecisions(_S, _R, survivor_id=_S, survivor_confirmed=True))
+    assert "sex" not in _rr_unresolved(unknown)
+    assert unknown.change_set.replaced["persons"][_S].sex == "F"
+    assert _rr_by_id(merged.after.persons)[_S].sex == "F"
+
+
+def test_reference_rule_person_title_occupation(merged):
+    """E: title moves when only one is set; differing occupations need a choice."""
+    unresolved = _rr_unresolved(_rr_plan_without_choices(merged))
+    assert "occupation" in unresolved and "title" not in unresolved
+    survivor = _rr_by_id(merged.after.persons)[_S]
+    assert survivor.title == "Dr"
+    assert survivor.occupation == "Lektor"
+    # The other person's value can be chosen as well.
+    plan = _rr_plan_without_choices(merged, occupation_from=_R)
+    assert plan.change_set.replaced["persons"][_S].occupation == "Smed"
+
+
+def test_reference_rule_person_notes(merged):
+    """M: keep survivor's, keep other's, or concatenate with a visible separator."""
+    notes = _rr_by_id(merged.after.persons)[_S].notes
+    assert "Överlevande" in notes and "Avförd" in notes and notes != "ÖverlevandeAvförd"
+    for mode, expected in (("keep_survivor", "Överlevande"), ("keep_other", "Avförd")):
+        plan = _rr_plan_without_choices(merged, notes_mode=mode)
+        assert plan.change_set.replaced["persons"][_S].notes == expected
+
+
+def test_reference_rule_person_names(merged):
+    """M + collapse: exact duplicates collapse; other names stay."""
+    survivor = _rr_by_id(merged.after.persons)[_S]
+    assert [(n.type, n.given, n.surname) for n in survivor.names] == [
+        ("birth", "Anna", "Berg"), ("alias", "Annika", "Lind")]
+    # Same string with a different type stays.
+    from slaktbusken.services.merge_rules import union_names
+
+    kept = union_names([Name("birth", "Anna", "Berg")], [Name("alias", "Anna", "Berg")])
+    assert len(kept) == 2
+
+
+def test_reference_rule_person_names_event_id(merged):
+    """S: the event id of a name is not a person id and is unchanged."""
+    data = copy.deepcopy(merged.before_data)
+    next(p for p in data.persons if p.id == _R).names.append(
+        Name("married", "Anna", "Ek", event_id="ev_marr"))
+    plan = build_plan(data, merged.before_translation, _rr_decisions())
+    names = plan.change_set.replaced["persons"][_S].names
+    assert [n.event_id for n in names if n.surname == "Ek"] == ["ev_marr"]
+
+
+# --- media and research notes ------------------------------------------------
+
+
+def test_reference_rule_media_linked_entities(merged):
+    """M + collapse: duplicate person links collapse; the role is the first non-empty."""
+    links = _rr_by_id(merged.after.media)["m_1"].linked_entities
+    assert [(l.entity_type, l.entity_id, l.role) for l in links] == [
+        ("person", _S, "fotograf"), ("place", "place_1", "")]
+
+
+def test_reference_rule_media_mentioned_person_ids(merged):
+    """M + collapse: duplicates collapse to the first position."""
+    assert _rr_by_id(merged.after.media)["m_1"].mentioned_person_ids == [_S, "person_3"]
+
+
+def test_reference_rule_media_annotations(merged):
+    """R + none: kept as separate entries; a warning for two regions of one person."""
+    annotations = _rr_by_id(merged.after.media)["m_1"].annotations
+    assert [(a.entity_id, a.x) for a in annotations] == [(_S, 0.1), (_S, 0.5)]
+    assert any(c.code == "annotation_same_person" for c in merged.plan.warnings)
+
+
+def test_reference_rule_media_mentioned_names(merged):
+    """S: free-text names are unchanged."""
+    assert _rr_by_id(merged.after.media)["m_1"].mentioned_names == ["Anna Berg"]
+
+
+def test_reference_rule_research_note_linked_entities(merged):
+    """M + collapse: duplicates collapse to one per note."""
+    links = _rr_by_id(merged.after.research_notes)["n_1"].linked_entities
+    assert [(l.entity_type, l.entity_id) for l in links] == [("person", _S)]
+    assert _rr_by_id(merged.after.research_notes)["n_1"].text == f"om {_R}"
+
+
+# --- DNA --------------------------------------------------------------------
+
+
+def test_reference_rule_dna_profile_person(merged):
+    """R + none: profiles are never merged; the count is unchanged."""
+    after = _rr_by_id(merged.after.dna_profiles)
+    assert len(merged.after.dna_profiles) == len(merged.before_data.dna_profiles) == 3
+    assert after["dna_r"].person_id == _S and after["dna_s"].person_id == _S
+
+
+def test_reference_rule_dna_profile_admin_person(merged):
+    """R: replaced when equal to the retired id; others unchanged."""
+    after = _rr_by_id(merged.after.dna_profiles)
+    assert after["dna_r"].admin_person_id == _S
+    assert after["dna_x"].admin_person_id == _S
+    assert after["dna_s"].admin_person_id is None
+
+
+def test_reference_rule_dna_cluster_person_ids(merged):
+    """M + collapse: duplicate collapses; the order of the others is preserved."""
+    assert _rr_by_id(merged.after.dna_clusters)["cl_1"].person_ids == [_S, "person_3", "person_4"]
+
+
+def test_reference_rule_dna_profile_match_refs(merged):
+    """S: profile and match ids are unchanged; a match joining one person warns."""
+    assert merged.after.dna_matches == merged.before_data.dna_matches
+    match = merged.after.dna_matches[0]
+    assert (match.profile1_id, match.profile2_id) == ("dna_r", "dna_s")
+    assert any(c.code == "dna_match_same_person" for c in merged.plan.warnings)
+
+
+# --- research ----------------------------------------------------------------
+
+
+def test_reference_rule_research_case_entities(merged):
+    """M + collapse: primary reference and links are rewritten; duplicates collapse."""
+    case = _rr_by_id(merged.after.research_cases)["case_1"]
+    assert (case.primary_entity_ref.entity_type, case.primary_entity_ref.entity_id) == ("person", _S)
+    # Collapsed across primary and linked together: the primary holds the survivor once.
+    assert case.linked_entities == []
+    assert merged.plan.research.links_rewired + merged.plan.research.links_collapsed > 0
+
+
+def test_reference_rule_research_hypothesis_entities(merged):
+    """M + collapse: same helper as for cases."""
+    hyp = _rr_by_id(merged.after.research_hypotheses)["hyp_1"]
+    assert [(l.entity_type, l.entity_id) for l in hyp.linked_entities] == [
+        ("person", _S), ("person", "person_3")]
+
+
+def test_reference_rule_research_action_none(merged):
+    """S: actions hold no person ids and are unchanged."""
+    assert merged.after.research_actions == merged.before_data.research_actions
+    assert not any("person" in f.name for f in _rr_fields(_RRAction))
+
+
+# --- project-level ------------------------------------------------------------
+
+
+def test_reference_rule_project_main_person_id(merged):
+    """R: set to the survivor when equal to the retired id."""
+    assert merged.before_data.project.main_person_id == _R
+    assert merged.after.project.main_person_id == _S
+    assert merged.reloaded.project.main_person_id == _S
+
+
+def test_reference_rule_project_connection_overrides(merged):
+    """E: both with different values, the user chooses; the retired key is removed."""
+    assert "connection_override" in _rr_unresolved(_rr_plan_without_choices(merged))
+    assert merged.after.connection_overrides == {_S: _RR_CONNECTION}
+    plan = _rr_plan_without_choices(merged, connection_override="o_retired")
+    assert plan.change_set.scalars["connection_overrides"] == {_S: "o_retired"}
+    # Only the retired value: it moves to the survivor.
+    data = copy.deepcopy(merged.before_data)
+    data.connection_overrides = {_R: "o_retired"}
+    moved = build_plan(data, merged.before_translation, _rr_decisions())
+    assert moved.change_set.scalars["connection_overrides"] == {_S: "o_retired"}
+
+
+# --- merge candidates and history ----------------------------------------------
+
+
+def test_reference_rule_merge_candidate_persons(merged):
+    """special: redirect, collision or archive; one candidate per unordered pair."""
+    active = merged.after.merge_candidates
+    assert all(_R not in (c.person_1_id, c.person_2_id) for c in active)
+    pairs = [frozenset((c.person_1_id, c.person_2_id)) for c in active]
+    assert len(pairs) == len(set(pairs))
+    assert frozenset((_S, "person_3")) in pairs and frozenset((_S, "person_4")) in pairs
+    assert all(_S != c.person_1_id or _S != c.person_2_id for c in active)  # no self pair
+    entry = next(h for h in merged.after.merge_history if h.merged_person_id == _R)
+    archived_ids = {a.id for a in entry.archived_candidates}
+    assert "cand_3" in archived_ids  # the self pair
+    assert len(active) + len(archived_ids) >= len(merged.before_data.merge_candidates)
+    assert "cc_1" in {c.id for a in entry.archived_candidates for c in a.comments} | {
+        c.id for cand in active for c in cand.comments}
+
+
+def test_reference_rule_merge_history_persons(merged):
+    """H: earlier entries are never rewritten; the new entry names the pair."""
+    old = _rr_by_id(merged.after.merge_history)["merge_old"]
+    assert old == merged.before_data.merge_history[0]
+    assert (old.surviving_person_id, old.merged_person_id) == (_R, "person_8")
+    new = next(h for h in merged.after.merge_history if h.merged_person_id == _R)
+    assert new.surviving_person_id == _S
+
+
+def test_reference_rule_merge_history_archived_candidates(merged):
+    """H: archived candidates keep their original ids."""
+    old = _rr_by_id(merged.after.merge_history)["merge_old"]
+    assert [(a.id, a.person_1_id, a.person_2_id) for a in old.archived_candidates] == [
+        ("cand_old", _R, "person_8")]
+    new = next(h for h in merged.after.merge_history if h.merged_person_id == _R)
+    originals = {c.id: (c.person_1_id, c.person_2_id) for c in merged.before_data.merge_candidates}
+    for archived in new.archived_candidates:
+        assert (archived.person_1_id, archived.person_2_id) == originals[archived.id]
+
+
+# --- translation ----------------------------------------------------------------
+
+
+def test_reference_rule_translation_person_mappings(merged):
+    """special: mappings of the retired person move to identity_aliases."""
+    assert [m.app_id for m in merged.after_translation.persons] == ["person_3"]
+    moved = [a for a in merged.after_translation.person_aliases if a.gedcom_id == "@I2@"]
+    assert [(a.person_id, a.fingerprint) for a in moved] == [(_S, "fp2")]
+    entry = next(h for h in merged.after.merge_history if h.merged_person_id == _R)
+    assert moved[0].merge_id == entry.id
+
+
+def test_reference_rule_translation_identity_aliases(merged):
+    """R: earlier aliases pointing at the retired person point at the survivor."""
+    earlier = [a for a in merged.after_translation.person_aliases if a.gedcom_id == "@I9@"]
+    assert [(a.person_id, a.merge_id) for a in earlier] == [(_S, "merge_0")]
+    assert all(a.person_id != _R for a in merged.after_translation.person_aliases)
+
+
+def test_reference_rule_translation_family_mappings(merged):
+    """S: family ids; a merge does not combine families."""
+    assert merged.after_translation.families == merged.before_translation.families
+    assert [f.app_id for f in merged.after_translation.families] == ["fam_a"]
+
+
+# --- settings and free-form dicts -------------------------------------------------
+
+
+def _rr_person_reference_field_names(cls, seen=None) -> set[str]:
+    seen = set() if seen is None else seen
+    if cls in seen or not _rr_is_dc(cls):
+        return set()
+    seen.add(cls)
+    names: set[str] = set()
+    hints = _rr_get_type_hints(cls)
+    for f in _rr_fields(cls):
+        if "person_id" in f.name or f.name.endswith("_person_ref"):
+            names.add(f.name)
+        stack = [hints.get(f.name)]
+        while stack:
+            hint = stack.pop()
+            if hint is None:
+                continue
+            names |= _rr_person_reference_field_names(hint, seen)
+            stack.extend(_rr_get_args(hint))
+    return names
+
+
+def test_reference_rule_settings_none(merged):
+    """S: neither settings file stores a person id, and the merge leaves them alone."""
+    from slaktbusken.persistence.app_settings_io import AppSettings
+    from slaktbusken.persistence.settings_io import ProjectSettings
+
+    assert _rr_person_reference_field_names(ProjectSettings) == set()
+    assert _rr_person_reference_field_names(AppSettings) == set()
+    assert merged.settings_after == merged.settings_before
+    assert _R.encode() not in merged.settings_after
+
+
+def test_reference_rule_media_publication_dates(merged):
+    """S: free-form dicts without person ids are unchanged."""
+    before = _rr_by_id(merged.before_data.media)["m_1"]
+    after = _rr_by_id(merged.after.media)["m_1"]
+    assert after.publication == before.publication == {"title": "Bok", "text": _R}
+    assert after.photo_date == before.photo_date == {"year": 1900}
+
+
+# --- completeness --------------------------------------------------------------------
+
+
+def _rr_test_name(key: str) -> str:
+    return "test_reference_rule_" + key.replace(".", "_")
+
+
+def test_every_inventory_row_has_a_rule_test():
+    module = _rr_sys.modules[__name__]
+    names = [_rr_test_name(loc.key) for loc in _p29_pri.PERSON_REFERENCE_INVENTORY]
+    assert len(names) == len(set(names)), "two inventory keys map to one test name"
+    missing = [
+        loc.key for loc in _p29_pri.PERSON_REFERENCE_INVENTORY
+        if not callable(getattr(module, _rr_test_name(loc.key), None))
+    ]
+    assert missing == [], f"Inventory rows without a rule test: {missing}"
+
+
+def test_rewire_rows_leave_no_retired_reference(merged):
+    rewire = [loc for loc in _p29_pri.PERSON_REFERENCE_INVENTORY if loc.rule == "R"]
+    assert rewire
+    before = _p29_pri.PersonReferenceIndex.build(
+        merged.before_data, [_R], merged.before_translation)
+    after = _p29_pri.PersonReferenceIndex.build(merged.after, [_R], merged.after_translation)
+    reloaded = _p29_pri.PersonReferenceIndex.build(merged.reloaded, [_R], merged.after_translation)
+    for loc in rewire:
+        assert before.count(loc.key, _R) > 0, f"{loc.key}: the fixture has no reference"
+        assert after.count(loc.key, _R) == 0, f"{loc.key} still refers to the retired person"
+        assert reloaded.count(loc.key, _R) == 0, f"{loc.key} (reloaded)"
+    # Every row that needs a handler is clean, not only the rewrite rows.
+    for loc in _p29_pri.PERSON_REFERENCE_INVENTORY:
+        if loc.requires_handler:
+            assert after.count(loc.key, _R) == 0, loc.key

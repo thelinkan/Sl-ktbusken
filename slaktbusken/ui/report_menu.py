@@ -43,6 +43,7 @@ class ReportMenuBuilder:
         self.action_geographic: QAction | None = None
         self.action_media: QAction | None = None
         self.action_research_consistency: QAction | None = None
+        self.action_merge_consistency: QAction | None = None
 
         # All placeholder actions (always disabled)
         self._placeholder_actions: list[QAction] = []
@@ -90,6 +91,9 @@ class ReportMenuBuilder:
         self.action_research_consistency = menu_consistency.addAction(
             "Forskningskonsistens"
         )
+        self.action_merge_consistency = menu_consistency.addAction(
+            "Sammanslagning och dubletter"
+        )
         self._add_placeholder(menu_consistency, "Källkonsistens")
 
         # --- Forskningsrapporter ---
@@ -127,6 +131,7 @@ class ReportMenuBuilder:
             self.action_geographic,
             self.action_media,
             self.action_research_consistency,
+            self.action_merge_consistency,
         ):
             if action is not None:
                 action.setEnabled(project_open)

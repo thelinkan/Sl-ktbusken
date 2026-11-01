@@ -528,3 +528,199 @@ def test_property_40_crash_atomicity() -> None:
             shutil.rmtree(workdir, ignore_errors=True)
 
         check()
+
+
+# ---------------------------------------------------------------------------
+# Task 13.14: recovery is deterministic and idempotent (Property 41)
+# Requirements 27.16, 27.17, 27.21. Helpers are local to this section.
+# ---------------------------------------------------------------------------
+
+from slaktbusken.services.commit.recovery import recover_if_needed  # noqa: E402
+
+_REC_KINDS = ("crash_before", "crash_after", "partial_write", "io_error_after")
+
+
+def _interrupt(
+    templates: dict[bool, Path],
+    with_persons: bool,
+    kind: str,
+    n: int,
+    workdir: Path,
+    *,
+    phase: str = "before",
+    seed: int = 0,
+) -> Case:
+    """Run the merge until a fault at operation ``n`` and leave the disk as is."""
+    case = _copy_case(templates, with_persons, workdir)
+    svc = _open(case)
+    plan = _plan(svc)
+    fs = (
+        _power_loss_factory(n, phase, seed)()
+        if kind == "power_loss"
+        else _fault_fs_factory(kind, n)()
+    )
+    try:
+        MergeEngine(svc, None, fs=fs).execute(plan)
+    except SimulatedCrash:
+        pass
+    return case
+
+
+def _recover(project: Path, fs: object = None) -> tuple[str, Optional[str], str]:
+    """One recovery run as a comparable value."""
+    try:
+        outcome = recover_if_needed(project, fs)  # type: ignore[arg-type]
+    except RecoveryRefusedError as exc:
+        return ("refused", exc.refusal.code, "")
+    if outcome is None:
+        return ("none", None, "")
+    return ("ok", outcome.kind.value, outcome.message)
+
+
+def _distinct_interrupted_states(
+    templates: dict[bool, Path], with_persons: bool, base: Path
+) -> list[tuple[str, Path]]:
+    """One interrupted disk state per (table C row, fault kind), copied to ``base``."""
+    total = _dry_run(templates, with_persons).op_count
+    found: dict[tuple[str, str, str], Path] = {}
+    for n in range(1, total + 1):
+        for kind in _REC_KINDS:
+            work = base / f"s{len(found)}_{kind}_{n}"
+            work.mkdir(parents=True)
+            case = _interrupt(templates, with_persons, kind, n, work)
+            row, expected = _observe(case)
+            key = (row, expected, "journal" if journal_path_for(case.project).exists() else "none")
+            if key in found:
+                shutil.rmtree(work, ignore_errors=True)
+            else:
+                found[key] = case.project
+    return [(f"{k[0]}/{k[2]}", p) for k, p in sorted(found.items())]
+
+
+def _clone(project: Path, dest: Path) -> Path:
+    shutil.copytree(project.parent, dest)
+    return dest / project.name
+
+
+@pytest.mark.parametrize("with_persons", [True, False], ids=["with_persons", "no_persons"])
+def test_recovery_idempotent(
+    templates: dict[bool, Path], with_persons: bool, tmp_path: Path
+) -> None:
+    """Running recovery twice changes nothing the second time (every fault point)."""
+    total = _dry_run(templates, with_persons).op_count
+    checked = 0
+    for n in range(1, total + 1):
+        for kind in _REC_KINDS:
+            work = tmp_path / f"{kind}_{n}"
+            work.mkdir()
+            case = _interrupt(templates, with_persons, kind, n, work)
+            label = f"{kind}@{n}"
+            first = _recover(case.project)
+            settled = snapshot_dir(case.directory)
+            second = _recover(case.project)
+            if first[0] == "refused":
+                assert second == first, label  # a refusal is repeatable and read-only
+            else:
+                assert second == ("none", None, ""), f"{label}: second run reported {second}"
+            assert snapshot_dir(case.directory) == settled, f"{label}: second recovery changed the disk"
+            if first[0] != "refused":
+                assert _leftovers(case.directory) == [], label
+            checked += 1
+            shutil.rmtree(work, ignore_errors=True)
+    assert checked > 10
+
+
+@pytest.mark.parametrize("with_persons", [True, False], ids=["with_persons", "no_persons"])
+def test_crash_during_recovery_converges(
+    templates: dict[bool, Path], with_persons: bool, tmp_path: Path
+) -> None:
+    """A crash or I/O error injected into recovery itself: the next recovery
+    reaches the same final disk state as an undisturbed recovery."""
+    states = _distinct_interrupted_states(templates, with_persons, tmp_path / "states")
+    assert len(states) >= 3
+    disturbed_runs = 0
+    old_case = _copy_case(templates, with_persons, tmp_path / "old")
+    case_old = (old_case.old_project, old_case.old_persons)
+    for label, project in states:
+        reference = _clone(project, tmp_path / f"ref_{disturbed_runs}_{len(label)}")
+        ref_result = _recover(reference)
+        ref_snapshot = snapshot_dir(reference.parent)
+        if ref_result[0] == "refused":
+            continue  # recovery performs no writes: nothing to interrupt
+
+        counting = CountingFs()
+        probe = _clone(project, tmp_path / f"probe_{disturbed_runs}_{len(label)}")
+        _recover(probe, counting)
+        assert counting.op_count > 0
+
+        for n in range(1, counting.op_count + 1):
+            for kind in ("crash_before", "crash_after", "io_error_before", "partial_write"):
+                dest = _clone(project, tmp_path / f"d{disturbed_runs}")
+                disturbed_runs += 1
+                fs = FaultFs(n, kind, RealFs(delays=(), sleep=lambda _s: None))
+                try:
+                    recover_if_needed(dest, fs)
+                except (SimulatedCrash, OSError, RecoveryRefusedError):
+                    pass
+                where = f"state {label}, {kind}@{n} ({counting.ops[n - 1]})"
+                again = _recover(dest)
+                assert again[0] != "refused", f"{where}: next recovery refused ({again[1]})"
+                if kind == "io_error_before":
+                    # A transient read error can legitimately steer recovery onto the
+                    # damaged-journal path (table B); only all-or-nothing is required.
+                    case = Case(dest, with_persons, case_old[0], case_old[1])
+                    p_new = dest.read_bytes() != case.old_project
+                    if with_persons:
+                        t_new = case.persons_file.read_bytes() != case.old_persons
+                        assert t_new == p_new, f"{where}: mixed project/persons state"
+                    assert _leftovers(dest.parent) == [], where
+                else:
+                    assert snapshot_dir(dest.parent) == ref_snapshot, (
+                        f"{where}: final disk differs from undisturbed recovery"
+                    )
+                # and it is settled: one more run changes nothing
+                assert _recover(dest) == ("none", None, ""), where
+                shutil.rmtree(dest.parent, ignore_errors=True)
+    assert disturbed_runs > 20
+
+
+def test_property_41_recovery_deterministic() -> None:
+    """**Validates: Requirements 27.16, 27.17, 27.21**
+
+    The same interrupted state always recovers to the same result (outcome and
+    final disk), and recovering again changes nothing.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        templates_ = {
+            flag: _build_template(root / f"template_{int(flag)}", flag) for flag in (True, False)
+        }
+        totals = {flag: _dry_run(templates_, flag).op_count for flag in (True, False)}
+        counter = [0]
+
+        @settings(max_examples=60, deadline=None)
+        @given(
+            with_persons=st.booleans(),
+            kind=st.sampled_from((*FAULT_KINDS, "power_loss")),
+            position=st.floats(min_value=0.0, max_value=1.0),
+            phase=st.sampled_from(POWER_LOSS_PHASES),
+            seed=st.integers(min_value=0, max_value=1000),
+        )
+        def check(with_persons: bool, kind: str, position: float, phase: str, seed: int) -> None:
+            n = 1 + int(position * (totals[with_persons] - 1))
+            counter[0] += 1
+            work = root / f"w{counter[0]}"
+            work.mkdir()
+            case = _interrupt(templates_, with_persons, kind, n, work, phase=phase, seed=seed)
+            a = _clone(case.project, work / "copy_a")
+            b = _clone(case.project, work / "copy_b")
+            res_a, res_b = _recover(a), _recover(b)
+            assert res_a == res_b
+            assert snapshot_dir(a.parent) == snapshot_dir(b.parent)
+            settled = snapshot_dir(a.parent)
+            again = _recover(a)
+            assert again == (("refused", res_a[1], "") if res_a[0] == "refused" else ("none", None, ""))
+            assert snapshot_dir(a.parent) == settled
+            shutil.rmtree(work, ignore_errors=True)
+
+        check()

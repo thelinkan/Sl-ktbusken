@@ -396,3 +396,349 @@ def test_property_47_merge_only_from_saved_state(
                     for e in editors
                     if e.unsaved
                 )
+
+
+# ---------------------------------------------------------------------------
+# Commit bookkeeping and plan staleness (task 13.23)
+#
+# Property 48: Commit bookkeeping and plan staleness.
+# Validates: Requirements 26.9, 26.12, 27.1, 27.8, 27.24
+# ---------------------------------------------------------------------------
+
+import os
+from unittest import mock
+
+from slaktbusken.services.merge_engine import PLAN_STALE_MESSAGE
+from slaktbusken.ui.merge import merge_review_wizard as mrw
+from slaktbusken.ui.merge.merge_gateway import MergeExecutionResult
+from tests.helpers.fault_fs import CountingFs, FaultFs
+
+
+def _first_replace_op(root: Path) -> int:
+    """1-based index of the first ``replace`` operation of a successful commit."""
+    other = _merge_service(root)
+    counting = CountingFs()
+    assert MergeEngine(other, None, fs=counting).execute(_merge_plan(other)).success
+    return counting.names().index("replace") + 1
+
+
+def _counters(svc: ProjectService) -> tuple[bool, int, int]:
+    return svc.is_dirty, svc.revision, svc.content_revision
+
+
+def test_successful_merge_bookkeeping(tmp_path: Path) -> None:
+    svc = _merge_service(tmp_path)
+    plan = _merge_plan(svc)
+    calls: list[int] = []
+    svc.add_merge_listener(lambda: calls.append(1))
+    _, rev, content = _counters(svc)
+    outcome = MergeEngine(svc, None).execute(plan)
+    assert outcome.success, outcome.message
+    assert not svc.is_dirty
+    assert svc.revision == rev + 1
+    assert svc.content_revision == content + 1
+    assert len(calls) == 1
+    assert svc.is_saved_state()
+
+
+@pytest.mark.parametrize("kind", ["io_error_before", "crash_before"])
+def test_failed_and_rolled_back_merge_changes_no_bookkeeping(
+    tmp_path: Path, kind: str
+) -> None:
+    first_replace = _first_replace_op(tmp_path / "dry")
+    svc = _merge_service(tmp_path / "real")
+    plan = _merge_plan(svc)
+    calls: list[int] = []
+    svc.add_merge_listener(lambda: calls.append(1))
+    before = _counters(svc)
+    disk = snapshot_dir(svc.project_path.parent)
+    # Failure before any replace (plain failure) and at the first replace
+    # (the commit has started and is rolled back).
+    for op in (1, first_replace):
+        fs = FaultFs(op, "io_error_before")
+        outcome = MergeEngine(svc, None, fs=fs).execute(plan)
+        assert fs.triggered
+        assert not outcome.success
+        assert _counters(svc) == before
+        assert calls == []
+        assert svc.is_saved_state()
+        assert snapshot_dir(svc.project_path.parent) == disk
+
+
+def test_plain_save_keeps_content_revision_so_plan_is_not_rebuilt(
+    tmp_path: Path,
+) -> None:
+    svc = _merge_service(tmp_path)
+    svc._dirty = True  # an unsaved change that the plan already contains
+    plan = _merge_plan(svc)
+    content = svc.content_revision
+    planner_calls: list[int] = []
+    real_build = build_plan
+
+    def counting_build(*args, **kwargs):
+        planner_calls.append(1)
+        return real_build(*args, **kwargs)
+
+    with mock.patch.object(mrw, "build_plan", counting_build):
+        svc.save_project()
+    assert planner_calls == []
+    assert svc.content_revision == content
+    assert plan.content_revision == svc.content_revision
+    # The saved plan is still executable: no stale report.
+    outcome = MergeEngine(svc, None).execute(plan)
+    assert outcome.success, outcome.message
+    assert not outcome.stale
+
+
+def test_content_change_between_plan_and_execution_is_stale_and_rebuilt(
+    tmp_path: Path,
+) -> None:
+    svc = _merge_service(tmp_path)
+    plan = _merge_plan(svc)
+    # A real content change that was then saved: the saved-state check passes.
+    svc.data.persons[0].occupation = "Bonde"
+    svc._dirty = True
+    svc.save_project()
+    assert svc.is_saved_state()
+    before = _counters(svc)
+    disk = snapshot_dir(svc.project_path.parent)
+    outcome = MergeEngine(svc, None).execute(plan)
+    assert not outcome.success
+    assert outcome.stale
+    assert outcome.message == PLAN_STALE_MESSAGE
+    assert _counters(svc) == before
+    assert snapshot_dir(svc.project_path.parent) == disk
+    # Rebuilding the plan makes the merge succeed.
+    fresh = _merge_plan(svc)
+    assert fresh.content_revision == svc.content_revision
+    assert MergeEngine(svc, None).execute(fresh).success
+
+
+@settings(max_examples=15, deadline=None)
+@given(
+    outcome_kind=st.sampled_from(["success", "failure", "rolled_back"]),
+    save_first=st.booleans(),
+)
+def test_property_48_commit_bookkeeping(outcome_kind: str, save_first: bool) -> None:
+    """**Validates: Requirements 26.9, 26.12, 27.1, 27.8, 27.24**"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        first_replace = _first_replace_op(root / "dry")
+        svc = _merge_service(root / "real")
+        if save_first:  # a plain save before planning changes only ``revision``
+            svc._dirty = True
+            svc.save_project()
+        plan = _merge_plan(svc)
+        calls: list[int] = []
+        svc.add_merge_listener(lambda: calls.append(1))
+        dirty, rev, content = _counters(svc)
+        fs = None
+        if outcome_kind == "failure":
+            fs = FaultFs(1, "io_error_before")
+        elif outcome_kind == "rolled_back":
+            fs = FaultFs(first_replace, "io_error_before")
+        outcome = MergeEngine(svc, None, fs=fs).execute(plan)
+        if outcome_kind == "success":
+            assert outcome.success, outcome.message
+            assert not svc.is_dirty
+            assert svc.revision == rev + 1
+            assert svc.content_revision == content + 1
+            assert len(calls) == 1
+        else:
+            assert not outcome.success
+            assert _counters(svc) == (dirty, rev, content)
+            assert calls == []
+        assert svc.is_saved_state()
+
+
+# --- Wizard flow ------------------------------------------------------------
+
+from PySide6.QtWidgets import QApplication, QMessageBox
+
+from slaktbusken.ui.merge.merge_review_wizard import MergeReviewWizard
+
+
+class _EngineExecutor:
+    """Runs the real MergeEngine; the wizard reaches it only through this."""
+
+    def __init__(self, svc: ProjectService, registry: EditorRegistry) -> None:
+        self.engine = MergeEngine(svc, registry)
+        self.runs = 0
+        self.plans: list = []
+
+    def execute(self, plan):
+        self.runs += 1
+        self.plans.append(plan)
+        outcome = self.engine.execute(plan)
+        return MergeExecutionResult(outcome.success, outcome.message)
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+def _wizard_for(svc: ProjectService, registry: EditorRegistry):
+    executor = _EngineExecutor(svc, registry)
+    translation_dir = svc.project_path.parent / "translation"
+    wiz = MergeReviewWizard(
+        svc,
+        ["person_1", "person_2"],
+        editor_registry=registry,
+        executor=executor,
+        translation_provider=lambda: translation_io.read_all(translation_dir),
+        use_worker=False,
+    )
+    wiz.survivor_page.radios["person_1"].setChecked(True)
+    wiz.survivor_page.confirm_button.click()
+    assert wiz.preview.can_execute()
+    return wiz, executor
+
+
+def _patch_boxes(monkeypatch, choice: str | None):
+    """Record every QMessageBox button row and click *choice* (or none)."""
+    shown: list[tuple[str, list[str]]] = []
+
+    def fake_exec(box):
+        texts = [b.text() for b in box.buttons()]
+        shown.append((box.text(), texts))
+        if choice is not None:
+            next(b for b in box.buttons() if b.text() == choice).click()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    return shown
+
+
+def test_wizard_unsaved_editor_blocks_and_resolution_only_on_button(
+    qapp, tmp_path: Path, monkeypatch
+) -> None:
+    svc = _merge_service(tmp_path)
+    editor = FakeEditor("Personredigerare", True)
+    registry = _registry_with(editor)
+    wiz, executor = _wizard_for(svc, registry)
+    disk = snapshot_dir(svc.project_path.parent)
+    dialogs: list[mrw.UnsavedEditorsDialog] = []
+
+    def show_block(editors):
+        dlg = mrw.UnsavedEditorsDialog(editors, wiz)
+        dialogs.append(dlg)
+        # Shown, but the user does not press the button.
+
+    boxes = _patch_boxes(monkeypatch, None)
+    monkeypatch.setattr(wiz, "_show_editor_block", show_block)
+    wiz.preview.execute_button.click()
+    assert len(dialogs) == 1
+    assert [b.text() for b in dialogs[0].buttons] == [mrw.GO_TO_EDITOR_TEXT]
+    assert any(
+        mrw.EDITOR_BLOCK_TEXT.format(title="Personredigerare") == lbl.text()
+        for lbl in dialogs[0].findChildren(mrw.QLabel)
+    )
+    # No "Spara och fortsätt", no second confirmation, no resolution yet.
+    assert boxes == []
+    assert editor.resolutions == 0 and editor.saves == 0 and editor.discards == 0
+    assert executor.runs == 0 and not wiz.executed
+    assert snapshot_dir(svc.project_path.parent) == disk
+    # Only the button press asks the editor to resolve.
+    dialogs[0].buttons[0].click()
+    assert editor.resolutions == 1
+    assert editor.saves == 0 and editor.discards == 0
+
+
+def test_wizard_dirty_project_offers_exactly_two_buttons_and_cancel_saves_nothing(
+    qapp, tmp_path: Path, monkeypatch
+) -> None:
+    svc = _merge_service(tmp_path)
+    svc._dirty = True  # before the wizard opens, so its plan contains the change
+    wiz, executor = _wizard_for(svc, EditorRegistry())
+    disk = snapshot_dir(svc.project_path.parent)
+    saves: list[int] = []
+    monkeypatch.setattr(svc, "save_project", lambda: saves.append(1))
+    boxes = _patch_boxes(monkeypatch, mrw.CANCEL_TEXT)
+    wiz.preview.execute_button.click()
+    assert [texts for _, texts in boxes] == [[mrw.SAVE_AND_CONTINUE_TEXT, mrw.CANCEL_TEXT]]
+    assert boxes[0][0] == _DIRTY_TEXT
+    assert saves == []
+    assert executor.runs == 0 and not wiz.executed
+    assert svc.is_dirty
+    assert snapshot_dir(svc.project_path.parent) == disk
+
+
+def test_wizard_failing_save_starts_no_merge_and_leaves_files_unchanged(
+    qapp, tmp_path: Path, monkeypatch
+) -> None:
+    svc = _merge_service(tmp_path)
+    svc._dirty = True  # before the wizard opens, so its plan contains the change
+    wiz, executor = _wizard_for(svc, EditorRegistry())
+    disk = snapshot_dir(svc.project_path.parent)
+    rev, content = svc.revision, svc.content_revision
+    messages: list[str] = []
+    monkeypatch.setattr(wiz, "_show_message", messages.append)
+    monkeypatch.setattr(wiz, "_confirm_merge", lambda t: pytest.fail("no confirmation"))
+    _patch_boxes(monkeypatch, mrw.SAVE_AND_CONTINUE_TEXT)
+    real_replace = os.replace
+
+    def failing_replace(src, dst, *a, **kw):
+        # The save path (FilePersistence.save) replaces the project file.
+        if Path(dst) == svc.project_path:
+            raise OSError(5, "simulated I/O error on save")
+        return real_replace(src, dst, *a, **kw)
+
+    monkeypatch.setattr(os, "replace", failing_replace)
+    wiz.preview.execute_button.click()
+    monkeypatch.undo()
+    assert messages == [mrw.SAVE_FAILED_TEXT]
+    assert executor.runs == 0 and not wiz.executed
+    assert svc.is_dirty
+    assert (svc.revision, svc.content_revision) == (rev, content)
+    after = snapshot_dir(svc.project_path.parent)
+    assert {k: v for k, v in after.items() if not k.endswith(".tmp")} == {
+        k: v for k, v in disk.items() if not k.endswith(".tmp")
+    }
+
+
+def test_wizard_second_confirmation_has_no_saving_sentence_and_merge_runs(
+    qapp, tmp_path: Path, monkeypatch
+) -> None:
+    svc = _merge_service(tmp_path)
+    wiz, executor = _wizard_for(svc, EditorRegistry())
+    plan_before = wiz.plan
+    texts: list[str] = []
+    monkeypatch.setattr(wiz, "_confirm_merge", lambda t: texts.append(t) or True)
+    rev, content = svc.revision, svc.content_revision
+    wiz.preview.execute_button.click()
+    assert len(texts) == 1
+    assert "spar" not in texts[0].lower()
+    assert executor.plans == [plan_before]  # the plan was not rebuilt
+    assert executor.runs == 1 and wiz.executed
+    assert svc.revision == rev + 1 and svc.content_revision == content + 1
+    assert svc.is_saved_state()
+
+
+def test_wizard_save_and_continue_does_not_rebuild_plan(
+    qapp, tmp_path: Path, monkeypatch
+) -> None:
+    svc = _merge_service(tmp_path)
+    svc._dirty = True  # a pending change that the plan already contains
+    wiz, executor = _wizard_for(svc, EditorRegistry())
+    builds: list[int] = []
+    real_build = mrw.build_plan
+    monkeypatch.setattr(
+        mrw, "build_plan", lambda *a, **k: builds.append(1) or real_build(*a, **k)
+    )
+    _patch_boxes(monkeypatch, mrw.SAVE_AND_CONTINUE_TEXT)
+    texts: list[str] = []
+    builds_at_confirmation: list[int] = []
+
+    def confirm(text):
+        texts.append(text)
+        builds_at_confirmation.append(len(builds))
+        return True
+
+    monkeypatch.setattr(wiz, "_confirm_merge", confirm)
+    # The dirty flag was set without a content change, so the plan is current.
+    plan_before = wiz.plan
+    wiz.preview.execute_button.click()
+    assert builds_at_confirmation == [0]  # save did not rebuild the plan
+    assert executor.plans == [plan_before]
+    assert len(texts) == 1 and executor.runs == 1

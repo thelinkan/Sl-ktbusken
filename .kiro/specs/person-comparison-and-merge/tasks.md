@@ -463,7 +463,7 @@ The design's remaining open questions are implemented with the design's stated d
 - [~] 10. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 11. Phase 6: Merge planning and review
+- [x] 11. Phase 6: Merge planning and review
   - [x] 11.1 Implement `MergeDecisions`, `MergePlan` and the working copy
     - Create `services/merge_planner.py` with decision and plan dataclasses, `PlanItem` dispositions, `MergeConflict`, `UnresolvedChoice`, `InformationLedger`, and the copy-on-write working structure (structural clones of affected families, events, media and research objects; research rewire run on copies)
     - The plan records `content_revision` and a SHA-256 `fingerprint` over every object it read
@@ -565,7 +565,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Warning visible in the preview before the second confirmation while the constant is `False`; absent when `True`
     - _Requirements: 26.15, 30.13, 30.15_
 
-  - [~] 11.20 Write example tests for family relationship integrity (Mandatory group b: family relationship integrity)
+  - [x] 11.20 Write example tests for family relationship integrity (Mandatory group b: family relationship integrity)
     - Module `tests/test_services/test_merge_family_integrity.py` (mandatory marker); required, never skipped
     - Named tests: `test_cycle_blocks_merge`, `test_self_partner_blocks_merge`, `test_self_parent_child_link_blocks_merge`, `test_parent_child_link_types_preserved`, `test_foster_adoptive_families_resynchronised`, `test_two_brita_seven_distinct_children`, `test_same_name_siblings_stay_distinct`, `test_duplicate_families_stay_separate_with_warning`
     - _Requirements: 23.6, 23.7, 23.9, 23.10, 23.12, 24.1, 24.4, 24.8, 35.1_
@@ -651,7 +651,7 @@ The design's remaining open questions are implemented with the design's stated d
     - `test_crash_matrix_every_operation` (exhaustive over operation numbers discovered by a dry run; kinds crash before or after, I/O error before or after, partial write, persistent permission error and power loss; with and without `persons.json`; including the points between the `persons.json` replace and the project replace, table C rows 11, 11b, 11c, 12b, 12c); every operation number maps to a row of table C and the observed decision equals that row's decision; asserts all-or-nothing by checksum, outcome message exactly when a journal existed, no leftover journal, temp file, backup directory or lock, no orphaned mapping or alias, project loads and re-import does not resurrect the retired person, dirty flag and revision as expected
     - Also `test_property_40_crash_atomicity`
 
-  - [~] 13.14 Write property test for deterministic and idempotent recovery (Mandatory group d: crash recovery)
+  - [x] 13.14 Write property test for deterministic and idempotent recovery (Mandatory group d: crash recovery)
     - **Property 41: Recovery is deterministic and idempotent**
     - **Validates: Requirements 27.16, 27.17, 27.21**
     - Module `tests/test_services/test_commit_faults.py` (mandatory marker); required, never skipped
@@ -666,7 +666,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `tests/helpers/fault_fs.py` with `CountingFs`, `FaultFs` (crash before or after, I/O error, partial write, persistent permission error) and `PowerLossFs` implementing the `CommitFs` protocol, plus an in-memory `CommitFs` for table-driven classifier tests; a restart is simulated by constructing a new `ProjectService` and calling `open_project`
     - _Requirements: 27.19_
 
-  - [~] 13.17 Write one test per Reference_Rule row (Mandatory group a: reference preservation)
+  - [x] 13.17 Write one test per Reference_Rule row (Mandatory group a: reference preservation)
     - Module `tests/test_services/test_merge_reference_rules.py` (mandatory marker); required, never skipped
     - `test_every_inventory_row_has_a_rule_test` (fails when an inventory row has no rule test), `test_rewire_rows_leave_no_retired_reference`, and one example test per Reference_Rule row of the inventory
     - _Requirements: 1.3, 1.4, 1.8, 35.1_
@@ -703,7 +703,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Module `tests/test_services/test_saved_state.py` (mandatory marker); required, never skipped; uses a counting `FakeEditor` and the real `MergeEngine` on a project saved to a temporary directory
     - `test_dirty_project_refused` (exact message "Projektet har osparade ändringar. Spara projektet innan sammanslagningen."), a `content_revision` differing from `clean_content_revision` is refused, `test_unsaved_editor_refused` (one or several editors, message naming them), `test_property_47_merge_only_from_saved_state`; for each refusal the directory snapshot, `ProjectData`, dirty flag, `revision` and the editors' unsaved state are unchanged and no editor method other than `has_unsaved_changes` was called (no save, discard or `request_resolution`); a successful merge commits the serialisation of the plan applied to the saved state
 
-  - [~] 13.23 Write the commit-bookkeeping and wizard-flow tests (Mandatory group c: failed merges)
+  - [x] 13.23 Write the commit-bookkeeping and wizard-flow tests (Mandatory group c: failed merges)
     - **Property 48: Commit bookkeeping and plan staleness**
     - **Validates: Requirements 26.9, 26.12, 27.1, 27.8, 27.24**
     - Module `tests/test_services/test_saved_state.py` (mandatory marker, run after 13.22); required, never skipped
@@ -729,7 +729,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Report `Sammanslagningskandidater` and `Sammanslagningshistorik` counts in `GEDCOMExporter._collect_omissions` when non-zero; ensure the retired person is not exported
     - _Requirements: 30.12_
 
-  - [~] 15.3 Implement the Merge_Consistency_Report
+  - [x] 15.3 Implement the Merge_Consistency_Report
     - Create `reports/merge_consistency.py` (`MergeIssue`, `check_merge_consistency`, `generate_merge_consistency_report`) following `research_consistency.py`; add "Sammanslagning och dubletter" to `ReportMenuBuilder` after "Forskningskonsistens" and wire `MainWindow` and `ReportService`; read-only; Swedish placeholder for missing persons; "Rapporten kunde inte skapas." with no partial report on error
     - _Requirements: 5.8, 6.7, 31.1, 31.2, 31.3, 31.4, 31.5, 31.6, 31.7, 31.8, 31.9_
 
