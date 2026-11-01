@@ -467,3 +467,156 @@ def test_property_34_relatives_stay_distinct(case):
     assert (getattr(final, "merge_candidates", None) or []) == (
         getattr(data, "merge_candidates", None) or []
     )
+
+
+# ---------------------------------------------------------------------------
+# Property 35: plan equals synchronised result (task 11.14)
+# ---------------------------------------------------------------------------
+
+_PLACEMENTS = {
+    "foster_home": ("foster", "fosterbarn", "fosterförälder"),
+    "adoption": ("adoptive", "adopterad", "adoptivförälder"),
+}
+_PARENT_POOL = ["p1", "p2", "h"]
+
+
+@st.composite
+def _placement_projects(draw):
+    """Biological families plus foster/adoption placement events for p1, p2 and h.
+
+    The project is synchronised before planning (as a saved project is), so the
+    derived families exist. Children are never parents: no cycle can arise.
+    """
+    children = [f"c{i}" for i in range(draw(st.integers(1, 4)))]
+    events, families, n_event = [], [], 0
+    for child in children:
+        if draw(st.booleans()):
+            parent = draw(st.sampled_from(_PARENT_POOL))
+            families.append(
+                _fam(f"B{child}", [parent], [child], [_bio(child, parent)])
+            )
+        for _ in range(draw(st.integers(0, 2))):
+            etype = draw(st.sampled_from(sorted(_PLACEMENTS)))
+            _, child_role, parent_role = _PLACEMENTS[etype]
+            parents = draw(
+                st.lists(st.sampled_from(_PARENT_POOL), min_size=1, max_size=2, unique=True)
+                # p1 and p2 as one parent set would be a self-partner (Property 32).
+                .filter(lambda s: not {"p1", "p2"} <= set(s))
+            )
+            n_event += 1
+            events.append(
+                Event(
+                    id=f"E{n_event}", type=etype,
+                    participants=[Participant(child, child_role)]
+                    + [Participant(p, parent_role) for p in parents],
+                )
+            )
+    persons = [_person(i) for i in _PARENT_POOL] + [_person(c, "Barn") for c in children]
+    data = ProjectData(persons=persons, events=events, families=families)
+    from slaktbusken.services.foster_sync import sync_parentage_links
+
+    sync_parentage_links(data)
+    return data
+
+
+def _canonical_families(families):
+    """Order- and id-independent form of a family list."""
+    return sorted(
+        (
+            tuple(sorted(p.person_id for p in f.partners)),
+            tuple(sorted(f.children)),
+            tuple(sorted((l.child_id, l.parent_id, l.parentage_type) for l in f.parent_child_links)),
+            tuple(sorted(f.event_ids)),
+        )
+        for f in families
+    )
+
+
+def _independent_sync_result(data):
+    """Rewrite p2 -> p1 by hand on a deep copy, then run the real sync on it."""
+    from slaktbusken.services.foster_sync import sync_parentage_links
+
+    work = copy.deepcopy(data)
+    m = lambda x: "p1" if x == "p2" else x  # noqa: E731
+    work.persons = [p for p in work.persons if p.id != "p2"]
+    for ev in work.events:
+        seen, kept = set(), []
+        for part in ev.participants:
+            part.person_id = m(part.person_id)
+            if (part.person_id, part.role) not in seen:
+                seen.add((part.person_id, part.role))
+                kept.append(part)
+        ev.participants = kept
+    for fam in work.families:
+        partners, seen = [], set()
+        for p in fam.partners:
+            p.person_id = m(p.person_id)
+            if p.person_id not in seen:
+                seen.add(p.person_id)
+                partners.append(p)
+        fam.partners = partners
+        fam.children = list(dict.fromkeys(m(c) for c in fam.children))
+        links, seen_links = [], set()
+        for l in fam.parent_child_links:
+            l.child_id = m(l.child_id)
+            l.parent_id = m(l.parent_id) if l.parent_id is not None else None
+            key = (l.child_id, l.parent_id, l.parentage_type)
+            if key not in seen_links:
+                seen_links.add(key)
+                links.append(l)
+        fam.parent_child_links = links
+    sync_parentage_links(work)
+    return work
+
+
+@settings(settings.get_profile("sbk"))
+@given(_placement_projects())
+def test_property_35_plan_equals_synchronised_result(data):
+    """**Validates: Requirements 23.12, 23.13, 26.2**"""
+    from slaktbusken.model.validators import validate_family
+    from slaktbusken.services.foster_sync import sync_parentage_links
+
+    plan = _plan(data)  # also proves the project is unchanged
+    assert not plan.blocking
+    final = _final(data, plan)
+
+    # The families of the plan are those of the real sync run on an
+    # independently rewritten working copy.
+    expected = _independent_sync_result(data)
+    assert _canonical_families(final.families) == _canonical_families(expected.families)
+
+    # Applying the sync to the synchronised copy again changes nothing.
+    again = copy.deepcopy(final)
+    sync_parentage_links(again)
+    assert again.families == final.families
+
+    # The preview is read from the same synchronised structures.
+    original = {f.id: f for f in data.families}
+    after = {f.id: f for f in final.families}
+    assert plan.preview.family_count == len(final.families)
+    assert plan.preview.parent_child_link_count == sum(
+        len(f.parent_child_links) for f in final.families
+    )
+    assert set(plan.preview.removed_family_ids) == set(original) - set(after)
+    assert set(plan.preview.added_family_ids) == set(after) - set(original)
+    assert set(plan.preview.changed_family_ids) == {
+        fid for fid, f in after.items() if fid in original and f != original[fid]
+    }
+
+    # Every changed or added family passes family validation (otherwise a
+    # blocking conflict would exist, which was excluded above).
+    ids = {p.id for p in final.persons}
+    for fid in set(plan.preview.changed_family_ids) | set(plan.preview.added_family_ids):
+        assert validate_family(after[fid], ids) == []
+
+    # No foster or adoptive link is dropped: each link, with p2 mapped to p1,
+    # is present in the synchronised result.
+    m = lambda x: "p1" if x == "p2" else x  # noqa: E731
+    kept = {
+        (l.child_id, l.parent_id, l.parentage_type)
+        for f in final.families for l in f.parent_child_links
+    }
+    for fam in data.families:
+        for l in fam.parent_child_links:
+            if l.parentage_type in ("foster", "adoptive"):
+                assert (m(l.child_id), m(l.parent_id), l.parentage_type) in kept

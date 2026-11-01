@@ -50,6 +50,8 @@ from slaktbusken.ui.merge.merge_pages import (
     build_choice_specs,
 )
 from slaktbusken.ui.merge.merge_preview import PREVIEW_TITLE, MergePreviewWidget
+from slaktbusken.ui.merge.recovery_dialogs import show_recovery_refusal
+from slaktbusken.ui.widgets.progress_overlay import ProgressOverlay
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,7 @@ SAVE_FAILED_TEXT = "Projektet kunde inte sparas. Ingenting har slagits samman."
 SAVE_PROMPT_TEXT = "Projektet har osparade ändringar. Spara projektet innan sammanslagningen."
 CONFIRM_QUESTION = "Slå samman {survivor} som behålls med {retired} som tas bort?"
 MERGE_FAILED_TEXT = "Sammanslagningen kunde inte genomföras."
+COMMIT_PROGRESS_TEXT = "Genomför sammanslagningen..."
 
 SAVE = "save"
 CANCEL = "cancel"
@@ -102,6 +105,22 @@ class _PlanWorker(QThread):
             self.built.emit(self._generation, self._job(), None)
         except Exception as exc:  # noqa: BLE001 - reported as an unavailable preview
             self.built.emit(self._generation, None, exc)
+
+
+class _ExecWorker(QThread):
+    """Runs the disk phase of the merge off the GUI thread."""
+
+    finished_with = Signal(object, object)  # token or None, error or None
+
+    def __init__(self, job: Callable[[], Any], parent: Any = None) -> None:
+        super().__init__(parent)
+        self._job = job
+
+    def run(self) -> None:
+        try:
+            self.finished_with.emit(self._job(), None)
+        except Exception as exc:  # noqa: BLE001 - reported as a failed merge
+            self.finished_with.emit(None, exc)
 
 
 class UnsavedEditorsDialog(QDialog):
@@ -198,6 +217,10 @@ class MergeReviewWizard(QDialog):
         self._name_keys: dict[str, tuple] = {}
         self._remove_listener: Optional[Callable[[], None]] = None
         self.executed = False
+        self.last_result: Optional[MergeExecutionResult] = None
+        self._busy = False
+        self._finishing = False
+        self._exec_worker: Optional[_ExecWorker] = None
 
         self.setWindowTitle(WINDOW_TITLE)
         self.setModal(True)
@@ -250,6 +273,7 @@ class MergeReviewWizard(QDialog):
         self.cancel_button.clicked.connect(self.reject)
         bottom.addWidget(self.cancel_button)
         outer.addLayout(bottom)
+        self._overlay = ProgressOverlay(self)
 
     def _add_page(self, title: str, page: QWidget) -> None:
         self.section_list.addItem(QListWidgetItem(title))
@@ -432,7 +456,7 @@ class MergeReviewWizard(QDialog):
 
     def _on_project_changed(self) -> None:
         """A save changes ``revision`` only, so it never lands here as stale."""
-        if self._plan is None or self._plan_is_current():
+        if self._finishing or self._plan is None or self._plan_is_current():
             return
         self._needs_reconfirm = True
         self.preview.set_stale(True)
@@ -525,12 +549,81 @@ class MergeReviewWizard(QDialog):
         if executor is None:
             self._show_message(MERGE_FAILED_TEXT)
             return
-        result: MergeExecutionResult = executor.execute(plan)
+        if self._use_worker and hasattr(executor, "run_disk_phase") and hasattr(executor, "finish"):
+            self._start_background_execution(executor, plan)
+            return
+        self._handle_result(executor.execute(plan))
+
+    def _start_background_execution(self, executor: Any, plan: MergePlan) -> None:
+        """Disk phase on a worker behind a progress overlay without cancel (27.11)."""
+        self._set_busy(True)
+        worker = _ExecWorker(lambda: executor.run_disk_phase(plan), self)
+
+        def on_done(token: Any, error: Any) -> None:
+            self._exec_worker = None
+            try:
+                if error is not None:
+                    logger.error("Sammanslagningen misslyckades på arbetstråden.", exc_info=error)
+                    result = MergeExecutionResult(False, MERGE_FAILED_TEXT)
+                else:
+                    self._finishing = True  # our own adoption is not a foreign change
+                    result = executor.finish(token)  # adoption on the UI thread
+            except Exception:  # noqa: BLE001
+                logger.exception("Sammanslagningen kunde inte slutföras.")
+                result = MergeExecutionResult(False, MERGE_FAILED_TEXT)
+            self._finishing = False
+            self._set_busy(False)
+            self._handle_result(result)
+
+        worker.finished_with.connect(on_done)
+        worker.finished.connect(worker.deleteLater)
+        self._exec_worker = worker
+        worker.start()
+
+    def wait_for_execution(self, timeout_ms: int = 10000) -> None:
+        """Block until a running commit worker has finished (used by tests)."""
+        worker = self._exec_worker
+        if worker is not None:
+            worker.wait(timeout_ms)
+
+    @property
+    def is_busy(self) -> bool:
+        return self._busy
+
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        for widget in (self.section_list, self.stack, self.preview, self.cancel_button):
+            widget.setEnabled(not busy)
+        if busy:
+            self._overlay.show_with_message(COMMIT_PROGRESS_TEXT)
+        else:
+            self._overlay.hide()
+
+    def _handle_result(self, result: MergeExecutionResult) -> None:
+        self.last_result = result
+        if result.refusal_message:
+            show_recovery_refusal(self, result.refusal_message)
+            self.reject()
+            return
         if not result.success:
-            self._show_message(result.message or MERGE_FAILED_TEXT)
+            text = result.message or MERGE_FAILED_TEXT
+            if result.recovery_message and result.recovery_message not in text:
+                text = f"{text}\n{result.recovery_message}"
+            self._show_message(text)
             return
         self.executed = True
         self.accept()
+
+    def reject(self) -> None:
+        if self._busy:
+            return  # no cancel while the commit runs
+        super().reject()
+
+    def closeEvent(self, event: Any) -> None:  # noqa: N802
+        if self._busy:
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # Closing

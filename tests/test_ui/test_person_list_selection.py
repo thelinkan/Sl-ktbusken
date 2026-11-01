@@ -199,3 +199,102 @@ def test_property_51_menu_ids_equal_ids_before_click(panel, shown_menus, rows, p
     assert tuple(
         sorted(i.data(0, Qt.ItemDataRole.UserRole) for i in tree.selectedItems())
     ) == tuple(sorted(before))
+
+
+# --- Selection regression tests (task 7.20, Req 8.16) ------------------------
+def _click(tree, row, modifier=Qt.KeyboardModifier.NoModifier) -> None:
+    item = tree.topLevelItem(row)
+    pos = QPoint(10, tree.visualItemRect(item).center().y())
+    QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton, modifier, pos)
+
+
+def _menu_for_selection(panel, shown_menus, rows):
+    tree = panel._tree_widget
+    tree.clearSelection()
+    for r in rows:
+        tree.topLevelItem(r).setSelected(True)
+    pos = QPoint(5, tree.viewport().height() - 2)
+    if rows:
+        pos = QPoint(10, tree.visualItemRect(tree.topLevelItem(rows[0])).center().y())
+    panel._on_context_menu_requested(pos)
+    return _entries(shown_menus[-1])
+
+
+def test_7_20_plain_click_selects_one_row_and_sets_current(panel):
+    tree = panel._tree_widget
+    emitted: list[str] = []
+    panel.person_selected.connect(emitted.append)
+    _click(tree, 1)
+    assert _selected(tree) == ["person_2"]
+    assert tree.currentItem() is tree.topLevelItem(1)
+    assert emitted == ["person_2"]
+
+
+def test_7_20_ctrl_click_adds_and_removes_row(panel):
+    tree = panel._tree_widget
+    ctrl = Qt.KeyboardModifier.ControlModifier
+    _click(tree, 0)
+    _click(tree, 2, ctrl)
+    assert _selected(tree) == ["person_1", "person_3"]
+    _click(tree, 2, ctrl)
+    assert _selected(tree) == ["person_1"]
+
+
+def test_7_20_shift_click_selects_contiguous_range(panel):
+    tree = panel._tree_widget
+    _click(tree, 0)
+    _click(tree, 2, Qt.KeyboardModifier.ShiftModifier)
+    assert _selected(tree) == ["person_1", "person_2", "person_3"]
+
+
+@pytest.mark.parametrize(
+    "rows, compare_on, mark_on",
+    [([0, 1], True, True), ([0], True, False), ([0, 1, 2], False, False), ([], False, False)],
+)
+def test_7_20_menu_entry_enablement_by_selection_size(
+    panel, shown_menus, rows, compare_on, mark_on
+):
+    entries = _menu_for_selection(panel, shown_menus, rows)
+    assert entries[COMPARE].isEnabled() is compare_on
+    assert entries[MARK].isEnabled() is mark_on
+
+
+def test_7_20_right_click_inside_selection_opens_menu_with_both_ids(panel, shown_menus):
+    tree = panel._tree_widget
+    _select_two(tree)
+    pos = _right_press(tree, tree.topLevelItem(0))
+    assert _selected(tree) == ["person_1", "person_2"]
+    panel._on_context_menu_requested(pos)
+    assert _selected(tree) == ["person_1", "person_2"]
+    assert _entries(shown_menus[-1])[COMPARE].data()[1] == ("person_1", "person_2")
+
+
+def test_7_20_right_click_outside_selection_selects_only_that_row(panel, shown_menus):
+    tree = panel._tree_widget
+    _select_two(tree)
+    pos = _right_press(tree, tree.topLevelItem(2))
+    assert _selected(tree) == ["person_3"]
+    panel._on_context_menu_requested(pos)
+    assert _entries(shown_menus[-1])[COMPARE].data()[1] == ("person_3",)
+
+
+def test_7_20_right_click_on_empty_space_disables_both_entries(panel, shown_menus):
+    tree = panel._tree_widget
+    _select_two(tree)
+    pos = QPoint(5, tree.viewport().height() - 2)
+    assert tree.itemAt(pos) is None
+    QTest.mousePress(tree.viewport(), Qt.MouseButton.RightButton, pos=pos)
+    panel._on_context_menu_requested(pos)
+    entries = _entries(shown_menus[-1])
+    assert set(entries) == {COMPARE, MARK}
+    assert not any(a.isEnabled() for a in entries.values())
+
+
+def test_7_20_ctrl_click_changing_current_item_still_navigates(panel):
+    tree = panel._tree_widget
+    emitted: list[str] = []
+    _click(tree, 0)
+    panel.person_selected.connect(emitted.append)
+    _click(tree, 3, Qt.KeyboardModifier.ControlModifier)
+    assert tree.currentItem() is tree.topLevelItem(3)
+    assert emitted == ["person_4"]

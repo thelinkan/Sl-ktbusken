@@ -275,7 +275,7 @@ The design's remaining open questions are implemented with the design's stated d
 - [~] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Phase 4: Comparison window
+- [x] 7. Phase 4: Comparison window
   - [x] 7.1 Implement `PersonSummaryIndex` and `PersonSearchIndex`
     - Create `services/person_summary.py` (one pass over events and persons: name, lifespan text, birth and death text) and `services/person_search.py` (substring search over name, id and dates, at least two characters, at most 50 results, results distinguishable by dates, places and ids)
     - _Requirements: 9.7, 9.8, 19.8, 19.10_
@@ -377,7 +377,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Module `tests/test_ui/test_person_list_selection.py`: pure tests of `rows_after_right_click` over generated selections and clicked rows (inside: same rows in the same order; outside: exactly the clicked row; none: no rows; for a selection of two or more and a right-click inside it, the person ids passed to the menu equal the ids before the click); also the pure examples
     - Tag `# Feature: person-comparison-and-merge, Property 51: Right-click selection rule`
 
-  - [~] 7.20 Write person-list selection regression tests (Req 8.16)
+  - [x] 7.20 Write person-list selection regression tests (Req 8.16)
     - Module `tests/test_ui/test_person_list_selection.py` (run after 7.19; pytest-qt, offscreen, `exec` of the menu replaced by a recording stub)
     - (1) A plain click selects one row and `person_selected` and the current person are set as before this feature; (2) Ctrl-click adds a second row and Ctrl-click on a selected row removes it; (3) Shift-click selects the contiguous range from the anchor; (4) with two rows selected the context menu enables "Jämför personer..." and "Markera som sammanslagningskandidater", with one row only the first, with three rows or none neither; (5) right-click on a row inside a two-person selection leaves `selectedItems()` unchanged and opens the menu with both ids; (6) right-click on a row outside the selection selects only that row and opens the menu with that id; (7) right-click on empty space opens a menu with both entries disabled; (8) a Ctrl-click that changes the current item still navigates to that person
     - _Requirements: 8.4, 8.5, 8.6, 8.12, 8.13, 8.14, 8.15, 8.16_
@@ -512,7 +512,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Second confirmation names both persons and ids and contains no statement about saving unsaved edits (none can exist)
     - _Requirements: 20.1, 20.5, 20.6, 20.7, 20.8, 20.9, 20.10, 20.12, 21.9, 21.17, 26.1, 26.3, 26.4, 26.5, 26.6, 26.7, 26.9, 26.10_
 
-  - [~] 11.10 Write widget tests for the wizard
+  - [x] 11.10 Write widget tests for the wizard
     - Module `tests/test_ui/test_merge_wizard.py`
     - Sections, survivor reset message, confirmation dialogs and their text (no sentence about saving unsaved edits), preview styles, disabled execution
     - _Requirements: 20.12, 26.4, 26.5, 26.9_
@@ -533,7 +533,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Module `tests/test_services/test_merge_family_integrity.py`; function named `test_property_34_relatives_stay_distinct`; required, never skipped
     - Include the two-Brita example (seven distinct children) and the same-named siblings example
 
-  - [~] 11.14 Write property test for plan equals synchronised result (Mandatory group b: family relationship integrity)
+  - [x] 11.14 Write property test for plan equals synchronised result (Mandatory group b: family relationship integrity)
     - **Property 35: Plan equals synchronised result**
     - **Validates: Requirements 23.12, 23.13, 26.2**
     - Module `tests/test_services/test_merge_family_integrity.py`; function named `test_property_35_plan_equals_synchronised_result`; required, never skipped
@@ -560,7 +560,7 @@ The design's remaining open questions are implemented with the design's stated d
     - In `merge_preview.py` show the single Swedish warning constant "En senare GEDCOM-uppdatering kan skriva över namn, anteckningar, titel och yrke för den behållna personen. Granska en sådan import noggrant." above the buttons (before the second confirmation) while the constant is `False`, once, not repeated in other sections; hidden when `True`
     - _Requirements: 26.15, 30.13, 30.15, 33.10_
 
-  - [~] 11.19 Write test for the GEDCOM update warning
+  - [x] 11.19 Write test for the GEDCOM update warning
     - Module `tests/test_gedcom/test_update_warning.py`
     - Warning visible in the preview before the second confirmation while the constant is `False`; absent when `True`
     - _Requirements: 26.15, 30.13, 30.15_
@@ -614,7 +614,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Run `recover_if_needed` before `FilePersistence.load` on `open_project`; on `RecoveryRefusedError` keep the previous project state, open nothing and re-raise; return the `RecoveryOutcome` message otherwise; refuse an ordinary save while a journal exists (also after a refusal) with "En sammanslagning är inte avslutad. Starta om Släktbusken."; expose the engine hooks and the adopt step
     - _Requirements: 7.12, 7.13, 27.16, 27.17, 27.25_
 
-  - [~] 13.7 Wire commit execution and recovery messages into the UI
+  - [x] 13.7 Wire commit execution and recovery messages into the UI
     - Run the disk phase on a worker with a progress overlay and no cancel button; adopt data on the UI thread; refresh views; show success, failure and recovery outcome messages from the design table; show the Recovery_Refusal message in a modal `QMessageBox` with a selectable text area (paths copyable) when opening a project is refused and write details to the application log outside the project directory; open the Merge_History view for a person
     - _Requirements: 27.6, 27.7, 27.11, 27.12, 27.13, 27.25, 28.9, 28.10_
 
@@ -623,7 +623,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 1.4, 22.2, 22.6, 22.13, 22.14, 27.4, 28.2, 29.12, 30.12**
     - Module `tests/test_services/test_merge_reference_rules.py` (mandatory marker); function named `test_property_29_no_stale_reference`; required, never skipped
 
-  - [~] 13.9 Write property test for information preservation (Mandatory group a: reference preservation)
+  - [x] 13.9 Write property test for information preservation (Mandatory group a: reference preservation)
     - **Property 31: Information is never lost**
     - **Validates: Requirements 21.11, 21.15, 21.16, 22.1, 22.7, 22.10, 23.8, 32.6**
     - Module `tests/test_services/test_merge_reference_rules.py` (mandatory marker); function named `test_property_31_information_never_lost`; required, never skipped
@@ -639,12 +639,12 @@ The design's remaining open questions are implemented with the design's stated d
     - Module `tests/test_services/test_merge_failures.py` with `pytestmark = pytest.mark.mandatory_integrity`; required, never skipped
     - `test_property_39_failing_merge_leaves_everything_unchanged`; `test_failed_merge_leaves_data_unchanged` parametrised over plan invalid, post-merge validation failure, research rewire error, encode error and write error; `test_failed_merge_leaves_translation_files_unchanged`; `test_failed_merge_leaves_dirty_flag_unchanged` (also `revision` unchanged, no history entry added)
 
-  - [~] 13.12 Write identity-alias tests (Mandatory group f: GEDCOM re-import after a merge)
+  - [x] 13.12 Write identity-alias tests (Mandatory group f: GEDCOM re-import after a merge)
     - **Property 42: Identity aliases**
     - **Validates: Requirements 30.1, 30.2, 30.3, 30.10**
     - Module `tests/test_gedcom/test_merge_reimport.py` with `pytestmark = pytest.mark.mandatory_integrity`; function named `test_property_42_identity_aliases`; covers read-then-write equality of `persons.json`, a file without aliases, a merge moving every mapping into an alias with unchanged `gedcom_id` and `fingerprint`, and merging an earlier survivor into a third person; required, never skipped
 
-  - [~] 13.13 Write fault-injection property test for crash atomicity (Mandatory group d: crash recovery)
+  - [x] 13.13 Write fault-injection property test for crash atomicity (Mandatory group d: crash recovery)
     - **Property 40: Crash atomicity of the Merge_Transaction**
     - **Validates: Requirements 7.12, 27.16, 27.17, 27.18, 27.19, 30.9**
     - Module `tests/test_services/test_commit_faults.py` with `pytestmark = pytest.mark.mandatory_integrity`; required, never skipped, not marked `slow`
@@ -657,7 +657,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Module `tests/test_services/test_commit_faults.py` (mandatory marker); required, never skipped
     - `test_recovery_idempotent`, `test_crash_during_recovery_converges` (second fault dimension: a crash injected into recovery itself), `test_property_41_recovery_deterministic`
 
-  - [~] 13.15 Write subprocess crash tests (Mandatory group d: crash recovery)
+  - [x] 13.15 Write subprocess crash tests (Mandatory group d: crash recovery)
     - Module `tests/test_services/test_commit_subprocess.py` with `pytestmark = pytest.mark.mandatory_integrity`; required, never skipped, not marked `slow` (runs by default)
     - `test_os_exit_at_representative_points`: real `os._exit(42)` at representative operation numbers, asserting the same all-or-nothing checks as the crash matrix
     - _Requirements: 27.19, 35.1_
@@ -682,7 +682,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Module `tests/test_services/test_retired_ids.py` with `pytestmark = pytest.mark.mandatory_integrity`; required, never skipped
     - `test_retired_id_never_reissued`, `test_retired_id_with_highest_suffix_not_reissued`, `test_retired_id_not_reissued_after_save_and_reopen`, `test_importer_seeded_with_retired_ids`, `test_property_3_retired_ids`; merges are performed with the real engine
 
-  - [~] 13.20 Write the Recovery_Refusal matrix (Mandatory group d: crash recovery)
+  - [x] 13.20 Write the Recovery_Refusal matrix (Mandatory group d: crash recovery)
     - **Property 49: Recovery is refused, never guessed**
     - **Validates: Requirements 7.13, 27.16, 27.19, 27.25**
     - Module `tests/test_services/test_commit_recovery_refusal.py` with `pytestmark = pytest.mark.mandatory_integrity`; required, never skipped
@@ -691,13 +691,13 @@ The design's remaining open questions are implemented with the design's stated d
     - Each refusal asserts: directory snapshot (path, size, SHA-256, modification time) identical before and after; `RecoveryRefusedError` with the expected code; project not opened and `FilePersistence.load` not called; the Swedish message contains every path and the preservation statements; a second open gives the same refusal; a manual restore of the backup plus renaming the journal lets the project open
     - A table-driven test feeds every row of tables A and B to the classifier through the in-memory `CommitFs` and asserts the decision per named row
 
-  - [~] 13.21 Write pre-flight tests
+  - [x] 13.21 Write pre-flight tests
     - Module `tests/test_services/test_commit_preflight.py` (not one of the six Mandatory_Test_Groups; required for completion)
     - The only platform-conditional tests are those that need Windows file-sharing semantics (a file opened by a second handle without write sharing); they carry `@pytest.mark.windows_only` and `@pytest.mark.skipif(sys.platform != "win32", reason="Kräver Windows")` with exactly that condition and no other skip reason. They MUST run (not skip) on the Windows development machine; the conftest hook of 1.7 turns a skip of a `windows_only` test on `win32` into a failure, and the guard test (17.6) and runner (17.5) check this. Every other test in the module is unconditional
     - Read-only target, second handle without write sharing (Windows only, as above), directory without create permission via `FaultFs`, insufficient space via a `disk_usage` stub; each asserts a message naming the file, no change in memory or on disk, and an open wizard
     - _Requirements: 27.20_
 
-  - [~] 13.22 Write the Saved_State_Precondition tests (Mandatory group c: failed merges)
+  - [x] 13.22 Write the Saved_State_Precondition tests (Mandatory group c: failed merges)
     - **Property 47: A merge executes only from a saved state**
     - **Validates: Requirements 26.6, 26.11, 26.14, 27.22, 27.23, 27.24**
     - Module `tests/test_services/test_saved_state.py` (mandatory marker); required, never skipped; uses a counting `FakeEditor` and the real `MergeEngine` on a project saved to a temporary directory
@@ -746,7 +746,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 5.8, 6.7, 31.2, 31.3, 31.4, 31.5**
     - Module `tests/test_reports/test_merge_consistency.py`
 
-  - [~] 15.6 Write export test
+  - [x] 15.6 Write export test
     - Module `tests/test_gedcom/test_merge_export.py`
     - Export contains every active person and not the Merged_Away_Person
     - _Requirements: 30.12_

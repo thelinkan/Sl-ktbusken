@@ -15,7 +15,7 @@ from slaktbusken.relationship.calculator import RelationshipCalculator
 from slaktbusken.services.delete_service import DeleteService
 from slaktbusken.services.export_service import ExportService
 from slaktbusken.services.import_service import ImportService
-from slaktbusken.services.project_service import ProjectService
+from slaktbusken.services.project_service import MergeInProgressError, ProjectService
 from slaktbusken.services.report_service import ReportService
 from slaktbusken.services.translation_service import TranslationService
 from slaktbusken.services.validation_service import ValidationService
@@ -961,6 +961,7 @@ class Application:
             self._update_status()
             self._update_diagram_panel()
             self.main_window.statusBar().showMessage("Projekt öppnat", 5000)
+            self._show_recovery_message()
         except FileNotFoundError:
             QMessageBox.critical(
                 self.main_window,
@@ -968,11 +969,12 @@ class Application:
                 "Filen hittades inte.",
             )
         except Exception as e:
-            QMessageBox.critical(
-                self.main_window,
-                "Fel",
-                f"Kunde inte öppna projektet:\n{e}",
-            )
+            if not self._report_open_failure(e):
+                QMessageBox.critical(
+                    self.main_window,
+                    "Fel",
+                    f"Kunde inte öppna projektet:\n{e}",
+                )
         finally:
             self.main_window.hide_progress()
 
@@ -984,6 +986,8 @@ class Application:
             self.project_service.save_project()
             self._update_status()
             self.main_window.statusBar().showMessage("Projekt sparat", 5000)
+        except MergeInProgressError as e:
+            QMessageBox.warning(self.main_window, "Spara projekt", str(e))
         except Exception as e:
             QMessageBox.critical(
                 self.main_window,
@@ -1586,20 +1590,12 @@ class Application:
 
     def _register_merge_executor(self) -> None:
         """Register the engine adapter the Merge_Review wizard executes through."""
-        from slaktbusken.services.merge_engine import MergeEngine
-        from slaktbusken.ui.merge.merge_gateway import (
-            MergeExecutionResult,
-            set_merge_executor,
+        from slaktbusken.ui.merge.merge_gateway import set_merge_executor
+        from slaktbusken.ui.merge.merge_runner import ThreadedMergeExecutor
+
+        set_merge_executor(
+            ThreadedMergeExecutor(self.project_service, self.editor_registry)
         )
-
-        engine = MergeEngine(self.project_service, self.editor_registry)
-
-        class _EngineExecutor:
-            def execute(self, plan):
-                outcome = engine.execute(plan)
-                return MergeExecutionResult(outcome.success, outcome.message)
-
-        set_merge_executor(_EngineExecutor())
 
     def _translation_for_planning(self):
         """Translation data of the open project, or None when unreadable."""
@@ -1633,7 +1629,45 @@ class Application:
             QMessageBox.warning(parent, "Sammanslagning", str(exc))
             return
         wizard.exec()
+        self._after_merge_review(wizard, parent)
+
+    def _after_merge_review(self, wizard, parent) -> None:
+        """Refresh views and report the outcome of a finished Merge_Review."""
+        from slaktbusken.ui.merge.recovery_dialogs import ask_show_history
+
         self._update_status()
+        if not wizard.executed:
+            return
+        self._update_diagram_panel()
+        result = wizard.last_result
+        text = result.message if result is not None and result.message else "Sammanslagningen är klar."
+        if result is not None and result.recovery_message:
+            text = f"{text}\n{result.recovery_message}"
+        self.main_window.statusBar().showMessage("Sammanslagningen är klar.", 5000)
+        survivor = result.survivor_id if result is not None else ""
+        if ask_show_history(parent, text) and survivor:
+            self.open_history(survivor)
+
+    def _report_open_failure(self, exc: Exception) -> bool:
+        """Show a Recovery_Refusal for *exc*. Returns True when it was one."""
+        from slaktbusken.services.commit.recovery import RecoveryRefusedError
+        from slaktbusken.ui.merge.recovery_dialogs import (
+            log_recovery_refusal,
+            show_recovery_refusal,
+        )
+
+        if not isinstance(exc, RecoveryRefusedError):
+            return False
+        log_recovery_refusal(exc.refusal)
+        self.main_window.hide_progress()
+        show_recovery_refusal(self.main_window, str(exc))
+        return True
+
+    def _show_recovery_message(self) -> None:
+        """Tell the user about a recovery that ran while opening the project."""
+        from slaktbusken.ui.merge.recovery_dialogs import show_recovery_outcome
+
+        show_recovery_outcome(self.main_window, self.project_service.last_recovery_message)
 
     @property
     def merge_changed(self):
@@ -2033,6 +2067,7 @@ class Application:
             self._update_status()
             self._update_diagram_panel()
             self.main_window.statusBar().showMessage("Projekt öppnat", 5000)
+            self._show_recovery_message()
         except FileNotFoundError:
             QMessageBox.critical(
                 self.main_window,
@@ -2040,11 +2075,12 @@ class Application:
                 "Filen hittades inte.",
             )
         except Exception as e:
-            QMessageBox.critical(
-                self.main_window,
-                "Fel",
-                f"Kunde inte öppna projektet:\n{e}",
-            )
+            if not self._report_open_failure(e):
+                QMessageBox.critical(
+                    self.main_window,
+                    "Fel",
+                    f"Kunde inte öppna projektet:\n{e}",
+                )
         finally:
             self.main_window.hide_progress()
 
@@ -2216,13 +2252,15 @@ class Application:
                     self.main_window.statusBar().showMessage(
                         "Senaste projekt öppnat", 5000
                     )
+                self._show_recovery_message()
             except Exception as e:
                 logger.warning("Kunde inte öppna projektet vid start: %s", e)
-                QMessageBox.warning(
-                    self.main_window,
-                    "Programstart",
-                    f"Kunde inte öppna projektet:\n{e}",
-                )
+                if not self._report_open_failure(e):
+                    QMessageBox.warning(
+                        self.main_window,
+                        "Programstart",
+                        f"Kunde inte öppna projektet:\n{e}",
+                    )
             finally:
                 self.main_window.hide_progress()
         else:

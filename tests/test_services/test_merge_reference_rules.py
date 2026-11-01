@@ -511,3 +511,121 @@ def _decoy_snapshot(data: ProjectData):
         [[x for x in m.mentioned_person_ids if x in _P29_DECOYS] for m in data.media],
         [[pp.person_id for pp in e.participants if pp.person_id in _P29_DECOYS] for e in data.events],
     )
+
+
+# ---------------------------------------------------------------------------
+# Property 31: information is never lost
+# ---------------------------------------------------------------------------
+
+from slaktbusken.services.merge_planner import (  # noqa: E402
+    LEDGER_KEYS as _P31_KEYS,
+    compute_ledger as _p31_ledger,
+)
+
+#: Counters that may only fall through a documented deduplication, never rise.
+_P31_DEDUP_KEYS = {
+    "participants", "media_person_links", "parent_child_links", "names",
+    "research_cases", "dna_clusters", "candidates", "candidate_comments",
+    "families", "persons",
+}
+
+
+def _p31_independent_counts(data: ProjectData) -> dict[str, int]:
+    """Counts taken straight from the data, not through the planner's ledger."""
+    from slaktbusken.model.event import SourceRef
+
+    def refs(obj):
+        from dataclasses import fields, is_dataclass
+        n = 1 if isinstance(obj, SourceRef) else 0
+        if is_dataclass(obj) and not isinstance(obj, type):
+            n += sum(refs(getattr(obj, f.name)) for f in fields(obj))
+        elif isinstance(obj, (list, tuple)):
+            n += sum(refs(x) for x in obj)
+        return n
+
+    return {
+        "events": len(data.events),
+        "residences": len(data.residences),
+        "source_refs": refs(data.events) + refs(data.residences),
+        "media_items": len(data.media),
+        "annotations": sum(len(m.annotations) for m in data.media),
+        "dna_profiles": len(data.dna_profiles),
+        "research_hypotheses": len(data.research_hypotheses),
+        "research_notes": len(data.research_notes),
+        "observations": sum(len(r.observations) for r in data.residences),
+        "participants": sum(len(e.participants) for e in data.events),
+        "names": sum(len(p.names) for p in data.persons),
+    }
+
+
+@given(_p29_projects())
+def test_property_31_information_never_lost(project):
+    """**Validates: Requirements 21.11, 21.15, 21.16, 22.1, 22.7, 22.10, 23.8, 32.6**"""
+    data, translation = project
+    survivor, retired = _P29_SURVIVOR, _P29_RETIRED
+    plan = build_plan(
+        data, translation,
+        MergeDecisions(survivor, retired, survivor_id=survivor, survivor_confirmed=True),
+    )
+    assert plan.can_execute
+
+    before = _p31_independent_counts(data)
+    ledger_before = _p31_ledger(data)
+    event_ids_before = [e.id for e in data.events]
+    residence_ids_before = [r.id for r in data.residences]
+    media_ids_before = [m.id for m in data.media]
+    participants_before = {e.id: len(e.participants) for e in data.events}
+    sources_before = {
+        e.id: len(getattr(e, "source_refs", []) or []) for e in data.events
+    }
+    retired_names = len(next(p for p in data.persons if p.id == retired).names)
+    survivor_names = len(next(p for p in data.persons if p.id == survivor).names)
+
+    merged = _p29_apply(data, plan.change_set)
+    after = _p31_independent_counts(merged)
+    ledger_after = _p31_ledger(merged)
+
+    # The plan's own "before" ledger describes the real input.
+    assert plan.ledger_before.differences(ledger_before) == {}
+    assert _p31_ledger(data).differences(ledger_before) == {}  # input untouched
+
+    # Records that carry information and have no documented dedup are all kept.
+    for key in ("events", "residences", "source_refs", "media_items", "annotations",
+                "dna_profiles", "research_hypotheses", "research_notes", "observations"):
+        assert after[key] == before[key], key
+    for key in ("dna_matches", "dna_segments", "research_actions", "hypothesis_comments"):
+        assert ledger_after[key] == ledger_before[key], key
+
+    # No event id is combined with another or invented; ids and order are unchanged.
+    assert [e.id for e in merged.events] == event_ids_before
+    assert [r.id for r in merged.residences] == residence_ids_before
+    assert [m.id for m in merged.media] == media_ids_before
+
+    # Each event keeps at least one participant; only exact duplicates of the
+    # pair inside one event may disappear, never more than the original count - 1.
+    for event in merged.events:
+        assert 1 <= len(event.participants) <= participants_before[event.id]
+    for event in data.events:  # input events are not mutated
+        assert len(event.participants) == participants_before[event.id]
+
+    # Names: the survivor keeps all of its names; at most the retired person's are deduplicated.
+    survivor_after = next(p for p in merged.persons if p.id == survivor)
+    assert len(survivor_after.names) >= survivor_names
+    assert len(survivor_after.names) <= survivor_names + retired_names
+
+    # Every counter: the actual result equals the plan's documented expectation,
+    # and falls below the input only for counters with a documented deduplication.
+    assert ledger_after.differences(plan.ledger_after_expected) == {}
+    for key in _P31_KEYS:
+        if key not in _P31_DEDUP_KEYS:
+            assert ledger_after[key] == ledger_before[key], key
+    assert ledger_after["persons"] == ledger_before["persons"] - 1
+    for key in ("participants", "media_person_links", "parent_child_links"):
+        assert ledger_after[key] <= ledger_before[key]
+    # Families are not lost: a changed count must be explained by the plan.
+    if ledger_after["families"] != ledger_before["families"]:
+        assert plan.ledger_after_expected["families"] == ledger_after["families"]
+    # Candidate comments leave the active list only together with their candidate.
+    if ledger_after["candidate_comments"] < ledger_before["candidate_comments"]:
+        assert ledger_after["candidates"] < ledger_before["candidates"]
+    del sources_before

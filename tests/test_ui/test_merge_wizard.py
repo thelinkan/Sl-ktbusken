@@ -333,3 +333,87 @@ def test_plan_builds_on_worker_thread(qapp, service):
     qapp.processEvents()
     assert wiz.plan.survivor_id == "person_1"
     wiz.reject()
+
+
+# ---------------------------------------------------------------------------
+# Task 11.10 additions: sections, exact reset text, real dialogs, preview styles
+# ---------------------------------------------------------------------------
+
+from PySide6.QtCore import QTimer  # noqa: E402
+from PySide6.QtWidgets import QMessageBox  # noqa: E402
+
+from slaktbusken.services.merge_planner import MergeConflict  # noqa: E402
+from slaktbusken.ui.merge import merge_preview as mp  # noqa: E402
+
+
+def _click_active_box(button_text: str, seen: list) -> None:
+    """Inspect the open modal QMessageBox, then click the named button."""
+    box = QApplication.activeModalWidget()
+    assert isinstance(box, QMessageBox)
+    seen.append((box.text(), [b.text() for b in box.buttons()]))
+    next(b for b in box.buttons() if b.text() == button_text).click()
+
+
+def test_wizard_sections_in_order_with_titles(qapp, service):
+    wiz = _wizard(qapp, service)
+    titles = [wiz.section_list.item(i).text() for i in range(wiz.section_list.count())]
+    assert titles == [
+        "Välj person som behålls", "Personuppgifter", "Namn", "Händelser", "Boenden",
+        "Familj", "Källor, media och DNA", "Forskning och övriga referenser",
+        "Förhandsgranskning av sammanslagning",
+    ]
+
+
+def test_survivor_reset_message_exact_text_and_cleared_on_confirm(qapp, service):
+    wiz = _wizard(qapp, service)
+    _ready(wiz)
+    wiz.survivor_page.radios["person_2"].setChecked(True)
+    assert wiz.survivor_page.reset_label.text() == (
+        "Personen som behålls ändrades. Alla övriga val har nollställts och behöver göras om."
+    )
+    wiz.survivor_page.confirm_button.click()
+    assert wiz.survivor_page.reset_label.text() == ""
+
+
+def test_save_prompt_dialog_text_and_buttons(qapp, service):
+    wiz = _wizard(qapp, service)
+    seen: list = []
+    QTimer.singleShot(0, lambda: _click_active_box("Spara och fortsätt", seen))
+    assert wiz._ask_save_choice() == SAVE
+    text, buttons = seen[0]
+    assert text == "Projektet har osparade ändringar. Spara projektet innan sammanslagningen."
+    assert buttons == ["Spara och fortsätt", "Avbryt"]
+    QTimer.singleShot(0, lambda: _click_active_box("Avbryt", seen))
+    assert wiz._ask_save_choice() == CANCEL
+
+
+def test_merge_confirmation_dialog_text_has_no_save_sentence(qapp, service):
+    wiz = _wizard(qapp, service)
+    seen: list = []
+    question = "Slå samman Anna Test (person_1) som behålls med Anna Test (person_2) som tas bort?"
+    QTimer.singleShot(0, lambda: _click_active_box("Slå samman", seen))
+    assert wiz._confirm_merge(question) is True
+    text, buttons = seen[0]
+    assert text == question and "spar" not in text.lower()
+    assert buttons == ["Slå samman", "Avbryt"]
+    QTimer.singleShot(0, lambda: _click_active_box("Avbryt", seen))
+    assert wiz._confirm_merge(question) is False
+
+
+def test_preview_warning_and_blocking_styles_differ(qapp):
+    blocking = MergeConflict("blocking", "c1", "names", "Samma namn.")
+    warning = MergeConflict("warning", "c2", "names", "Liknande namn.")
+    b, w = mp.format_conflict(blocking), mp.format_conflict(warning)
+    assert b.startswith("⛔ Konflikt:") and w.startswith("⚠ Varning:")
+    assert b.endswith("(Avsnitt: Namn)") and w.endswith("(Avsnitt: Namn)")
+    assert mp.BLOCKING_ICON != mp.WARNING_ICON and mp.BLOCKING_LABEL != mp.WARNING_LABEL
+
+
+def test_preview_lists_unresolved_choice_and_gedcom_warning(qapp, service):
+    wiz = _wizard(qapp, service)
+    wiz.survivor_page.radios["person_1"].setChecked(True)
+    wiz.survivor_page.confirm_button.click()
+    lines = [wiz.preview.problem_list.item(i).text() for i in range(wiz.preview.problem_list.count())]
+    assert any(l.startswith("Val saknas:") for l in lines)
+    assert wiz.preview.gedcom_label.text() == GEDCOM_WARNING_TEXT
+    assert wiz.preview.gedcom_label.isHidden() == (not mp.gedcom_warning_visible())

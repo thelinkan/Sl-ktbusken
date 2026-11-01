@@ -39,6 +39,12 @@ class MergeExecutionResult:
 
     success: bool
     message: str = ""
+    #: Swedish message of a recovery that finished the commit after an error.
+    recovery_message: str = ""
+    #: Full Recovery_Refusal message; non-empty means recovery was refused.
+    refusal_message: str = ""
+    #: The person that remains after a successful merge.
+    survivor_id: str = ""
 
 
 class MergeExecutor(Protocol):
@@ -46,6 +52,12 @@ class MergeExecutor(Protocol):
 
     The wizard never imports the engine. ``Application`` registers an adapter
     around the engine with :func:`set_merge_executor`; tests pass a fake.
+
+    An executor may also offer the two-phase pair ``run_disk_phase`` (called on
+    a worker thread, no UI access, no in-memory adoption) and ``finish``
+    (called on the UI thread with the token that ``run_disk_phase`` returned,
+    adopts the data). The wizard then runs the disk phase behind a progress
+    overlay without a cancel button.
     """
 
     def execute(self, plan: Any) -> MergeExecutionResult:

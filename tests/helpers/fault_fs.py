@@ -374,10 +374,11 @@ class MemoryFs:
 
     def add_file(self, path: Path | str, data: bytes) -> None:
         p = Path(path)
-        self.mkdir(p.parent)
+        self._mkdirs(p.parent)
         self.files[p] = data
 
-    def mkdir(self, path: Path | str) -> None:
+    def _mkdirs(self, path: Path | str) -> None:
+        """Create ``path`` and all missing parents (setup helper)."""
         p = Path(path)
         while True:
             self.dirs.add(p)

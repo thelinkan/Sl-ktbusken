@@ -34,7 +34,8 @@ def app_like(qapp):
     svc._project_path = Path("project.json.gz")
     main = QMainWindow()
     fake = SimpleNamespace(
-        project_service=svc, main_window=main, editor_registry=None, _comparison_window=None
+        project_service=svc, main_window=main, editor_registry=None, _comparison_window=None,
+        open_merge_review=lambda *_a: None,
     )
     fake._forget_comparison_window = lambda w: Application._forget_comparison_window(fake, w)
     yield fake
