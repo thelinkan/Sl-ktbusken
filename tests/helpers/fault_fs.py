@@ -64,6 +64,7 @@ OP_NAMES: tuple[str, ...] = (
     "stat",
     "listdir",
     "create_exclusive",
+    "mkdir",
 )
 _WRITE_OPS = ("write_file_durable", "copy_file_durable")
 
@@ -152,6 +153,9 @@ class _FsWrapper:
 
     def create_exclusive(self, path: Path) -> None:
         return self._invoke("create_exclusive", path)
+
+    def mkdir(self, path: Path) -> None:
+        return self._invoke("mkdir", path)
 
 
 class CountingFs(_FsWrapper):
@@ -443,6 +447,13 @@ class MemoryFs:
             raise FileNotFoundError(2, "No such directory", str(path))
         names = {c.name for c in list(self.files) + list(self.dirs) if c.parent == p and c != p}
         return sorted(names)
+
+    def mkdir(self, path: Path) -> None:
+        p = Path(path)
+        self._need_parent(p)
+        if self.exists(p):
+            raise FileExistsError(17, "File exists", str(p))
+        self.dirs.add(p)
 
     def create_exclusive(self, path: Path) -> None:
         p = Path(path)

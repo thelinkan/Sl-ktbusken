@@ -167,7 +167,7 @@ The design's remaining open questions are implemented with the design's stated d
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Phase 3: Candidate register, saved state and research integration
-  - [~] 5.1 Implement the candidate service and `ProjectService` API
+  - [x] 5.1 Implement the candidate service and `ProjectService` API
     - Create `slaktbusken/services/merge_candidate_service.py` with create, set assessment, enable or disable, link or unlink research case, add, edit and delete comment, all copy-validate-swap
     - Add `ProjectService` wrappers that set the dirty flag and notify merge listeners through the counters of 5.16
     - Reject equal ids, unknown persons, duplicate unordered pairs and unknown research cases with the Swedish messages in the design; return the existing candidate for a duplicate pair
@@ -252,7 +252,7 @@ The design's remaining open questions are implemented with the design's stated d
     - All counters are in-memory and never serialised
     - _Requirements: 26.9, 26.12, 27.1, 27.8, 27.24_
 
-  - [~] 5.17 Write tests for the revision counters and saved state (Mandatory group c: failed merges)
+  - [x] 5.17 Write tests for the revision counters and saved state (Mandatory group c: failed merges)
     - Module `tests/test_services/test_saved_state.py` with `pytestmark = pytest.mark.mandatory_integrity`; required, never skipped
     - A legacy `_dirty = True` write increments `revision` and `content_revision` once and notifies once; `False` increments nothing; a save increments `revision` only and leaves `content_revision` and the plan fingerprint equal; `is_saved_state()` is false for a mutation that forgot the flag; the adopt step clears the dirty flag, increments each counter by exactly one and notifies exactly once
     - _Requirements: 26.12, 27.1, 27.24_
@@ -286,7 +286,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Output of every `display_data` must be equal with and without the lookup
     - _Requirements: 10.5, 12.7, 32.3, 32.4_
 
-  - [~] 7.3 Implement `ComparisonSession`
+  - [x] 7.3 Implement `ComparisonSession`
     - Create `services/comparison_session.py` (Qt-free): slot contents, swap, assign with rejection of the same person, navigation stack with maximum depth 20 and exact context restore, per-view selection state, pair-action enablement, Shared_Person set by identical id only (including sibling ids), comparison rows with "Avviker" and "Saknas" classification, menu enablement and slot order from the person list, "Fortsätt till sammanslagning" enablement
     - No similarity logic anywhere
     - _Requirements: 9.1, 9.6, 9.10, 9.12, 10.5, 11.2, 11.3, 11.4, 11.5, 11.9, 12.1, 12.3, 12.5, 12.6, 12.7, 13.1, 13.3, 13.4, 13.5, 14.1, 14.2, 14.3, 14.4, 14.9, 14.10, 20.2, 20.3, 33.3_
@@ -415,12 +415,12 @@ The design's remaining open questions are implemented with the design's stated d
     - Exact labels of the three checkboxes ("Forskningsuppslag och dubletter", "Forskningsuppslag", "Sammanslagningskandidater"), of the header context-menu toggle ("Forskningsuppslag och dubletter") and of the column header ("Forskningsuppslag"), old `PersonListConfig.research` value read into the combined setting, file without `merge_candidates` key, unchanged attribute names
     - _Requirements: 17.1, 17.2, 17.14, 18.1, 18.2, 18.12_
 
-  - [~] 9.7 Write property test for indicator colour precedence
+  - [x] 9.7 Write property test for indicator colour precedence
     - **Property 19: Indicator colour precedence**
     - **Validates: Requirements 17.11, 19.1, 19.2, 19.3, 19.4, 19.5, 28.4**
     - Module `tests/properties/test_property_19_indicator_colour.py`
 
-  - [~] 9.8 Write property test for tooltip content and ordering
+  - [x] 9.8 Write property test for tooltip content and ordering
     - **Property 20: Tooltip content and ordering**
     - **Validates: Requirements 19.6, 19.7, 19.8**
     - Module `tests/properties/test_property_20_tooltips.py`
@@ -464,7 +464,7 @@ The design's remaining open questions are implemented with the design's stated d
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 11. Phase 6: Merge planning and review
-  - [~] 11.1 Implement `MergeDecisions`, `MergePlan` and the working copy
+  - [x] 11.1 Implement `MergeDecisions`, `MergePlan` and the working copy
     - Create `services/merge_planner.py` with decision and plan dataclasses, `PlanItem` dispositions, `MergeConflict`, `UnresolvedChoice`, `InformationLedger`, and the copy-on-write working structure (structural clones of affected families, events, media and research objects; research rewire run on copies)
     - The plan records `content_revision` and a SHA-256 `fingerprint` over every object it read
     - Refuse a third person with "Exakt två personer krävs för en sammanslagning."
@@ -590,7 +590,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `services/commit/journal.py`: journal with txid, targets, temp files, `existed_before`, `old_sha256`, `new_sha256` and its own `journal_sha256`; manifest of the Recovery_Point with its own checksum; VALID, DAMAGED and ABSENT journal and VALID, UNUSABLE and ABSENT manifest detection; a leftover `journal.tmp` does not count as a journal
     - _Requirements: 27.14, 27.15, 27.25, 7.12_
 
-  - [~] 13.3 Implement `MergeTransaction.commit`
+  - [x] 13.3 Implement `MergeTransaction.commit`
     - Create `services/commit/transaction.py` following design section 13.2: pre-flight, lock, backup directory taken from the saved files, temp files written and fsynced, journal written, replace `persons.json` first and the project file last (the logical commit point), cleanup steps that never affect data; works with and without `persons.json`; on error runs the same recovery decision as a crash at that point
     - Catch only `Exception`, at the protocol runner and the cleanup steps; no `finally` that removes artifacts
     - The Recovery_Point copies `translation/persons.json` when present and completes without it otherwise (Req 7.9, 7.10, shared helper of 3.5); this is one of the only two backups to which those criteria apply, and no general-purpose backup feature is added
@@ -755,7 +755,7 @@ The design's remaining open questions are implemented with the design's stated d
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 17. Phase 9: Regression, performance and mandatory-test enforcement
-  - [~] 17.1 Implement the deterministic synthetic benchmark generator
+  - [x] 17.1 Implement the deterministic synthetic benchmark generator
     - Create `tests/benchmarks/synthetic_project.py`: seeded generator for 20,000 persons and 2,000 candidates with generations, multiple partnerships, shared ancestors, all four parentage types and the stated candidate mix; identical output for the same seed
     - _Requirements: 32.9_
 

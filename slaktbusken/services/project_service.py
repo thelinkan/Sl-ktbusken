@@ -918,6 +918,84 @@ class ProjectService:
         self._dirty = True
         self.notify_research_changed()
 
+    # ------------------------------------------------------------------
+    # Merge candidates (pure logic in merge_candidate_service)
+    # ------------------------------------------------------------------
+
+    def _candidate_op(self, func, *args):
+        """Run a candidate operation; set the dirty flag only on success."""
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        data = self.data
+        try:
+            result = func(data, *args)
+        except mcs.CandidateError as exc:
+            raise ValidationError(exc.errors) from exc
+        self._dirty = True  # bumps revision counters, notifies merge listeners once
+        return result
+
+    def add_merge_candidate(self, person_1_id: str, person_2_id: str):
+        """Create a candidate for an explicit pair.
+
+        Raises:
+            ValidationError: Equal ids, unknown person or duplicate pair.
+        """
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.create_candidate, person_1_id, person_2_id)
+
+    def get_or_create_merge_candidate(self, person_1_id: str, person_2_id: str):
+        """Return ``(candidate, created)``; an existing pair is returned unchanged
+        without touching the dirty flag."""
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        data = self.data
+        existing = mcs.find_candidate_by_pair(data, person_1_id, person_2_id)
+        if existing is not None and person_1_id != person_2_id:
+            return existing, False
+        return self.add_merge_candidate(person_1_id, person_2_id), True
+
+    def set_candidate_assessment(self, candidate_id: str, assessment: str):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.set_assessment, candidate_id, assessment)
+
+    def set_candidate_enabled(self, candidate_id: str, enabled: bool):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.set_enabled, candidate_id, enabled)
+
+    def set_candidate_research_case(self, candidate_id: str, case_id: Optional[str]):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.set_research_case, candidate_id, case_id)
+
+    def add_candidate_comment(self, candidate_id: str, date: str, text: str):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.add_comment, candidate_id, date, text)
+
+    def update_candidate_comment(
+        self, candidate_id: str, comment_id: str, date: str, text: str
+    ):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(
+            mcs.update_comment, candidate_id, comment_id, date, text
+        )
+
+    def delete_candidate_comment(self, candidate_id: str, comment_id: str) -> bool:
+        """Delete a comment; returns False (no change, not dirty) if absent."""
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        data = self.data
+        cand = next((c for c in data.merge_candidates if c.id == candidate_id), None)
+        if cand is None:
+            raise KeyError(mcs.MSG_UNKNOWN_CANDIDATE.format(id=candidate_id))
+        if not any(c.id == comment_id for c in cand.comments):
+            return False
+        return self._candidate_op(mcs.delete_comment, candidate_id, comment_id)
+
     def add_research_case(self, case: ResearchCase) -> ResearchCase:
         """Validate and add a research case; assigns an id when it has none.
 

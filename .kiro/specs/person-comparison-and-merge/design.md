@@ -1271,7 +1271,7 @@ Exactly one of "all old" or "all new" is true for the pair (P, T) after any outc
 
 #### 13.9 Fault-injection design
 
-`CommitFs` is a small protocol: `exists`, `read_bytes`, `write_file_durable(path, data)`, `copy_file_durable(src, dst)`, `replace(src, dst)`, `remove(path)`, `rmtree(path)`, `fsync_dir(path)`, `stat`, `listdir`, `create_exclusive(path)`. `RealFs` implements it with the Windows retry and write-through logic. Tests use these wrappers:
+`CommitFs` is a small protocol: `exists`, `read_bytes`, `write_file_durable(path, data)`, `copy_file_durable(src, dst)`, `replace(src, dst)`, `remove(path)`, `rmtree(path)`, `fsync_dir(path)`, `stat`, `listdir`, `create_exclusive(path)`, `mkdir(path)`. `RealFs` implements it with the Windows retry and write-through logic. Tests use these wrappers:
 
 * **`CountingFs`** records every operation in order; a dry run of a successful commit yields the numbered list of N operations.
 * **`FaultFs(n, kind)`** raises at operation n. Kinds: `crash_before`, `crash_after` (raise `SimulatedCrash(BaseException)`, which the commit code must not catch, and which has no `finally`-based cleanup in the commit code, so artifacts stay as they are), `io_error_before` and `io_error_after` (raise `OSError`, which exercises the in-process recovery path), `permission_error_persistent` (every replace attempt fails, to exercise the retry budget and then recovery), and `partial_write` (write half of the bytes, then crash).

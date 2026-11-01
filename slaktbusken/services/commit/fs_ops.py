@@ -102,6 +102,7 @@ class CommitFs(Protocol):
     def stat(self, path: Path) -> os.stat_result: ...
     def listdir(self, path: Path) -> list[str]: ...
     def create_exclusive(self, path: Path) -> None: ...
+    def mkdir(self, path: Path) -> None: ...
 
 
 class RealFs:
@@ -173,6 +174,10 @@ class RealFs:
 
     def listdir(self, path: Path) -> list[str]:
         return os.listdir(path)
+
+    def mkdir(self, path: Path) -> None:
+        """Create one directory (parent must exist); FileExistsError if present."""
+        os.mkdir(path)
 
     def create_exclusive(self, path: Path) -> None:
         """Create ``path`` with O_CREAT|O_EXCL; FileExistsError if present."""
