@@ -164,3 +164,331 @@ def test_none_scope_returns_pre_feature_rows(data: ProjectData) -> None:
     assert {r.hypothesis_id for r in build_overview_hypothesis_rows(data, person_scope=None)} == {
         h.id for h in data.research_hypotheses if h.research_case_id in status
     }
+
+
+# ---------------------------------------------------------------------------
+# Widget tests (task 9.15)
+#
+# **Validates: Requirements 17.8, 17.15, 17.16, 18.14**
+# ---------------------------------------------------------------------------
+
+import os  # noqa: E402
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from types import SimpleNamespace  # noqa: E402
+
+import pytest  # noqa: E402
+from PySide6.QtCore import QEvent, QPointF, QRect, Qt  # noqa: E402
+from PySide6.QtGui import QMouseEvent  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QGraphicsSceneMouseEvent,
+    QStyleOptionViewItem,
+)
+
+from slaktbusken.model.merge_candidate import MergeCandidate  # noqa: E402
+from slaktbusken.persistence.app_settings_io import AppSettings, AppSettingsService  # noqa: E402
+from slaktbusken.persistence.settings_io import PersonBoxConfig  # noqa: E402
+from slaktbusken.services.research_index import ResearchCaseCounts  # noqa: E402
+from slaktbusken.ui import research_gateway  # noqa: E402
+from slaktbusken.ui.merge import merge_gateway  # noqa: E402
+from slaktbusken.ui.person_list_panel import (  # noqa: E402
+    _RESEARCH_COLUMN,
+    _ROLE_CANDIDATE_COLOUR,
+    _ROLE_CANDIDATE_KIND,
+    _ROLE_RESEARCH_COLOR,
+    PersonListPanel,
+)
+from slaktbusken.ui.research_overview import (  # noqa: E402
+    STATUS_ALL,
+    STATUS_NOT_CLOSED,
+    ResearchOverview,
+)
+from slaktbusken.ui.widgets import person_box as pb  # noqa: E402
+from slaktbusken.ui.widgets import research_marker as rm  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+def _widget_data() -> ProjectData:
+    data = ProjectData()
+    data.persons = [
+        Person(id="p1", sex="M", names=[Name(type="birth", given="Anna", surname="Test")]),
+        Person(id="p2", sex="M", names=[Name(type="birth", given="Bo", surname="Test")]),
+        Person(id="p3", sex="M", names=[Name(type="birth", given="Cecilia", surname="Test")]),
+    ]
+    link = ResearchEntityLink
+    data.research_cases = [
+        ResearchCase(id="c1", title="Annas ärende", status="open", primary_entity_ref=link("person", "p1")),
+        ResearchCase(id="c2", title="Bos ärende", status="in_progress", primary_entity_ref=link("person", "p2")),
+        ResearchCase(id="c3", title="Annas stängda", status="closed", linked_entities=[link("person", "p1")]),
+        ResearchCase(id="c4", title="Bos stängda", status="closed", linked_entities=[link("person", "p2")]),
+    ]
+    data.research_actions = [
+        ResearchAction(id="a1", research_case_id="c1"),
+        ResearchAction(id="a2", research_case_id="c2"),
+    ]
+    data.research_hypotheses = [
+        ResearchHypothesis(id="h1", research_case_id="c1"),
+        ResearchHypothesis(id="h2", research_case_id="c2"),
+    ]
+    return data
+
+
+def _snapshot(window: ResearchOverview) -> dict:
+    return {
+        "cases": [r.case_id for r in window.case_rows()],
+        "todo": [r.action_id for r in window.todo_rows()],
+        "hyp": [r.hypothesis_id for r in window.hypothesis_rows()],
+        "case_table": window._cases_table.rowCount(),
+        "todo_table": window._todo_table.rowCount(),
+        "hyp_table": window._hyp_table.rowCount(),
+        "status": window._status_filter.currentData(),
+        "banner_hidden": window._banner.isHidden(),
+        "person": window.person_filter(),
+        "mode": window.mode(),
+    }
+
+
+@pytest.fixture
+def overview(qapp):
+    window = ResearchOverview(_widget_data())
+    yield window
+    window.close()
+
+
+def test_banner_shows_name_and_id(overview) -> None:
+    assert overview._banner.isHidden()
+    overview.set_person_filter("p1")
+    assert not overview._banner.isHidden()
+    assert overview._banner_label.text() == "Filtrerat på person: Anna Test (p1)"
+    assert overview._show_all_button.text() == "Visa alla"
+    assert overview._show_all_button.accessibleName() == "Visa alla"
+    assert overview._show_all_button.focusPolicy() != Qt.FocusPolicy.NoFocus
+    assert [r.case_id for r in overview.case_rows()] == ["c1", "c3"]
+    assert overview._cases_table.rowCount() == 2
+    assert overview._todo_table.rowCount() == 1
+    assert overview._hyp_table.rowCount() == 1
+
+
+def test_visa_alla_restores_tables_and_previous_status_choice(overview) -> None:
+    overview._status_filter.setCurrentIndex(overview._status_filter.findData("in_progress"))
+    before = _snapshot(overview)
+    assert before["cases"] == ["c2"]
+
+    overview.set_person_filter("p1")
+    assert overview._status_filter.currentData() == STATUS_ALL
+    assert not overview._banner.isHidden()
+
+    overview._show_all_button.click()
+    after = _snapshot(overview)
+    assert after == before
+    assert overview._status_filter.currentData() == "in_progress"
+    assert overview._banner.isHidden()
+
+
+def test_visa_alla_restores_default_status_and_all_rows(overview) -> None:
+    before = _snapshot(overview)
+    overview.set_person_filter("p2")
+    overview.set_person_filter(None)
+    assert _snapshot(overview) == before
+
+
+def test_missing_person_shows_empty_state(overview) -> None:
+    overview.set_person_filter("person_gone")
+    assert not overview._banner.isHidden()
+    assert overview._banner_label.text() == "Okänd person (person_gone)"
+    assert overview._cases_table.rowCount() == 0
+    assert overview._todo_table.rowCount() == 0
+    assert overview._hyp_table.rowCount() == 0
+
+
+def test_person_deleted_while_filtered_shows_empty_state(overview) -> None:
+    data = overview._data
+    overview.set_person_filter("p3")
+    assert overview._banner_label.text() == "Filtrerat på person: Cecilia Test (p3)"
+    data.persons = [p for p in data.persons if p.id != "p3"]
+    overview.refresh()
+    assert overview.person_filter() == "p3"
+    assert overview._banner_label.text() == "Okänd person (p3)"
+    assert overview._cases_table.rowCount() == 0
+    assert overview._todo_table.rowCount() == 0
+    assert overview._hyp_table.rowCount() == 0
+
+
+def test_research_change_keeps_filter(overview) -> None:
+    data = overview._data
+    overview.set_person_filter("p1")
+    data.research_cases.append(
+        ResearchCase(
+            id="c5",
+            title="Nytt",
+            status="open",
+            primary_entity_ref=ResearchEntityLink("person", "p1"),
+        )
+    )
+    data.research_cases.append(
+        ResearchCase(
+            id="c6",
+            title="Annan",
+            status="open",
+            primary_entity_ref=ResearchEntityLink("person", "p2"),
+        )
+    )
+    overview.refresh()
+    assert overview.person_filter() == "p1"
+    assert not overview._banner.isHidden()
+    assert [r.case_id for r in overview.case_rows()] == ["c1", "c3", "c5"]
+    assert overview._cases_table.rowCount() == 3
+    assert overview._status_filter.currentData() == STATUS_ALL
+
+
+def test_person_filter_independent_of_entity_filter(overview) -> None:
+    overview.set_person_filter("p1")
+    overview._entity_filter = ("person", "p2")
+    overview.set_person_filter(None)
+    assert overview._entity_filter == ("person", "p2")
+
+
+def test_unfiltered_overview_unchanged_by_construction_paths(qapp) -> None:
+    # Every pre-feature caller builds the window without a filter: no banner,
+    # all open cases, all pending actions and hypotheses.
+    for mode in ("cases", "todo", "hypotheses"):
+        window = ResearchOverview(_widget_data(), mode)
+        try:
+            snap = _snapshot(window)
+            assert snap["person"] is None and snap["banner_hidden"]
+            assert snap["mode"] == mode
+            assert snap["status"] == STATUS_NOT_CLOSED
+            assert snap["cases"] == ["c1", "c2"]
+            assert snap["todo"] == ["a1", "a2"]
+            assert snap["hyp"] == ["h1", "h2"]
+            assert (snap["case_table"], snap["todo_table"], snap["hyp_table"]) == (2, 2, 2)
+        finally:
+            window.close()
+
+
+# --- click routing ---------------------------------------------------------
+
+
+class _FakeResearch:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def show_research_for_entity(self, entity_type, entity_id, person_filter=None) -> None:
+        self.calls.append((entity_type, entity_id, person_filter))
+
+
+class _FakeMerge:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def open_register(self, person_id=None) -> None:
+        self.calls.append(("register", person_id))
+
+    def open_history(self, person_id=None) -> None:
+        self.calls.append(("history", person_id))
+
+
+@pytest.fixture
+def gateways():
+    research, merge = _FakeResearch(), _FakeMerge()
+    research_gateway.set_research_gateway(research)
+    merge_gateway.set_merge_gateway(merge)
+    yield research, merge
+    research_gateway.set_research_gateway(None)
+    merge_gateway.set_merge_gateway(None)
+
+
+def _release(pos: QPointF) -> QMouseEvent:
+    return QMouseEvent(
+        QEvent.Type.MouseButtonRelease,
+        pos,
+        pos,
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def test_person_list_research_glyph_passes_person_filter_candidate_does_not(
+    qapp, tmp_path, gateways
+) -> None:
+    research, merge = gateways
+    data = _widget_data()
+    data.merge_candidates = [
+        MergeCandidate(id="m1", person_1_id="p1", person_2_id="p3", assessment="possible")
+    ]
+    service = AppSettingsService()
+    service.SETTINGS_PATH = tmp_path / "app_settings.json"
+    service._settings = AppSettings()
+    project_service = SimpleNamespace(
+        data=data, project_path=None, add_merge_listener=lambda fn: (lambda: None)
+    )
+    panel = PersonListPanel(SimpleNamespace(app_settings_service=service, project_service=project_service))
+    panel.refresh()
+
+    tree = panel._tree_widget
+    item = next(
+        tree.topLevelItem(r)
+        for r in range(tree.topLevelItemCount())
+        if tree.topLevelItem(r).data(0, Qt.ItemDataRole.UserRole) == "p1"
+    )
+    item.setData(_RESEARCH_COLUMN, _ROLE_RESEARCH_COLOR, "#F39C12")
+    item.setText(_RESEARCH_COLUMN, "1/2")
+    option = QStyleOptionViewItem()
+    option.initFrom(tree.viewport())
+    option.rect = QRect(0, 0, 200, 24)
+    index = tree.indexFromItem(item, _RESEARCH_COLUMN)
+    delegate = panel._research_delegate
+    research_rect, candidate_rect = delegate._rects_for(option, index)
+    assert not research_rect.isNull() and not candidate_rect.isNull()
+    assert item.data(_RESEARCH_COLUMN, _ROLE_CANDIDATE_COLOUR) is not None
+    assert item.data(_RESEARCH_COLUMN, _ROLE_CANDIDATE_KIND) == "candidates"
+
+    # Candidate glyph: merge gateway only, research gateway untouched.
+    assert delegate.editorEvent(_release(QPointF(candidate_rect.center())), tree.model(), option, index)
+    assert research.calls == []
+    assert merge.calls == [("register", "p1")]
+
+    # Research glyph: research gateway with person_filter.
+    assert delegate.editorEvent(_release(QPointF(research_rect.center())), tree.model(), option, index)
+    assert research.calls == [("person", "p1", "p1")]
+    assert merge.calls == [("register", "p1")]
+
+
+def test_diagram_box_research_glyph_passes_person_filter_candidate_does_not(
+    qapp, gateways
+) -> None:
+    research, merge = gateways
+    data = _widget_data()
+    data.merge_candidates = [
+        MergeCandidate(id="m1", person_1_id="p1", person_2_id="p3", assessment="possible")
+    ]
+    rm.begin_diagram_render(data, True, True)
+    box = pb.PersonBoxItem(
+        "p1",
+        {
+            "name": "p1",
+            "research_counts": ResearchCaseCounts(1, 1),
+            "candidate_state": rm.diagram_candidate_state("p1"),
+        },
+        PersonBoxConfig(research=True, merge_candidates=True),
+    )
+
+    def press(pos: QPointF) -> None:
+        event = QGraphicsSceneMouseEvent(QGraphicsSceneMouseEvent.Type.GraphicsSceneMousePress)
+        event.setButton(Qt.MouseButton.LeftButton)
+        event.setPos(pos)
+        box.mousePressEvent(event)
+
+    press(box._candidate_indicator()[0].center())
+    assert research.calls == []
+    assert merge.calls == [("register", "p1")]
+
+    press(box._research_indicator()[0].center())
+    assert research.calls == [("person", "p1", "p1")]

@@ -312,7 +312,7 @@ The design's remaining open questions are implemented with the design's stated d
     - The selection mode and right-click handling of the Person_List itself are done in 7.18
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.10, 8.11, 9.1_
 
-  - [~] 7.8 Write widget tests for the comparison window
+  - [x] 7.8 Write widget tests for the comparison window
     - Module `tests/test_ui/test_comparison_window.py`
     - Layout, search widget results, shared badge, action area, entry-point enablement, diagram lookup equivalence
     - _Requirements: 10.1, 12.1, 8.4, 8.5_
@@ -362,7 +362,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Same-ID relatives present in both views get the Shared_Person marker in both (12.1); two siblings with the same name in one view and across both views get no shared marker unless their ids are identical (12.7)
     - _Requirements: 12.1, 12.7, 32.7_
 
-  - [~] 7.18 Implement multi-selection and right-click handling in the Person_List
+  - [x] 7.18 Implement multi-selection and right-click handling in the Person_List
     - In `slaktbusken/ui/person_list_panel.py` switch `_tree_widget` from `SingleSelection` to `ExtendedSelection`; Ctrl-click and Shift-click use standard Qt behaviour and are not reimplemented (Req 8.13)
     - Keep current-person navigation: `currentItemChanged` still drives `person_selected` and the diagram; a plain click selects exactly one row and sets the current person exactly as before this feature (Req 8.12); add no second navigation path
     - Add the module-level pure function `rows_after_right_click(selected_rows, clicked_row) -> list[int]` (no Qt types): empty list for `None`, the unchanged selection when the clicked row is inside it, otherwise only the clicked row
@@ -386,7 +386,7 @@ The design's remaining open questions are implemented with the design's stated d
   - Ensure all tests pass, ask the user if questions arise.
   - Includes `tests/test_ui/test_person_list_selection.py` (Property 51 and the Req 8.16 regression tests) and the existing person-list tests, unmodified.
 
-- [ ] 9. Phase 5: Indicators, settings and research person filter
+- [x] 9. Phase 5: Indicators, settings and research person filter
   - [x] 9.1 Implement `CandidateIndex`, indicator colour and tooltips
     - Create `services/candidate_index.py` with the single `indicator_colour` function (blue, orange, grey, none), per-person relations, tooltip lines in the specified Swedish form ordered by group then name, five-line limit with a summary line, lifespan rendering without empty parentheses, "Okänd person" fallback, names from current data or Merge_History
     - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8, 19.9, 19.10, 19.11, 28.4_
@@ -455,7 +455,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 17.6, 17.8, 17.15, 17.16, 18.14**
     - Module `tests/test_ui/test_research_person_filter.py` (pure tests, no Qt): rows under a person scope equal the unfiltered rows restricted by an independent brute-force definition; a `None` scope returns the pre-feature rows; case row ids equal `cases_for_entity` and their count equals the indicator total
 
-  - [~] 9.15 Write widget tests for the research person filter
+  - [x] 9.15 Write widget tests for the research person filter
     - Module `tests/test_ui/test_research_person_filter.py` (run after 9.14)
     - Banner shows name and id; "Visa alla" restores the unfiltered tables and the previous status choice; a deleted person shows the empty state; a research change keeps the filter; a click on the research glyph in the person list and on a diagram box calls the gateway with `person_filter`; a click on the candidate glyph does not; each existing caller opens an unfiltered overview with no banner and the same rows and widget state as before
     - _Requirements: 17.8, 17.15, 17.16, 18.14_
@@ -507,7 +507,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Module `tests/test_services/test_similar_events.py` (required; not part of the six Mandatory_Test_Groups)
     - Generated events: a warning exactly when type is equal, both dates are present and compatible (equal at the coarser shared precision, or both full dates at most 365 days apart) and the places do not contradict (one side has none, or equal ids); no warning for pairs of one person, type-only, place-only or type+place without compatible dates, undated or malformed-date events, or contradicting places; for any project and decisions both events of every warned pair are present with unchanged ids and the plan has no combined, merged or deleted event
 
-  - [~] 11.9 Build the Merge_Review wizard and preview
+  - [x] 11.9 Build the Merge_Review wizard and preview
     - Create the `ui/merge/` wizard (`merge_review_wizard.py`, `merge_pages.py`, `merge_preview.py`): survivor choice with confirmation and reset-message on change, review sections for person data, names, events, residences, sources and media, DNA, research, families, relatives, other references; preview "Förhandsgranskning av sammanslagning" with blocking conflicts and warnings; plan building on a worker; rebuild with notice when `ProjectService.content_revision` or the fingerprint changes (a save alone never triggers a rebuild); disabled execution while any choice or conflict is unresolved; Execute button "Slå samman personer"
     - Second confirmation names both persons and ids and contains no statement about saving unsaved edits (none can exist)
     - _Requirements: 20.1, 20.5, 20.6, 20.7, 20.8, 20.9, 20.10, 20.12, 21.9, 21.17, 26.1, 26.3, 26.4, 26.5, 26.6, 26.7, 26.9, 26.10_
@@ -522,7 +522,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 23.6, 23.7**
     - Module `tests/test_services/test_merge_family_integrity.py` with `pytestmark = pytest.mark.mandatory_integrity`; function named `test_property_32_cycle_and_self_relationship`; required, never skipped
 
-  - [~] 11.12 Write property test for families staying separate (Mandatory group b: family relationship integrity)
+  - [x] 11.12 Write property test for families staying separate (Mandatory group b: family relationship integrity)
     - **Property 33: Families stay separate**
     - **Validates: Requirements 23.9, 23.10**
     - Module `tests/test_services/test_merge_family_integrity.py`; function named `test_property_33_families_stay_separate`; required, never skipped
@@ -538,7 +538,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 23.12, 23.13, 26.2**
     - Module `tests/test_services/test_merge_family_integrity.py`; function named `test_property_35_plan_equals_synchronised_result`; required, never skipped
 
-  - [~] 11.15 Write property test for candidate redirect (required by Requirement 32.7)
+  - [x] 11.15 Write property test for candidate redirect (required by Requirement 32.7)
     - **Property 37: Candidate redirect**
     - **Validates: Requirements 29.1, 29.2, 29.3, 29.4, 29.5, 29.8, 29.9, 29.12**
     - Module `tests/test_services/test_merge_candidate_redirect.py`; required, no skip, xfail or deselect; not part of the six Mandatory_Test_Groups
@@ -603,7 +603,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Idempotent; the in-process decision after an error equals the decision after a crash at the same point; cleanup order restore temps, backup directory, lock, `journal.tmp`, journal last; Swedish outcome messages "Sammanslagningen slutfördes." / "Sammanslagningen återställdes."; the Swedish refusal message names the project file, journal, every temp file and the backup folder, states that they are preserved and gives the next step
     - _Requirements: 7.13, 27.16, 27.17, 27.18, 27.21, 27.25_
 
-  - [~] 13.5 Implement `MergeEngine`
+  - [x] 13.5 Implement `MergeEngine`
     - Create `services/merge_engine.py`: refuse on inventory locations without handler, revalidate `content_revision` and the plan fingerprint, build working data, move `PersonMapping` entries of the retired person into `identity_aliases` and repoint earlier aliases to the final survivor, add the `MergeHistoryEntry` with archived candidates, raise `id_high_water_marks["person_"]` to the retired suffix, post-merge validation with the information ledger, encode project and `persons.json` bytes, commit through `MergeTransaction`
     - The Recovery_Point is taken from the saved state; the commit contains no unsaved pre-merge edit
     - After a successful commit call the adopt step of 5.16: dirty flag false, `revision` plus one, `content_revision` plus one, listeners notified exactly once

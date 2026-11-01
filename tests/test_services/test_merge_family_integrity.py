@@ -323,3 +323,84 @@ def test_property_32_cycle_and_self_relationship(data):
     # Several parentage types for one child never block by themselves.
     assert {c.code for c in plan.blocking} <= _SELF_CODES
     assert plan.can_execute == (not expected)
+
+
+# ---------------------------------------------------------------------------
+# Property 33: families stay separate (task 11.12)
+# ---------------------------------------------------------------------------
+
+_PARTNER_POOL = ["p1", "p2", "a", "b"]
+
+
+@st.composite
+def _equivalent_family_projects(draw):
+    """Families over a small partner pool, so equal partner sets are frequent."""
+    partner_sets = draw(
+        st.lists(
+            st.lists(st.sampled_from(_PARTNER_POOL), min_size=1, max_size=2, unique=True)
+            .filter(lambda s: not {"p1", "p2"} <= set(s)),
+            min_size=2, max_size=6,
+        )
+    )
+    families, kids = [], []
+    for i, partners in enumerate(partner_sets):
+        children = [f"k{i}_{j}" for j in range(draw(st.integers(0, 2)))]
+        kids += children
+        families.append(
+            _fam(f"F{i}", partners, children,
+                 [_bio(c, p) for c in children for p in partners])
+        )
+    persons = [_person(i, n) for i, n in (("p1", "Anna"), ("p2", "Anna"), ("a", "Eva"), ("b", "Per"))]
+    persons += [_person(k, "Barn") for k in kids]
+    return ProjectData(persons=persons, families=families)
+
+
+@settings(settings.get_profile("sbk"))
+@given(_equivalent_family_projects())
+def test_property_33_families_stay_separate(data):
+    """**Validates: Requirements 23.9, 23.10**"""
+    plan = _plan(data)
+    assert not plan.blocking
+    final = _final(data, plan)
+
+    def mapped(ids):
+        return frozenset("p1" if i == "p2" else i for i in ids)
+
+    # No family is combined, deleted or has members moved on the basis of equal
+    # partner sets: ids, children and partners (retired -> survivor) are preserved.
+    assert [f.id for f in final.families] == [f.id for f in data.families]
+    after = {f.id: f for f in final.families}
+    for fam in data.families:
+        new = after[fam.id]
+        assert new.children == fam.children
+        assert mapped(p.person_id for p in new.partners) == mapped(
+            p.person_id for p in fam.partners
+        )
+        assert {(l.child_id, l.parent_id) for l in new.parent_child_links} == {
+            (l.child_id, "p1" if l.parent_id == "p2" else l.parent_id)
+            for l in fam.parent_child_links
+        }
+    assert plan.preview.family_count == len(data.families)
+    assert not plan.preview.added_family_ids and not plan.preview.removed_family_ids
+
+    # Every pair that became equivalent through the merge yields a non-blocking
+    # warning naming both families.
+    expected = set()
+    for i, first in enumerate(data.families):
+        for second in data.families[i + 1:]:
+            set_1 = mapped(p.person_id for p in first.partners)
+            if set_1 != mapped(p.person_id for p in second.partners):
+                continue
+            touched = any(
+                "p2" in (p.person_id for p in f.partners) for f in (first, second)
+            )
+            if "p1" in set_1 and touched:
+                expected.add(frozenset((first.id, second.id)))
+    warned = {
+        frozenset(c.subjects) for c in plan.warnings if c.code == "duplicate_family"
+    }
+    assert expected <= warned
+    for c in plan.conflicts:
+        if c.code == "duplicate_family":
+            assert not c.is_blocking
+            assert all(fid in c.message for fid in c.subjects)

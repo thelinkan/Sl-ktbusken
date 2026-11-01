@@ -11,10 +11,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from PySide6.QtCore import QEvent, QModelIndex, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QResizeEvent
+from PySide6.QtGui import QAction, QBrush, QColor, QContextMenuEvent, QIcon, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
     QProxyStyle,
@@ -1370,6 +1370,44 @@ class ResearchColumnDelegate(QStyledItemDelegate):
 # ---------------------------------------------------------------------------
 
 
+def rows_after_right_click(
+    selected_rows: Sequence[int], clicked_row: Optional[int]
+) -> list[int]:
+    """Pure rule: the selected rows after a right-click on ``clicked_row``.
+
+    ``None`` (empty space) gives no rows, a click inside the selection keeps
+    it unchanged (Req 8.14) and a click outside selects only the clicked row
+    (Req 8.15).
+    """
+    if clicked_row is None:
+        return []
+    if clicked_row in selected_rows:
+        return list(selected_rows)
+    return [clicked_row]
+
+
+class _PersonTreeWidget(QTreeWidget):
+    """Person tree with right-click handling that keeps a multi-selection."""
+
+    #: Emitted with the local position and whether the menu came from the keyboard.
+    person_context_requested = Signal(QPoint, bool)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Keep the selection when right-clicking inside it (Req 8.14)."""
+        if event.button() == Qt.MouseButton.RightButton:
+            item = self.itemAt(event.position().toPoint())
+            if item is not None and item.isSelected():
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Report the menu request without touching selection or current item."""
+        keyboard = event.reason() == QContextMenuEvent.Reason.Keyboard
+        self.person_context_requested.emit(event.pos(), keyboard)
+        event.accept()
+
+
 class PersonListPanel(QWidget):
     """Panel showing a filterable, sorted list of all persons in the project.
 
@@ -1449,17 +1487,17 @@ class PersonListPanel(QWidget):
         # Person list as QTreeWidget with columns
         # Columns: 0=Namn, 1=Födelsedatum, 2=Födelseort, 3=Dödsdatum, 4=Dödsort,
         #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA, 9=Boende, 10=Forskningsuppslag
-        self._tree_widget = QTreeWidget()
+        self._tree_widget = _PersonTreeWidget()
         self._tree_widget.setHeaderLabels(
             ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende", "Forskningsuppslag"]
         )
         self._tree_widget.setIconSize(QSize(20, 20))
         self._tree_widget.setRootIsDecorated(False)
         self._tree_widget.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection
+            QAbstractItemView.SelectionMode.ExtendedSelection
         )
         self._tree_widget.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
+            Qt.ContextMenuPolicy.DefaultContextMenu
         )
         self._tree_widget.setIndentation(0)
         self._tree_widget.setUniformRowHeights(True)
@@ -1772,7 +1810,7 @@ class PersonListPanel(QWidget):
 
         self._tree_widget.currentItemChanged.connect(self._on_item_clicked)
         self._tree_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self._tree_widget.customContextMenuRequested.connect(
+        self._tree_widget.person_context_requested.connect(
             self._on_context_menu_requested
         )
 
@@ -2604,14 +2642,41 @@ class PersonListPanel(QWidget):
         ]
         return order_by_person_list([s for s in selected if s], list_order)
 
-    def _on_context_menu_requested(self, pos) -> None:
-        """Handle right-click context menu on a person list item.
+    def _show_empty_space_menu(self, pos) -> None:
+        """Right-click on empty space: the merge entries, both disabled."""
+        from slaktbusken.ui.context_menu_builder import (
+            COMPARE_ACTION,
+            MARK_CANDIDATES_ACTION,
+        )
 
-        Uses ContextMenuBuilder to create and show the standard person
-        context menu, then emits context_menu_action with the selected action.
+        menu = QMenu(self)
+        compare = menu.addAction("Jämför personer...")
+        compare.setData((COMPARE_ACTION, ()))
+        compare.setEnabled(False)
+        mark = menu.addAction("Markera som sammanslagningskandidater")
+        mark.setData((MARK_CANDIDATES_ACTION, ()))
+        mark.setEnabled(False)
+        self._exec_menu(menu, self._tree_widget.mapToGlobal(pos))
+
+    def _exec_menu(self, menu: QMenu, global_pos: QPoint):
+        """Show the context menu modally and return the chosen action.
+
+        A single place for the blocking call, so widget tests can replace it.
+        """
+        return menu.exec(global_pos)
+
+    def _on_context_menu_requested(self, pos, keyboard: bool = False) -> None:
+        """Handle the context menu of the person list.
+
+        The selection is never changed here (the press handling has already
+        applied ``rows_after_right_click``). Uses ContextMenuBuilder to create
+        and show the standard person context menu, then emits
+        context_menu_action with the selected action.
 
         Args:
             pos: The local position of the right-click within the list widget.
+            keyboard: True when the menu was invoked from the keyboard; the
+                current selection is then used as is.
         """
         from slaktbusken.ui.context_menu_builder import (
             COMPARE_ACTION,
@@ -2619,16 +2684,23 @@ class PersonListPanel(QWidget):
             merge_action_ids,
         )
 
-        item = self._tree_widget.itemAt(pos)
-        if item is None:
-            return
+        if keyboard:
+            item = self._tree_widget.currentItem()
+            if item is None:
+                self._show_empty_space_menu(pos)
+                return
+        else:
+            item = self._tree_widget.itemAt(pos)
+            if item is None:
+                self._show_empty_space_menu(pos)
+                return
 
         person_id = item.data(0, Qt.ItemDataRole.UserRole)
         if not person_id:
             return
 
         selected_ids = self.selected_ids_in_list_order()
-        if person_id not in selected_ids:
+        if not keyboard and person_id not in selected_ids:
             selected_ids = [person_id]
 
         # Determine main person id
@@ -2646,8 +2718,7 @@ class PersonListPanel(QWidget):
             project_open=self._app.project_service.project_path is not None,
         )
 
-        global_pos = self._tree_widget.mapToGlobal(pos)
-        action = menu.exec(global_pos)
+        action = self._exec_menu(menu, self._tree_widget.mapToGlobal(pos))
         if action is None:
             return
 

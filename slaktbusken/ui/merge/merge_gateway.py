@@ -9,7 +9,8 @@ register needs the application. ``Application`` registers a
 
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from dataclasses import dataclass
+from typing import Any, Optional, Protocol
 
 from PySide6.QtCore import SignalInstance
 
@@ -32,7 +33,39 @@ class MergeGateway(Protocol):
     def open_history(self, person_id: Optional[str] = None) -> None: ...
 
 
+@dataclass(frozen=True)
+class MergeExecutionResult:
+    """Outcome of an execution request (Swedish ``message`` on failure)."""
+
+    success: bool
+    message: str = ""
+
+
+class MergeExecutor(Protocol):
+    """The only thing the wizard needs from the merge engine.
+
+    The wizard never imports the engine. ``Application`` registers an adapter
+    around the engine with :func:`set_merge_executor`; tests pass a fake.
+    """
+
+    def execute(self, plan: Any) -> MergeExecutionResult:
+        """Run the merge described by a ``MergePlan``."""
+        ...
+
+
 _gateway: Optional[MergeGateway] = None
+_executor: Optional[MergeExecutor] = None
+
+
+def set_merge_executor(executor: Optional[MergeExecutor]) -> None:
+    """Register (or with None, remove) the engine adapter."""
+    global _executor
+    _executor = executor
+
+
+def get_merge_executor() -> Optional[MergeExecutor]:
+    """Return the registered engine adapter, or None."""
+    return _executor
 
 
 def set_merge_gateway(gateway: Optional[MergeGateway]) -> None:

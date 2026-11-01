@@ -324,3 +324,104 @@ def test_plan_identity_moves_mappings_and_rewrites_aliases():
     # Translation data is untouched by planning.
     assert [m.app_id for m in translation.persons] == ["p1", "p2", "p2"]
     assert translation.person_aliases[0].person_id == "p2"
+
+
+# ---------------------------------------------------------------------------
+# Property 37: Candidate redirect
+# ---------------------------------------------------------------------------
+
+from hypothesis import given, settings, strategies as st  # noqa: E402
+
+_PERSONS = ["A", "B", "C", "D", "E"]
+
+
+@st.composite
+def _candidate_sets(draw):
+    n = draw(st.integers(min_value=0, max_value=8))
+    cands = []
+    for i in range(1, n + 1):
+        ncom = draw(st.integers(min_value=0, max_value=3))
+        cands.append(
+            _cand(
+                f"mc_{i}",
+                draw(st.sampled_from(_PERSONS)),
+                draw(st.sampled_from(_PERSONS)),
+                draw(st.sampled_from(CANDIDATE_ASSESSMENTS)),
+                draw(st.booleans()),
+                draw(st.sampled_from([None, "rc_1", "rc_2"])),
+                [(f"k{i}_{j}", f"2020-01-0{j + 1}", f"t{i}_{j}") for j in range(ncom)],
+            )
+        )
+    return draw(st.permutations(cands))
+
+
+def _snapshot(c):
+    return (c.id, c.person_1_id, c.person_2_id, c.assessment, c.enabled,
+            c.research_case_id, [(x.id, x.date, x.text) for x in c.comments])
+
+
+@settings(max_examples=200, deadline=None)
+@given(_candidate_sets())
+def test_property_37_candidate_redirect(cands):
+    """**Validates: Requirements 29.1, 29.2, 29.3, 29.4, 29.5, 29.8, 29.9, 29.12**"""
+    before = {c.id: _snapshot(c) for c in cands}
+    orig = {c.id: c for c in cands}
+    res = _run(cands)
+    assert {c.id: _snapshot(c) for c in cands} == before  # input never modified
+
+    active = {c.id: c for c in res.active}
+    archived = {a.id: a for a in res.archived}
+    assert set(active).isdisjoint(archived)
+    assert set(active) | set(archived) == set(before)
+
+    # No active candidate references the retired person.
+    for c in res.active:
+        assert "B" not in (c.person_1_id, c.person_2_id)
+
+    # Direct candidates and collisions are archived in full.
+    for cid, o in orig.items():
+        if {o.person_1_id, o.person_2_id} == {"A", "B"}:
+            assert cid in archived
+    for cid in res.collided:
+        assert cid in archived and archived[cid].role == "collision"
+    for cid, a in archived.items():
+        o = orig[cid]
+        assert (a.assessment, a.enabled, a.research_case_id) == (
+            o.assessment, o.enabled, o.research_case_id)
+        assert [(x.id, x.date, x.text) for x in a.comments] == before[cid][6]
+
+    # Redirected candidates: B<->C becomes A<->C, only confirmed -> possible.
+    def _other(c):
+        return c.person_2_id if c.person_1_id == "B" else c.person_1_id
+
+    collided_others = {_other(orig[cid]) for cid in res.collided}
+    for cid in res.redirected:
+        if _other(orig[cid]) in collided_others:
+            continue  # later candidates collided into it; covered by Property 38
+        o, new = orig[cid], active[cid]
+        exp1 = "A" if o.person_1_id == "B" else o.person_1_id
+        exp2 = "A" if o.person_2_id == "B" else o.person_2_id
+        assert (new.person_1_id, new.person_2_id) == (exp1, exp2)
+        assert new.enabled is o.enabled
+        assert new.research_case_id == o.research_case_id
+        assert new.assessment == ("possible" if o.assessment == "confirmed" else o.assessment)
+        assert new.assessment != "confirmed"
+        if o.assessment == "rejected":
+            assert new.assessment == "rejected"
+        if not o.enabled:
+            assert new.enabled is False
+        assert [(x.id, x.date, x.text) for x in new.comments[:-1]] == before[cid][6]
+        assert len(new.comments) == len(o.comments) + 1
+        assert new.comments[-1].date == DATE
+        assert new.comments[-1].text == (
+            "Omdirigerad vid sammanslagning av B in i A. "
+            f"Ursprunglig bedömning: {assessment_label(o.assessment)}."
+        )
+
+    # Candidates untouched by the merge are unchanged.
+    for cid, c in active.items():
+        if cid not in res.redirected and not (
+            {orig[cid].person_1_id, orig[cid].person_2_id} & {"B"}
+            or (orig[cid].person_1_id == "A" or orig[cid].person_2_id == "A")
+        ):
+            assert _snapshot(c) == before[cid]
