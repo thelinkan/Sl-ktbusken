@@ -1387,6 +1387,8 @@ class PersonListPanel(QWidget):
     person_selected = Signal(str)
     person_edit_requested = Signal(str)
     context_menu_action = Signal(str, str)  # action_type, person_id
+    compare_requested = Signal(list)  # ordered person ids
+    mark_candidates_requested = Signal(list)  # ordered person ids
     person_count_changed = Signal(int, object)  # total, filtered_count_or_None
 
     def __init__(self, app: "Application", parent: Optional[QWidget] = None) -> None:
@@ -2588,6 +2590,20 @@ class PersonListPanel(QWidget):
             if person_id:
                 self.person_edit_requested.emit(person_id)
 
+    def selected_ids_in_list_order(self) -> list[str]:
+        """Ids of the selected rows, ordered as the rows appear in the list."""
+        from slaktbusken.services.comparison_session import order_by_person_list
+
+        tree = self._tree_widget
+        list_order = [
+            tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
+            for i in range(tree.topLevelItemCount())
+        ]
+        selected = [
+            it.data(0, Qt.ItemDataRole.UserRole) for it in tree.selectedItems()
+        ]
+        return order_by_person_list([s for s in selected if s], list_order)
+
     def _on_context_menu_requested(self, pos) -> None:
         """Handle right-click context menu on a person list item.
 
@@ -2597,7 +2613,11 @@ class PersonListPanel(QWidget):
         Args:
             pos: The local position of the right-click within the list widget.
         """
-        from slaktbusken.ui.context_menu_builder import ContextMenuBuilder
+        from slaktbusken.ui.context_menu_builder import (
+            COMPARE_ACTION,
+            ContextMenuBuilder,
+            merge_action_ids,
+        )
 
         item = self._tree_widget.itemAt(pos)
         if item is None:
@@ -2607,6 +2627,10 @@ class PersonListPanel(QWidget):
         if not person_id:
             return
 
+        selected_ids = self.selected_ids_in_list_order()
+        if person_id not in selected_ids:
+            selected_ids = [person_id]
+
         # Determine main person id
         main_person_id: Optional[str] = None
         data = self._app.project_service.data
@@ -2614,11 +2638,26 @@ class PersonListPanel(QWidget):
             main_person_id = data.project.main_person_id
 
         builder = ContextMenuBuilder()
-        menu = builder.build_person_menu(person_id, main_person_id, self)
+        menu = builder.build_person_menu(
+            person_id,
+            main_person_id,
+            self,
+            selected_ids=selected_ids,
+            project_open=self._app.project_service.project_path is not None,
+        )
 
         global_pos = self._tree_widget.mapToGlobal(pos)
         action = menu.exec(global_pos)
         if action is None:
+            return
+
+        merge_action = merge_action_ids(action)
+        if merge_action is not None:
+            kind, ids = merge_action
+            if kind == COMPARE_ACTION:
+                self.compare_requested.emit(ids)
+            else:
+                self.mark_candidates_requested.emit(ids)
             return
 
         action_data = action.data()

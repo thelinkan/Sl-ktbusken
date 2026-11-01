@@ -7,11 +7,28 @@ person actions for use in DiagramPanel and PersonListPanel.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Sequence
 
 from PySide6.QtWidgets import QMenu, QMessageBox, QWidget
 
+from slaktbusken.services.comparison_session import menu_state
+
 logger = logging.getLogger(__name__)
+
+COMPARE_ACTION = "compare_persons"
+MARK_CANDIDATES_ACTION = "mark_candidates"
+
+
+def merge_action_ids(action) -> Optional[tuple[str, list[str]]]:
+    """Return ``(kind, ids)`` for a merge menu action, else None."""
+    data = action.data() if action is not None else None
+    if (
+        isinstance(data, tuple)
+        and len(data) == 2
+        and data[0] in (COMPARE_ACTION, MARK_CANDIDATES_ACTION)
+    ):
+        return data[0], list(data[1])
+    return None
 
 
 class ContextMenuBuilder:
@@ -27,8 +44,15 @@ class ContextMenuBuilder:
         person_id: str,
         main_person_id: Optional[str],
         parent_widget: QWidget,
+        selected_ids: Optional[Sequence[str]] = None,
+        project_open: bool = True,
     ) -> QMenu:
         """Create a QMenu with standard person actions.
+
+        ``selected_ids`` are the selected person ids in person-list order
+        (default None: the merge entries are not added). They decide the enablement of the
+        "Jämför personer..." and "Markera som sammanslagningskandidater"
+        entries; both are disabled while no project is open.
 
         Actions are added in the order specified by requirement 7.1:
         Gör aktuell, Redigera person, Ny partner, Ny pappa,
@@ -118,6 +142,21 @@ class ContextMenuBuilder:
 
         action_override_clear = override_menu.addAction("Återställ till standard")
         action_override_clear.setData(("override_clear", person_id))
+
+        # Merge entry points (Req 8.4 to 8.7). These only open the
+        # comparison or the candidate editor; they never start a merge.
+        if selected_ids is not None:
+            ids = list(selected_ids)
+            state = menu_state(len(ids))
+            menu.addSeparator()
+            action_compare = menu.addAction("Jämför personer...")
+            action_compare.setData((COMPARE_ACTION, tuple(ids)))
+            action_compare.setEnabled(project_open and state.compare_enabled)
+            action_mark = menu.addAction("Markera som sammanslagningskandidater")
+            action_mark.setData((MARK_CANDIDATES_ACTION, tuple(ids)))
+            action_mark.setEnabled(
+                project_open and state.mark_candidates_enabled
+            )
 
         # Separator before destructive action
         menu.addSeparator()

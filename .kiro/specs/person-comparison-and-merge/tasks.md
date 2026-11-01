@@ -166,7 +166,7 @@ The design's remaining open questions are implemented with the design's stated d
 - [~] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Phase 3: Candidate register, saved state and research integration
+- [x] 5. Phase 3: Candidate register, saved state and research integration
   - [x] 5.1 Implement the candidate service and `ProjectService` API
     - Create `slaktbusken/services/merge_candidate_service.py` with create, set assessment, enable or disable, link or unlink research case, add, edit and delete comment, all copy-validate-swap
     - Add `ProjectService` wrappers that set the dirty flag and notify merge listeners through the counters of 5.16
@@ -267,7 +267,7 @@ The design's remaining open questions are implemented with the design's stated d
     - `request_resolution()` is called only when the user presses "Gå till redigeraren" in the wizard; nothing is saved or discarded automatically
     - _Requirements: 26.14, 27.23_
 
-  - [~] 5.20 Write registry tests and the editor completeness test (Mandatory group c: failed merges)
+  - [x] 5.20 Write registry tests and the editor completeness test (Mandatory group c: failed merges)
     - Module `tests/test_services/test_saved_state.py` (same module as 5.17, mandatory marker); required, never skipped
     - Registry order, weak references, `unsaved_editors()` with a counting `FakeEditor`; a completeness test enumerates the `QWidget` subclasses in `slaktbusken/ui/editors` and fails for any class that is neither registered nor exempted with a documented reason
     - _Requirements: 26.14, 27.23_
@@ -305,7 +305,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Shared_Person marker in both views (ids only, siblings included), candidate relation display, one selected person per view with pair actions "Markera som sammanslagningskandidater" and "Jämför dessa", candidate panel for the current pair, navigation back, depth-20 message, "Fortsätt till sammanslagning" button
     - _Requirements: 10.5, 12.1, 12.2, 12.3, 12.4, 12.8, 13.1, 13.2, 13.3, 13.5, 13.6, 13.8, 13.9, 13.11, 14.5, 14.6, 14.7, 14.8, 14.10, 9.12, 20.1_
 
-  - [~] 7.7 Add menu and context-menu entry points
+  - [x] 7.7 Add menu and context-menu entry points
     - Add "Jämför personer..." to the Person menu, comparison and candidate actions to diagram box menus, and extend `ContextMenuBuilder.build_person_menu(selected_ids: Sequence[str])` (ids ordered by row): "Markera som sammanslagningskandidater" enabled only for exactly two ids, "Jämför personer..." enabled for one or two ids, both disabled for none or three or more
     - Add the signals `compare_requested(list)` and `mark_candidates_requested(list)` carrying the ordered ids (the existing `context_menu_action(str, str)` signal is unchanged) and connect them in `Application` to the `MergeGateway`
     - Disable all feature actions while no project is open
@@ -410,7 +410,7 @@ The design's remaining open questions are implemented with the design's stated d
     - The research marker's `mousePressEvent` calls `show_research_for_entity("person", id, person_filter=id)` (comparison family views reuse `PersonBoxItem` and behave the same)
     - _Requirements: 18.4, 18.5, 18.6, 18.7, 18.8, 18.9, 18.10, 18.13, 18.14, 19.6_
 
-  - [~] 9.6 Write example tests for settings and labels
+  - [x] 9.6 Write example tests for settings and labels
     - Module `tests/test_ui/test_merge_indicators.py`
     - Exact labels of the three checkboxes ("Forskningsuppslag och dubletter", "Forskningsuppslag", "Sammanslagningskandidater"), of the header context-menu toggle ("Forskningsuppslag och dubletter") and of the column header ("Forskningsuppslag"), old `PersonListConfig.research` value read into the combined setting, file without `merge_candidates` key, unchanged attribute names
     - _Requirements: 17.1, 17.2, 17.14, 18.1, 18.2, 18.12_
@@ -425,7 +425,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 19.6, 19.7, 19.8**
     - Module `tests/properties/test_property_20_tooltips.py`
 
-  - [~] 9.9 Write property test for exclusive hit targets
+  - [x] 9.9 Write property test for exclusive hit targets
     - **Property 21: Exclusive indicator hit targets**
     - **Validates: Requirements 17.7, 18.6, 18.10**
     - Module `tests/properties/test_property_21_hit_targets.py`
@@ -486,7 +486,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Compute the ledger and post-merge validation inputs; the preview is computed after the sync
     - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10, 23.11, 23.12, 23.13, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6, 24.7, 24.8, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 26.2_
 
-  - [~] 11.5 Implement candidate redirect and collision (user decisions 1 and 2)
+  - [x] 11.5 Implement candidate redirect and collision (user decisions 1 and 2)
     - Create `services/merge_candidate_redirect.py`: redirect B-C to A-C keeping id, enabled flag, research case and comments in order, `confirmed` becomes `possible`, `rejected` and disabled unchanged, one dated redirect comment; archive the direct candidate and self-after-redirect candidates in full
     - Collision: keep the existing id and `enabled`, take the redirected research case only when the existing one is empty, keep the common effective assessment or set `unreviewed` with one dated explanatory Swedish comment naming both assessments and ids, comments ordered existing then redirected then redirect comment then explanatory comment, archive the redirected candidate, result independent of storage order
     - _Requirements: 29.1, 29.2, 29.3, 29.4, 29.5, 29.6, 29.7, 29.8, 29.9, 29.10, 29.12, 29.13, 29.14, 29.15_
@@ -517,7 +517,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Sections, survivor reset message, confirmation dialogs and their text (no sentence about saving unsaved edits), preview styles, disabled execution
     - _Requirements: 20.12, 26.4, 26.5, 26.9_
 
-  - [~] 11.11 Write property test for cycles and self-relationships (Mandatory group b: family relationship integrity)
+  - [x] 11.11 Write property test for cycles and self-relationships (Mandatory group b: family relationship integrity)
     - **Property 32: Cycle and self-relationship detection**
     - **Validates: Requirements 23.6, 23.7**
     - Module `tests/test_services/test_merge_family_integrity.py` with `pytestmark = pytest.mark.mandatory_integrity`; function named `test_property_32_cycle_and_self_relationship`; required, never skipped
@@ -570,7 +570,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Named tests: `test_cycle_blocks_merge`, `test_self_partner_blocks_merge`, `test_self_parent_child_link_blocks_merge`, `test_parent_child_link_types_preserved`, `test_foster_adoptive_families_resynchronised`, `test_two_brita_seven_distinct_children`, `test_same_name_siblings_stay_distinct`, `test_duplicate_families_stay_separate_with_warning`
     - _Requirements: 23.6, 23.7, 23.9, 23.10, 23.12, 24.1, 24.4, 24.8, 35.1_
 
-  - [~] 11.21 Write Similar_Event_Rule example and edge-case tests (Req 21.14, 21.15)
+  - [x] 11.21 Write Similar_Event_Rule example and edge-case tests (Req 21.14, 21.15)
     - Module `tests/test_services/test_similar_events.py` (run after 11.8); required, no skip, xfail or deselect
     - The five examples of Requirement 21.14 as parametrised cases: two Births with no date or different years (no warning); two Births with equal full dates and the same or no place (warning); equal full dates in different places (no warning); two Marriages 10 years apart in the same place (no warning); two Marriages 100 days apart with no place (warning)
     - Precision cases: year-only 1850 against full 1850-03-12 (warning), month 1850-03 against 1850-03-12 (warning), 1850 against 1851-03-12 (no warning), full dates exactly 365 days apart (warning) and 366 days apart (no warning), year-only pair a year apart (no warning, the 365-day branch needs two full dates), `precision="approximate"` with a full ISO value (compared by the ISO value), malformed date (no warning)

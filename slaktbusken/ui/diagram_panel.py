@@ -156,6 +156,8 @@ class DiagramPanel(QWidget):
     person_double_clicked = Signal(str)
     placeholder_clicked = Signal(str, str)  # role, family_id
     context_menu_action = Signal(str, str)  # action_type, person_id
+    compare_requested = Signal(list)  # ordered person ids
+    mark_candidates_requested = Signal(list)  # ordered person ids
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         """Initialise the diagram panel.
@@ -664,17 +666,36 @@ class DiagramPanel(QWidget):
             global_pos: The global screen position for the menu.
         """
         from PySide6.QtCore import QPoint
-        from slaktbusken.ui.context_menu_builder import ContextMenuBuilder
+        from slaktbusken.ui.context_menu_builder import (
+            COMPARE_ACTION,
+            ContextMenuBuilder,
+            merge_action_ids,
+        )
 
         main_person_id: Optional[str] = None
         if self._project_data is not None:
             main_person_id = self._project_data.project.main_person_id
 
         builder = ContextMenuBuilder()
-        menu = builder.build_person_menu(person_id, main_person_id, self)
+        menu = builder.build_person_menu(
+            person_id,
+            main_person_id,
+            self,
+            selected_ids=[person_id],
+            project_open=self._project_data is not None,
+        )
 
         action = menu.exec(QPoint(global_pos.x(), global_pos.y()) if not isinstance(global_pos, QPoint) else global_pos)
         if action is None:
+            return
+
+        merge_action = merge_action_ids(action)
+        if merge_action is not None:
+            kind, ids = merge_action
+            if kind == COMPARE_ACTION:
+                self.compare_requested.emit(ids)
+            else:
+                self.mark_candidates_requested.emit(ids)
             return
 
         data = action.data()

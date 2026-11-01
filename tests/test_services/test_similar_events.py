@@ -137,3 +137,176 @@ def test_property_28_duplicate_event_warnings(entries):
     replaced_ids = set(plan.change_set.replaced.get("events", {}))
     assert replaced_ids <= set(before_ids)
     assert plan.ledger_before["events"] == plan.ledger_after_expected["events"]
+
+
+# ---------------------------------------------------------------------------
+# Examples and edge cases (task 11.21, Req 21.14, 21.15)
+# ---------------------------------------------------------------------------
+
+import pytest
+
+
+def _ev(eid, etype="birth", value=None, place=None, owners=("p1",), custom=None, precision=None):
+    if value is not None and precision is None:
+        precision = {4: "year", 7: "month"}.get(len(value), "day")
+    return Event(
+        id=eid,
+        type=etype,
+        custom_type_name=custom,
+        participants=[Participant(p, "self") for p in owners],
+        date=DateValue(value, precision) if value is not None else None,
+        place=PlaceRef(place) if place else None,
+    )
+
+
+def _plan_pairs(events):
+    """Run the planner; assert non-blocking and preservation; return warned pairs."""
+    data = ProjectData(persons=[_person("p1"), _person("p2")], events=list(events))
+    plan = build_plan(data, None, MergeDecisions("p1", "p2", survivor_id="p1", survivor_confirmed=True))
+    similar = [c for c in plan.conflicts if c.code == "similar_event"]
+    assert all(not c.is_blocking for c in similar)
+    ids = [e.id for e in events]
+    assert not plan.change_set.removed.get("events")
+    assert not plan.change_set.added.get("events")
+    assert set(plan.change_set.replaced.get("events", {})) <= set(ids)
+    assert plan.ledger_before["events"] == plan.ledger_after_expected["events"]
+    return {tuple(c.subjects) for c in similar}
+
+
+def _check(e1, e2, expected):
+    """Pure rule and planner path must agree on whether (e1, e2) is a warning."""
+    assert rules.is_similar_event_pair(e1, e2) is expected
+    ev1 = [e1] if "p1" in {p.person_id for p in e1.participants} else []
+    ev2 = [e2]
+    assert (rules.find_similar_event_pairs(ev1, ev2) == [(e1.id, e2.id)]) is expected
+    pairs = _plan_pairs([e1, e2])
+    assert (pairs == {(e1.id, e2.id)}) is expected
+    if not expected:
+        assert pairs == set()
+
+
+def _pair(t1, d1, pl1, t2=None, d2=None, pl2=None, **kw):
+    e1 = _ev("a", t1, d1, pl1, ("p1",), **kw.get("k1", {}))
+    e2 = _ev("b", t2 or t1, d2, pl2, ("p2",), **kw.get("k2", {}))
+    return e1, e2
+
+
+_EXAMPLES = [
+    # two Births, same parish, no dates
+    (("birth", None, "pl1"), ("birth", None, "pl1"), False),
+    # two Births, same parish, different years
+    (("birth", "1850-03-12", "pl1"), ("birth", "1855-03-12", "pl1"), False),
+    # equal full dates, same place / no place
+    (("birth", "1850-03-12", "pl1"), ("birth", "1850-03-12", "pl1"), True),
+    (("birth", "1850-03-12", None), ("birth", "1850-03-12", None), True),
+    # equal full dates, different places
+    (("birth", "1850-03-12", "pl1"), ("birth", "1850-03-12", "pl2"), False),
+    # Marriages 10 years apart, same place
+    (("marriage", "1850-03-12", "pl1"), ("marriage", "1860-03-12", "pl1"), False),
+    # Marriages 100 days apart, no place
+    (("marriage", "1850-01-01", None), ("marriage", "1850-04-11", None), True),
+]
+
+
+@pytest.mark.parametrize("left,right,expected", _EXAMPLES)
+def test_requirement_21_14_examples(left, right, expected):
+    _check(*_pair(left[0], left[1], left[2], right[0], right[1], right[2]), expected)
+
+
+_PRECISION_CASES = [
+    ("1850", "1850-03-12", True),          # year against full date
+    ("1850-03-12", "1850", True),
+    ("1850-03", "1850-03-12", True),       # month against full date
+    ("1850-03", "1850-04-12", False),
+    ("1850", "1851-03-12", False),         # year does not match other year
+    ("1850-03-12", "1851-03-12", True),    # 365 days
+    ("1850-03-12", "1851-03-13", False),   # 366 days
+    ("1850", "1851", False),               # year-only a year apart
+    ("1850-03", "1851-03", False),         # month-only a year apart
+    ("1850-03", "1850-03", True),
+]
+
+
+@pytest.mark.parametrize("v1,v2,expected", _PRECISION_CASES)
+def test_precision_cases(v1, v2, expected):
+    _check(*_pair("birth", v1, None, d2=v2), expected)
+
+
+def test_day_distance_boundaries_are_365_and_366():
+    assert date(1851, 3, 12) - date(1850, 3, 12) == timedelta(days=365)
+    assert date(1851, 3, 13) - date(1850, 3, 12) == timedelta(days=366)
+
+
+def test_approximate_precision_compares_by_iso_value():
+    e1 = _ev("a", "birth", "1850-03-12", None, ("p1",), precision="approximate")
+    e2 = _ev("b", "birth", "1850-03-12", None, ("p2",), precision="approximate")
+    _check(e1, e2, True)
+    e3 = _ev("c", "birth", "1850-03-20", None, ("p2",), precision="approximate")
+    _check(e1, e3, True)
+    e4 = _ev("d", "birth", "1852-03-20", None, ("p2",), precision="approximate")
+    _check(e1, e4, False)
+
+
+@pytest.mark.parametrize("bad", _MALFORMED + ["", "ca 1850", "1850-13", "1850-03-12T00"])
+def test_malformed_date_never_warns(bad):
+    _check(*_pair("birth", bad, None, d2="1850-03-12"), False)
+    _check(*_pair("birth", "1850-03-12", None, d2=bad), False)
+    _check(*_pair("birth", bad, None, d2=bad), False)
+
+
+def test_type_only_never_warns():
+    _check(*_pair("birth", None, None), False)
+
+
+def test_place_only_never_warns():
+    _check(*_pair("birth", None, "pl1"), False)
+
+
+def test_type_and_place_without_compatible_dates_never_warns():
+    _check(*_pair("birth", "1850-03-12", "pl1", d2="1900-03-12", pl2="pl1"), False)
+    _check(*_pair("birth", None, "pl1", d2="1900-03-12", pl2="pl1"), False)
+
+
+@pytest.mark.parametrize("d1,d2", [(None, "1850-03-12"), ("1850-03-12", None), (None, None)])
+def test_undated_event_never_warns(d1, d2):
+    _check(*_pair("birth", d1, "pl1", d2=d2, pl2="pl1"), False)
+
+
+def test_different_types_never_warn():
+    _check(*_pair("birth", "1850-03-12", None, t2="death", d2="1850-03-12"), False)
+
+
+def test_custom_types_with_different_names_never_warn():
+    k1, k2 = {"custom": "Dop"}, {"custom": "Konfirmation"}
+    _check(*_pair("custom", "1850-03-12", None, d2="1850-03-12", k1=k1, k2=k2), False)
+
+
+def test_custom_types_with_same_name_warn():
+    k = {"custom": "Dop"}
+    _check(*_pair("custom", "1850-03-12", None, d2="1850-03-12", k1=k, k2=dict(k)), True)
+
+
+def test_similar_events_of_one_person_are_never_compared():
+    e1 = _ev("a", "birth", "1850-03-12", None, ("p1",))
+    e2 = _ev("b", "birth", "1850-03-12", None, ("p1",))
+    assert rules.find_similar_event_pairs([e1, e2], []) == []
+    assert rules.find_similar_event_pairs([e1, e2], [e1, e2]) == []
+    assert _plan_pairs([e1, e2]) == set()
+    e3 = _ev("c", "birth", "1850-03-12", None, ("p2",))
+    e4 = _ev("d", "birth", "1850-03-12", None, ("p2",))
+    assert _plan_pairs([e3, e4]) == set()
+
+
+def test_event_shared_by_both_persons_is_skipped():
+    shared = _ev("s", "marriage", "1850-03-12", None, ("p1", "p2"))
+    other = _ev("o", "marriage", "1850-03-12", None, ("p2",))
+    assert rules.find_similar_event_pairs([shared], [shared, other]) == []
+    assert _plan_pairs([shared]) == set()
+    assert _plan_pairs([shared, other]) == set()
+
+
+def test_planner_reports_each_pair_once_and_keeps_both_events():
+    e1 = _ev("a", "birth", "1850-03-12", None, ("p1",))
+    e2 = _ev("b", "birth", "1850-03-12", "pl1", ("p2",))
+    e3 = _ev("c", "marriage", "1850-03-12", None, ("p2",))
+    assert _plan_pairs([e1, e2, e3]) == {("a", "b")}

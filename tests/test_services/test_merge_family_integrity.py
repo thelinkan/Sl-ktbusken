@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from slaktbusken.model.event import Event, Participant
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
@@ -227,3 +228,98 @@ def test_duplicate_families_stay_separate_with_warning():
     assert set(by_id) == {"F1", "F2"}
     assert by_id["F1"].children == ["c1"] and by_id["F2"].children == ["c2"]
     assert len(by_id["F1"].parent_child_links) == 2 and len(by_id["F2"].parent_child_links) == 2
+
+# ---------------------------------------------------------------------------
+# Property 32: cycle and self-relationship detection (task 11.11)
+# ---------------------------------------------------------------------------
+
+_SELF_CODES = {"cycle", "self_partner", "self_parent_child"}
+_PARENTAGE_TYPES = ["biological", "legal", "step"]
+
+
+@st.composite
+def _family_graphs(draw):
+    """Persons in topological order (index = generation rank) with p1/p2 anywhere.
+
+    Every child sits after all of its parents, so the original graph is acyclic.
+    """
+    n = draw(st.integers(2, 8))
+    a, b = draw(st.lists(st.integers(0, n - 1), min_size=2, max_size=2, unique=True))
+    ids = [f"x{i}" for i in range(n)]
+    ids[a], ids[b] = "p1", "p2"
+    families = []
+    for fi in range(draw(st.integers(0, 6))):
+        first = draw(st.integers(0, n - 2))
+        partner_idx = draw(
+            st.lists(st.integers(0, first), min_size=1, max_size=2, unique=True)
+        )
+        top = max(partner_idx)
+        child_idx = draw(
+            st.lists(st.integers(top + 1, n - 1), min_size=1, max_size=3, unique=True)
+        ) if top + 1 <= n - 1 else []
+        if not child_idx:
+            continue
+        links = [
+            (ids[c], ids[p], draw(st.sampled_from(_PARENTAGE_TYPES)))
+            for c in child_idx for p in partner_idx
+        ]
+        families.append(
+            _fam(f"F{fi}", [ids[p] for p in partner_idx], [ids[c] for c in child_idx], links)
+        )
+    return ProjectData(persons=[_person(i) for i in ids], families=families)
+
+
+def _oracle(data):
+    """Reference answer on the post-merge graph (p2 replaced by p1)."""
+    m = lambda x: "p1" if x == "p2" else x  # noqa: E731
+    self_partner = self_parent_child = False
+    parents: dict[str, set[str]] = {}
+    for fam in data.families:
+        partners = [p.person_id for p in fam.partners]
+        if "p1" in partners and "p2" in partners:
+            self_partner = True
+        if ("p1" in partners and "p2" in fam.children) or (
+            "p2" in partners and "p1" in fam.children
+        ):
+            self_parent_child = True
+        for link in fam.parent_child_links:
+            c, p = m(link.child_id), m(link.parent_id)
+            if c == p:
+                self_parent_child = True
+            else:
+                parents.setdefault(c, set()).add(p)
+    # Is p1 an ancestor of itself through at least one real parent edge?
+    seen: set[str] = set()
+    stack = list(parents.get("p1", ()))
+    cycle = False
+    while stack:
+        node = stack.pop()
+        if node == "p1":
+            cycle = True
+            break
+        if node not in seen:
+            seen.add(node)
+            stack.extend(parents.get(node, ()))
+    codes = set()
+    if cycle:
+        codes.add("cycle")
+    if self_partner:
+        codes.add("self_partner")
+    if self_parent_child:
+        codes.add("self_parent_child")
+    return codes
+
+
+@settings(settings.get_profile("sbk"))
+@given(_family_graphs())
+def test_property_32_cycle_and_self_relationship(data):
+    """**Validates: Requirements 23.6, 23.7**"""
+    expected = _oracle(data)
+    plan = _plan(data)  # also proves the project is unchanged
+    blocking_self = [c for c in plan.blocking if c.code in _SELF_CODES]
+    assert {c.code for c in blocking_self} == expected
+    for conflict in blocking_self:
+        assert "p1" in conflict.message or "p1" in conflict.subjects
+    # Several parentage types for one child never block by themselves.
+    assert {c.code for c in plan.blocking} <= _SELF_CODES
+    assert plan.can_execute == (not expected)

@@ -220,8 +220,18 @@ class CandidateOps:
 
 @dataclass(frozen=True)
 class IdentityOps:
+    """Translation changes the engine applies (Requirement 30.1, 30.10).
+
+    ``mappings_moved`` / ``aliases_rewritten`` hold gedcom ids. ``new_aliases``
+    replace the moved ``PersonMapping`` entries (``person_id`` = survivor,
+    ``merge_id`` = history entry id); ``rewritten_aliases`` replace the earlier
+    aliases of the retired person (same gedcom id, ``person_id`` = survivor).
+    """
+
     mappings_moved: tuple[str, ...] = ()
     aliases_rewritten: tuple[str, ...] = ()
+    new_aliases: tuple[Any, ...] = ()
+    rewritten_aliases: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -832,3 +842,4 @@ def build_plan(
 from slaktbusken.services import merge_planner_person  # noqa: E402,F401
 from slaktbusken.services import merge_planner_refs  # noqa: E402,F401
 from slaktbusken.services import merge_planner_families  # noqa: E402,F401
+from slaktbusken.services import merge_planner_candidates  # noqa: E402,F401

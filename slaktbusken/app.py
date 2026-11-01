@@ -155,6 +155,17 @@ class Application:
             self.handle_context_menu_action
         )
 
+        # Merge entry points: panels carry the ordered ids; the gateway
+        # (this object) opens the comparison or the candidate editor.
+        for panel in (
+            self.main_window.diagram_panel,
+            self.main_window.person_list_panel,
+        ):
+            panel.compare_requested.connect(self._on_compare_requested)
+            panel.mark_candidates_requested.connect(
+                self._on_mark_candidates_requested
+            )
+
         # Connect diagram single-click selection to detail panel
         self.main_window.diagram_panel.person_selected.connect(
             self.main_window._on_person_activated_for_detail
@@ -1622,6 +1633,18 @@ class Application:
             lambda *_a, w=window: self._forget_comparison_window(w)
         )
         self._comparison_window = window
+
+    def _on_compare_requested(self, ids: list) -> None:
+        """Open the comparison for one or two ids (person-list order)."""
+        if self.project_service.project_path is None or len(ids) not in (1, 2):
+            return
+        self.open_comparison(ids[0], ids[1] if len(ids) == 2 else "")
+
+    def _on_mark_candidates_requested(self, ids: list) -> None:
+        """Mark exactly two persons as candidates; never starts a merge."""
+        if self.project_service.project_path is None or len(ids) != 2:
+            return
+        self.mark_candidates(ids[0], ids[1])
 
     def _forget_comparison_window(self, window) -> None:
         if self._comparison_window is window:

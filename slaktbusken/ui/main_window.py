@@ -198,6 +198,15 @@ class MainWindow(QMainWindow):
         self.action_edit_person.setToolTip("Redigera den markerade personen")
         self.action_edit_person.triggered.connect(self._edit_active_person)
 
+        self.action_compare_persons = QAction("&Jämför personer...", self)
+        self.action_compare_persons.setToolTip(
+            "Öppna jämförelsen av två personer med båda platserna tomma"
+        )
+        self.action_compare_persons.setEnabled(False)
+        self.action_compare_persons.triggered.connect(
+            lambda _checked=False: self._app.open_comparison()
+        )
+
         # DNA
         self.action_dna_editor = QAction("&DNA och Kluster", self)
         self.action_dna_editor.setToolTip(
@@ -323,6 +332,8 @@ class MainWindow(QMainWindow):
         self.menu_person = menu_bar.addMenu("&Person")
         self.menu_person.addAction(self.action_add_person)
         self.menu_person.addAction(self.action_edit_person)
+        self.menu_person.addSeparator()
+        self.menu_person.addAction(self.action_compare_persons)
         self.menu_person.addSeparator()
         self.menu_goto = self.menu_person.addMenu("Gå till")
         self.menu_goto.addAction(self.action_show_main_person)
@@ -581,6 +592,7 @@ class MainWindow(QMainWindow):
             project_open: True if a project is currently open.
         """
         self.action_save.setEnabled(project_open)
+        self.action_compare_persons.setEnabled(project_open)
         self.action_import.setEnabled(project_open)
         self.action_export.setEnabled(project_open)
         self.action_close.setEnabled(project_open)

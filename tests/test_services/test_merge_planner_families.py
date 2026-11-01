@@ -20,11 +20,9 @@ def _person(pid, given="Anna", surname="Berg"):
     return Person(id=pid, sex="M", names=[Name("birth", given, surname)])
 
 
-def test_only_candidate_and_translation_handlers_are_missing():
-    assert {loc.key for loc in pri.missing_handlers()} == {
-        "merge_candidate.persons", "translation.person_mappings",
-        "translation.identity_aliases",
-    }
+def test_no_inventory_handlers_are_missing():
+    # The candidate and translation handlers arrived with task 11.5.
+    assert pri.missing_handlers() == []
 
 
 def test_sync_that_drops_a_retained_link_is_blocking():
