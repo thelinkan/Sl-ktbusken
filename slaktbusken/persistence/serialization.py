@@ -21,6 +21,14 @@ from slaktbusken.model.dna import (
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
+from slaktbusken.model.merge_candidate import (
+    ArchivedCandidate,
+    LoadFinding,
+    MergeCandidate,
+    MergeCandidateComment,
+    MergedIdentityMapping,
+    MergeHistoryEntry,
+)
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import CustomFieldDef, ExternalId, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
@@ -75,6 +83,15 @@ def serialize(data: ProjectData) -> str:
 
             items, _ = deduplicate_places(list(items))
         output[field_name] = [_serialize_dataclass(item) for item in items]
+
+    # Merge sections: omitted when empty so a project without merge data is
+    # identical to its 0.3 output except for the version fields. Unreadable
+    # items found on load are written back verbatim after the readable ones.
+    for section in _MERGE_SECTIONS:
+        entries = [_serialize_dataclass(item) for item in getattr(data, section, [])]
+        entries.extend(data.unreadable_merge_items.get(section, []))
+        if entries:
+            output[section] = entries
 
     # Per-child connection overrides map. Omit the key entirely when empty so
     # projects that never used the feature are unchanged on disk
@@ -311,6 +328,21 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (Place, "external_ids"): ExternalId,
     (Place, "region_levels"): RegionLevel,
     (ResidenceFact, "observations"): Observation,
+    (MergeCandidate, "comments"): MergeCandidateComment,
+    (MergeHistoryEntry, "archived_candidates"): ArchivedCandidate,
+    (ArchivedCandidate, "comments"): MergeCandidateComment,
+    (MergeHistoryEntry, "identity_mappings"): MergedIdentityMapping,
+}
+
+# Merge sections and the dataclass of their items (loaded tolerantly).
+_MERGE_SECTIONS: dict[str, type] = {
+    "merge_candidates": MergeCandidate,
+    "merge_history": MergeHistoryEntry,
+}
+
+_MERGE_SECTION_NAMES: dict[str, str] = {
+    "merge_candidates": "dubblettkandidater",
+    "merge_history": "sammanslagningshistorik",
 }
 
 # Mapping of (parent_class, field_name) -> type for optional nested dataclass fields.
@@ -375,6 +407,22 @@ def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any], *, log
                 f"och kunde inte läsas."
             )
 
+    # Merge sections: a present, non-list value aborts the load naming the
+    # section. Items are then read tolerantly (Requirement 7.7).
+    for section_key, section_name in _MERGE_SECTION_NAMES.items():
+        section_value = raw.get(section_key)
+        if section_value is not None and not isinstance(section_value, list):
+            raise CorruptedFileError(
+                f"Filens avsnitt för {section_name} har ett ogiltigt format "
+                f"och kunde inte läsas."
+            )
+    for section_key, section_cls in _MERGE_SECTIONS.items():
+        section_value = raw.get(section_key)
+        if section_value:
+            _deserialize_merge_section(
+                project_data, section_key, section_cls, section_value
+            )
+
     for field_name, cls in _ENTITY_MAP.items():
         raw_items = raw.get(field_name)
         if raw_items is None:
@@ -391,6 +439,123 @@ def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any], *, log
             else:
                 deserialized = [_deserialize_typed(cls, item) for item in raw_items]
             setattr(project_data, field_name, deserialized)
+
+
+def _annotation_accepts(annotation: Any, value: Any) -> bool:
+    """Whether *value* has the JSON type a string annotation describes.
+
+    Only the shapes used by the merge dataclasses are checked: ``str``,
+    ``bool``, ``Optional[...]``, ``list[...]``. Anything else is accepted.
+    """
+    text = annotation if isinstance(annotation, str) else str(annotation)
+    text = text.replace(" ", "")
+    if text.startswith("Optional[") and text.endswith("]"):
+        return value is None or _annotation_accepts(text[9:-1], value)
+    if text.startswith("list["):
+        return isinstance(value, list)
+    if text == "str":
+        return isinstance(value, str)
+    if text == "bool":
+        return isinstance(value, bool)
+    return True
+
+
+def _neutral_default(annotation: Any) -> Any:
+    """Neutral value for a missing required field: ``""``, ``None`` or ``[]``."""
+    text = (annotation if isinstance(annotation, str) else str(annotation)).replace(" ", "")
+    if text.startswith("Optional["):
+        return None
+    if text.startswith("list["):
+        return []
+    if text == "bool":
+        return False
+    return ""
+
+
+def _build_merge_item(
+    cls: type,
+    item: dict[str, Any],
+    section: str,
+    findings: list[LoadFinding],
+    entry_id: Optional[str],
+) -> Any:
+    """Build one merge dataclass from a dict, recording findings.
+
+    A missing required field gets a neutral default (``missing_field``); a
+    field of the wrong JSON type keeps its raw value (``wrong_type``). Unknown
+    keys are ignored. Nested lists are built recursively.
+    """
+    import dataclasses
+
+    kwargs: dict[str, Any] = {}
+    missing: list[str] = []
+    wrong: list[str] = []
+    for f in dc_fields(cls):
+        required = (
+            f.default is dataclasses.MISSING
+            and f.default_factory is dataclasses.MISSING
+        )
+        if f.name not in item:
+            if required:
+                kwargs[f.name] = _neutral_default(f.type)
+                missing.append(f.name)
+            continue
+        value = item[f.name]
+        nested = _NESTED_LIST_TYPES.get((cls, f.name))
+        if not _annotation_accepts(f.type, value):
+            kwargs[f.name] = value
+            wrong.append(f.name)
+        elif nested is not None and isinstance(value, list):
+            kwargs[f.name] = [
+                _build_merge_item(nested, sub, section, findings, entry_id)
+                if isinstance(sub, dict)
+                else sub
+                for sub in value
+            ]
+            for sub in value:
+                if not isinstance(sub, dict):
+                    wrong.append(f.name)
+                    break
+        else:
+            kwargs[f.name] = value
+    if missing:
+        findings.append(LoadFinding(section, entry_id, tuple(missing), "missing_field"))
+    if wrong:
+        findings.append(LoadFinding(section, entry_id, tuple(wrong), "wrong_type"))
+    return cls(**kwargs)
+
+
+def _deserialize_merge_section(
+    project_data: ProjectData, section: str, cls: type, raw_items: list[Any]
+) -> None:
+    """Load a merge section tolerantly into *project_data*.
+
+    Readable fields are kept, problems become ``LoadFinding`` entries on
+    ``project_data.merge_load_findings``, and items that are not objects (or
+    cannot be built) are preserved verbatim in
+    ``project_data.unreadable_merge_items[section]``.
+    """
+    items: list[Any] = []
+    unreadable: list[Any] = []
+    findings: list[LoadFinding] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            unreadable.append(raw_item)
+            findings.append(LoadFinding(section, None, (), "unreadable_item"))
+            continue
+        entry_id = raw_item.get("id") if isinstance(raw_item.get("id"), str) else None
+        local: list[LoadFinding] = []
+        try:
+            items.append(_build_merge_item(cls, raw_item, section, local, entry_id))
+        except Exception:
+            unreadable.append(raw_item)
+            findings.append(LoadFinding(section, entry_id, (), "unreadable_item"))
+            continue
+        findings.extend(local)
+    setattr(project_data, section, items)
+    if unreadable:
+        project_data.unreadable_merge_items[section] = unreadable
+    project_data.merge_load_findings.extend(findings)
 
 
 def _deserialize_residences(raw_items: list[Any], log: list[str]) -> list[Any]:

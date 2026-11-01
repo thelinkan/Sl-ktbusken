@@ -42,6 +42,7 @@ from slaktbusken.gedcom.translation.source_translation import detect_arkiv_digit
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.id_generator import IDGenerator
+from slaktbusken.services.id_registry import person_id_seed
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
@@ -1085,6 +1086,8 @@ class GEDCOMImporter:
         for r in project_data.repositories:
             existing_ids.add(r.id)
 
+        # Retired person ids and the person high-water mark are never reissued.
+        existing_ids |= person_id_seed(project_data)
         self._id_gen = IDGenerator(existing_ids)
 
         # Mapping from GEDCOM xref → App_JSON ID (built during import)

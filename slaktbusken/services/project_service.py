@@ -1,4 +1,4 @@
-"""Project lifecycle service: create, open, save, close.
+﻿"""Project lifecycle service: create, open, save, close.
 
 ProjectService is the main coordination layer for managing a genealogy
 project. It delegates persistence to FilePersistence, settings to
@@ -259,7 +259,7 @@ class ProjectService:
         )
         project_data = ProjectData(
             format="släktbuske-file",
-            version="0.3",
+            version="0.4",
             project=metadata,
         )
 

@@ -1,4 +1,4 @@
-"""Atomic read/write of gzipped JSON project files.
+﻿"""Atomic read/write of gzipped JSON project files.
 
 Provides the FilePersistence class for saving and loading ProjectData
 in .json.gz format with atomic writes (temp file + os.replace) and
@@ -17,7 +17,7 @@ from typing import Any
 from slaktbusken.model.project import ProjectData
 
 # Current format version supported by this application.
-CURRENT_VERSION = "0.3"
+CURRENT_VERSION = "0.4"
 
 
 class CorruptedFileError(Exception):
@@ -40,6 +40,13 @@ class FilePersistence:
     """Atomic read/write of gzipped JSON project files."""
 
     @staticmethod
+    def encode(data: ProjectData) -> bytes:
+        """Serialize ProjectData to the exact gzip bytes that ``save`` writes."""
+        from slaktbusken.persistence.serialization import serialize
+
+        return gzip.compress(serialize(data).encode("utf-8"))
+
+    @staticmethod
     def save(data: ProjectData, path: Path) -> None:
         """Serialize and atomically save ProjectData to a .json.gz file.
 
@@ -53,10 +60,7 @@ class FilePersistence:
             data: The ProjectData instance to persist.
             path: Target file path (should end with .json.gz).
         """
-        from slaktbusken.persistence.serialization import serialize
-
-        json_bytes = serialize(data).encode("utf-8")
-        compressed = gzip.compress(json_bytes)
+        compressed = FilePersistence.encode(data)
 
         # Write to a temp file in the same directory for atomic replace.
         target_dir = path.parent

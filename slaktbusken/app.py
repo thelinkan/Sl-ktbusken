@@ -328,7 +328,7 @@ class Application:
         to project data and sets them as the active person in the diagram.
         """
         from slaktbusken.model.person import Person, Name
-        from slaktbusken.model.id_generator import IDGenerator
+        from slaktbusken.services.id_registry import issue_person_id
         from slaktbusken.ui.editors.person_editor import PersonEditor
 
         if self.project_service.data is None:
@@ -348,8 +348,7 @@ class Application:
         for s in data.sources:
             existing_ids.add(s.id)
 
-        id_gen = IDGenerator(existing_ids)
-        new_id = id_gen.generate("person")
+        new_id = issue_person_id(data, existing_ids)
 
         new_person = Person(
             id=new_id,
@@ -706,6 +705,7 @@ class Application:
         from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
         from slaktbusken.model.id_generator import IDGenerator
         from slaktbusken.model.person import Name, Person
+        from slaktbusken.services.id_registry import issue_person_id
         from slaktbusken.ui.editors.person_editor import PersonEditor
 
         if self.project_service.data is None:
@@ -734,7 +734,7 @@ class Application:
             existing_ids.add(s.id)
 
         id_gen = IDGenerator(existing_ids)
-        new_id = id_gen.generate("person")
+        new_id = issue_person_id(data, existing_ids)
 
         new_person = Person(
             id=new_id,

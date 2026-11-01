@@ -12,6 +12,7 @@ from typing import Optional
 
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.id_generator import IDGenerator
+from slaktbusken.services.id_registry import person_id_seed
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.services.project_service import ValidationError
@@ -62,6 +63,7 @@ class ParentService:
             existing_ids.add(family.id)
         for person in project_data.persons:
             existing_ids.add(person.id)
+        existing_ids |= person_id_seed(project_data)
         self._id_generator = IDGenerator(existing_ids)
 
     def _find_person(self, person_id: str) -> Optional[Person]:

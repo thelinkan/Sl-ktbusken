@@ -26,6 +26,9 @@ class IDGenerator:
         'residence': 'residence_',
         'research_case': 'case_', 'research_hypothesis': 'hypothesis_',
         'research_action': 'action_', 'hypothesis_comment': 'hypcomment_',
+        'merge_candidate': 'mergecand_',
+        'merge_candidate_comment': 'mergecomment_',
+        'merge_history': 'merge_',
     }
 
     def __init__(self, existing_ids: set[str]) -> None:

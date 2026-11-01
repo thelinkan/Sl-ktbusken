@@ -31,6 +31,16 @@ I stället för att behöva registrera enbart ett efternamn, eller alla efternam
 
 En funktion jag vill ha i Släktbusken är att om jag gjort ändringar i ett annat program så ska jag kunna importera diffar till släktbusken. 
 
+# Tester
+
+Hela sviten körs med `python -m pytest`. De obligatoriska testgrupperna (bevarande av referenser, familjeintegritet, misslyckade sammanslagningar, återställning efter krasch, pensionerade id:n och GEDCOM-återimport) körs strikt, utan tillåtna skip, med:
+
+```
+python scripts/run_mandatory_tests.py
+```
+
+Se `tests/MANDATORY_TESTS.md` för detaljer och utgångskoder.
+
 # Licens
 
 Släktbusken är fri och öppen källkod under MIT-licensen. Du får använda programmet, ändra i koden och bygga egna versioner om du vill.

@@ -1,4 +1,4 @@
-"""Project metadata and root container data structures."""
+﻿"""Project metadata and root container data structures."""
 
 from __future__ import annotations
 
@@ -16,6 +16,11 @@ from slaktbusken.model.dna import (
 from slaktbusken.model.event import Event
 from slaktbusken.model.family import Family
 from slaktbusken.model.media import MediaItem
+from slaktbusken.model.merge_candidate import (
+    LoadFinding,
+    MergeCandidate,
+    MergeHistoryEntry,
+)
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.research_case import (
@@ -43,7 +48,7 @@ class ProjectData:
     """The root container holding all project entities."""
 
     format: str = "släktbuske-file"
-    version: str = "0.3"
+    version: str = "0.4"
     project: ProjectMetadata = field(default_factory=lambda: ProjectMetadata(title=""))
     persons: list[Person] = field(default_factory=list)
     families: list[Family] = field(default_factory=list)
@@ -65,6 +70,17 @@ class ProjectData:
     research_cases: list[ResearchCase] = field(default_factory=list)
     research_hypotheses: list[ResearchHypothesis] = field(default_factory=list)
     research_actions: list[ResearchAction] = field(default_factory=list)
+    merge_candidates: list[MergeCandidate] = field(default_factory=list)
+    merge_history: list[MergeHistoryEntry] = field(default_factory=list)
+    merge_load_findings: list[LoadFinding] = field(
+        default_factory=list, repr=False, compare=False
+    )
+    """Transient findings from loading merge data. Never serialised."""
+    unreadable_merge_items: dict[str, list] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    """Raw merge items that could not be read, per section name. Not a key of its
+    own in the file: ``serialize`` writes them back verbatim into their section."""
     id_high_water_marks: dict[str, int] = field(default_factory=dict)
     """Maps an id prefix (for example ``"case_"``) to the highest numeric suffix
     ever issued for it, so a deleted research id is not reused after the project

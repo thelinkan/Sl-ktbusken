@@ -29,12 +29,7 @@ slaktbusken = "slaktbusken.__main__:main"
 [tool.setuptools.packages.find]
 include = ["slaktbusken*"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "--strict-markers"
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-]
+# pytest configuration lives in pytest.ini (single source, see tests/MANDATORY_TESTS.md)
 
 [tool.coverage.run]
 source = ["slaktbusken"]

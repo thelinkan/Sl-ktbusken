@@ -35,6 +35,116 @@ from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, RepositoryRef, Source, StructuredReference
 from slaktbusken.persistence.file_io import CURRENT_VERSION
 
+import fnmatch
+import os
+import sys
+
+import pytest
+from hypothesis import settings as _hypothesis_settings
+
+from tests.mandatory_groups import MANDATORY_GROUPS, mandatory_modules
+
+# ---------------------------------------------------------------------------
+# Hypothesis profile and mandatory-test enforcement (Requirement 35)
+# ---------------------------------------------------------------------------
+
+# Profile "sbk": default example count (100), no deadline. Never lowered.
+_hypothesis_settings.register_profile("sbk", max_examples=100, deadline=None)
+_hypothesis_settings.load_profile("sbk")
+
+_MANDATORY_MODULES = mandatory_modules()
+_OPT_OUT_MARKERS = frozenset({"skip", "skipif", "xfail", "slow", "windows_only"})
+_MSG_OPT_OUT = "Obligatoriskt test har skip, skipif eller xfail: {nodeid}"
+_MSG_SKIPPED = "Obligatoriskt test hoppades över eller förväntades misslyckas"
+_MSG_WINDOWS_SKIPPED = "Windows-test hoppades över på Windows"
+
+_deselected_mandatory: list[str] = []
+
+
+def _module_of(item: pytest.Item) -> str:
+    """Repository-relative posix path of the module that defines the item."""
+    path = getattr(item, "path", None)
+    if path is None:
+        return ""
+    try:
+        return path.resolve().relative_to(item.config.rootpath.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _is_mandatory(item: pytest.Item) -> bool:
+    return _module_of(item) in _MANDATORY_MODULES
+
+
+def _strict() -> bool:
+    return os.environ.get("SBK_MANDATORY_STRICT") == "1"
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Refuse any opt-out marker on a mandatory item (also from pytest.param marks)."""
+    for item in items:
+        if not _is_mandatory(item):
+            continue
+        for mark in item.iter_markers():
+            if mark.name in _OPT_OUT_MARKERS or mark.name.startswith(("skip", "xfail")):
+                raise pytest.UsageError(_MSG_OPT_OUT.format(nodeid=item.nodeid))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
+    """Turn skips, xfails and xpasses of mandatory items into failures."""
+    report = yield
+    if _is_mandatory(item):
+        if report.skipped:
+            report.outcome = "failed"
+            report.longrepr = _MSG_SKIPPED
+        elif report.passed and call.when == "call" and hasattr(report, "wasxfail"):
+            report.outcome = "failed"
+            report.longrepr = _MSG_SKIPPED
+    elif (
+        report.skipped
+        and sys.platform == "win32"
+        and item.get_closest_marker("windows_only") is not None
+    ):
+        report.outcome = "failed"
+        report.longrepr = _MSG_WINDOWS_SKIPPED
+    return report
+
+
+def pytest_deselected(items: list[pytest.Item]) -> None:
+    """With SBK_MANDATORY_STRICT=1, deselecting a mandatory item aborts the run."""
+    if not _strict():
+        return
+    hit = [i.nodeid for i in items if _is_mandatory(i)]
+    if hit:
+        _deselected_mandatory.extend(hit)
+        pytest.exit(
+            "Obligatoriskt test bortvalt: " + ", ".join(hit[:5]),
+            returncode=3,
+        )
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """With SBK_MANDATORY_STRICT=1, every required test must have been collected."""
+    if not _strict():
+        return
+    collected: dict[str, set[str]] = {}
+    for item in session.items:
+        name = getattr(item, "originalname", None) or item.name
+        collected.setdefault(_module_of(item), set()).add(name)
+    missing: list[str] = []
+    for group in MANDATORY_GROUPS:
+        for entry in group.required_tests:
+            module, _, pattern = entry.partition("::")
+            names = collected.get(module, set())
+            if not any(fnmatch.fnmatchcase(n, pattern) for n in names):
+                missing.append(entry)
+    if missing:
+        pytest.exit(
+            "Obligatoriska tester saknas i körningen: " + ", ".join(missing[:10]),
+            returncode=3,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Shared helper strategies

@@ -1,0 +1,30 @@
+{
+  "format": "släktbuske-file",
+  "version": "0.3",
+  "format_version": "0.3",
+  "project": {
+    "title": "Tomt projekt",
+    "created_by": "Släktbuske",
+    "language": "sv-SE"
+  },
+  "persons": [],
+  "families": [],
+  "events": [],
+  "residences": [],
+  "places": [],
+  "sources": [],
+  "media": [],
+  "repositories": [],
+  "dna_companies": [],
+  "dna_profiles": [],
+  "dna_matches": [],
+  "dna_segments": [],
+  "dna_clusters": [],
+  "dna_triangulations": [],
+  "research_notes": [],
+  "leverantorer": [],
+  "kalltyper": [],
+  "research_cases": [],
+  "research_hypotheses": [],
+  "research_actions": []
+}

@@ -22,6 +22,10 @@ from dataclasses import dataclass, field
 
 from slaktbusken.model.id_generator import IDGenerator
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.id_registry import ProtectedIdGenerator
+from slaktbusken.services.id_registry import (
+    reconcile_id_high_water_marks as _reconcile_id_high_water_marks,
+)
 from slaktbusken.model.research_case import (
     ResearchAction,
     ResearchCase,
@@ -83,53 +87,22 @@ def _highest_suffix(ids: set[str], prefix: str) -> int:
 
 
 def reconcile_id_high_water_marks(data: ProjectData) -> None:
-    """Raise each research prefix's mark to at least its highest live id suffix.
+    """Raise each protected prefix's mark to at least its highest live suffix.
 
-    Run when a project is loaded, so a project that holds research data but no
-    stored marks (written before the marks existed) still never reuses an id.
-    A mark is only ever raised, never lowered, and a prefix with no live id and
-    no stored mark is left out, so a project without research data keeps an
-    empty map.
+    Delegates to :func:`slaktbusken.services.id_registry.reconcile_id_high_water_marks`,
+    which covers the research and the merge id prefixes.
     """
-    for prefix, ids in live_research_ids(data).items():
-        highest = _highest_suffix(ids, prefix)
-        if highest > data.id_high_water_marks.get(prefix, 0):
-            data.id_high_water_marks[prefix] = highest
+    _reconcile_id_high_water_marks(data)
 
 
-class ResearchIdGenerator:
+class ResearchIdGenerator(ProtectedIdGenerator):
     """Issues research ids that are never reused, even after reopening a project.
 
-    Each id issued advances ``ProjectData.id_high_water_marks`` for its prefix,
-    so the next id is greater even when the entity just issued has not been
-    added to the project yet (for example inside an editor's working copy), and
-    even when it is later deleted.
+    A thin subclass of :class:`ProtectedIdGenerator`, restricted to the
+    research entity types, kept for compatibility.
     """
 
-    def __init__(self, data: ProjectData) -> None:
-        self._data = data
-        reconcile_id_high_water_marks(data)
-
-    def generate(self, entity_type: str) -> str:
-        """Return a new id for a research entity type and record its suffix.
-
-        Raises:
-            ValueError: If *entity_type* is not a research entity type.
-        """
-        prefix = research_id_prefix(entity_type)
-        live = live_research_ids(self._data)[prefix]
-
-        # Seed the generator with the live ids plus a stand-in for the stored
-        # mark, so its high-water-mark logic starts above every id ever issued.
-        seed = set(live)
-        mark = self._data.id_high_water_marks.get(prefix, 0)
-        if mark > 0:
-            seed.add(f"{prefix}{mark}")
-
-        new_id = IDGenerator(seed).generate(entity_type)
-        self._data.id_high_water_marks[prefix] = int(new_id[len(prefix):])
-        return new_id
-
+    ENTITY_TYPES = RESEARCH_ID_ENTITY_TYPES
 
 # ---------------------------------------------------------------------------
 # Reference integrity: dependencies, association removal, merge

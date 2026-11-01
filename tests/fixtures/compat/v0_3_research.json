@@ -1,0 +1,136 @@
+{
+  "format": "släktbuske-file",
+  "version": "0.3",
+  "format_version": "0.3",
+  "project": {
+    "title": "Forskning",
+    "main_person_id": "person_001",
+    "created_by": "Släktbuske",
+    "language": "sv-SE"
+  },
+  "persons": [
+    {
+      "id": "person_001",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Anders",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_002",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta",
+          "surname": "Ålund"
+        }
+      ]
+    }
+  ],
+  "families": [],
+  "events": [],
+  "residences": [],
+  "places": [],
+  "sources": [
+    {
+      "id": "source_001",
+      "provider": "Riksarkivet",
+      "source_type": "church_book",
+      "title": "Husförhörslängd",
+      "structured_reference": {
+        "fields": {}
+      }
+    }
+  ],
+  "media": [],
+  "repositories": [],
+  "dna_companies": [],
+  "dna_profiles": [],
+  "dna_matches": [],
+  "dna_segments": [],
+  "dna_clusters": [],
+  "dna_triangulations": [],
+  "research_notes": [],
+  "leverantorer": [],
+  "kalltyper": [],
+  "research_cases": [
+    {
+      "id": "case_001",
+      "title": "Anders föräldrar",
+      "description": "Vem var Anders far?",
+      "status": "open",
+      "priority": "high",
+      "primary_entity_ref": {
+        "entity_type": "person",
+        "entity_id": "person_001",
+        "role": "subject"
+      },
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_002"
+        }
+      ]
+    },
+    {
+      "id": "case_002",
+      "title": "Avslutat ärende",
+      "status": "closed",
+      "priority": "normal",
+      "conclusion": "Klart."
+    }
+  ],
+  "research_hypotheses": [
+    {
+      "id": "hyp_001",
+      "research_case_id": "case_001",
+      "statement": "Märta var mor",
+      "assessment": "probable",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_002"
+        }
+      ],
+      "comments": [
+        {
+          "id": "cmt_001",
+          "date": "1999-05-01",
+          "text": "Stöds av längden"
+        }
+      ]
+    }
+  ],
+  "research_actions": [
+    {
+      "id": "act_001",
+      "research_case_id": "case_001",
+      "title": "Sök i husförhörslängd",
+      "completed_date": "2020-02-03",
+      "sort_order": 1,
+      "source_refs": [
+        {
+          "source_id": "source_001",
+          "quality": "primary"
+        }
+      ]
+    },
+    {
+      "id": "act_002",
+      "research_case_id": "case_001",
+      "title": "Kontakta arkivet",
+      "sort_order": 2
+    }
+  ],
+  "id_high_water_marks": {
+    "case_": 3,
+    "hyp_": 1,
+    "act_": 2,
+    "cmt_": 1
+  }
+}

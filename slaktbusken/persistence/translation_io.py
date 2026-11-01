@@ -82,6 +82,25 @@ class FamilyMapping:
 
 
 @dataclass
+class IdentityAlias:
+    """A retired GEDCOM identity that now resolves to a surviving person.
+
+    Created when a merge retires a person whose ``PersonMapping`` existed.
+
+    Attributes:
+        gedcom_id: The GEDCOM individual cross-reference (e.g. ``"@I7@"``).
+        fingerprint: Optional composite-key hash copied from the mapping.
+        person_id: The current surviving App_JSON person ID.
+        merge_id: ID of the merge that created the alias.
+    """
+
+    gedcom_id: str
+    fingerprint: Optional[str]
+    person_id: str
+    merge_id: str
+
+
+@dataclass
 class TranslationData:
     """Container holding all translation mappings for a project.
 
@@ -90,12 +109,14 @@ class TranslationData:
         places: List of GEDCOM place → App_JSON place mappings.
         persons: List of GEDCOM person → App_JSON person mappings.
         families: List of GEDCOM family → App_JSON family mappings.
+        person_aliases: Identity aliases created by person merges.
     """
 
     sources: list[SourceMapping] = field(default_factory=list)
     places: list[PlaceMapping] = field(default_factory=list)
     persons: list[PersonMapping] = field(default_factory=list)
     families: list[FamilyMapping] = field(default_factory=list)
+    person_aliases: list[IdentityAlias] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +242,29 @@ def read_persons(path: Path) -> tuple[list[PersonMapping], list[FamilyMapping]]:
     return person_mappings, family_mappings
 
 
+def read_person_aliases(path: Path) -> list[IdentityAlias]:
+    """Load identity aliases from ``persons.json``.
+
+    Returns an empty list if the file or the ``identity_aliases`` key is
+    missing.
+
+    Raises:
+        TranslationIOError: If the file exists but cannot be read or parsed.
+    """
+    data = _read_json(path)
+    if data is None:
+        return []
+    return [
+        IdentityAlias(
+            gedcom_id=entry.get("gedcom_id", ""),
+            fingerprint=entry.get("fingerprint"),
+            person_id=entry.get("person_id", ""),
+            merge_id=entry.get("merge_id", ""),
+        )
+        for entry in data.get("identity_aliases", [])
+    ]
+
+
 def read_all(translation_dir: Path) -> TranslationData:
     """Load all translation files from a translation directory.
 
@@ -246,6 +290,7 @@ def read_all(translation_dir: Path) -> TranslationData:
         places=places,
         persons=persons,
         families=families,
+        person_aliases=read_person_aliases(translation_dir / "persons.json"),
     )
 
 
@@ -306,23 +351,15 @@ def write_places(mappings: list[PlaceMapping], path: Path) -> None:
     _write_json(data, path)
 
 
-def write_persons(
+def dumps_persons(
     person_mappings: list[PersonMapping],
     family_mappings: list[FamilyMapping],
-    path: Path,
-) -> None:
-    """Write person and family translation mappings to a JSON file.
+    aliases: list[IdentityAlias] | None = None,
+) -> bytes:
+    """Serialize ``persons.json`` content to UTF-8 bytes (pure, no I/O).
 
-    Creates parent directories if they do not exist.  The output is UTF-8
-    encoded with 2-space indentation for human readability.
-
-    Args:
-        person_mappings: The person mappings to persist.
-        family_mappings: The family mappings to persist.
-        path: Destination path for ``persons.json``.
-
-    Raises:
-        TranslationIOError: If the file cannot be written.
+    The ``identity_aliases`` key is omitted when ``aliases`` is empty or
+    ``None``, so files without aliases match the earlier output.
     """
     data: dict = {
         "person_mappings": [
@@ -341,8 +378,49 @@ def write_persons(
             for m in family_mappings
         ],
     }
-    _write_json(data, path)
+    if aliases:
+        data["identity_aliases"] = [
+            {
+                "gedcom_id": a.gedcom_id,
+                "fingerprint": a.fingerprint,
+                "person_id": a.person_id,
+                "merge_id": a.merge_id,
+            }
+            for a in aliases
+        ]
+    return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
+
+def write_persons(
+    person_mappings: list[PersonMapping],
+    family_mappings: list[FamilyMapping],
+    path: Path,
+    aliases: list[IdentityAlias] | None = None,
+) -> None:
+    """Write person and family translation mappings to a JSON file.
+
+    Creates parent directories if they do not exist.  The output is UTF-8
+    encoded with 2-space indentation for human readability.  The bytes are
+    produced by :func:`dumps_persons`.
+
+    Args:
+        person_mappings: The person mappings to persist.
+        family_mappings: The family mappings to persist.
+        path: Destination path for ``persons.json``.
+        aliases: Optional identity aliases; omitted from the file when empty.
+
+    Raises:
+        TranslationIOError: If the file cannot be written.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(dumps_persons(person_mappings, family_mappings, aliases))
+    except OSError as exc:
+        raise TranslationIOError(
+            f"Kan inte skriva översättningsfil: {path.name} ({exc})",
+            path=path,
+            cause=exc,
+        ) from exc
 
 def write_all(data: TranslationData, translation_dir: Path) -> None:
     """Write all translation files to a translation directory.
@@ -359,7 +437,12 @@ def write_all(data: TranslationData, translation_dir: Path) -> None:
     """
     write_sources(data.sources, translation_dir / "sources.json")
     write_places(data.places, translation_dir / "places.json")
-    write_persons(data.persons, data.families, translation_dir / "persons.json")
+    write_persons(
+        data.persons,
+        data.families,
+        translation_dir / "persons.json",
+        data.person_aliases,
+    )
 
 
 # ---------------------------------------------------------------------------

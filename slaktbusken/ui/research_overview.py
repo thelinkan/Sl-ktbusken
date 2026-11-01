@@ -17,7 +17,7 @@ the research-changed notification.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -162,14 +162,60 @@ def _case_matches(
     return True
 
 
+@dataclass(frozen=True)
+class PersonResearchScope:
+    """Ids of the research items that involve one person (no Qt)."""
+
+    person_id: str
+    case_ids: frozenset[str]
+    action_ids: frozenset[str]
+    hypothesis_ids: frozenset[str]
+
+
+def build_person_scope(index: ResearchIndex, person_id: str) -> PersonResearchScope:
+    """Return the cases, pending actions and hypotheses involving a person.
+
+    Cases are those the person is linked to (primary or linked entity), the
+    same set the list indicator counts. Actions are the pending actions of
+    those cases. Hypotheses are those of those cases plus any naming the person.
+    """
+    cases = index.cases_for_entity("person", person_id)
+    case_ids = frozenset(case.id for case in cases)
+    action_ids = frozenset(
+        action.id
+        for case in cases
+        for action in index.actions_for_case(case.id)
+        if is_pending(action)
+    )
+    hypothesis_ids = {
+        h.id for case in cases for h in index.hypotheses_for_case(case.id)
+    }
+    hypothesis_ids.update(h.id for h, _case in index.hypotheses_for_entity("person", person_id))
+    return PersonResearchScope(
+        person_id=person_id,
+        case_ids=case_ids,
+        action_ids=action_ids,
+        hypothesis_ids=frozenset(hypothesis_ids),
+    )
+
+
 def build_overview_case_rows(
-    data: ProjectData, criteria: Optional[CaseFilter] = None
+    data: ProjectData,
+    criteria: Optional[CaseFilter] = None,
+    person_scope: Optional[PersonResearchScope] = None,
 ) -> list[OverviewCaseRow]:
-    """Return the case table rows that pass *criteria*, in project order."""
+    """Return the case table rows that pass *criteria*, in project order.
+
+    With *person_scope* only its cases are kept, and closed cases are included.
+    """
     criteria = criteria or CaseFilter()
+    if person_scope is not None and not criteria.include_closed:
+        criteria = replace(criteria, include_closed=True)
     index = ResearchIndex(data)
     rows: list[OverviewCaseRow] = []
     for case in data.research_cases:
+        if person_scope is not None and case.id not in person_scope.case_ids:
+            continue
         if not _case_matches(case, index, criteria):
             continue
         primary = case.primary_entity_ref
@@ -213,7 +259,10 @@ class TodoRow:
 
 
 def build_todo_rows(
-    data: ProjectData, include_closed: bool = False, text: str = ""
+    data: ProjectData,
+    include_closed: bool = False,
+    text: str = "",
+    person_scope: Optional[PersonResearchScope] = None,
 ) -> list[TodoRow]:
     """Return the pending actions.
 
@@ -221,13 +270,18 @@ def build_todo_rows(
     *include_closed* adds those of closed cases. *text* filters on the action
     title or the case title. Actions whose case is missing are skipped (the
     consistency report covers them). Order: case order, then ``sort_order``.
+    With *person_scope* only its actions are kept, including those of closed cases.
     """
+    if person_scope is not None:
+        include_closed = True
     cases = {case.id: case for case in data.research_cases}
     case_position = {case.id: i for i, case in enumerate(data.research_cases)}
     needle = text.strip().lower()
     rows: list[tuple[int, int, int, TodoRow]] = []
     for position, action in enumerate(data.research_actions):
         if not is_pending(action):
+            continue
+        if person_scope is not None and action.id not in person_scope.action_ids:
             continue
         case = cases.get(action.research_case_id)
         if case is None:
@@ -275,9 +329,13 @@ class OverviewHypothesisRow:
 
 
 def build_overview_hypothesis_rows(
-    data: ProjectData, text: str = ""
+    data: ProjectData,
+    text: str = "",
+    person_scope: Optional[PersonResearchScope] = None,
 ) -> list[OverviewHypothesisRow]:
     """Return one row per hypothesis, in project order.
+
+    With *person_scope* only its hypotheses are kept.
 
     *text* filters on the statement or the owning case title. A hypothesis whose
     case is missing is skipped; it has no case to open.
@@ -286,6 +344,8 @@ def build_overview_hypothesis_rows(
     needle = text.strip().lower()
     rows: list[OverviewHypothesisRow] = []
     for hypothesis in data.research_hypotheses:
+        if person_scope is not None and hypothesis.id not in person_scope.hypothesis_ids:
+            continue
         case = cases.get(hypothesis.research_case_id)
         if case is None:
             continue
@@ -413,6 +473,9 @@ class ResearchOverview(QWidget):
         self.setWindowTitle("Forskning")
         self._data = project_data
         self._entity_filter: tuple[str, str] = ("", "")
+        self._person_id: Optional[str] = None
+        self._person_scope: Optional[PersonResearchScope] = None
+        self._saved_status_choice: Optional[str] = None
         self._setup_ui()
         self.set_mode(initial_mode)
         self.refresh()
@@ -448,8 +511,38 @@ class ResearchOverview(QWidget):
         """Return the mode currently shown."""
         return _MODES[self._tabs.currentIndex()]
 
+    def person_filter(self) -> Optional[str]:
+        """Return the id of the person the overview is filtered to, or ``None``."""
+        return self._person_id
+
+    def set_person_filter(self, person_id: Optional[str]) -> None:
+        """Filter the cases, to-do and hypotheses to one person, or clear it.
+
+        Filtering switches the status filter to "all" (closed cases included)
+        and remembers the previous choice, which clearing restores. This is
+        independent of the "Valfritt objekt..." filter.
+        """
+        person_id = person_id or None
+        if person_id is not None:
+            if self._person_id is None:
+                self._saved_status_choice = self._status_filter.currentData()
+            self._status_filter.blockSignals(True)
+            self._status_filter.setCurrentIndex(self._status_filter.findData(STATUS_ALL))
+            self._status_filter.blockSignals(False)
+        elif self._person_id is not None:
+            saved = self._saved_status_choice
+            index = self._status_filter.findData(saved) if saved is not None else -1
+            self._status_filter.blockSignals(True)
+            self._status_filter.setCurrentIndex(index if index >= 0 else 0)
+            self._status_filter.blockSignals(False)
+            self._saved_status_choice = None
+        self._person_id = person_id
+        self.refresh()
+
     def refresh(self) -> None:
-        """Rebuild all three tables, keeping selection and sort order."""
+        """Rebuild all three tables, keeping selection, sort order and person filter."""
+        self._rebuild_person_scope()
+        self._update_banner()
         self._fill_cases()
         self._fill_todo()
         self._fill_hypotheses()
@@ -460,6 +553,19 @@ class ResearchOverview(QWidget):
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
+        self._banner = QWidget()
+        banner_layout = QHBoxLayout(self._banner)
+        banner_layout.setContentsMargins(0, 0, 0, 0)
+        self._banner_label = QLabel()
+        self._banner_label.setWordWrap(True)
+        self._show_all_button = QPushButton("Visa alla")
+        self._show_all_button.setAccessibleName("Visa alla")
+        self._show_all_button.setAccessibleDescription("Tar bort personfiltret")
+        self._show_all_button.clicked.connect(lambda: self.set_person_filter(None))
+        banner_layout.addWidget(self._banner_label, 1)
+        banner_layout.addWidget(self._show_all_button)
+        self._banner.setVisible(False)
+        layout.addWidget(self._banner)
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs)
         self._tabs.addTab(self._build_cases_page(), "Forskningsöversikt")
@@ -677,7 +783,28 @@ class ResearchOverview(QWidget):
 
     def case_rows(self) -> list[OverviewCaseRow]:
         """The rows the case table currently shows (before user sorting)."""
-        return build_overview_case_rows(self._data, self._current_case_filter())
+        return build_overview_case_rows(
+            self._data, self._current_case_filter(), self._person_scope
+        )
+
+    def _rebuild_person_scope(self) -> None:
+        """Build the person scope once per refresh."""
+        if self._person_id is None:
+            self._person_scope = None
+        else:
+            self._person_scope = build_person_scope(ResearchIndex(self._data), self._person_id)
+
+    def _update_banner(self) -> None:
+        if self._person_id is None:
+            self._banner.setVisible(False)
+            return
+        name = entity_label(self._data, "person", self._person_id)
+        if name:
+            text = f"Filtrerat på person: {name} ({self._person_id})"
+        else:
+            text = f"Okänd person ({self._person_id})"
+        self._banner_label.setText(text)
+        self._banner.setVisible(True)
 
     def _fill_cases(self, *_args) -> None:
         rows = self.case_rows()
@@ -699,7 +826,10 @@ class ResearchOverview(QWidget):
     def todo_rows(self) -> list[TodoRow]:
         """The rows the to-do table currently shows."""
         return build_todo_rows(
-            self._data, self._todo_include_closed.isChecked(), self._todo_search.text()
+            self._data,
+            self._todo_include_closed.isChecked(),
+            self._todo_search.text(),
+            self._person_scope,
         )
 
     def _fill_todo(self, *_args) -> None:
@@ -718,7 +848,9 @@ class ResearchOverview(QWidget):
 
     def hypothesis_rows(self) -> list[OverviewHypothesisRow]:
         """The rows the hypothesis table currently shows."""
-        return build_overview_hypothesis_rows(self._data, self._hyp_search.text())
+        return build_overview_hypothesis_rows(
+            self._data, self._hyp_search.text(), self._person_scope
+        )
 
     def _fill_hypotheses(self, *_args) -> None:
         rows = self.hypothesis_rows()

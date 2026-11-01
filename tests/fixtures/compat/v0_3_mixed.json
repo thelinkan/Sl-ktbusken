@@ -1,0 +1,276 @@
+{
+  "format": "släktbuske-file",
+  "version": "0.3",
+  "format_version": "0.3",
+  "project": {
+    "title": "Blandat projekt",
+    "main_person_id": "person_003",
+    "created_by": "Släktbuske",
+    "language": "sv-SE"
+  },
+  "persons": [
+    {
+      "id": "person_001",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Karl",
+          "surname": "Lind"
+        }
+      ]
+    },
+    {
+      "id": "person_002",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Greta",
+          "surname": "Lind"
+        }
+      ]
+    },
+    {
+      "id": "person_003",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Nils",
+          "surname": "Ek"
+        }
+      ]
+    },
+    {
+      "id": "person_004",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Hilda",
+          "surname": "Berg"
+        }
+      ]
+    },
+    {
+      "id": "person_005",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Olof",
+          "surname": "Berg"
+        }
+      ]
+    }
+  ],
+  "families": [
+    {
+      "id": "family_001",
+      "partners": [
+        {
+          "person_id": "person_001",
+          "role": "father"
+        },
+        {
+          "person_id": "person_002",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_003",
+        "person_004"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_003",
+          "parent_id": "person_001",
+          "parentage_type": "foster"
+        },
+        {
+          "child_id": "person_003",
+          "parent_id": "person_002",
+          "parentage_type": "foster"
+        },
+        {
+          "child_id": "person_004",
+          "parent_id": "person_001",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_004",
+          "parent_id": "person_002",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_002",
+      "partners": [
+        {
+          "person_id": "person_005",
+          "role": "father"
+        }
+      ],
+      "children": [
+        "person_003"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_003",
+          "parent_id": "person_005",
+          "parentage_type": "biological"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "event_001",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_003",
+          "role": "child"
+        }
+      ],
+      "date": {
+        "value": "1900",
+        "precision": "year",
+        "source_refs": [
+          {
+            "source_id": "source_001",
+            "quality": "secondary"
+          }
+        ]
+      },
+      "place": {
+        "place_id": "place_002"
+      }
+    }
+  ],
+  "residences": [],
+  "places": [
+    {
+      "id": "place_001",
+      "type": "country",
+      "name": "Sverige",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_002",
+      "type": "city",
+      "name": "Örebro",
+      "parent_place_id": "place_001",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_003",
+      "type": "parish",
+      "name": "Ålem",
+      "parent_place_id": "place_001",
+      "custom_field_values": {}
+    }
+  ],
+  "sources": [
+    {
+      "id": "source_001",
+      "provider": "Riksarkivet",
+      "source_type": "church_book",
+      "title": "Husförhörslängd",
+      "structured_reference": {
+        "fields": {}
+      }
+    }
+  ],
+  "media": [
+    {
+      "id": "media_001",
+      "type": "image",
+      "file": "media/Östra_släkten.jpg",
+      "title": "Släktbild",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_003"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_003"
+      ]
+    }
+  ],
+  "repositories": [],
+  "dna_companies": [
+    {
+      "id": "dnacomp_001",
+      "name": "FamilyTreeDNA"
+    }
+  ],
+  "dna_profiles": [
+    {
+      "id": "dnaprof_001",
+      "person_id": "person_003",
+      "company_id": "dnacomp_001",
+      "test_type": "autosomal",
+      "kit_name": "Nils"
+    },
+    {
+      "id": "dnaprof_002",
+      "person_id": "person_005",
+      "company_id": "dnacomp_001",
+      "test_type": "autosomal",
+      "kit_name": "Olof"
+    }
+  ],
+  "dna_matches": [
+    {
+      "id": "dnamatch_001",
+      "profile1_id": "dnaprof_001",
+      "profile2_id": "dnaprof_002",
+      "shared_cm": 1750.5,
+      "shared_percentage": 25.8,
+      "segment_count": 3,
+      "largest_segment_cm": 120.25,
+      "match_source": "internal"
+    }
+  ],
+  "dna_segments": [
+    {
+      "id": "dnaseg_001",
+      "match_id": "dnamatch_001",
+      "chromosome": "1",
+      "start_position": 1000,
+      "end_position": 90000000,
+      "cm": 120.25,
+      "snp_count": 15000
+    }
+  ],
+  "dna_clusters": [
+    {
+      "id": "dnacluster_001",
+      "name": "Bergsläkten",
+      "company_ids": [
+        "dnacomp_001"
+      ],
+      "person_ids": [
+        "person_003"
+      ],
+      "dna_match_ids": [
+        "dnamatch_001"
+      ],
+      "color": "#336699"
+    }
+  ],
+  "dna_triangulations": [],
+  "research_notes": [],
+  "leverantorer": [],
+  "kalltyper": [],
+  "research_cases": [],
+  "research_hypotheses": [],
+  "research_actions": [],
+  "connection_overrides": {
+    "person_003": "foster"
+  }
+}

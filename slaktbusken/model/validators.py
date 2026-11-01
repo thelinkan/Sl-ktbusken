@@ -1669,3 +1669,112 @@ def validate_research_action(
                 errors.append(_MSG_ACTION_UNKNOWN_SOURCE)
 
     return errors
+
+
+# ---------------------------------------------------------------------------
+# Merge candidates and merge history
+# ---------------------------------------------------------------------------
+
+_MSG_MERGE_CAND_SELF = "En person kan inte vara kandidat till sig själv."
+_MSG_MERGE_CAND_BAD_ASSESSMENT = "Ogiltig bedömning för sammanslagningskandidaten."
+_MSG_MERGE_CAND_BAD_ENABLED = "Aktiverad måste vara sant eller falskt."
+_MSG_MERGE_CAND_TOO_MANY_COMMENTS = "Kandidaten har för många kommentarer (högst 500)."
+_MSG_MERGE_CAND_UNKNOWN_PERSON = "Kandidaten hänvisar till en okänd person: {id}."
+_MSG_MERGE_CAND_UNKNOWN_CASE = "Kandidaten hänvisar till ett okänt forskningsuppslag: {id}."
+_MSG_MERGE_CAND_DUPLICATE_COMMENT_ID = "Kandidaten har flera kommentarer med samma id: {id}."
+_MSG_MERGE_CAND_MISSING_PERSON = "Kandidaten saknar person-id."
+_MSG_MERGE_COMMENT_EMPTY = "Kommentarens text får inte vara tom."
+_MSG_MERGE_COMMENT_TOO_LONG = "Kommentarens text är för lång (högst 5000 tecken)."
+_MSG_MERGE_COMMENT_BAD_DATE = "Kommentarens datum är inte ett giltigt datum."
+_MSG_MERGE_HIST_MISSING_ID = "Sammanslagningshistoriken saknar id."
+_MSG_MERGE_HIST_MISSING_SURVIVOR = "Sammanslagningshistoriken saknar överlevande person."
+_MSG_MERGE_HIST_MISSING_MERGED = "Sammanslagningshistoriken saknar sammanslagen person."
+_MSG_MERGE_HIST_SAME_PERSON = (
+    "Överlevande och sammanslagen person får inte vara samma person."
+)
+_MSG_MERGE_HIST_BAD_DATE = "Sammanslagningsdatumet måste vara ett giltigt datum (ÅÅÅÅ-MM-DD)."
+
+
+def validate_merge_candidate_comment(comment) -> list[str]:
+    """Validate one candidate comment. Returns Swedish messages, ``[]`` if valid."""
+    errors: list[str] = []
+    text = comment.text
+    if not isinstance(text, str) or not text.strip():
+        errors.append(_MSG_MERGE_COMMENT_EMPTY)
+    elif len(text) > 5000:
+        errors.append(_MSG_MERGE_COMMENT_TOO_LONG)
+    date = comment.date
+    if date not in ("", None) and not (
+        isinstance(date, str) and is_valid_calendar_date(date)
+    ):
+        errors.append(_MSG_MERGE_COMMENT_BAD_DATE)
+    return errors
+
+
+def validate_merge_candidate(
+    candidate,
+    valid_person_ids: Optional[set[str]] = None,
+    valid_case_ids: Optional[set[str]] = None,
+    valid_assessments=None,
+) -> list[str]:
+    """Validate a merge candidate. Returns Swedish messages, ``[]`` if valid."""
+    from slaktbusken.model.merge_candidate import (
+        CANDIDATE_ASSESSMENTS,
+        MAX_COMMENTS_PER_CANDIDATE,
+    )
+
+    if valid_assessments is None:
+        valid_assessments = CANDIDATE_ASSESSMENTS
+    errors: list[str] = []
+    if not candidate.person_1_id or not candidate.person_2_id:
+        errors.append(_MSG_MERGE_CAND_MISSING_PERSON)
+    elif candidate.person_1_id == candidate.person_2_id:
+        errors.append(_MSG_MERGE_CAND_SELF)
+    if candidate.assessment not in valid_assessments:
+        errors.append(_MSG_MERGE_CAND_BAD_ASSESSMENT)
+    if not isinstance(candidate.enabled, bool):
+        errors.append(_MSG_MERGE_CAND_BAD_ENABLED)
+    if len(candidate.comments) > MAX_COMMENTS_PER_CANDIDATE:
+        errors.append(_MSG_MERGE_CAND_TOO_MANY_COMMENTS)
+    if valid_person_ids is not None:
+        for pid in (candidate.person_1_id, candidate.person_2_id):
+            if pid and pid not in valid_person_ids:
+                errors.append(_MSG_MERGE_CAND_UNKNOWN_PERSON.format(id=pid))
+    if (
+        valid_case_ids is not None
+        and candidate.research_case_id is not None
+        and candidate.research_case_id not in valid_case_ids
+    ):
+        errors.append(_MSG_MERGE_CAND_UNKNOWN_CASE.format(id=candidate.research_case_id))
+    seen: set[str] = set()
+    reported: set[str] = set()
+    for comment in candidate.comments:
+        if comment.id in seen and comment.id not in reported:
+            errors.append(_MSG_MERGE_CAND_DUPLICATE_COMMENT_ID.format(id=comment.id))
+            reported.add(comment.id)
+        seen.add(comment.id)
+    return errors
+
+
+def validate_merge_history_entry(entry) -> list[str]:
+    """Validate a merge history entry. Returns Swedish messages, ``[]`` if valid."""
+    errors: list[str] = []
+    if not entry.id:
+        errors.append(_MSG_MERGE_HIST_MISSING_ID)
+    if not entry.surviving_person_id:
+        errors.append(_MSG_MERGE_HIST_MISSING_SURVIVOR)
+    if not entry.merged_person_id:
+        errors.append(_MSG_MERGE_HIST_MISSING_MERGED)
+    if (
+        entry.surviving_person_id
+        and entry.surviving_person_id == entry.merged_person_id
+    ):
+        errors.append(_MSG_MERGE_HIST_SAME_PERSON)
+    date = entry.merge_date
+    if not (
+        isinstance(date, str)
+        and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date)
+        and is_valid_calendar_date(date)
+    ):
+        errors.append(_MSG_MERGE_HIST_BAD_DATE)
+    return errors
