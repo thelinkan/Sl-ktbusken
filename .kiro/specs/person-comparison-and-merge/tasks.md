@@ -733,7 +733,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `reports/merge_consistency.py` (`MergeIssue`, `check_merge_consistency`, `generate_merge_consistency_report`) following `research_consistency.py`; add "Sammanslagning och dubletter" to `ReportMenuBuilder` after "Forskningskonsistens" and wire `MainWindow` and `ReportService`; read-only; Swedish placeholder for missing persons; "Rapporten kunde inte skapas." with no partial report on error
     - _Requirements: 5.8, 6.7, 31.1, 31.2, 31.3, 31.4, 31.5, 31.6, 31.7, 31.8, 31.9_
 
-  - [~] 15.4 Write property test and regression tests for re-import (Mandatory group f: GEDCOM re-import after a merge)
+  - [x] 15.4 Write property test and regression tests for re-import (Mandatory group f: GEDCOM re-import after a merge)
     - **Property 43: Re-import after a merge**
     - **Validates: Requirements 30.4, 30.5, 30.6, 30.7, 30.8**
     - Module `tests/test_gedcom/test_merge_reimport.py` (mandatory marker, run after 13.12); required, never skipped

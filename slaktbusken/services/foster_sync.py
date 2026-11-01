@@ -324,19 +324,27 @@ def _family_survives(
 def _reattach_end_events(
     family: Family, events_by_id: dict[str, Event], live_start_ids: set[str]
 ) -> None:
-    """Strip end-event ids from a family before they are re-paired.
+    """Strip placement end-event ids from a family before they are re-paired.
 
-    Keeps the start event id(s) still backing the family and discards every
-    other recorded id (stale end pairings), so :func:`_pair_end_event` can
-    rebuild the pairings from scratch and detach ends whose start is gone.
+    Keeps the start event id(s) still backing the family and discards stale
+    placement-END pairings and ids of events that no longer exist, so
+    :func:`_pair_end_event` can rebuild the pairings from scratch and detach
+    ends whose start is gone. Ids of any other still-present event (family
+    marriage, divorce, custom family events, ...) are preserved: they are not
+    ours to touch, and dropping them orphans the events so a GEDCOM re-import
+    can no longer replace them (duplicating them instead).
     """
-    family.event_ids = [
-        event_id
-        for event_id in family.event_ids
-        if event_id in live_start_ids
-        and events_by_id.get(event_id) is not None
-        and events_by_id[event_id].type in _PLACEMENT_START
-    ]
+    kept: list[str] = []
+    for event_id in family.event_ids:
+        event = events_by_id.get(event_id)
+        if event is None:
+            continue
+        if event.type in _PLACEMENT_START:
+            if event_id in live_start_ids:
+                kept.append(event_id)
+        elif event.type not in _PLACEMENT_END:
+            kept.append(event_id)
+    family.event_ids = kept
 
 
 def _pair_end_event(
