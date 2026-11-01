@@ -322,3 +322,192 @@ def test_property_25_attribute_resolution(
     # --- the planner never changes the inputs --------------------------------
     assert data.connection_overrides == overrides
     assert (first.title, first.occupation, first.sex) == (a[1], a[2], a[0])
+
+
+# ---------------------------------------------------------------------------
+# Property 29: no stale reference to the retired person
+# ---------------------------------------------------------------------------
+
+from slaktbusken.model.dna import DnaCluster as _P29Cluster  # noqa: E402
+from slaktbusken.model.dna import DnaProfile as _P29Profile  # noqa: E402
+from slaktbusken.model.event import Event as _P29Event  # noqa: E402
+from slaktbusken.model.event import Participant as _P29Participant  # noqa: E402
+from slaktbusken.model.family import Family as _P29Family  # noqa: E402
+from slaktbusken.model.family import FamilyPartner as _P29Partner  # noqa: E402
+from slaktbusken.model.media import Annotation as _P29Annotation  # noqa: E402
+from slaktbusken.model.media import MediaItem as _P29Media  # noqa: E402
+from slaktbusken.model.merge_candidate import MergeCandidate as _P29Candidate  # noqa: E402
+from slaktbusken.model.project import ProjectMetadata as _P29Meta  # noqa: E402
+from slaktbusken.model.research_case import (  # noqa: E402
+    ResearchCase as _P29Case,
+    ResearchEntityLink as _P29Link,
+    ResearchHypothesis as _P29Hypothesis,
+)
+from slaktbusken.model.research_note import ResearchNote as _P29Note  # noqa: E402
+from slaktbusken.model.residence import ResidenceFact as _P29Residence  # noqa: E402
+from slaktbusken.persistence.translation_io import (  # noqa: E402
+    IdentityAlias as _P29Alias,
+    PersonMapping as _P29Mapping,
+    TranslationData as _P29Translation,
+)
+from slaktbusken.services import person_reference_index as _p29_pri  # noqa: E402
+from slaktbusken.services.merge_engine import MergeEngine as _P29Engine  # noqa: E402
+from slaktbusken.services.merge_planner import apply_change_set as _p29_apply  # noqa: E402
+
+_P29_SURVIVOR = "person_1"
+_P29_RETIRED = "person_2"
+# Ids that merely contain the retired id as a substring; never to be touched.
+_P29_DECOYS = ["person_22", "xperson_2", "person_2b"]
+_P29_REFS = st.sampled_from([_P29_RETIRED, _P29_SURVIVOR, "person_3", *_P29_DECOYS])
+_P29_REF_OR_RETIRED = st.sampled_from([_P29_RETIRED, _P29_RETIRED, _P29_SURVIVOR, "person_3"])
+_P29_CHILD_IDS = st.sampled_from(["child_a", "child_b", _P29_RETIRED, _P29_SURVIVOR])
+_P29_ROLES = st.sampled_from(["", "vittne", "fotograf"])
+
+
+@st.composite
+def _p29_projects(draw):
+    """A project with references to the retired person in every location."""
+    persons = [
+        Person(id=pid, sex="F", names=[Name("birth", "Anna", "Berg")])
+        for pid in (_P29_SURVIVOR, _P29_RETIRED, "person_3", "child_a", "child_b", *_P29_DECOYS)
+    ]
+    # Families: retired or survivor as partner (never both in one family), with
+    # links whose parents are never children, so no cycle can be formed.
+    families = []
+    for i in range(draw(st.integers(0, 3))):
+        partner = draw(st.sampled_from([_P29_RETIRED, _P29_SURVIVOR, "person_3"]))
+        other = draw(st.sampled_from(["person_3", *_P29_DECOYS]))
+        children = draw(st.lists(st.sampled_from(["child_a", "child_b"]), max_size=2, unique=True))
+        links = []
+        for c in children:
+            parent = draw(st.sampled_from([partner, other, None]))
+            links.append(ParentChildLink(
+                c, parent, "unknown_donor" if parent is None else "biological"))
+        families.append(_P29Family(f"fam_{i}", [_P29Partner(partner, "partner"),
+                                                 _P29Partner(other, "partner")], children, links))
+    # The retired person as a child of a family whose parents are neither of the pair.
+    if draw(st.booleans()):
+        kids = draw(st.permutations([_P29_RETIRED, _P29_SURVIVOR, "child_a"]))[: draw(st.integers(1, 3))]
+        families.append(_P29Family(
+            "fam_kids", [_P29Partner("person_3", "partner"), _P29Partner(_P29_DECOYS[0], "partner")],
+            list(kids),
+            [ParentChildLink(k, "person_3", draw(st.sampled_from(["biological", "adoptive", "foster"])))
+             for k in kids],
+        ))
+    events = []
+    for i in range(draw(st.integers(0, 3))):
+        role = draw(_P29_ROLES)  # one role per event: differing roles need a user choice
+        events.append(_P29Event(
+            f"ev_{i}", "birth",
+            [_P29Participant(draw(_P29_REFS), role) for _ in range(draw(st.integers(1, 3)))]))
+    # Every event needs the pair to be consistent; a retired person always takes part once.
+    events.append(_P29Event("ev_ret", "birth", [_P29Participant(_P29_RETIRED, "child")]))
+    residences = [
+        _P29Residence(f"res_{i}", draw(_P29_REF_OR_RETIRED), "place_1")
+        for i in range(draw(st.integers(1, 3)))
+    ]
+    media = [
+        _P29Media(
+            f"m_{i}", "image", f"m_{i}.jpg", f"titel {_P29_RETIRED}",
+            linked_entities=[LinkedEntity(draw(st.sampled_from(["person", "place"])),
+                                          draw(_P29_REFS), draw(_P29_ROLES))
+                             for _ in range(draw(st.integers(0, 3)))],
+            mentioned_person_ids=draw(st.lists(_P29_REFS, max_size=3)),
+            annotations=[_P29Annotation(0.1 * k, 0, 0.1, 0.1, "person", draw(_P29_REFS))
+                         for k in range(draw(st.integers(0, 2)))],
+            notes=f"se {_P29_RETIRED} och person_22",
+        )
+        for i in range(draw(st.integers(1, 2)))
+    ]
+    notes = [
+        _P29Note(f"n_{i}", "Anteckning", f"text om {_P29_RETIRED}",
+                 [LinkedEntity("person", draw(_P29_REFS), "") for _ in range(draw(st.integers(1, 3)))])
+        for i in range(draw(st.integers(0, 2)))
+    ]
+    profiles = [
+        _P29Profile(f"dna_{i}", draw(_P29_REF_OR_RETIRED), "c1", "autosomal",
+                    admin_person_id=draw(st.one_of(st.none(), _P29_REF_OR_RETIRED)))
+        for i in range(draw(st.integers(1, 3)))
+    ]
+    clusters = [_P29Cluster("cl_1", "Grupp", person_ids=draw(st.lists(_P29_REFS, min_size=1, max_size=5)))]
+    cases = [_P29Case(
+        "case_1", primary_entity_ref=draw(st.one_of(
+            st.none(), st.builds(_P29Link, st.just("person"), _P29_REFS))),
+        linked_entities=draw(st.lists(st.builds(_P29Link, st.just("person"), _P29_REFS), max_size=3)),
+    )]
+    hypotheses = [_P29Hypothesis(
+        "hyp_1", "case_1",
+        linked_entities=draw(st.lists(st.builds(_P29Link, st.just("person"), _P29_REFS), max_size=3)),
+    )]
+    candidates = []
+    for i, other in enumerate(draw(st.lists(
+            st.sampled_from(["person_3", _P29_SURVIVOR, _P29_DECOYS[0]]), max_size=3, unique=True))):
+        pair = [_P29_RETIRED, other]
+        if draw(st.booleans()):
+            pair.reverse()
+        candidates.append(_P29Candidate(f"cand_{i}", pair[0], pair[1]))
+    overrides = {}
+    if draw(st.booleans()):
+        overrides[_P29_RETIRED] = "ovr"
+    main = draw(st.sampled_from([None, _P29_RETIRED, _P29_SURVIVOR, "person_3"]))
+    data = ProjectData(
+        project=_P29Meta("T", main_person_id=main), persons=persons, families=families,
+        events=events, residences=residences, media=media, research_notes=notes,
+        dna_profiles=profiles, dna_clusters=clusters, research_cases=cases,
+        research_hypotheses=hypotheses, merge_candidates=candidates,
+        connection_overrides=overrides,
+    )
+    translation = _P29Translation(
+        persons=[_P29Mapping("@I2@", _P29_RETIRED, "fp2"), _P29Mapping("@I3@", "person_3", "fp3")],
+        person_aliases=[_P29Alias("@I9@", "fp9", _P29_RETIRED, "m0")],
+    )
+    return data, translation
+
+
+@given(_p29_projects())
+def test_property_29_no_stale_reference(project):
+    """**Validates: Requirements 1.4, 22.2, 22.6, 22.13, 22.14, 27.4, 28.2, 29.12, 30.12**"""
+    data, translation = project
+    survivor, retired = _P29_SURVIVOR, _P29_RETIRED
+
+    before_decoys = _decoy_snapshot(data)
+    decisions = MergeDecisions(
+        _P29_SURVIVOR, _P29_RETIRED, survivor_id=survivor, survivor_confirmed=True
+    )
+    plan = build_plan(data, translation, decisions)
+    assert plan.can_execute, [c for c in plan.conflicts if c.is_blocking] + list(plan.unresolved)
+
+    merged = _p29_apply(data, plan.change_set)
+    merged_translation = _P29Engine._merged_translation(plan, translation, retired, survivor)
+
+    # The retired person is no longer an active person anywhere.
+    assert all(p.id != retired for p in merged.persons)
+    assert any(p.id == survivor for p in merged.persons)
+
+    # No reference with rule rewire, merge-and-deduplicate, explicit or special remains.
+    index = _p29_pri.PersonReferenceIndex.build(merged, [retired], merged_translation)
+    stale = {
+        loc.key: index.count(loc.key, retired)
+        for loc in _p29_pri.PERSON_REFERENCE_INVENTORY
+        if loc.requires_handler and index.count(loc.key, retired)
+    }
+    assert not stale, stale
+
+    # Unrelated text and ids that contain the retired id as a substring are unchanged.
+    assert _decoy_snapshot(merged) == before_decoys
+
+    # The input data is not modified by planning and applying.
+    assert any(p.id == retired for p in data.persons)
+
+
+def _decoy_snapshot(data: ProjectData):
+    """Everything that mentions the retired id only as a substring."""
+    return (
+        [p.id for p in data.persons if p.id in _P29_DECOYS],
+        [(m.id, m.title, m.notes) for m in data.media],
+        [(n.id, n.text) for n in data.research_notes],
+        [[pc for pc in f.partners if pc.person_id in _P29_DECOYS] for f in data.families],
+        [[x for x in c.person_ids if x in _P29_DECOYS] for c in data.dna_clusters],
+        [[x for x in m.mentioned_person_ids if x in _P29_DECOYS] for m in data.media],
+        [[pp.person_id for pp in e.participants if pp.person_id in _P29_DECOYS] for e in data.events],
+    )

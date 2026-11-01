@@ -42,7 +42,8 @@ from slaktbusken.gedcom.translation.source_translation import detect_arkiv_digit
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.id_generator import IDGenerator
-from slaktbusken.services.id_registry import person_id_seed
+from slaktbusken.services.id_registry import person_id_seed, retired_person_ids
+from slaktbusken.services.redirect_resolution import RedirectResolver
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
@@ -91,6 +92,43 @@ class ImportResult:
     sources_added: int = 0
     places_added: int = 0
     warnings: list[str] = field(default_factory=list)
+    merged_identity_matches: list["MergedIdentityMatch"] = field(default_factory=list)
+    ambiguous_records: list["AmbiguousRecord"] = field(default_factory=list)
+
+
+@dataclass
+class MergedIdentityMatch:
+    """A GEDCOM record that matched the identity of a merged-away person.
+
+    The record was not imported; the surviving person is left unchanged.
+
+    Attributes:
+        xref: The GEDCOM xref of the incoming record.
+        person_id: The surviving person the record resolves to.
+        matched_by: ``"xref"`` or ``"fingerprint"``.
+        differing_fields: Names of person fields where the record differs
+            from the survivor (for example ``"birth_date"``).
+    """
+
+    xref: str
+    person_id: str
+    matched_by: str
+    differing_fields: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AmbiguousRecord:
+    """A GEDCOM record that could resolve to more than one active person.
+
+    The record is assigned to no person and changes nothing.
+
+    Attributes:
+        xref: The GEDCOM xref of the incoming record.
+        candidate_person_ids: The active persons the record could resolve to.
+    """
+
+    xref: str
+    candidate_person_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1089,6 +1127,9 @@ class GEDCOMImporter:
         # Retired person ids and the person high-water mark are never reissued.
         existing_ids |= person_id_seed(project_data)
         self._id_gen = IDGenerator(existing_ids)
+        self._retired_ids: set[str] = retired_person_ids(project_data)
+        self._merged_identity_matches: list[MergedIdentityMatch] = []
+        self._ambiguous_records: list[AmbiguousRecord] = []
 
         # Mapping from GEDCOM xref → App_JSON ID (built during import)
         self._source_xref_map: dict[str, str] = {}
@@ -1290,6 +1331,8 @@ class GEDCOMImporter:
             sources_added=self._sources_added,
             places_added=self._places_added,
             warnings=[str(w) for w in self._warnings],
+            merged_identity_matches=list(self._merged_identity_matches),
+            ambiguous_records=list(self._ambiguous_records),
         )
 
     # ------------------------------------------------------------------
@@ -1591,6 +1634,12 @@ class GEDCOMImporter:
             except Exception:
                 pass  # Family extraction failures handled in _process_families
 
+        # Resolve merged identities (aliases) before classification so a
+        # record of a merged-away person never creates or updates a person.
+        incoming_persons = self._resolve_merged_identities(
+            incoming_persons, translation_data
+        )
+
         # Build existing_fingerprints: app_id → composite_key_hash
         # Use stored fingerprints from translation mappings (these were
         # computed from GEDCOM raw values during previous imports and will
@@ -1694,7 +1743,8 @@ class GEDCOMImporter:
                         gedcom_id=gedcom_person.xref_id,
                         app_id=app_id,
                     )
-                    self._update_person(gedcom_person, mapping, record)
+                    if not self._update_person(gedcom_person, mapping, record):
+                        continue
 
                     # Update translation mapping to reflect new xref for this
                     # person (xref may have changed between exports)
@@ -1726,6 +1776,179 @@ class GEDCOMImporter:
                     reason=f"Kunde inte importera person: {exc}",
                     action_taken="Hoppades över",
                 ))
+
+    def _resolve_merged_identities(
+        self,
+        incoming_persons: list[GedcomPerson],
+        translation_data: TranslationData,
+    ) -> list[GedcomPerson]:
+        """Split out records that resolve to a merged identity.
+
+        A record whose xref (or, when the xref is unknown, fingerprint)
+        matches an Identity_Alias resolves to the surviving person. Such a
+        record is recorded in ``merged_identity_matches`` and changes
+        nothing except ``_person_xref_map`` so families attach to the
+        survivor. A record that could resolve to more than one active person
+        is recorded in ``ambiguous_records`` and assigned to no person.
+
+        Returns:
+            The records that still go through ``classify_persons``.
+        """
+        aliases = translation_data.person_aliases
+        if not aliases:
+            return incoming_persons
+
+        resolver = RedirectResolver(self._project_data.merge_history)
+        persons_by_id = {p.id: p for p in self._project_data.persons}
+
+        def alias_target(person_id: str) -> Optional[str]:
+            """Resolved active person for an alias, or ``""`` if ambiguous."""
+            resolved = resolver.resolve(person_id)
+            if resolved is None:
+                return ""
+            return resolved if resolved in persons_by_id else None
+
+        alias_by_xref: dict[str, set[str]] = {}
+        alias_by_fp: dict[str, set[str]] = {}
+        for alias in aliases:
+            target = alias_target(alias.person_id)
+            if target is None:
+                continue
+            alias_by_xref.setdefault(alias.gedcom_id, set()).add(target)
+            if alias.fingerprint:
+                alias_by_fp.setdefault(alias.fingerprint, set()).add(target)
+
+        active_by_xref: dict[str, set[str]] = {}
+        active_by_fp: dict[str, set[str]] = {}
+        for mapping in translation_data.persons:
+            if mapping.app_id in self._retired_ids:
+                continue
+            active_by_xref.setdefault(mapping.gedcom_id, set()).add(mapping.app_id)
+            if mapping.fingerprint:
+                active_by_fp.setdefault(mapping.fingerprint, set()).add(mapping.app_id)
+
+        remaining: list[GedcomPerson] = []
+        for gp in incoming_persons:
+            fp_hash = compute_composite_key_hash(
+                given_name=gp.given_name,
+                surname=gp.surname,
+                birth_date=gp.birth_date,
+                birth_place=gp.birth_place,
+            )
+            matched_by: Optional[str] = None
+            targets: set[str] = set()
+            competing: set[str] = set()
+
+            if gp.xref_id in alias_by_xref:
+                matched_by = "xref"
+                targets = set(alias_by_xref[gp.xref_id])
+                competing = active_by_xref.get(gp.xref_id, set()) | active_by_fp.get(
+                    fp_hash, set()
+                )
+            elif fp_hash in alias_by_fp and gp.xref_id not in active_by_xref:
+                matched_by = "fingerprint"
+                targets = set(alias_by_fp[fp_hash])
+                competing = active_by_fp.get(fp_hash, set())
+
+            if matched_by is None:
+                remaining.append(gp)
+                continue
+
+            candidates = targets | competing
+            candidates.discard("")
+            if "" in targets or len(candidates) > 1:
+                self._ambiguous_records.append(
+                    AmbiguousRecord(
+                        xref=gp.xref_id, candidate_person_ids=sorted(candidates)
+                    )
+                )
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    record_xref=gp.xref_id,
+                    person_or_family_name=f"{gp.given_name} {gp.surname}".strip() or None,
+                    reason="Posten kan höra till flera personer och tilldelades ingen",
+                    action_taken="Hoppades över, granska manuellt",
+                ))
+                continue
+
+            survivor_id = next(iter(candidates))
+            self._person_xref_map[gp.xref_id] = survivor_id
+            differing = self._differing_fields(gp, persons_by_id[survivor_id])
+            self._merged_identity_matches.append(
+                MergedIdentityMatch(
+                    xref=gp.xref_id,
+                    person_id=survivor_id,
+                    matched_by=matched_by,
+                    differing_fields=differing,
+                )
+            )
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=gp.xref_id,
+                person_or_family_name=f"{gp.given_name} {gp.surname}".strip() or None,
+                reason=(
+                    f"Posten tillhör en sammanslagen person ({survivor_id})"
+                    + (f"; avvikande fält: {', '.join(differing)}" if differing else "")
+                ),
+                action_taken="Importerades inte, personen lämnades oförändrad",
+            ))
+        return remaining
+
+    def _differing_fields(self, gp: GedcomPerson, person: Person) -> list[str]:
+        """Names of fields where the GEDCOM record disagrees with ``person``.
+
+        Only values the record actually asserts are compared; read-only.
+        """
+        differing: list[str] = []
+
+        have_names = {(n.given or "", n.surname or "") for n in person.names}
+        incoming_names = []
+        if gp.given_name or gp.surname:
+            incoming_names.append((gp.given_name, gp.surname))
+        incoming_names.extend(gp.additional_names)
+        if any(n not in have_names for n in incoming_names):
+            differing.append("names")
+
+        if gp.sex and gp.sex != "U" and gp.sex != person.sex:
+            differing.append("sex")
+
+        def event_values(event_type: str) -> tuple[set[str], set[str]]:
+            dates: set[str] = set()
+            places: set[str] = set()
+            place_names = {pl.id: pl.name for pl in self._project_data.places}
+            for evt in self._project_data.events:
+                if evt.type != event_type:
+                    continue
+                if not any(pt.person_id == person.id for pt in evt.participants):
+                    continue
+                if evt.date and evt.date.value:
+                    dates.add(evt.date.value)
+                if evt.place and evt.place.place_id in place_names:
+                    places.add(place_names[evt.place.place_id])
+            return dates, places
+
+        for label, event_type, raw_date, raw_place in (
+            ("birth", "birth", gp.birth_date, gp.birth_place),
+            ("death", "death", gp.death_date, gp.death_place),
+        ):
+            dates, places = event_values(event_type)
+            if raw_date and raw_date.strip():
+                parsed = parse_gedcom_date(raw_date)
+                if parsed is None or parsed.value not in dates:
+                    differing.append(f"{label}_date")
+            if raw_place and raw_place.strip():
+                raw = raw_place.strip()
+                leaf = raw.split(",")[0].strip()
+                if raw not in places and leaf not in places:
+                    differing.append(f"{label}_place")
+
+        if gp.title and gp.title != (person.title or ""):
+            differing.append("title")
+        if gp.occupation and gp.occupation != (person.occupation or ""):
+            differing.append("occupation")
+        if gp.notes and gp.notes.strip() and gp.notes.strip() not in (person.notes or ""):
+            differing.append("notes")
+        return differing
 
     def _update_translation_xref(
         self,
@@ -1826,15 +2049,27 @@ class GEDCOMImporter:
         gedcom_person: GedcomPerson,
         mapping: PersonMapping,
         record: GedcomLine,
-    ) -> None:
+    ) -> bool:
         """Update an existing Person with data from a GEDCOM re-import.
 
         Args:
             gedcom_person: The extracted GEDCOM person data.
             mapping: The existing PersonMapping with the App_JSON ID.
             record: The original GedcomLine record (for event extraction).
+
+        Returns:
+            False when the mapping names a retired person id (nothing is
+            created or changed), True otherwise.
         """
         person_id = mapping.app_id
+        if person_id in self._retired_ids:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=gedcom_person.xref_id,
+                reason="Posten pekar på en person som har slagits samman",
+                action_taken="Hoppades över",
+            ))
+            return False
         self._person_xref_map[gedcom_person.xref_id] = person_id
 
         # Find existing person in project
@@ -1868,7 +2103,7 @@ class GEDCOMImporter:
             self._project_data.persons.append(person)
             self._persons_added += 1
             self._create_person_events(person_id, record)
-            return
+            return True
 
         # Update existing person fields
         existing_person.sex = gedcom_person.sex
@@ -1903,6 +2138,7 @@ class GEDCOMImporter:
             self._create_person_events(person_id, record)
         finally:
             self._existing_event_keys = None
+        return True
 
     def _create_person_events(self, person_id: str, record: GedcomLine) -> None:
         """Create events and residences for a person from GEDCOM event tags.
@@ -2211,6 +2447,22 @@ class GEDCOMImporter:
         for record in fam_records:
             gedcom_family = _extract_gedcom_family(record)
             existing_mapping = family_mapping_by_xref.get(gedcom_family.xref_id)
+
+            # Two merged records listed as husband and wife resolve to one
+            # person: drop the second partner (no self-partner family).
+            husb_id = self._person_xref_map.get(gedcom_family.husb_xref or "")
+            wife_id = self._person_xref_map.get(gedcom_family.wife_xref or "")
+            if husb_id and husb_id == wife_id:
+                gedcom_family.wife_xref = None
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    record_xref=gedcom_family.xref_id,
+                    reason=(
+                        f"Båda partnerna i familjen {gedcom_family.xref_id} "
+                        "pekar på samma person."
+                    ),
+                    action_taken="Den andra partnern ignorerades",
+                ))
 
             if existing_mapping:
                 self._update_family(gedcom_family, existing_mapping, record)

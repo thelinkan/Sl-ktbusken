@@ -352,7 +352,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.9, 14.10**
     - Module `tests/properties/test_property_18_navigation_stack.py`
 
-  - [~] 7.16 Write widget test for siblings in the comparison family views (R5)
+  - [x] 7.16 Write widget test for siblings in the comparison family views (R5)
     - Module `tests/test_ui/test_comparison_window.py` (run after 7.8)
     - A focal person with two siblings renders three boxes in the sibling row of the `ComparisonFamilyView`; the sibling ids are part of the visible id set used for Shared_Person markers
     - _Requirements: 10.5, 12.1_
@@ -371,7 +371,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Keep the candidate/research indicator refresh from clearing the selection or scroll position (Req 17.12)
     - _Requirements: 8.4, 8.5, 8.6, 8.7, 8.12, 8.13, 8.14, 8.15_
 
-  - [~] 7.19 Write property test for the right-click selection rule
+  - [x] 7.19 Write property test for the right-click selection rule
     - **Property 51: Right-click selection rule**
     - **Validates: Requirements 8.14, 8.15**
     - Module `tests/test_ui/test_person_list_selection.py`: pure tests of `rows_after_right_click` over generated selections and clicked rows (inside: same rows in the same order; outside: exactly the clicked row; none: no rows; for a selection of two or more and a right-click inside it, the person ids passed to the menu equal the ids before the click); also the pure examples
@@ -527,7 +527,7 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 23.9, 23.10**
     - Module `tests/test_services/test_merge_family_integrity.py`; function named `test_property_33_families_stay_separate`; required, never skipped
 
-  - [~] 11.13 Write property test for relatives staying distinct (Mandatory group b: family relationship integrity)
+  - [x] 11.13 Write property test for relatives staying distinct (Mandatory group b: family relationship integrity)
     - **Property 34: Relatives stay distinct**
     - **Validates: Requirements 24.1, 24.2, 24.3, 24.4, 24.8, 33.4**
     - Module `tests/test_services/test_merge_family_integrity.py`; function named `test_property_34_relatives_stay_distinct`; required, never skipped
@@ -543,19 +543,19 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 29.1, 29.2, 29.3, 29.4, 29.5, 29.8, 29.9, 29.12**
     - Module `tests/test_services/test_merge_candidate_redirect.py`; required, no skip, xfail or deselect; not part of the six Mandatory_Test_Groups
 
-  - [~] 11.16 Write property test for candidate collision (required by Requirement 32.7)
+  - [x] 11.16 Write property test for candidate collision (required by Requirement 32.7)
     - **Property 38: Candidate collision**
     - **Validates: Requirements 29.6, 29.7, 29.10, 29.13, 29.14, 29.15**
     - Module `tests/test_services/test_merge_candidate_redirect.py`; required, no skip, xfail or deselect
     - Include the parametrized 16-combination assessment table, the four `enabled` combinations and the five `research_case_id` combinations
 
-  - [~] 11.17 Implement the Saved_State_Precondition flow in the wizard (R2)
+  - [x] 11.17 Implement the Saved_State_Precondition flow in the wizard (R2)
     - In `merge_review_wizard.py`, when "Slå samman personer" is pressed run, before anything else: (1) ask the `EditorRegistry`; if any editor holds unsaved changes show the blocking message "Redigeraren <titel> har osparade ändringar. Spara eller kasta ändringarna i redigeraren och försök igen." with a "Gå till redigeraren" button per editor calling `request_resolution()`, re-check after each resolution, offer no "Spara och fortsätt" and no second confirmation, and never save or discard editor content; (2) only when no editor is unsaved, if the dirty flag is true show a choice with exactly "Spara och fortsätt" and "Avbryt"
     - "Spara och fortsätt" calls `ProjectService.save_project`; on success continue without rebuilding the plan when `plan.content_revision == service.content_revision` and the fingerprint is unchanged; on failure show "Projektet kunde inte sparas. Ingenting har slagits samman.", keep the wizard open, start no merge and leave data and translation files unchanged; "Avbryt" returns to the preview without saving and with all decisions intact
     - Remove any wording or code path that saves unsaved edits together with the merge
     - _Requirements: 26.6, 26.9, 26.11, 26.12, 26.13, 26.14_
 
-  - [~] 11.18 Add the GEDCOM update warning constant and the preview warning (R7)
+  - [x] 11.18 Add the GEDCOM update warning constant and the preview warning (R7)
     - Create `slaktbusken/gedcom/capabilities.py` with `NON_DESTRUCTIVE_UPDATE_AVAILABLE = False`
     - In `merge_preview.py` show the single Swedish warning constant "En senare GEDCOM-uppdatering kan skriva över namn, anteckningar, titel och yrke för den behållna personen. Granska en sådan import noggrant." above the buttons (before the second confirmation) while the constant is `False`, once, not repeated in other sections; hidden when `True`
     - _Requirements: 26.15, 30.13, 30.15, 33.10_
@@ -610,7 +610,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Any failure before or during commit leaves in-memory data, history, dirty flag and `revision` unchanged; a Recovery_Refusal is reported and touches nothing
     - _Requirements: 1.4, 1.6, 26.9, 27.1, 27.2, 27.3, 27.4, 27.5, 27.8, 27.9, 27.10, 27.15, 27.24, 28.1, 28.2, 28.3, 28.12, 29.11, 30.1, 30.10_
 
-  - [~] 13.6 Integrate commit and recovery into `ProjectService`
+  - [x] 13.6 Integrate commit and recovery into `ProjectService`
     - Run `recover_if_needed` before `FilePersistence.load` on `open_project`; on `RecoveryRefusedError` keep the previous project state, open nothing and re-raise; return the `RecoveryOutcome` message otherwise; refuse an ordinary save while a journal exists (also after a refusal) with "En sammanslagning är inte avslutad. Starta om Släktbusken."; expose the engine hooks and the adopt step
     - _Requirements: 7.12, 7.13, 27.16, 27.17, 27.25_
 
@@ -618,7 +618,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Run the disk phase on a worker with a progress overlay and no cancel button; adopt data on the UI thread; refresh views; show success, failure and recovery outcome messages from the design table; show the Recovery_Refusal message in a modal `QMessageBox` with a selectable text area (paths copyable) when opening a project is refused and write details to the application log outside the project directory; open the Merge_History view for a person
     - _Requirements: 27.6, 27.7, 27.11, 27.12, 27.13, 27.25, 28.9, 28.10_
 
-  - [~] 13.8 Write property test for no stale references (Mandatory group a: reference preservation)
+  - [x] 13.8 Write property test for no stale references (Mandatory group a: reference preservation)
     - **Property 29: No stale reference to the retired person**
     - **Validates: Requirements 1.4, 22.2, 22.6, 22.13, 22.14, 27.4, 28.2, 29.12, 30.12**
     - Module `tests/test_services/test_merge_reference_rules.py` (mandatory marker); function named `test_property_29_no_stale_reference`; required, never skipped
@@ -628,12 +628,12 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 21.11, 21.15, 21.16, 22.1, 22.7, 22.10, 23.8, 32.6**
     - Module `tests/test_services/test_merge_reference_rules.py` (mandatory marker); function named `test_property_31_information_never_lost`; required, never skipped
 
-  - [~] 13.10 Write property test for order independence (required by Requirement 32.6)
+  - [x] 13.10 Write property test for order independence (required by Requirement 32.6)
     - **Property 36: Confluence and order independence**
     - **Validates: Requirements 25.1, 25.2, 25.3, 25.4**
     - Module `tests/test_services/test_merge_order.py`; required, no skip, xfail or deselect; not part of the six Mandatory_Test_Groups
 
-  - [~] 13.11 Write failed-merge tests (Mandatory group c: failed merges)
+  - [x] 13.11 Write failed-merge tests (Mandatory group c: failed merges)
     - **Property 39: A failing merge leaves everything unchanged in memory**
     - **Validates: Requirements 22.12, 27.3, 27.5, 27.8, 28.12, 29.11**
     - Module `tests/test_services/test_merge_failures.py` with `pytestmark = pytest.mark.mandatory_integrity`; required, never skipped
@@ -671,12 +671,12 @@ The design's remaining open questions are implemented with the design's stated d
     - `test_every_inventory_row_has_a_rule_test` (fails when an inventory row has no rule test), `test_rewire_rows_leave_no_retired_reference`, and one example test per Reference_Rule row of the inventory
     - _Requirements: 1.3, 1.4, 1.8, 35.1_
 
-  - [~] 13.18 Write the handler check test (Mandatory group a: reference preservation)
+  - [x] 13.18 Write the handler check test (Mandatory group a: reference preservation)
     - Module `tests/test_services/test_person_reference_index.py` (mandatory marker, run after 1.3); required, never skipped
     - `test_merge_refused_when_handler_missing`: a temporary inventory row without a handler makes `execute` return an error naming the location and leaves project data, files and dirty flag equal
     - _Requirements: 1.6, 35.1_
 
-  - [~] 13.19 Write retired-ID preservation tests (Mandatory group e: retired-ID preservation)
+  - [x] 13.19 Write retired-ID preservation tests (Mandatory group e: retired-ID preservation)
     - **Property 3: Ids of candidates, comments, history entries and retired persons are never reissued** (retired-person part)
     - **Validates: Requirements 2.3, 7.5, 7.6, 28.3, 34.9**
     - Module `tests/test_services/test_retired_ids.py` with `pytestmark = pytest.mark.mandatory_integrity`; required, never skipped
@@ -711,7 +711,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Wizard flow (pytest-qt): an unsaved editor shows the block message and neither "Spara och fortsätt" nor the second confirmation, and `request_resolution` is called only when the button is pressed; a dirty project offers exactly two buttons; "Avbryt" saves nothing; "Spara och fortsätt" with a failing save (a `FaultFs` on the save path) starts no merge and leaves files unchanged; the second confirmation text contains no sentence about saving unsaved edits
     - Function named `test_property_48_commit_bookkeeping`
 
-  - [~] 13.24 Add the Saved_State_Precondition re-check as step 0 of `MergeEngine.execute` (R2)
+  - [x] 13.24 Add the Saved_State_Precondition re-check as step 0 of `MergeEngine.execute` (R2)
     - In `services/merge_engine.py` run `Preconditions.check` first, before pre-flight, with the live registry: `service.is_saved_state()` else refuse with "Projektet har osparade ändringar. Spara projektet innan sammanslagningen."; `registry.unsaved_editors()` empty else refuse with the Requirement 26.14 message naming the editors
     - A refusal changes nothing in memory or on disk, leaves the dirty flag and `revision` unchanged, and calls no save, commit, discard or resolution method of anything
     - _Requirements: 26.14, 27.22, 27.23_
@@ -720,12 +720,12 @@ The design's remaining open questions are implemented with the design's stated d
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 15. Phase 8: GEDCOM and consistency integration
-  - [~] 15.1 Add alias resolution and the retired-id guard to the importer
+  - [x] 15.1 Add alias resolution and the retired-id guard to the importer
     - In `GEDCOMImporter._process_persons`, resolve aliases before `classify_persons` by xref and fingerprint; never create a person with a retired id (including in `_update_person`); list matched merged-identity records with differing fields while leaving the survivor unchanged; flag a record resolving to more than one active person without assigning it; add `merged_identity_matches` and `ambiguous_records` to the import result; drop a second partner that resolves to the same person with the warning "Båda partnerna i familjen <xref> pekar på samma person."
     - Do not change the existing overwrite of names, notes, title and occupation by an update import (temporary limitation, warned in 11.18; the fix is TRK-1, see 17.7)
     - _Requirements: 30.4, 30.5, 30.6, 30.7, 30.8, 30.13_
 
-  - [~] 15.2 Add export omission counts
+  - [x] 15.2 Add export omission counts
     - Report `Sammanslagningskandidater` and `Sammanslagningshistorik` counts in `GEDCOMExporter._collect_omissions` when non-zero; ensure the retired person is not exported
     - _Requirements: 30.12_
 

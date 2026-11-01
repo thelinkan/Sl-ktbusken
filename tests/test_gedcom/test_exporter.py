@@ -382,6 +382,65 @@ class TestOmissionTracking:
         assert "Medieobjekt" in omitted
         assert omitted["Medieobjekt"] == 1
 
+    def test_merge_candidates_and_history_tracked(self) -> None:
+        """Merge candidates and history are counted when non-zero (30.12)."""
+        from slaktbusken.model.merge_candidate import (
+            MergeCandidate,
+            MergeHistoryEntry,
+        )
+
+        exporter = GEDCOMExporter()
+        data = _minimal_project_data()
+        data.merge_candidates = [
+            MergeCandidate(id="mergecand_1", person_1_id="person_1", person_2_id="person_2"),
+            MergeCandidate(id="mergecand_2", person_1_id="person_1", person_2_id="person_3"),
+        ]
+        data.merge_history = [
+            MergeHistoryEntry(
+                id="merge_1",
+                surviving_person_id="person_1",
+                merged_person_id="person_9",
+                merged_person_name="X",
+                merged_person_lifespan="",
+                merge_date="2024-01-01",
+            ),
+        ]
+
+        omitted = exporter._collect_omissions(data)
+        assert omitted["Sammanslagningskandidater"] == 2
+        assert omitted["Sammanslagningshistorik"] == 1
+
+    def test_merge_counts_absent_when_zero(self) -> None:
+        """Zero merge data adds no merge omission keys."""
+        omitted = GEDCOMExporter()._collect_omissions(_minimal_project_data())
+        assert "Sammanslagningskandidater" not in omitted
+        assert "Sammanslagningshistorik" not in omitted
+
+    def test_retired_person_not_exported(self, tmp_path: Path) -> None:
+        """A retired id referenced only by history is absent from the export."""
+        from slaktbusken.model.merge_candidate import MergeHistoryEntry
+
+        persons = [
+            Person(id="person_1", sex="M", names=[Name(type="birth", given="A", surname="B")]),
+        ]
+        data = _minimal_project_data(persons=persons)
+        data.merge_history = [
+            MergeHistoryEntry(
+                id="merge_1",
+                surviving_person_id="person_1",
+                merged_person_id="person_2",
+                merged_person_name="Retired Person",
+                merged_person_lifespan="",
+                merge_date="2024-01-01",
+            ),
+        ]
+        output = tmp_path / "test.ged"
+        result = GEDCOMExporter().export(data, output)
+
+        assert result.persons_exported == 1
+        assert "Retired" not in output.read_text(encoding="utf-8")
+        assert result.omitted_elements.get("Sammanslagningshistorik") == 1
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: Source citation resolution

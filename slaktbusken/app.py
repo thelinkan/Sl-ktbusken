@@ -1582,6 +1582,58 @@ class Application:
         self._candidate_register = None
         self._comparison_window = None
         set_merge_gateway(self)
+        self._register_merge_executor()
+
+    def _register_merge_executor(self) -> None:
+        """Register the engine adapter the Merge_Review wizard executes through."""
+        from slaktbusken.services.merge_engine import MergeEngine
+        from slaktbusken.ui.merge.merge_gateway import (
+            MergeExecutionResult,
+            set_merge_executor,
+        )
+
+        engine = MergeEngine(self.project_service, self.editor_registry)
+
+        class _EngineExecutor:
+            def execute(self, plan):
+                outcome = engine.execute(plan)
+                return MergeExecutionResult(outcome.success, outcome.message)
+
+        set_merge_executor(_EngineExecutor())
+
+    def _translation_for_planning(self):
+        """Translation data of the open project, or None when unreadable."""
+        from slaktbusken.persistence import translation_io
+
+        path = self.project_service.project_path
+        if path is None:
+            return None
+        try:
+            return translation_io.read_all(Path(path).parent / "translation")
+        except Exception:  # noqa: BLE001 - planning then runs without mappings
+            logger.exception("Översättningsfilerna kunde inte läsas för planeringen.")
+            return None
+
+    def open_merge_review(self, person_1_id: str, person_2_id: str) -> None:
+        """Open the Merge_Review wizard for two persons (from the comparison window)."""
+        from slaktbusken.ui.merge.merge_review_wizard import MergeReviewWizard
+
+        if self.project_service.project_path is None:
+            return
+        parent = self._comparison_window or self.main_window
+        try:
+            wizard = MergeReviewWizard(
+                self.project_service,
+                [person_1_id, person_2_id],
+                editor_registry=self.editor_registry,
+                translation_provider=self._translation_for_planning,
+                parent=parent,
+            )
+        except Exception as exc:  # noqa: BLE001 - e.g. MergeRefusal
+            QMessageBox.warning(parent, "Sammanslagning", str(exc))
+            return
+        wizard.exec()
+        self._update_status()
 
     @property
     def merge_changed(self):
@@ -1629,6 +1681,7 @@ class Application:
             person_2_id or None,
         )
         window.setProperty("rememberGeometry", True)
+        window.continue_to_merge_requested.connect(self.open_merge_review)
         window.destroyed.connect(
             lambda *_a, w=window: self._forget_comparison_window(w)
         )

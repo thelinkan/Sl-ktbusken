@@ -1204,4 +1204,12 @@ class GEDCOMExporter:
         if data.media:
             omitted["Medieobjekt"] = len(data.media)
 
+        # Merge candidates and history have no GEDCOM representation
+        # (Requirement 30.12). Retired persons are not in data.persons.
+        if data.merge_candidates:
+            omitted["Sammanslagningskandidater"] = len(data.merge_candidates)
+
+        if data.merge_history:
+            omitted["Sammanslagningshistorik"] = len(data.merge_history)
+
         return omitted

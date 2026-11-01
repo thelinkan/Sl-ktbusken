@@ -116,16 +116,35 @@ class UnsavedEditorsDialog(QDialog):
         self.setWindowTitle(WINDOW_TITLE)
         layout = QVBoxLayout(self)
         self.buttons: list[QPushButton] = []
+        self._rows: list[tuple[Any, QLabel, QPushButton]] = []
         for editor in editors:
-            layout.addWidget(self._label(EDITOR_BLOCK_TEXT.format(title=editor.editor_title)))
+            label = self._label(EDITOR_BLOCK_TEXT.format(title=editor.editor_title))
+            layout.addWidget(label)
             button = QPushButton(GO_TO_EDITOR_TEXT)
             button.setAccessibleName(f"{GO_TO_EDITOR_TEXT}: {editor.editor_title}")
-            button.clicked.connect(lambda _c=False, e=editor: e.request_resolution())
+            button.clicked.connect(lambda _c=False, e=editor: self._resolve(e))
             layout.addWidget(button)
             self.buttons.append(button)
+            self._rows.append((editor, label, button))
         close = QPushButton("Stäng")
         close.clicked.connect(self.accept)
         layout.addWidget(close)
+
+    def _resolve(self, editor: Any) -> None:
+        """Let the editor ask the user, then re-check every listed editor."""
+        editor.request_resolution()
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Hide rows of editors that no longer hold unsaved changes; close when none remain."""
+        remaining = 0
+        for editor, label, button in self._rows:
+            unsaved = bool(editor.has_unsaved_changes())
+            label.setVisible(unsaved)
+            button.setVisible(unsaved)
+            remaining += unsaved
+        if remaining == 0:
+            self.accept()
 
     @staticmethod
     def _label(text: str) -> QLabel:

@@ -180,6 +180,45 @@ def test_editor_block_dialog_message_and_button(qapp):
     assert not editor.unsaved
 
 
+class _Cancelling(FakeEditor):
+    editor_title = "Anteckningar"
+
+    def request_resolution(self) -> ResolutionResult:
+        return ResolutionResult.STILL_UNSAVED
+
+
+def test_editor_block_rechecks_after_each_resolution(qapp):
+    a, b = FakeEditor(), _Cancelling()
+    dlg = mrw.UnsavedEditorsDialog([a, b])
+    dlg.show()
+    dlg.buttons[1].click()  # user cancels inside the editor: still listed
+    assert dlg.buttons[1].isVisibleTo(dlg) and dlg.buttons[0].isVisibleTo(dlg)
+    dlg.buttons[0].click()
+    assert not a.unsaved and not dlg.buttons[0].isVisibleTo(dlg)
+    assert dlg.buttons[1].isVisibleTo(dlg)
+    assert b.unsaved  # the wizard dialog never saves or discards on its own
+
+
+def test_editor_resolved_then_dirty_project_offers_save_choice(qapp, service, monkeypatch):
+    editor = FakeEditor()
+    registry = EditorRegistry()
+    registry.register(editor)
+    executor = FakeExecutor()
+    wiz = _wizard(qapp, service, executor, registry)
+    _ready(wiz)
+    service._dirty = True
+    monkeypatch.setattr(wiz, "_show_editor_block", lambda eds: eds[0].request_resolution())
+    asked = []
+    monkeypatch.setattr(wiz, "_ask_save_choice", lambda: asked.append(1) or CANCEL)
+    assert wiz.check_saved_state() is False
+    assert asked == [1] and executor.plans == []
+
+
+def test_wizard_texts_never_mention_saving_with_the_merge(qapp):
+    assert mrw.SAVE_AND_CONTINUE_TEXT == "Spara och fortsätt" and mrw.CANCEL_TEXT == "Avbryt"
+    assert "spar" not in mrw.CONFIRM_QUESTION.lower()
+
+
 def test_dirty_project_cancel_keeps_decisions_and_saves_nothing(qapp, service, monkeypatch):
     executor = FakeExecutor()
     wiz = _wizard(qapp, service, executor)

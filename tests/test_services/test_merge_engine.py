@@ -176,3 +176,68 @@ def test_missing_handler_refuses_merge(service: ProjectService, monkeypatch) -> 
 
     assert not outcome.success and "family.partners" in outcome.message
     assert _files(service) == before and len(service.data.persons) == 2
+
+
+# --- Task 13.24: Saved_State_Precondition as step 0 of execute ---------------
+
+
+def test_precondition_runs_before_plan_validation(service: ProjectService) -> None:
+    from dataclasses import replace
+
+    plan = replace(_plan(service), content_revision=service.content_revision - 1)  # stale
+    service._dirty = True
+
+    outcome = MergeEngine(service, None).execute(plan)
+
+    assert not outcome.success and not outcome.stale
+    assert outcome.step == "precondition"
+    assert outcome.message.startswith("Projektet har osparade ändringar.")
+
+
+def test_refusal_calls_no_save_commit_or_adopt(service: ProjectService, monkeypatch) -> None:
+    from slaktbusken.services.editor_registry import EditorRegistry
+
+    plan = _plan(service)
+    registry = EditorRegistry()
+    editor = FakeEditor()
+    registry.register(editor)
+    called: list[str] = []
+    for name in ("save_project", "adopt_committed_state"):
+        monkeypatch.setattr(service, name, lambda *a, _n=name, **k: called.append(_n))
+    from slaktbusken.services.commit import transaction
+
+    monkeypatch.setattr(
+        transaction.MergeTransaction, "commit",
+        lambda *a, **k: called.append("commit"),
+    )
+    rev, content, dirty = service.revision, service.content_revision, service.is_dirty
+
+    outcome = MergeEngine(service, registry).execute(plan)
+
+    assert not outcome.success and outcome.step == "precondition"
+    assert called == []
+    assert (service.revision, service.content_revision, service.is_dirty) == (
+        rev, content, dirty,
+    )
+    assert set(editor.calls) == {"has_unsaved_changes"}
+    assert len(service.data.persons) == 2
+
+
+def test_refusal_names_every_unsaved_editor(service: ProjectService) -> None:
+    from slaktbusken.services.editor_registry import EditorRegistry
+
+    class Second(FakeEditor):
+        editor_title = "Familjeredigerare: F1"
+
+    plan = _plan(service)
+    registry = EditorRegistry()
+    first, second = FakeEditor(), Second()  # registry holds weak references
+    registry.register(first)
+    registry.register(second)
+
+    outcome = MergeEngine(service, registry).execute(plan)
+
+    assert not outcome.success
+    assert "Personredigerare: Anna (p1)" in outcome.message
+    assert "Familjeredigerare: F1" in outcome.message
+    assert outcome.message.count("har osparade ändringar") == 2

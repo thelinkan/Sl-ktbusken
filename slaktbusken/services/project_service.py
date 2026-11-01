@@ -63,6 +63,13 @@ from slaktbusken.persistence.translation_io import (
     TranslationData,
     write_all as write_translations,
 )
+from slaktbusken.services.commit.fs_ops import CommitFs, RealFs
+from slaktbusken.services.commit.preflight import journal_path_for
+from slaktbusken.services.commit.recovery import (
+    RecoveryOutcome,
+    RecoveryRefusedError,
+    recover_if_needed,
+)
 from slaktbusken.services.research_service import (
     ResearchCaseDiff,
     ResearchCaseWorkingCopy,
@@ -138,6 +145,18 @@ class MergeInProgressError(Exception):
     """Raised when a save is attempted while a merge is running."""
 
 
+#: Shown when a save is attempted while a merge journal exists.
+MERGE_UNFINISHED_MESSAGE = "En sammanslagning är inte avslutad. Starta om Släktbusken."
+
+
+class MergeNotFinishedError(MergeInProgressError):
+    """Raised when a save is attempted while a Merge_Journal exists.
+
+    Also applies after a Recovery_Refusal: a normal save must not overwrite
+    the project file between the steps of an interrupted merge.
+    """
+
+
 class ProjectService:
     """Manages project lifecycle: create, open, save, close.
 
@@ -146,7 +165,13 @@ class ProjectService:
     tracks dirty state so callers know when unsaved changes exist.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, commit_fs: Optional[CommitFs] = None) -> None:
+        #: File-system seam for recovery and the journal check (tests inject faults).
+        self._commit_fs: Optional[CommitFs] = commit_fs
+        #: Project files whose open was refused by recovery (journal kept on disk).
+        self._refused_projects: set[Path] = set()
+        #: Message of the recovery that ran during the last ``open_project``, or "".
+        self._last_recovery_message: str = ""
         self._project_data: Optional[ProjectData] = None
         self._project_path: Optional[Path] = None
         self._settings: Optional[ProjectSettings] = None
@@ -275,6 +300,29 @@ class ProjectService:
     def set_merge_in_progress(self, running: bool) -> None:
         """Mark whether the merge engine is running; saving is refused meanwhile."""
         self._merge_in_progress = bool(running)
+
+    @property
+    def last_recovery_message(self) -> str:
+        """Message of the recovery run by the last ``open_project``, or ``""``.
+
+        "Sammanslagningen slutfördes." or "Sammanslagningen återställdes."
+        when an interrupted merge was resolved at open; empty otherwise.
+        """
+        return self._last_recovery_message
+
+    def is_merge_journal_pending(self) -> bool:
+        """Whether a Merge_Journal exists for the open project, or a recovery
+        refusal was recorded for it. Read-only."""
+        path = self._project_path
+        if path is None:
+            return False
+        if Path(path) in self._refused_projects:
+            return True
+        fs = self._commit_fs if self._commit_fs is not None else RealFs()
+        try:
+            return bool(fs.exists(journal_path_for(Path(path))))
+        except OSError:
+            return True  # cannot tell: refuse the save rather than risk it
 
     def adopt_committed_state(
         self,
@@ -428,7 +476,26 @@ class ProjectService:
             FileNotFoundError: If the file does not exist.
             CorruptedFileError: If the file is corrupted.
             UnsupportedVersionError: If the file version is too new.
+            RecoveryRefusedError: If an interrupted merge cannot be resolved
+                safely. The previous project state is kept and nothing is
+                opened; ``error.refusal`` carries the paths.
+
+        After a successful open, ``last_recovery_message`` holds the message of
+        a recovery that ran (or ``""``).
         """
+        # Recovery runs before the file is read, so a half-committed merge is
+        # resolved first. A refusal is read-only and leaves all state alone.
+        path = Path(path)
+        outcome: Optional[RecoveryOutcome] = None
+        if path.parent.exists():
+            try:
+                outcome = recover_if_needed(path, self._commit_fs)
+            except RecoveryRefusedError:
+                self._refused_projects.add(path)
+                raise
+        self._refused_projects.discard(path)
+        self._last_recovery_message = outcome.message if outcome is not None else ""
+
         project_data = FilePersistence.load(path)
 
         self._project_data = project_data
@@ -471,6 +538,9 @@ class ProjectService:
             raise MergeInProgressError(
                 "En sammanslagning pågår. Projektet kan inte sparas just nu."
             )
+
+        if self.is_merge_journal_pending():
+            raise MergeNotFinishedError(MERGE_UNFINISHED_MESSAGE)
 
         FilePersistence.save(self._project_data, self._project_path)
         self._dirty_value = False

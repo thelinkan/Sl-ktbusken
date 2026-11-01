@@ -404,3 +404,66 @@ def test_property_33_families_stay_separate(data):
         if c.code == "duplicate_family":
             assert not c.is_blocking
             assert all(fid in c.message for fid in c.subjects)
+
+
+# ---------------------------------------------------------------------------
+# Property 34: relatives stay distinct (task 11.13)
+# ---------------------------------------------------------------------------
+
+_CHILD_NAMES = ["Kalle", "Olle", "kalle", "Stina"]  # few names: same-named relatives are common
+
+
+@st.composite
+def _two_parent_projects(draw):
+    """p1 and p2 each have 0-4 own children (distinct ids, names drawn from a tiny pool)."""
+    kids_1 = [f"a{i}" for i in range(draw(st.integers(0, 4)))]
+    kids_2 = [f"b{i}" for i in range(draw(st.integers(0, 4)))]
+    persons = [_person("p1", "Brita", sex="F"), _person("p2", "Brita", sex="F"),
+               _person("h1", "Per"), _person("h2", "Nils")]
+    for kid in kids_1 + kids_2:
+        persons.append(_person(kid, draw(st.sampled_from(_CHILD_NAMES))))
+    families = []
+    if kids_1 or draw(st.booleans()):
+        families.append(_fam("F1", ["p1", "h1"], kids_1, [_bio(k, "p1") for k in kids_1]))
+    if kids_2 or draw(st.booleans()):
+        families.append(_fam("F2", ["p2", "h2"], kids_2, [_bio(k, "p2") for k in kids_2]))
+    return ProjectData(persons=persons, families=families), kids_1, kids_2
+
+
+@settings(settings.get_profile("sbk"))
+@given(_two_parent_projects())
+def test_property_34_relatives_stay_distinct(case):
+    """**Validates: Requirements 24.1, 24.2, 24.3, 24.4, 24.8, 33.4**"""
+    data, kids_1, kids_2 = case
+    plan = _plan(data)  # also proves planning leaves the project unchanged
+    assert not plan.blocking
+    final = _final(data, plan)
+
+    # Only the retired person disappears; every relative keeps its own record.
+    assert {p.id for p in final.persons} == {p.id for p in data.persons} - {"p2"}
+    for person in data.persons:
+        if person.id not in ("p1", "p2"):
+            assert next(p for p in final.persons if p.id == person.id) == person
+
+    # The survivor is the parent of the union of the children, each child once,
+    # and every link keeps its own child, parentage type and (survivor) parent.
+    children = [c for f in final.families
+                if any(p.person_id == "p1" for p in f.partners) for c in f.children]
+    assert sorted(children) == sorted(kids_1 + kids_2)
+    links = [(l.child_id, l.parent_id, l.parentage_type)
+             for f in final.families for l in f.parent_child_links
+             if l.child_id in set(kids_1 + kids_2)]
+    assert sorted(links) == sorted((k, "p1", "biological") for k in kids_1 + kids_2)
+    assert not any("p2" in (p.person_id for p in f.partners) for f in final.families)
+
+    # No relative is paired, merged or proposed as a candidate (24.2, 24.8).
+    relatives = set(kids_1 + kids_2 + ["h1", "h2"])
+    assert not plan.change_set.removed.get("persons", set()) - {"p2"}
+    assert plan.change_set.replaced.get("persons", {}).keys() <= {"p1"}
+    assert not (plan.change_set.removed.get("persons", set()) & relatives)
+    assert not any(len(set(c.subjects) & relatives) > 1 for c in plan.conflicts)
+    assert plan.candidate_ops == mp.CandidateOps()
+    assert "merge_candidates" not in plan.change_set.touched_collections()
+    assert (getattr(final, "merge_candidates", None) or []) == (
+        getattr(data, "merge_candidates", None) or []
+    )

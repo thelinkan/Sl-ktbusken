@@ -143,3 +143,59 @@ def test_plain_left_click_selects_one_row_and_navigates(panel):
     QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton, pos=pos)
     assert _selected(tree) == ["person_3"]
     assert emitted == ["person_3"]
+
+
+# --- Property 51 (task 7.19) -------------------------------------------------
+from hypothesis import HealthCheck, given, settings, strategies as st
+
+
+@st.composite
+def _selection_and_click(draw):
+    n = draw(st.integers(min_value=0, max_value=12))
+    rows = draw(st.lists(st.integers(0, max(n - 1, 0)), unique=True, max_size=n)) if n else []
+    # Selected rows in an arbitrary (but fixed) order, as given by the caller.
+    clicked = draw(st.one_of(st.none(), st.integers(0, 15)))
+    return rows, clicked
+
+
+# Feature: person-comparison-and-merge, Property 51: Right-click selection rule
+# **Validates: Requirements 8.14, 8.15**
+@given(_selection_and_click())
+def test_property_51_rows_after_right_click(data):
+    selected, clicked = data
+    result = rows_after_right_click(selected, clicked)
+    if clicked is None:
+        assert result == []
+    elif clicked in selected:
+        assert result == selected
+    else:
+        assert result == [clicked]
+
+
+# Feature: person-comparison-and-merge, Property 51: Right-click selection rule
+# **Validates: Requirements 8.14, 8.15**
+@settings(
+    max_examples=40,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    rows=st.lists(st.integers(0, 3), unique=True, min_size=2, max_size=4),
+    pick=st.integers(0, 3),
+)
+def test_property_51_menu_ids_equal_ids_before_click(panel, shown_menus, rows, pick):
+    tree = panel._tree_widget
+    tree.clearSelection()
+    for r in rows:
+        tree.topLevelItem(r).setSelected(True)
+    before = tuple(
+        tree.topLevelItem(r).data(0, Qt.ItemDataRole.UserRole) for r in sorted(rows)
+    )
+    clicked = rows[pick % len(rows)]
+    pos = _right_press(tree, tree.topLevelItem(clicked))
+    panel._on_context_menu_requested(pos)
+    entries = _entries(shown_menus[-1])
+    assert entries[COMPARE].data()[1] == before
+    assert tuple(
+        sorted(i.data(0, Qt.ItemDataRole.UserRole) for i in tree.selectedItems())
+    ) == tuple(sorted(before))

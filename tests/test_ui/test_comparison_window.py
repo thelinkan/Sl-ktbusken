@@ -259,3 +259,30 @@ def test_sibling_ids_take_part_in_shared_markers(make_window):
             m.parentItem().person_id for m in view.markers() if isinstance(m, SharedPersonMarker)
         }
         assert {"person_7"} <= marked
+
+
+def test_sibling_shared_markers_cover_every_sibling_in_both_views(make_window):
+    # person_1 and person_3 are siblings, so both views draw all three children.
+    win = make_window("person_1", "person_3")
+    for view in win.family_views:
+        marked = {
+            m.parentItem().person_id for m in view.markers() if isinstance(m, SharedPersonMarker)
+        }
+        assert {"person_1", "person_3", "person_7"} <= marked
+
+
+def test_no_siblings_means_only_focal_person_in_sibling_row(make_window):
+    # person_2 is the only child of family_2 (first and only parent family).
+    win = make_window("person_2", None)
+    ids = win.family_views[0].visible_person_ids()
+    assert "person_2" in ids
+    assert not ids & {"person_1", "person_3", "person_7"}
+
+
+def test_half_sibling_is_not_drawn_in_sibling_row(make_window):
+    # person_2 shares only the father with person_1; siblings come from the
+    # first parent family, so the half-sibling is not drawn in either view.
+    win = make_window("person_1", None)
+    assert "person_2" not in win.family_views[0].visible_person_ids()
+    win = make_window("person_2", None)
+    assert "person_1" not in win.family_views[0].visible_person_ids()

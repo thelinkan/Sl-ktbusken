@@ -425,3 +425,110 @@ def test_property_37_candidate_redirect(cands):
             or (orig[cid].person_1_id == "A" or orig[cid].person_2_id == "A")
         ):
             assert _snapshot(c) == before[cid]
+
+
+# ---------------------------------------------------------------------------
+# Property 38: Candidate collision
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def _collision_scenarios(draw):
+    ids = draw(st.permutations(["mc_1", "mc_2", "mc_3", "mc_4"]))
+    e_id, r_id, noise_id, other_noise_id = ids
+    e_n = draw(st.integers(min_value=0, max_value=3))
+    r_n = draw(st.integers(min_value=0, max_value=3))
+    existing = _cand(
+        e_id,
+        *draw(st.sampled_from([("A", "C"), ("C", "A")])),
+        draw(st.sampled_from(CANDIDATE_ASSESSMENTS)),
+        draw(st.booleans()),
+        draw(st.sampled_from([None, "rc_1", "rc_2"])),
+        [(f"e{j}", f"2020-01-0{j + 1}", f"et{j}") for j in range(e_n)],
+    )
+    redirected = _cand(
+        r_id,
+        *draw(st.sampled_from([("B", "C"), ("C", "B")])),
+        draw(st.sampled_from(CANDIDATE_ASSESSMENTS)),
+        draw(st.booleans()),
+        draw(st.sampled_from([None, "rc_1", "rc_2"])),
+        [(f"r{j}", f"2021-01-0{j + 1}", f"rt{j}") for j in range(r_n)],
+    )
+    extras = [
+        _cand(noise_id, "D", "E", draw(st.sampled_from(CANDIDATE_ASSESSMENTS))),
+        _cand(other_noise_id, "A", "D", draw(st.sampled_from(CANDIDATE_ASSESSMENTS))),
+    ]
+    return draw(st.permutations([existing, redirected] + extras)), e_id, r_id
+
+
+@settings(max_examples=200, deadline=None)
+@given(_collision_scenarios())
+def test_property_38_candidate_collision(scenario):
+    """**Validates: Requirements 29.6, 29.7, 29.10, 29.13, 29.14, 29.15**"""
+    cands, e_id, r_id = scenario
+    orig = {c.id: c for c in cands}
+    before = {c.id: _snapshot(c) for c in cands}
+    e, r = orig[e_id], orig[r_id]
+    res = _run(cands)
+
+    # Input never modified; active + archived equal the original set.
+    assert {c.id: _snapshot(c) for c in cands} == before
+    active = {c.id: c for c in res.active}
+    archived = {a.id: a for a in res.archived}
+    assert set(active).isdisjoint(archived)
+    assert set(active) | set(archived) == set(before)
+
+    # Redirected candidate archived in full; existing keeps id.
+    assert res.collided == [r_id] and res.redirected == []
+    assert r_id in archived and r_id not in active
+    arch = archived[r_id]
+    assert arch.role == "collision"
+    assert (arch.assessment, arch.enabled, arch.research_case_id) == (
+        r.assessment, r.enabled, r.research_case_id)
+    assert [(x.id, x.date, x.text) for x in arch.comments] == before[r_id][6]
+    survivor = active[e_id]
+    assert {survivor.person_1_id, survivor.person_2_id} == {"A", "C"}
+
+    # enabled kept from existing; research case only when existing is empty.
+    assert survivor.enabled is e.enabled
+    assert survivor.research_case_id == (e.research_case_id or r.research_case_id)
+
+    # Assessment: equal effective assessments kept, otherwise unreviewed.
+    eff_r = "possible" if r.assessment == "confirmed" else r.assessment
+    equal = eff_r == e.assessment
+    assert survivor.assessment == (e.assessment if equal else "unreviewed")
+
+    # Comment order: existing, redirected, redirect comment, explanatory comment.
+    n_e, n_r = len(e.comments), len(r.comments)
+    texts = [(x.id, x.date, x.text) for x in survivor.comments]
+    assert texts[:n_e] == before[e_id][6]
+    assert texts[n_e:n_e + n_r] == before[r_id][6]
+    redirect = survivor.comments[n_e + n_r]
+    assert redirect.date == DATE
+    assert redirect.text == (
+        "Omdirigerad vid sammanslagning av B in i A. "
+        f"Ursprunglig bedömning: {assessment_label(r.assessment)}."
+    )
+    differs = (
+        not equal or e.enabled != r.enabled or e.research_case_id != r.research_case_id
+    )
+    assert len(survivor.comments) == n_e + n_r + 1 + (1 if differs else 0)
+    if not equal:
+        expl = survivor.comments[-1]
+        assert expl.date == DATE
+        assert expl.text.startswith("Sammanslagning av B in i A: bedömningarna ")
+        assert assessment_label(e.assessment) in expl.text
+        assert assessment_label(r.assessment) in expl.text
+        assert f"({e_id})" in expl.text and f"({r_id})" in expl.text
+        assert expl.text.count("Sammanslagning av") == 1
+    elif differs:
+        assert survivor.comments[-1].date == DATE
+        assert e_id in survivor.comments[-1].text and r_id in survivor.comments[-1].text
+
+    # Comment ids are unique.
+    ids = [x.id for x in survivor.comments]
+    assert len(ids) == len(set(ids))
+
+    # Unrelated candidates unchanged.
+    for cid in set(before) - {e_id, r_id}:
+        assert _snapshot(active[cid]) == before[cid]
