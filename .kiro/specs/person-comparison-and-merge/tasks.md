@@ -581,7 +581,7 @@ The design's remaining open questions are implemented with the design's stated d
 - [x] 12. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 13. Phase 7: Atomic merge engine and checksum-based recovery
+- [x] 13. Phase 7: Atomic merge engine and checksum-based recovery
   - [x] 13.1 Implement `CommitFs` abstraction and pre-flight checks
     - Create `services/commit/fs_ops.py` (`CommitFs` protocol, `RealFs` with fsync, Windows replace with retry) and `services/commit/preflight.py` (locked file, read-only file, disk space, existing lock file) returning the Swedish messages naming the file; a refusal changes nothing
     - _Requirements: 27.14, 27.20_
@@ -800,6 +800,69 @@ The design's remaining open questions are implemented with the design's stated d
   - Ensure all tests pass, ask the user if questions arise.
   - The feature counts as complete only when `python scripts/run_mandatory_tests.py` exits with 0 with zero skipped mandatory tests AND the full suite (`python -m pytest`) passes (Requirements 35.3, 35.4).
 
+- [ ] 20. Phase 10: Merge_History completion (added after audit; Requirement 36, design 15.12)
+  - [ ] 20.1 Add `summary_lines` to `MergeHistoryEntry` with validation and persistence
+    - In `model/merge_candidate.py` add `summary_lines: list[str] = field(default_factory=list)`; extend `validate_merge_history_entry` (every line is a string); confirm `serialization.py` writes and reads the field (absent key loads as `[]`, Swedish characters unchanged, entry order unchanged) and that a malformed value is kept as a load finding like other malformed entry fields; no version bump and no migration
+    - Update the synthetic project builder `tests/benchmarks/synthetic_project.py` and the Property 1 generator so that entries carry `summary_lines`; leave `tests/mandatory_groups.py` unchanged
+    - _Requirements: 36.1, 7.1, 7.4, 7.7_
+  - [ ] 20.2 Record the Merge_Summary when the plan creates the history entry
+    - In `services/merge_planner_candidates.py` (`history_entry`) and the planner steps that know the counts, fill `summary_lines` with Swedish lines (names, events, residences, source citations, media links, families, research links moved; number of user decisions for conflicting single-valued fields) from the confirmed plan; the lines are fixed when the plan is built and are not recomputed at execution
+    - Keep `merged_person_name` and `merged_person_lifespan` captured from `PersonSummaryIndex`; for a retired person without a name keep the stored name empty so that views show "Okänd person"; do not change the commit, the id generation or any Mandatory_Test_Group test
+    - _Requirements: 36.1, 28.1_
+  - [ ] 20.3 Implement the Qt-free history view model
+    - Create `services/merge_history_view.py` with frozen `HistoryRow` and `build_history_rows(data, person_id=None)`: newest first (descending `merge_date`, then descending id suffix), survivor resolved through `RedirectResolver` (`None` when unresolved), survivor name from `PersonSummaryIndex`, archived candidate summary (other person's name, assessment, comment count); with a person id use `RedirectResolver.merged_into` reversed
+    - Add the shared Swedish constants (`EMPTY_HISTORY_TEXT = "Inga sammanslagningar finns."`, `NO_SUMMARY_TEXT = "Ingen sammanfattning sparades."`, `UNRESOLVED_SURVIVOR_TEXT = "Behållen person kan inte fastställas."`, `NO_ARCHIVED_CANDIDATE_TEXT = "Ingen kandidat arkiverades."`); no `PySide6` import
+    - _Requirements: 36.2, 36.3, 36.4, 36.6, 36.8_
+  - [ ] 20.4 Implement retired-id lookup and search by retired id
+    - Create `services/person_lookup.py` with `resolve_person_request(data, person_id) -> LookupResult` (active id unchanged; retired id to the final survivor with the retired name; cycle or ambiguity gives no person)
+    - Extend `PersonSearchIndex` in `services/person_search.py` so that a query equal to a Retired_Person_ID (exact, case-insensitive) returns the survivor with the label "Sammanslagen med <namn> (<år–år>)"; ordinary results and ordering are unchanged when no retired id matches
+    - _Requirements: 36.13, 36.14, 28.2_
+  - [ ] 20.5 Implement `MergeHistoryWindow`
+    - Create `ui/merge/merge_history_window.py`: non-modal window "Sammanslagningshistorik" with the table (merged person name, lifespan, id, date, behållen person, sammanfattning), the details pane with archived candidates, the empty-state label, the button "Gå till behållen person" (disabled for an unresolved survivor), a 500 ms refresh from the `merge_changed` signal that keeps the selected entry, and `open_merge_history_window(project_service, person_id, parent)` that reuses one window per scope
+    - Navigation calls the merge gateway (new method `show_person(person_id)` added to `MergeGateway` in `ui/merge/merge_gateway.py`, implemented by `Application` in 20.6); without a gateway the button does nothing
+    - _Requirements: 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9_
+  - [ ] 20.6 Wire `Application.open_history`, navigation, the success box and retired-id redirects
+    - In `app.py` import `MergeHistoryWindow` directly in `open_history` (remove the `ImportError` status-bar fallback; keep a message only when no project is open); implement `show_person(person_id)` (select in the person list and call `open_person_editor`); keep the "Visa sammanslagningshistorik" button of `ask_show_history` and make it open the window for the survivor
+    - Call `resolve_person_request` in `open_person_editor`, `open_comparison` and `open_candidate` before acting; show "Personen <id> slogs samman med <namn>." in the status bar for a redirect and a message naming the id (opening nothing) when no person resolves
+    - _Requirements: 36.7, 36.11, 36.12, 36.14, 20.12_
+  - [ ] 20.7 Add the Merge_History block to the Person_Editor section
+    - In `ui/merge/candidate_section.py` add a `MergeHistoryBlock` below the candidate list showing "Sammanslagningshistorik" rows (name, lifespan, date) from `build_history_rows`, the empty state "Inga sammanslagningar finns." and the button "Visa sammanslagningshistorik" that calls `gateway.open_history(person_id)`; refresh from `merge_changed` together with the candidate list; hidden or disabled together with the section for an unsaved person
+    - _Requirements: 36.10, 28.9, 28.10, 16.11, 16.12_
+  - [ ] 20.8 Add the person list context menu entry and the main menu item
+    - Add `SHOW_HISTORY_ACTION` to `ui/context_menu_builder.py`, add "Visa sammanslagningshistorik" to the person list context menu in `ui/person_list_panel.py` (enabled only when `CandidateIndex.relations(person_id).has_history`) and route it to `gateway.open_history`; add the main menu action "&Sammanslagningshistorik" next to `action_research_candidates` in `ui/main_window.py` calling `Application.open_history()` without a person id
+    - _Requirements: 36.11, 8.1_
+  - [ ] 20.9 Add history buttons to the Candidate_Register and the comparison window
+    - Add the toolbar button "Sammanslagningshistorik" to `ui/merge/candidate_register_window.py` (opens the window for the person the register is filtered to, otherwise for all entries) and the slot button "Sammanslagningshistorik" to `ui/merge/person_comparison_window.py`, visible only while the person in that slot has at least one entry
+    - _Requirements: 36.11, 36.15_
+  - [ ] 20.10 Write property test for history rows
+    - **Property 52: History rows equal the stored entries**
+    - Create `tests/properties/test_property_52_history_rows.py` with the tag `# Feature: person-comparison-and-merge, Property 52: History rows equal the stored entries`; at least 100 examples; include chains of merges, equal dates and unresolvable entries
+    - **Validates: Requirements 36.2, 36.3, 36.4, 36.16**
+    - _Requirements: 36.2, 36.3, 36.4, 36.16_
+  - [ ] 20.11 Write property test for the Merge_Summary
+    - **Property 53: Merge summary is a snapshot of the plan and round-trips**
+    - Create `tests/properties/test_property_53_merge_summary.py` with the tag `# Feature: person-comparison-and-merge, Property 53: Merge summary is a snapshot of the plan and round-trips`; counts in `summary_lines` equal the plan's change counts; serialise, deserialise and serialise gives equal entries including Swedish characters
+    - **Validates: Requirements 36.1**
+    - _Requirements: 36.1_
+  - [ ] 20.12 Write property test for retired-id lookup
+    - **Property 54: Retired ids are redirected**
+    - Create `tests/properties/test_property_54_retired_lookup.py` with the tag `# Feature: person-comparison-and-merge, Property 54: Retired ids are redirected`; acyclic histories, cycles, ambiguous ids and active ids; the search index returns the survivor with the label for a retired id
+    - **Validates: Requirements 36.13, 36.14**
+    - _Requirements: 36.13, 36.14_
+  - [ ] 20.13 Write regression tests for the content of engine-written history entries
+    - Create `tests/test_services/test_merge_history_content.py`: execute a merge (fake persistence as in the engine tests) and assert that the written entry has the retired person's name and lifespan (`1829–1890`, `(1829)`, `(–1890)`, empty), the local ISO date, the survivor id, the direct candidate id and archived candidate, the identity mappings and a non-empty `summary_lines` whose counts match the preview; a retired person without a name and a second merge into the same survivor (two entries, newest first in the view rows); entries are unchanged after a later merge of the survivor
+    - _Requirements: 28.1, 28.5, 28.6, 36.1, 36.2, 36.3_
+  - [ ] 20.14 Write widget tests for `MergeHistoryWindow`
+    - Create `tests/test_ui/test_merge_history_window.py` (`pytest-qt`, offscreen): newest first order; columns and values; survivor name and id; summary lines and "Ingen sammanfattning sparades."; empty state "Inga sammanslagningar finns."; unresolved survivor text and disabled navigation; archived candidates in the details pane and "Ingen kandidat arkiverades."; "Gå till behållen person" calls the gateway with the resolved survivor; refresh within 500 ms on `merge_changed` keeps the selection; the window for a person lists only that person's entries and the window without a person lists all
+    - _Requirements: 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9_
+  - [ ] 20.15 Write widget tests for all history entry points
+    - Create `tests/test_ui/test_merge_history_entry_points.py`: editor block rows, empty state and button; person list context menu entry enabled only with history; grey person-list indicator and diagram box click open the window (no status-bar fallback message); main menu item; register button with and without a person filter; comparison slot button visibility; the success box button "Visa sammanslagningshistorik" opens the window for the survivor; `Application.open_history` never shows "Sammanslagningshistoriken är inte tillgänglig."; open by a retired id redirects with "Personen <id> slogs samman med <namn>." and an unresolved id opens nothing
+    - _Requirements: 36.10, 36.11, 36.12, 36.14, 36.15, 28.9, 28.10_
+  - [ ] 20.16 Write the end-to-end history test
+    - Create `tests/test_ui/test_merge_history_end_to_end.py`: build a project with two persons and a candidate, run the wizard execution with the real engine on a temporary project file, accept the success box button, and assert that the window shows the entry with name, lifespan, id, date, survivor and summary; save, reopen and assert the same rows; search for the retired id and assert that the survivor is returned
+    - _Requirements: 36.1, 36.3, 36.11, 36.13, 28.11_
+- [ ] 21. Checkpoint - Merge_History completion
+  - Run the full suite (`python -m pytest`) and `python scripts/run_mandatory_tests.py`; both must exit with 0 with zero skipped mandatory tests and the Mandatory_Test_Group registry unchanged; ask the user if questions arise.
 ## Notes
 
 - There are no optional tasks: every task, including every test task, is required for the feature to count as complete; no task carries an optional marker
@@ -834,7 +897,12 @@ The design's remaining open questions are implemented with the design's stated d
     { "id": 9, "tasks": ["7.16", "7.19", "11.13", "11.16", "11.17", "11.18", "13.6", "13.8", "13.10", "13.11", "13.18", "13.19", "13.24", "15.1", "15.2"] },
     { "id": 10, "tasks": ["7.20", "11.10", "11.14", "11.19", "13.7", "13.9", "13.12", "13.13", "13.15", "13.20", "13.21", "13.22", "15.6"] },
     { "id": 11, "tasks": ["11.20", "13.14", "13.17", "13.23", "15.3", "15.4"] },
-    { "id": 12, "tasks": ["15.5", "17.3", "17.4", "17.6"] }
+    { "id": 12, "tasks": ["15.5", "17.3", "17.4", "17.6"] },
+    { "id": 13, "tasks": ["20.1", "20.4"] },
+    { "id": 14, "tasks": ["20.2", "20.3", "20.12"] },
+    { "id": 15, "tasks": ["20.5", "20.10", "20.11", "20.13"] },
+    { "id": 16, "tasks": ["20.6", "20.7", "20.8", "20.9", "20.14"] },
+    { "id": 17, "tasks": ["20.15", "20.16"] }
   ]
 }
 ```
