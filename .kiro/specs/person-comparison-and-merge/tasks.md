@@ -800,7 +800,7 @@ The design's remaining open questions are implemented with the design's stated d
   - Ensure all tests pass, ask the user if questions arise.
   - The feature counts as complete only when `python scripts/run_mandatory_tests.py` exits with 0 with zero skipped mandatory tests AND the full suite (`python -m pytest`) passes (Requirements 35.3, 35.4).
 
-- [ ] 20. Phase 10: Merge_History completion (added after audit; Requirement 36, design 15.12)
+- [x] 20. Phase 10: Merge_History completion (added after audit; Requirement 36, design 15.12)
   - [x] 20.1 Add `summary_lines` to `MergeHistoryEntry` with validation and persistence
     - In `model/merge_candidate.py` add `summary_lines: list[str] = field(default_factory=list)`; extend `validate_merge_history_entry` (every line is a string); confirm `serialization.py` writes and reads the field (absent key loads as `[]`, Swedish characters unchanged, entry order unchanged) and that a malformed value is kept as a load finding like other malformed entry fields; no version bump and no migration
     - Update the synthetic project builder `tests/benchmarks/synthetic_project.py` and the Property 1 generator so that entries carry `summary_lines`; leave `tests/mandatory_groups.py` unchanged
@@ -855,13 +855,13 @@ The design's remaining open questions are implemented with the design's stated d
   - [x] 20.14 Write widget tests for `MergeHistoryWindow`
     - Create `tests/test_ui/test_merge_history_window.py` (`pytest-qt`, offscreen): newest first order; columns and values; survivor name and id; summary lines and "Ingen sammanfattning sparades."; empty state "Inga sammanslagningar finns."; unresolved survivor text and disabled navigation; archived candidates in the details pane and "Ingen kandidat arkiverades."; "Gå till behållen person" calls the gateway with the resolved survivor; refresh within 500 ms on `merge_changed` keeps the selection; the window for a person lists only that person's entries and the window without a person lists all
     - _Requirements: 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9_
-  - [~] 20.15 Write widget tests for all history entry points
+  - [x] 20.15 Write widget tests for all history entry points
     - Create `tests/test_ui/test_merge_history_entry_points.py`: editor block rows, empty state and button; person list context menu entry enabled only with history; grey person-list indicator and diagram box click open the window (no status-bar fallback message); main menu item; register button with and without a person filter; comparison slot button visibility; the success box button "Visa sammanslagningshistorik" opens the window for the survivor; `Application.open_history` never shows "Sammanslagningshistoriken är inte tillgänglig."; open by a retired id redirects with "Personen <id> slogs samman med <namn>." and an unresolved id opens nothing
     - _Requirements: 36.10, 36.11, 36.12, 36.14, 36.15, 28.9, 28.10_
-  - [~] 20.16 Write the end-to-end history test
+  - [x] 20.16 Write the end-to-end history test
     - Create `tests/test_ui/test_merge_history_end_to_end.py`: build a project with two persons and a candidate, run the wizard execution with the real engine on a temporary project file, accept the success box button, and assert that the window shows the entry with name, lifespan, id, date, survivor and summary; save, reopen and assert the same rows; search for the retired id and assert that the survivor is returned
     - _Requirements: 36.1, 36.3, 36.11, 36.13, 28.11_
-- [~] 21. Checkpoint - Merge_History completion
+- [x] 21. Checkpoint - Merge_History completion
   - Run the full suite (`python -m pytest`) and `python scripts/run_mandatory_tests.py`; both must exit with 0 with zero skipped mandatory tests and the Mandatory_Test_Group registry unchanged; ask the user if questions arise.
 ## Notes
 
