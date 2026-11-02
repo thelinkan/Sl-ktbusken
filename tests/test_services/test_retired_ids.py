@@ -156,8 +156,9 @@ _op = st.one_of(
 )
 
 
+# Feature: person-comparison-and-merge, Property 3:
 @settings(
-    max_examples=15,
+    max_examples=100,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
 )

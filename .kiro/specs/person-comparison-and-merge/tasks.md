@@ -70,7 +70,7 @@ The design's remaining open questions are implemented with the design's stated d
     - A mandatory module imports PySide6, the GEDCOM modules and Hypothesis unconditionally (collection error, never a skip)
     - _Requirements: 35.1, 35.2, 35.3, 35.5, 35.6_
 
-- [~] 2. Checkpoint - Ensure all tests pass
+- [ ] 2. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 3. Phase 2: Candidate model, persistence and version 0.4
@@ -163,7 +163,7 @@ The design's remaining open questions are implemented with the design's stated d
     - The Recovery_Point side (with and without `persons.json`) is covered by the crash matrix in 13.13
     - _Requirements: 7.8, 7.9, 7.10_
 
-- [~] 4. Checkpoint - Ensure all tests pass
+- [ ] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 5. Phase 3: Candidate register, saved state and research integration
@@ -272,7 +272,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Registry order, weak references, `unsaved_editors()` with a counting `FakeEditor`; a completeness test enumerates the `QWidget` subclasses in `slaktbusken/ui/editors` and fails for any class that is neither registered nor exempted with a documented reason
     - _Requirements: 26.14, 27.23_
 
-- [~] 6. Checkpoint - Ensure all tests pass
+- [ ] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 7. Phase 4: Comparison window
@@ -382,7 +382,7 @@ The design's remaining open questions are implemented with the design's stated d
     - (1) A plain click selects one row and `person_selected` and the current person are set as before this feature; (2) Ctrl-click adds a second row and Ctrl-click on a selected row removes it; (3) Shift-click selects the contiguous range from the anchor; (4) with two rows selected the context menu enables "Jämför personer..." and "Markera som sammanslagningskandidater", with one row only the first, with three rows or none neither; (5) right-click on a row inside a two-person selection leaves `selectedItems()` unchanged and opens the menu with both ids; (6) right-click on a row outside the selection selects only that row and opens the menu with that id; (7) right-click on empty space opens a menu with both entries disabled; (8) a Ctrl-click that changes the current item still navigates to that person
     - _Requirements: 8.4, 8.5, 8.6, 8.12, 8.13, 8.14, 8.15, 8.16_
 
-- [~] 8. Checkpoint - Ensure all tests pass
+- [ ] 8. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - Includes `tests/test_ui/test_person_list_selection.py` (Property 51 and the Req 8.16 regression tests) and the existing person-list tests, unmodified.
 
@@ -460,7 +460,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Banner shows name and id; "Visa alla" restores the unfiltered tables and the previous status choice; a deleted person shows the empty state; a research change keeps the filter; a click on the research glyph in the person list and on a diagram box calls the gateway with `person_filter`; a click on the candidate glyph does not; each existing caller opens an unfiltered overview with no banner and the same rows and widget state as before
     - _Requirements: 17.8, 17.15, 17.16, 18.14_
 
-- [~] 10. Checkpoint - Ensure all tests pass
+- [ ] 10. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 11. Phase 6: Merge planning and review
@@ -578,7 +578,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Every case also asserts, through the planner of 11.2, that both events are present with unchanged ids and that the warning is non-blocking
     - _Requirements: 21.14, 21.15_
 
-- [~] 12. Checkpoint - Ensure all tests pass
+- [ ] 12. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 13. Phase 7: Atomic merge engine and checksum-based recovery
@@ -716,10 +716,10 @@ The design's remaining open questions are implemented with the design's stated d
     - A refusal changes nothing in memory or on disk, leaves the dirty flag and `revision` unchanged, and calls no save, commit, discard or resolution method of anything
     - _Requirements: 26.14, 27.22, 27.23_
 
-- [~] 14. Checkpoint - Ensure all tests pass
+- [ ] 14. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 15. Phase 8: GEDCOM and consistency integration
+- [x] 15. Phase 8: GEDCOM and consistency integration
   - [x] 15.1 Add alias resolution and the retired-id guard to the importer
     - In `GEDCOMImporter._process_persons`, resolve aliases before `classify_persons` by xref and fingerprint; never create a person with a retired id (including in `_update_person`); list matched merged-identity records with differing fields while leaving the survivor unchanged; flag a record resolving to more than one active person without assigning it; add `merged_identity_matches` and `ambiguous_records` to the import result; drop a second partner that resolves to the same person with the warning "Båda partnerna i familjen <xref> pekar på samma person."
     - Do not change the existing overwrite of names, notes, title and occupation by an update import (temporary limitation, warned in 11.18; the fix is TRK-1, see 17.7)
@@ -741,7 +741,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Include the seven regression steps in the design (identical re-import, edited variant with renumbered xrefs, husband-and-wife variant, negative test without alias)
     - _Requirements: 30.4, 30.5, 30.6, 30.7, 30.8, 30.11, 35.1_
 
-  - [~] 15.5 Write property test for consistency report findings
+  - [x] 15.5 Write property test for consistency report findings
     - **Property 44: Consistency report findings**
     - **Validates: Requirements 5.8, 6.7, 31.2, 31.3, 31.4, 31.5**
     - Module `tests/test_reports/test_merge_consistency.py`
@@ -751,10 +751,10 @@ The design's remaining open questions are implemented with the design's stated d
     - Export contains every active person and not the Merged_Away_Person
     - _Requirements: 30.12_
 
-- [~] 16. Checkpoint - Ensure all tests pass
+- [ ] 16. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 17. Phase 9: Regression, performance and mandatory-test enforcement
+- [x] 17. Phase 9: Regression, performance and mandatory-test enforcement
   - [x] 17.1 Implement the deterministic synthetic benchmark generator
     - Create `tests/benchmarks/synthetic_project.py`: seeded generator for 20,000 persons and 2,000 candidates with generations, multiple partnerships, shared ancestors, all four parentage types and the stated candidate mix; identical output for the same seed
     - _Requirements: 32.9_
@@ -764,12 +764,12 @@ The design's remaining open questions are implemented with the design's stated d
     - **Validates: Requirements 32.9**
     - Module `tests/properties/test_property_46_benchmark_determinism.py`
 
-  - [~] 17.3 Write performance benchmarks with documented environment
+  - [x] 17.3 Write performance benchmarks with documented environment
     - Create `tests/benchmarks/test_merge_performance.py` (`@pytest.mark.slow`, offscreen Qt): candidate index below 1 s and comparison family views below 2 s at 20,000 persons and 2,000 candidates; 3 warm-up runs and 30, 10 and 5 measured runs; gate on the maximum; record median and p95; record the design targets (index under 50 ms, comparison refresh under 600 ms, list indicators under 20 ms extra) without gating them; plan build time with a 10 s regression guard
     - Write `ENVIRONMENT.md` and `benchmark-results.json` per run (CPU, RAM, OS, Python and PySide6 versions, power plan, run counts, statistic used); a failing gate prints the measured duration and the limit and does not modify the project
     - _Requirements: 32.3, 32.4, 32.8, 32.10, 32.11_
 
-  - [~] 17.4 Run and extend the regression and convention tests
+  - [x] 17.4 Run and extend the regression and convention tests
     - Re-run the existing suite unmodified, including research indicator settings, person list enhancements, family, ancestry and descendants view tests, GEDCOM tests and foster sync tests; compare serialisations only through `assert_equal_except_version_fields`
     - Add the subprocess import test that loads each new service and commit module with `PySide6` blocked, and static tests for the scope limits (no scoring, proposing or automatic assessment functions)
     - _Requirements: 32.1, 32.2, 33.1, 33.2, 33.3, 33.4, 33.9, 34.5, 34.6_
@@ -780,7 +780,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `tests/MANDATORY_TESTS.md`, add the command to the testing section of `README.md`, and add a CI workflow step under `.github/workflows` that runs the script in addition to the full suite (`python -m pytest`)
     - _Requirements: 35.3, 35.4, 35.5_
 
-  - [~] 17.6 Write the mandatory-groups guard test
+  - [x] 17.6 Write the mandatory-groups guard test
     - Create `tests/test_meta/test_mandatory_groups_guard.py` (itself mandatory; the only module outside the six groups that the runner includes), static and fast: parse every module of `MANDATORY_GROUPS` plus `test_merge_persistence.py`, `test_merge_candidate_service.py` and `test_merge_order.py` with `ast` and fail on `pytest.mark.skip`, `skipif`, `xfail`, `slow`, `optional`, `pytest.skip`, `pytest.xfail`, `pytest.importorskip`, `unittest.skip`, `skipIf`, `skipUnless` (also inside `parametrize(..., marks=...)`) and on a missing `pytestmark`; fail when a `required_tests` name is not defined in its module; fail on `@settings(max_examples=N)` with `N < 100` or `derandomize=True` in a mandatory module and when a mandatory property number has no test tagged `# Feature: person-comparison-and-merge, Property N:`
     - Scan `pytest.ini`, `pyproject.toml`, `setup.cfg`, `tox.ini` and every `conftest.py` for `addopts` with `-m`, `-k`, `--deselect` or `--ignore`, for `collect_ignore` / `collect_ignore_glob` naming a mandatory module, and for a missing `mandatory_integrity` marker registration; run `python -m pytest --collect-only -q -p no:cacheprovider` in a subprocess and require every required test in the output; check that a CI workflow calls `scripts/run_mandatory_tests.py` when `.github/workflows` exists
     - Windows-only preflight tests: `test_windows_only_skipif_condition` parses `test_commit_preflight.py` with `ast` and requires that every `skipif` in it uses exactly the condition `sys.platform != "win32"` and sits on a test marked `windows_only`; `test_windows_only_tests_run_on_windows` (effective only when `sys.platform == "win32"`, otherwise it asserts the static part only) collects the module in a subprocess and fails when a `windows_only` test is reported skipped
@@ -793,10 +793,10 @@ The design's remaining open questions are implemented with the design's stated d
     - This task only records the item. Implementing TRK-1 (baseline snapshots, three-way comparison, review dialog) is NOT part of this feature and has no task here
     - _Requirements: 30.14, 33.10_
 
-- [~] 18. Checkpoint - Mandatory run with zero skipped
+- [ ] 18. Checkpoint - Mandatory run with zero skipped
   - Run `python scripts/run_mandatory_tests.py` and require exit code 0, every one of the six Mandatory_Test_Groups non-empty with all required tests present and passed, and zero skipped, xfail-ed, deselected or missing tests; on Windows also require that no `windows_only` preflight test was skipped; ask the user if questions arise.
 
-- [~] 19. Final checkpoint - Ensure all tests pass
+- [ ] 19. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - The feature counts as complete only when `python scripts/run_mandatory_tests.py` exits with 0 with zero skipped mandatory tests AND the full suite (`python -m pytest`) passes (Requirements 35.3, 35.4).
 

@@ -6,6 +6,7 @@ projects in either order; unmerged relatives stay separate and attached.
 
 from __future__ import annotations
 
+import pytest
 from hypothesis import assume, given, settings, strategies as st
 
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
@@ -13,6 +14,8 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.services import merge_planner as mp
 from slaktbusken.services.merge_planner import MergeDecisions, build_plan
+
+pytestmark = pytest.mark.mandatory_integrity
 
 # Generations: parents (x*) -> merge candidates (p1..p4) -> children (y*).
 PARENTS = ["x0", "x1", "x2"]
@@ -93,7 +96,7 @@ def _canonical(data: ProjectData):
     return persons, families, links
 
 
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=100, deadline=None)
 @given(projects())
 def test_property_36_independent_merges_commute(data):
     """**Validates: Requirements 25.1, 25.2, 25.3, 25.4**"""

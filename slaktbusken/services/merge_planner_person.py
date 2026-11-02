@@ -267,8 +267,13 @@ def plan_events(ctx: PlanContext) -> None:
     first, second = ctx.decisions.first_person_id, ctx.decisions.second_person_id
     by_id = {e.id: e for e in ctx.data.events}
 
+    # Participant ids of every event, computed once.
+    participant_ids = {
+        e.id: {p.person_id for p in e.participants} for e in ctx.data.events
+    }
+
     def has(event: Event, pid: str) -> bool:
-        return any(p.person_id == pid for p in event.participants)
+        return pid in participant_ids[event.id]
 
     for event in ctx.data.events:
         if not (has(event, s_id) or has(event, r_id)):

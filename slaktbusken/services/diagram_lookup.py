@@ -47,11 +47,22 @@ class DiagramLookup:
 
         # Only birth, death and marriage events, in project order.
         self.events_by_person: dict[str, list[Any]] = {}
+        by_person = self.events_by_person
+        box_types = _BOX_EVENT_TYPES
         for event in data.events:
-            if event.type not in _BOX_EVENT_TYPES:
+            if event.type not in box_types:
                 continue
-            for person_id in dict.fromkeys(p.person_id for p in event.participants):
-                self.events_by_person.setdefault(person_id, []).append(event)
+            participants = event.participants
+            if len(participants) == 1:
+                person_ids: Any = (participants[0].person_id,)
+            else:
+                person_ids = dict.fromkeys([p.person_id for p in participants])
+            for person_id in person_ids:
+                bucket = by_person.get(person_id)
+                if bucket is None:
+                    by_person[person_id] = [event]
+                else:
+                    bucket.append(event)
 
         self.dna_company_ids_by_person: dict[str, set[str]] = {}
         for profile in data.dna_profiles:

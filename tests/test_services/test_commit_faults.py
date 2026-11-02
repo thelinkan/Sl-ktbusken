@@ -496,6 +496,7 @@ def test_reordering_rows_of_table_c(templates: dict[bool, Path], tmp_path: Path,
     _assert_restart(case, observed, journal_present=True)
 
 
+# Feature: person-comparison-and-merge, Property 40:
 def test_property_40_crash_atomicity() -> None:
     """**Validates: Requirements 7.12, 27.16, 27.17, 27.18, 27.19, 30.9**"""
     with tempfile.TemporaryDirectory() as tmp:
@@ -507,7 +508,7 @@ def test_property_40_crash_atomicity() -> None:
 
         counter = [0]
 
-        @settings(max_examples=60, deadline=None)
+        @settings(max_examples=100, deadline=None)
         @given(
             with_persons=st.booleans(),
             kind=st.sampled_from((*FAULT_KINDS, "power_loss")),
@@ -684,6 +685,7 @@ def test_crash_during_recovery_converges(
     assert disturbed_runs > 20
 
 
+# Feature: person-comparison-and-merge, Property 41:
 def test_property_41_recovery_deterministic() -> None:
     """**Validates: Requirements 27.16, 27.17, 27.21**
 
@@ -698,7 +700,7 @@ def test_property_41_recovery_deterministic() -> None:
         totals = {flag: _dry_run(templates_, flag).op_count for flag in (True, False)}
         counter = [0]
 
-        @settings(max_examples=60, deadline=None)
+        @settings(max_examples=100, deadline=None)
         @given(
             with_persons=st.booleans(),
             kind=st.sampled_from((*FAULT_KINDS, "power_loss")),

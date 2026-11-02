@@ -358,7 +358,8 @@ def test_clean_state_merge_commits_plan_applied_to_saved_state(tmp_path: Path) -
     assert editors[0].saves == editors[0].discards == editors[0].resolutions == 0
 
 
-@settings(max_examples=25, deadline=None)
+# Feature: person-comparison-and-merge, Property 47:
+@settings(max_examples=100, deadline=None)
 @given(
     dirty=st.booleans(),
     stray_content_change=st.booleans(),
@@ -514,7 +515,7 @@ def test_content_change_between_plan_and_execution_is_stale_and_rebuilt(
     assert MergeEngine(svc, None).execute(fresh).success
 
 
-@settings(max_examples=15, deadline=None)
+@settings(max_examples=100, deadline=None)
 @given(
     outcome_kind=st.sampled_from(["success", "failure", "rolled_back"]),
     save_first=st.booleans(),

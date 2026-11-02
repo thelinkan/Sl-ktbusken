@@ -310,6 +310,7 @@ def _oracle(data):
     return codes
 
 
+# Feature: person-comparison-and-merge, Property 32:
 @settings(settings.get_profile("sbk"))
 @given(_family_graphs())
 def test_property_32_cycle_and_self_relationship(data):
@@ -355,6 +356,7 @@ def _equivalent_family_projects(draw):
     return ProjectData(persons=persons, families=families)
 
 
+# Feature: person-comparison-and-merge, Property 33:
 @settings(settings.get_profile("sbk"))
 @given(_equivalent_family_projects())
 def test_property_33_families_stay_separate(data):
@@ -430,6 +432,7 @@ def _two_parent_projects(draw):
     return ProjectData(persons=persons, families=families), kids_1, kids_2
 
 
+# Feature: person-comparison-and-merge, Property 34:
 @settings(settings.get_profile("sbk"))
 @given(_two_parent_projects())
 def test_property_34_relatives_stay_distinct(case):
@@ -569,6 +572,7 @@ def _independent_sync_result(data):
     return work
 
 
+# Feature: person-comparison-and-merge, Property 35:
 @settings(settings.get_profile("sbk"))
 @given(_placement_projects())
 def test_property_35_plan_equals_synchronised_result(data):

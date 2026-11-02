@@ -204,15 +204,42 @@ def diagram_candidate_state(person_id: str) -> Optional[dict]:
         return None
     kind = "candidates" if index.relations(person_id).candidates else "history"
 
-    def tooltip() -> list[str]:
+    return {
+        "colour": colour,
+        "kind": kind,
+        "tooltip": CandidateTooltip(index, person_id),
+    }
+
+
+class CandidateTooltip:
+    """Lazy, comparable builder of a person's candidate tooltip lines.
+
+    Two instances are equal when they describe the same person in the same
+    render's candidate index, so display data built by different views compares
+    equal.
+    """
+
+    __slots__ = ("_index", "_person_id")
+
+    def __init__(self, index, person_id: str) -> None:
+        self._index = index
+        self._person_id = person_id
+
+    def __call__(self) -> list[str]:
         global _diagram_summaries
         if _diagram_summaries is None:
             from slaktbusken.services.person_summary import PersonSummaryIndex
 
             _diagram_summaries = PersonSummaryIndex.build(_diagram_data)
-        return index.tooltip_lines(person_id, _diagram_summaries)
+        return self._index.tooltip_lines(self._person_id, _diagram_summaries)
 
-    return {"colour": colour, "kind": kind, "tooltip": tooltip}
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, CandidateTooltip):
+            return NotImplemented
+        return self._index is other._index and self._person_id == other._person_id
+
+    def __hash__(self) -> int:
+        return hash((id(self._index), self._person_id))
 
 
 class ResearchMarkerDelegate(QStyledItemDelegate):

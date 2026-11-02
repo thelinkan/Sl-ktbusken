@@ -287,20 +287,100 @@ class InformationLedger:
         }
 
 
+def _hint_may_reach(hint: Any, cls: type, memo: dict, seen: set) -> bool:
+    """Conservative: can a value typed *hint* contain an instance of *cls*?"""
+    import typing
+
+    if hint is cls or hint is Any or hint is object:
+        return True
+    if isinstance(hint, (str, typing.ForwardRef, typing.TypeVar)):
+        return True
+    origin = typing.get_origin(hint)
+    if origin is not None:
+        if origin in (dict, set, frozenset):
+            return False  # never traversed
+        return any(_hint_may_reach(a, cls, memo, seen) for a in typing.get_args(hint)
+                   if a is not Ellipsis)
+    if isinstance(hint, type):
+        if issubclass(hint, cls) or issubclass(cls, hint):
+            return True
+        if hint in (str, int, float, bool, bytes, type(None), dict, set, frozenset, Enum):
+            return False
+        if is_dataclass(hint):
+            return _type_may_reach(hint, cls, memo, seen)
+        return issubclass(hint, (list, tuple))
+    return hint is not type(None)
+
+
+def _type_may_reach(t: type, cls: type, memo: dict, seen: set) -> bool:
+    if t in memo:
+        return memo[t]
+    if t in seen:
+        return False  # cycle: decided by the other members
+    seen.add(t)
+    try:
+        if t.__subclasses__():
+            result = True
+        else:
+            try:
+                import typing
+                hints = typing.get_type_hints(t)
+            except Exception:
+                hints = None
+            result = hints is None or any(
+                _hint_may_reach(hints.get(f.name, Any), cls, memo, seen) for f in fields(t)
+            )
+    finally:
+        seen.discard(t)
+    memo[t] = result
+    return result
+
+
+_UNSET: Any = object()
+
+
 def _count_instances(obj: Any, cls: type) -> int:
     """Number of *cls* instances reachable through dataclass fields and lists."""
-    if isinstance(obj, cls):
-        total = 1
-    else:
-        total = 0
-    if is_dataclass(obj) and not isinstance(obj, type):
-        for f in fields(obj):
-            total += _count_instances(getattr(obj, f.name), cls)
-    elif isinstance(obj, (list, tuple)):
-        for x in obj:
-            total += _count_instances(x, cls)
+    total = 0
+    reach_memo: dict[type, bool] = {}
+    field_names: dict[type, tuple[str, ...] | None] = {}
+    leaves = (str, int, float, bool, bytes, type(None), dict, set, frozenset)
+    stack = [obj]
+    pop, push = stack.pop, stack.append
+    while stack:
+        item = pop()
+        t = type(item)
+        if t in leaves:
+            if isinstance(item, cls):
+                total += 1
+            continue
+        if isinstance(item, cls):
+            total += 1
+        if t is list or t is tuple:
+            stack.extend(item)
+            continue
+        names = field_names.get(t, _UNSET)
+        if names is _UNSET:
+            if is_dataclass(item) and not isinstance(item, type):
+                try:
+                    import typing
+                    hints = typing.get_type_hints(t)
+                except Exception:
+                    hints = None
+                names = tuple(
+                    f.name for f in fields(item)
+                    if hints is None
+                    or _hint_may_reach(hints.get(f.name, Any), cls, reach_memo, set())
+                )
+            else:
+                names = None
+            field_names[t] = names
+        if names:
+            for name in names:
+                push(getattr(item, name))
+        elif names is None and isinstance(item, (list, tuple)):
+            stack.extend(item)
     return total
-
 
 def compute_ledger(data: ProjectData) -> InformationLedger:
     """Count the information-bearing records of *data* (read-only)."""
@@ -680,6 +760,8 @@ class PlanContext:
     candidate_ops: CandidateOps = CandidateOps()
     identity_ops: IdentityOps = IdentityOps()
     sync_view: Optional[ProjectData] = None
+    #: Source reference count of ``data`` when already known (the ledger counted it).
+    source_ref_count: Optional[int] = None
     #: Scratch space a step may use to hand data to a later step (for example
     #: the intended links of "families" to "reconcile").
     state: dict[str, Any] = field(default_factory=dict)
@@ -803,6 +885,7 @@ def build_plan(
     ctx = PlanContext(
         data=data, translation=translation, decisions=decisions,
         survivor_id=survivor, retired_id=retired, index=index, work=WorkingCopy(data),
+        source_ref_count=ledger_before["source_refs"],
     )
     try:
         for slot in PIPELINE_SLOTS[: PIPELINE_SLOTS.index("reconcile")]:

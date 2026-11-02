@@ -41,6 +41,7 @@ def _pc_links(draw):
     )
 
 
+# Feature: person-comparison-and-merge, Property 30:
 @given(
     st.lists(_links(), max_size=12),
     st.lists(_PERSON_IDS, max_size=12),
@@ -161,6 +162,7 @@ def _attr_person(pid, sex, title, occupation, media):
     )
 
 
+# Feature: person-comparison-and-merge, Property 25:
 @given(
     st.tuples(_SEX, _TEXT, _TEXT, _MEDIA),
     st.tuples(_SEX, _TEXT, _TEXT, _MEDIA),
@@ -464,6 +466,7 @@ def _p29_projects(draw):
     return data, translation
 
 
+# Feature: person-comparison-and-merge, Property 29:
 @given(_p29_projects())
 def test_property_29_no_stale_reference(project):
     """**Validates: Requirements 1.4, 22.2, 22.6, 22.13, 22.14, 27.4, 28.2, 29.12, 30.12**"""
@@ -558,6 +561,7 @@ def _p31_independent_counts(data: ProjectData) -> dict[str, int]:
     }
 
 
+# Feature: person-comparison-and-merge, Property 31:
 @given(_p29_projects())
 def test_property_31_information_never_lost(project):
     """**Validates: Requirements 21.11, 21.15, 21.16, 22.1, 22.7, 22.10, 23.8, 32.6**"""

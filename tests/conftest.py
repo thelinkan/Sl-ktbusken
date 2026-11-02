@@ -95,12 +95,15 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
     """Turn skips, xfails and xpasses of mandatory items into failures."""
     report = yield
     if _is_mandatory(item):
-        if report.skipped:
+        if report.skipped or (
+            report.passed and call.when == "call" and hasattr(report, "wasxfail")
+        ):
             report.outcome = "failed"
             report.longrepr = _MSG_SKIPPED
-        elif report.passed and call.when == "call" and hasattr(report, "wasxfail"):
-            report.outcome = "failed"
-            report.longrepr = _MSG_SKIPPED
+            # pytest does not count a failed report that carries wasxfail
+            # towards the exit status; drop it so the run exits non-zero.
+            if hasattr(report, "wasxfail"):
+                del report.wasxfail
     elif (
         report.skipped
         and sys.platform == "win32"

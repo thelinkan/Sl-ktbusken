@@ -137,6 +137,10 @@ class CandidateIndex:
         return rel
 
     def colour(self, person_id: str) -> str:
+        if person_id not in self._relations and not (
+            self._by_person.get(person_id) or self._history.get(person_id)
+        ):
+            return NONE  # the shared empty relations; nothing to cache
         return indicator_colour(self.relations(person_id))
 
     def candidates_for(self, person_id: str) -> tuple[MergeCandidate, ...]:

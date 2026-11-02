@@ -67,6 +67,7 @@ def _base() -> TranslationData:
     )
 
 
+# Feature: person-comparison-and-merge, Property 42:
 def test_property_42_identity_aliases(tmp_path: Path) -> None:
     # Read-then-write equality, with aliases present.
     td = _merge(_base(), "person_2", "person_1", "merge_1")
@@ -109,7 +110,7 @@ def test_property_42_identity_aliases(tmp_path: Path) -> None:
     )
 
 
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=100, deadline=None)
 @given(
     xrefs=st.lists(st.integers(1, 50), min_size=2, max_size=6, unique=True),
     fps=st.lists(st.one_of(st.none(), st.text("abcdef0123", min_size=1, max_size=8)),
@@ -365,7 +366,8 @@ def _write(gm, sm, w1, w2, sw, year, occ, dup_x="@I2@", dup_occ_value=None) -> s
     )
 
 
-@settings(max_examples=10, deadline=None)
+# Feature: person-comparison-and-merge, Property 43:
+@settings(max_examples=100, deadline=None)
 @given(spec=_gedcoms(), renumber=st.booleans())
 def test_property_43_reimport_after_merge(spec, renumber) -> None:
     """**Validates: Requirements 30.4, 30.5, 30.6, 30.7, 30.8**"""

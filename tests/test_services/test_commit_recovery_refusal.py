@@ -505,7 +505,8 @@ def _damage(good: bytes, cut: int, how: str) -> bytes:
     return bytes(b ^ 0xFF for b in good[:8]) + good[8:]
 
 
-@settings(max_examples=80, deadline=None)
+# Feature: person-comparison-and-merge, Property 49:
+@settings(max_examples=100, deadline=None)
 @given(
     row=st.sampled_from(ROWS),
     old_p=st.binary(min_size=1, max_size=64),

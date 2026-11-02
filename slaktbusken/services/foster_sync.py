@@ -28,7 +28,7 @@ place and is idempotent.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 from slaktbusken.model.event import Event, Participant
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
@@ -157,6 +157,11 @@ def sync_parentage_links(project: ProjectData) -> None:
 
     # Every start event id that still exists and names a valid placement.
     live_start_ids: set[str] = set()
+    # First family (in list order) recording each event id, built once.
+    family_by_event_id: dict[str, Family] = {}
+    for family in project.families:
+        for recorded_id in family.event_ids:
+            family_by_event_id.setdefault(recorded_id, family)
     for event in project.events:
         if event.type not in _PLACEMENT_START:
             continue
@@ -176,7 +181,7 @@ def sync_parentage_links(project: ProjectData) -> None:
         live_start_ids.add(event.id)
         _reconcile_derived_family(
             project, index, id_generator, event, config["parentage"],
-            child_id, valid_parents,
+            child_id, valid_parents, family_by_event_id,
         )
 
     # Delete derived families whose originating START event is gone. A family
@@ -194,10 +199,15 @@ def sync_parentage_links(project: ProjectData) -> None:
     for family in project.families:
         _reattach_end_events(family, events_by_id, live_start_ids)
 
+    # Families by child, in list order (children and links are stable here).
+    families_by_child: dict[str, list[Family]] = {}
+    for family in project.families:
+        for child in dict.fromkeys(family.children):
+            families_by_child.setdefault(child, []).append(family)
     for event in project.events:
         if event.type not in _PLACEMENT_END:
             continue
-        _pair_end_event(project, index, event)
+        _pair_end_event(project, index, event, families_by_child)
 
 
 def _reconcile_derived_family(
@@ -208,9 +218,13 @@ def _reconcile_derived_family(
     parentage: str,
     child_id: str,
     parent_ids: list[str],
+    family_by_event_id: Optional[dict[str, Family]] = None,
 ) -> None:
     """Ensure the derived family for ``event`` matches its named Parent_Set."""
-    family = _derived_family_for(event.id, project.families)
+    if family_by_event_id is None:
+        family = _derived_family_for(event.id, project.families)
+    else:
+        family = family_by_event_id.get(event.id)
     if family is None:
         family = Family(
             id=id_generator.generate("family"),
@@ -220,6 +234,8 @@ def _reconcile_derived_family(
             event_ids=[event.id],
         )
         project.families.append(family)
+        if family_by_event_id is not None:
+            family_by_event_id.setdefault(event.id, family)
 
     # Partners: exactly the named parents, in order, with their sex-derived role.
     family.partners = [
@@ -348,7 +364,10 @@ def _reattach_end_events(
 
 
 def _pair_end_event(
-    project: ProjectData, index: _ProjectIndex, end_event: Event
+    project: ProjectData,
+    index: _ProjectIndex,
+    end_event: Event,
+    families_by_child: Optional[dict[str, list[Family]]] = None,
 ) -> None:
     """Pair an end event to its matching start's derived family by Parent_Set.
 
@@ -367,7 +386,8 @@ def _pair_end_event(
     parent_set = frozenset(parent_ids)
 
     match = _find_matching_start_family(
-        project, config["parentage"], child_id, parent_set
+        project, config["parentage"], child_id, parent_set,
+        None if families_by_child is None else families_by_child.get(child_id, ()),
     )
     if match is None:
         # Orphan end: no matching start. Leave it detached for the validator.
@@ -381,9 +401,14 @@ def _find_matching_start_family(
     parentage: str,
     child_id: str,
     parent_set: frozenset[str],
+    candidates: Optional[Sequence[Family]] = None,
 ) -> Optional[Family]:
-    """Return the derived family matching a (type, child, parent set)."""
-    for family in project.families:
+    """Return the derived family matching a (type, child, parent set).
+
+    *candidates*, when given, are the families listing ``child_id`` as a child
+    (in ``project.families`` order); the result equals that of a full scan.
+    """
+    for family in (project.families if candidates is None else candidates):
         if child_id not in family.children:
             continue
         link_types = {link.parentage_type for link in family.parent_child_links}

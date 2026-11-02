@@ -33,14 +33,34 @@ class PersonSearchResult:
 class PersonSearchIndex:
     """Precomputed lower-cased haystacks; a search is one linear ``in`` pass."""
 
-    def __init__(self, entries: list[tuple[str, PersonSearchResult]]) -> None:
-        self._entries = entries
+    def __init__(
+        self,
+        entries: list[tuple[str, PersonSearchResult]] | None = None,
+        *,
+        _source: tuple[ProjectData, PersonSummaryIndex] | None = None,
+    ) -> None:
+        self._built: list[tuple[str, PersonSearchResult]] | None = entries
+        self._source = _source
+
+    @property
+    def _entries(self) -> list[tuple[str, PersonSearchResult]]:
+        if self._built is None:
+            data, summaries = self._source  # type: ignore[misc]
+            self._built = self._make_entries(data, summaries)
+            self._source = None
+        return self._built
 
     @classmethod
     def build(
         cls, data: ProjectData, summaries: PersonSummaryIndex | None = None
     ) -> "PersonSearchIndex":
-        summaries = summaries or PersonSummaryIndex.build(data)
+        """The haystacks are formed on the first search, not here."""
+        return cls(_source=(data, summaries or PersonSummaryIndex.build(data)))
+
+    @staticmethod
+    def _make_entries(
+        data: ProjectData, summaries: PersonSummaryIndex
+    ) -> list[tuple[str, PersonSearchResult]]:
         entries: list[tuple[str, PersonSearchResult]] = []
         for person in data.persons:
             summary = summaries.get(person.id)
@@ -62,7 +82,7 @@ class PersonSearchIndex:
             )
             entries.append(("\n".join(haystack_parts).lower(), result))
         entries.sort(key=lambda e: (e[1].name.lower(), e[1].person_id))
-        return cls(entries)
+        return entries
 
     def search(self, text: str, limit: int = MAX_RESULTS) -> list[PersonSearchResult]:
         """Up to ``limit`` (max 50) matches in name order; fewer than two

@@ -81,9 +81,11 @@ def plan_media_sources(ctx: PlanContext) -> None:
     data = ctx.data
 
     # Source references are never edited by a merge (22.1).
-    count = _count_instances(data.events, SourceRef) + _count_instances(
-        data.residences, SourceRef
-    )
+    count = ctx.source_ref_count
+    if count is None:
+        count = _count_instances(data.events, SourceRef) + _count_instances(
+            data.residences, SourceRef
+        )
     ctx.add_item(
         "source_refs", SOURCE_REFS_KEY, "Källhänvisningar", Disposition.PRESERVED,
         f"{count} källhänvisningar bevaras oförändrade",

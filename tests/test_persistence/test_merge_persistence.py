@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+import pytest
 from hypothesis import given, strategies as st
 
 from slaktbusken.model.merge_candidate import (
@@ -23,6 +24,8 @@ from slaktbusken.model.merge_candidate import (
 )
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.persistence.serialization import deserialize, serialize
+
+pytestmark = pytest.mark.mandatory_integrity
 
 _SWEDISH = "åäöÅÄÖéü"
 _text = st.text(

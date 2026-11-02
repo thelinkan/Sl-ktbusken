@@ -5,12 +5,15 @@ Property 6: Unordered pair identity and uniqueness.
 
 from __future__ import annotations
 
+import pytest
 from hypothesis import given, strategies as st
 
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.merge_candidate import pair_key
 from slaktbusken.services import merge_candidate_service as svc
+
+pytestmark = pytest.mark.mandatory_integrity
 
 
 def _project(n: int) -> ProjectData:

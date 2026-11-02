@@ -167,7 +167,7 @@ def main() -> int:
 
     existing = [p for p in wanted if (ROOT / p).exists()]
     missing_modules = {p for p in wanted if p not in existing}
-    if GUARD_MODULE not in existing:
+    if not (ROOT / GUARD_MODULE).exists():
         missing_modules.add(GUARD_MODULE)
     real_missing = sorted(m for m in missing_modules if m != META_DIR)
 

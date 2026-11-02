@@ -208,7 +208,8 @@ def test_failed_merge_leaves_dirty_flag_unchanged(
     assert len(service.data.merge_history) == history
 
 
-@settings(max_examples=25, deadline=None)
+# Feature: person-comparison-and-merge, Property 39:
+@settings(max_examples=100, deadline=None)
 @given(scenario=st.sampled_from(SCENARIOS), op_offset=st.integers(min_value=0, max_value=100))
 def test_property_39_failing_merge_leaves_everything_unchanged(
     scenario: str, op_offset: int
