@@ -30,6 +30,40 @@ def _role_for_sex(sex: str) -> str:
     return "partner"
 
 
+def build_new_parent_family(
+    family_id: str, parent_id: str, partner_role: str, child_id: str
+) -> Family:
+    """Build a new Family holding a first parent and an existing child.
+
+    The family always carries a biological ``ParentChildLink`` joining the
+    parent to the child, so views that rely on ``parent_child_links`` do not
+    show a spurious/ghost relationship.
+
+    Args:
+        family_id: ID for the new family.
+        parent_id: The parent being added.
+        partner_role: ``"father"`` or ``"mother"``.
+        child_id: The existing child; must differ from ``parent_id``.
+
+    Raises:
+        ValueError: If ``parent_id`` equals ``child_id``.
+    """
+    if parent_id == child_id:
+        raise ValueError("En person kan inte vara sin egen förälder")
+    return Family(
+        id=family_id,
+        partners=[FamilyPartner(person_id=parent_id, role=partner_role)],
+        children=[child_id],
+        parent_child_links=[
+            ParentChildLink(
+                child_id=child_id,
+                parent_id=parent_id,
+                parentage_type="biological",
+            )
+        ],
+    )
+
+
 def _format_person_name(person: Person) -> str:
     """Format a person's display name as 'given surname' from their first Name entry."""
     if not person.names:

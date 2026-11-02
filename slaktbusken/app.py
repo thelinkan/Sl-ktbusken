@@ -725,6 +725,7 @@ class Application:
         from slaktbusken.model.id_generator import IDGenerator
         from slaktbusken.model.person import Name, Person
         from slaktbusken.services.id_registry import issue_person_id
+        from slaktbusken.services.parent_service import build_new_parent_family
         from slaktbusken.ui.editors.person_editor import PersonEditor
 
         if self.project_service.data is None:
@@ -836,14 +837,15 @@ class Application:
                 else:
                     # No existing family — create new one (first parent addition)
                     fam_id = id_gen.generate("family")
-                    new_family = Family(
-                        id=fam_id,
-                        partners=[FamilyPartner(person_id=saved.id, role=partner_role)],
-                        children=[active_id] if active_id else [],
-                        parent_child_links=[
-                            ParentChildLink(child_id=active_id, parent_id=saved.id, parentage_type="biological")
-                        ] if active_id else [],
-                    )
+                    if active_id:
+                        new_family = build_new_parent_family(
+                            fam_id, saved.id, partner_role, active_id
+                        )
+                    else:
+                        new_family = Family(
+                            id=fam_id,
+                            partners=[FamilyPartner(person_id=saved.id, role=partner_role)],
+                        )
                     data.families.append(new_family)
 
         elif role == "child":

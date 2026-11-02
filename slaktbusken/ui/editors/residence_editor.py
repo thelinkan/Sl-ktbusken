@@ -2431,7 +2431,14 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
         original_style = field.styleSheet()
         field.setStyleSheet("background-color: #d4edda;")
 
+        import shiboken6
         from PySide6.QtCore import QTimer
 
-        QTimer.singleShot(1500, lambda: field.setStyleSheet(original_style))
+        def _restore_style() -> None:
+            # The field (or its editor) may be destroyed before the timer
+            # fires; touching a deleted C++ object raises RuntimeError.
+            if shiboken6.isValid(field):
+                field.setStyleSheet(original_style)
+
+        QTimer.singleShot(1500, _restore_style)
 

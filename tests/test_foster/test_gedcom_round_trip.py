@@ -345,7 +345,7 @@ class TestGedcomRoundTripNoLoss:
         # Record, per child+type, the ordered start-date sequence and the leaf
         # place name of each dated placement structure, keyed by start date so
         # the round-trip can be matched structure-for-structure.
-        source_place_by_start: dict[tuple[str, str, str], str | None] = {}
+        source_place_by_start: dict[tuple[str, str, str], list[str | None]] = {}
         source_end_dates: set[tuple[str, str, str]] = set()
         for event in project.events:
             if event.type in PLACEMENT_START:
@@ -364,8 +364,13 @@ class TestGedcomRoundTripNoLoss:
                         spec["parentage"],
                         event.date.value,
                     )
-                    source_place_by_start[key] = _place_leaf_name(
-                        project, event.place.place_id if event.place else None
+                    # Several Parent_Sets of one child may share a start date,
+                    # so collect every place (do not overwrite on key clash).
+                    source_place_by_start.setdefault(key, []).append(
+                        _place_leaf_name(
+                            project,
+                            event.place.place_id if event.place else None,
+                        )
                     )
             elif event.type in PLACEMENT_END:
                 start_type = PLACEMENT_END[event.type]
@@ -432,7 +437,7 @@ class TestGedcomRoundTripNoLoss:
         # (Reqs 11.2a, 11.2b, 11.7). For each dated source placement structure,
         # the re-imported start event with the same child+type+start-date must
         # carry the same leaf place name.
-        for (child_name, parentage, start_value), place_name in (
+        for (child_name, parentage, start_value), place_names in (
             source_place_by_start.items()
         ):
             start_type = next(
@@ -456,13 +461,20 @@ class TestGedcomRoundTripNoLoss:
                 f"Placement start for {child_name!r} ({parentage}) dated "
                 f"{start_value} did not round-trip."
             )
-            event = matching[0]
-            result_place = _place_leaf_name(
-                imported, event.place.place_id if event.place else None
+            # Same child+type+date can occur for several Parent_Sets, so
+            # compare the multiset of places, not an arbitrary single event.
+            result_places = sorted(
+                (
+                    _place_leaf_name(
+                        imported, e.place.place_id if e.place else None
+                    )
+                    or ""
+                )
+                for e in matching
             )
-            assert result_place == place_name, (
-                f"Place for {child_name!r} ({parentage}) dated {start_value} "
-                f"did not round-trip: source {place_name!r} vs {result_place!r}"
+            assert result_places == sorted(n or "" for n in place_names), (
+                f"Places for {child_name!r} ({parentage}) dated {start_value} "
+                f"did not round-trip: source {place_names!r} vs {result_places!r}"
             )
 
         # --- Parent_Set grouping: mates form one set; ordering survives -----
