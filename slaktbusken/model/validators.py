@@ -1693,6 +1693,7 @@ _MSG_MERGE_HIST_SAME_PERSON = (
     "Överlevande och sammanslagen person får inte vara samma person."
 )
 _MSG_MERGE_HIST_BAD_DATE = "Sammanslagningsdatumet måste vara ett giltigt datum (ÅÅÅÅ-MM-DD)."
+_MSG_MERGE_HIST_BAD_SUMMARY = "Sammanfattningen måste bestå av textrader."
 
 
 def validate_merge_candidate_comment(comment) -> list[str]:
@@ -1777,4 +1778,7 @@ def validate_merge_history_entry(entry) -> list[str]:
         and is_valid_calendar_date(date)
     ):
         errors.append(_MSG_MERGE_HIST_BAD_DATE)
+    lines = getattr(entry, "summary_lines", [])
+    if not isinstance(lines, list) or not all(isinstance(x, str) for x in lines):
+        errors.append(_MSG_MERGE_HIST_BAD_SUMMARY)
     return errors

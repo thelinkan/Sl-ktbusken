@@ -91,6 +91,7 @@ _history = st.builds(
     merge_candidate_id=_opt_ident,
     archived_candidates=st.lists(_archived(), max_size=4),
     identity_mappings=st.lists(_mappings, max_size=4),
+    summary_lines=st.lists(_text, max_size=5),
 )
 
 

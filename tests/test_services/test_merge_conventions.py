@@ -31,6 +31,7 @@ NEW_SERVICE_MODULES = (
     "merge_candidate_redirect",
     "merge_candidate_service",
     "merge_engine",
+    "merge_history_view",
     "merge_planner",
     "merge_planner_candidates",
     "merge_planner_families",

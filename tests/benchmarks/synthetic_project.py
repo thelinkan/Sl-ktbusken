@@ -813,6 +813,10 @@ class _Builder:
                     merge_date=f"{self.rint(2018, 2024)}-{self.rint(1, 12):02d}-{self.rint(1, 28):02d}",
                     archived_candidates=archived,
                     identity_mappings=mappings,
+                    summary_lines=[
+                        f"{self.rint(0, 3)} namn flyttades till den behållna personen.",
+                        f"{self.rint(0, 5)} händelser flyttades. Beslut: {self.rint(0, 2)}.",
+                    ],
                 )
             )
         return history

@@ -93,6 +93,7 @@ class MergeHistoryEntry:
     merge_candidate_id: Optional[str] = None
     archived_candidates: list[ArchivedCandidate] = field(default_factory=list)
     identity_mappings: list[MergedIdentityMapping] = field(default_factory=list)
+    summary_lines: list[str] = field(default_factory=list)
 
 
 @dataclass

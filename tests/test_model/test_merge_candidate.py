@@ -75,3 +75,24 @@ def test_assessment_labels_cover_all_assessments_in_swedish():
         "confirmed": "Bekräftad dublett",
         "rejected": "Inte samma person",
     }
+
+
+def _entry(**kw):
+    from slaktbusken.model.merge_candidate import MergeHistoryEntry
+
+    return MergeHistoryEntry("merge_1", "p1", "p2", "Åsa Öberg", "1900-1970", "2024-01-02", **kw)
+
+
+def test_history_entry_summary_lines_default_and_not_shared():
+    a, b = _entry(), _entry()
+    assert a.summary_lines == []
+    a.summary_lines.append("1 namn flyttades.")
+    assert b.summary_lines == []
+
+
+def test_validate_history_entry_summary_lines():
+    from slaktbusken.model.validators import validate_merge_history_entry
+
+    assert validate_merge_history_entry(_entry(summary_lines=["2 händelser flyttades."])) == []
+    assert validate_merge_history_entry(_entry(summary_lines=["a", 3])) != []
+    assert validate_merge_history_entry(_entry(summary_lines="text")) != []

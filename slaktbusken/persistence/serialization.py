@@ -451,6 +451,8 @@ def _annotation_accepts(annotation: Any, value: Any) -> bool:
     text = text.replace(" ", "")
     if text.startswith("Optional[") and text.endswith("]"):
         return value is None or _annotation_accepts(text[9:-1], value)
+    if text == "list[str]":
+        return isinstance(value, list) and all(isinstance(v, str) for v in value)
     if text.startswith("list["):
         return isinstance(value, list)
     if text == "str":

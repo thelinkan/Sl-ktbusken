@@ -35,6 +35,7 @@ HISTORY_FIELDS = {
     "merge_candidate_id": (False, "optstr"),
     "archived_candidates": (False, "list"),
     "identity_mappings": (False, "list"),
+    "summary_lines": (False, "list"),
 }
 FIELDS = {"merge_candidates": CANDIDATE_FIELDS, "merge_history": HISTORY_FIELDS}
 

@@ -20,6 +20,7 @@ from dataclasses import replace
 from datetime import date
 from typing import Any
 
+from slaktbusken.model.event import SourceRef
 from slaktbusken.model.merge_candidate import (
     MergedIdentityMapping,
     MergeHistoryEntry,
@@ -33,6 +34,8 @@ from slaktbusken.services.merge_planner import (
     Disposition,
     IdentityOps,
     PlanContext,
+    PlanItem,
+    _count_instances,
     plan_step,
 )
 from slaktbusken.services.person_summary import PersonSummaryIndex
@@ -66,11 +69,13 @@ def history_entry(ctx: PlanContext) -> MergeHistoryEntry:
     entry = ctx.state.get(_ENTRY)
     if entry is None:
         summaries = PersonSummaryIndex.build(ctx.data)
+        retired_summary = summaries.get(ctx.retired_id)
         entry = MergeHistoryEntry(
             id=_generate(ctx, "merge_history"),
             surviving_person_id=ctx.survivor_id,
             merged_person_id=ctx.retired_id,
-            merged_person_name=summaries.name(ctx.retired_id),
+            # Empty for a nameless person, so views show "Okänd person" (36.3).
+            merged_person_name=retired_summary.name if retired_summary else "",
             merged_person_lifespan=summaries.lifespan_text(ctx.retired_id),
             merge_date=_merge_date(ctx),
         )
@@ -188,6 +193,78 @@ def plan_identity(ctx: PlanContext) -> None:
             if (category, gedcom_id) not in seen:
                 seen.add((category, gedcom_id))
                 ctx.add_item(category, gedcom_id, gedcom_id, Disposition.REASSIGNED, detail)
+    # Last planning step: the plan is complete, so the Merge_Summary is fixed here.
+    entry.summary_lines = merge_summary_lines(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Merge_Summary (Requirement 36.1, design 15.12)
+# ---------------------------------------------------------------------------
+
+#: ``(category, detail)`` of attribute items that record a decision of the user
+#: for conflicting single-valued fields (sex, title, occupation, profile photo,
+#: notes, connection override).
+_DECISION_DETAILS = frozenset({
+    "Den andra personens värde utesluts efter val",
+    "Den andra personens värde väljs",
+    "Valt av användaren",
+    "Den ena personens anteckningar utesluts efter val",
+})
+_MOVED = (Disposition.REASSIGNED, Disposition.COMBINED)
+
+
+def merge_summary_lines(ctx: PlanContext) -> list[str]:
+    """Swedish summary of what the plan combines, derived from ``ctx.items``.
+
+    Pure and deterministic: the same plan gives the same lines. Only counts are
+    written, no names, so no personal data beyond the entry's own fields.
+    """
+    items = ctx.items
+    r_id = ctx.retired_id
+
+    def moved(category: str) -> list[PlanItem]:
+        return [i for i in items if i.category == category and i.disposition in _MOVED]
+
+    events_by_id = {e.id: e for e in ctx.data.events}
+    residences_by_id = {f.id: f for f in ctx.data.residences}
+    moved_events = moved("events")
+    moved_residences = moved("residences")
+    citations = sum(
+        _count_instances(events_by_id[i.item_id], SourceRef)
+        for i in moved_events if i.item_id in events_by_id
+    ) + sum(
+        _count_instances(residences_by_id[i.item_id], SourceRef)
+        for i in moved_residences if i.item_id in residences_by_id
+    )
+    names = sum(
+        1 for i in items
+        if i.category == "names" and i.item_id.startswith(f"{r_id}:")
+        and i.disposition is Disposition.REASSIGNED
+    )
+    decisions = sum(
+        1 for i in items
+        if i.category in ("attributes", "project") and i.detail in _DECISION_DETAILS
+    )
+    notes_joined = any(
+        i.category == "attributes" and i.item_id == "notes"
+        and i.disposition is Disposition.COMBINED
+        and i.detail.startswith("Anteckningarna slås ihop")
+        for i in items
+    )
+    ops = ctx.candidate_ops
+    return [
+        f"Namn tillagda: {names}",
+        f"Händelser flyttade: {len(moved_events)}",
+        f"Boenden flyttade: {len(moved_residences)}",
+        f"Källhänvisningar flyttade: {citations}",
+        f"Mediaobjekt med flyttade personlänkar: {len(moved('media'))}",
+        f"Familjer berörda: {len(moved('families'))}",
+        f"Forskningslänkar flyttade: {ctx.research.links_rewired}",
+        f"Beslut för motstridiga fält: {decisions}",
+        f"Anteckningar sammanslagna: {'ja' if notes_joined else 'nej'}",
+        f"Kandidater omdirigerade: {len(set(ops.redirected))}",
+        f"Kandidater arkiverade: {len(ops.archived)}",
+    ]
 
 
 # ---------------------------------------------------------------------------
