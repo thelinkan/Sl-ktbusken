@@ -260,6 +260,52 @@ class Application:
     # Action callbacks (invoked by MainWindow actions)
     # ------------------------------------------------------------------
 
+    def _resolve_person_request(self, person_id: str) -> str | None:
+        """Map a requested person id to the person to open (Requirement 36.14).
+
+        A retired id gives its survivor and a status-bar message; an id that
+        resolves to nobody gives a message naming the id and returns None.
+        """
+        from slaktbusken.services.person_lookup import resolve_person_request
+
+        if not person_id:
+            return None
+        result = resolve_person_request(self.project_service.data, person_id)
+        if result.person_id is None:
+            QMessageBox.information(
+                self.main_window,
+                "Personen hittades inte",
+                f"Personen {person_id} finns inte och kunde inte öppnas.",
+            )
+            return None
+        if result.redirected_from is not None:
+            survivor = next(
+                (p for p in self.project_service.data.persons if p.id == result.person_id),
+                None,
+            )
+            name = ""
+            if survivor is not None and survivor.names:
+                n = survivor.names[0]
+                name = f"{n.given} {n.surname}".strip()
+            name = name or result.person_id
+            self.main_window.statusBar().showMessage(
+                f"Personen {result.redirected_from} slogs samman med {name}.", 8000
+            )
+        return result.person_id
+
+    def show_person(self, person_id: str) -> None:
+        """Select the person in the person list and open the person editor."""
+        if self.project_service.project_path is None:
+            return
+        resolved = self._resolve_person_request(person_id)
+        if resolved is None:
+            return
+        try:
+            self.main_window.person_list_panel.select_person_from_diagram(resolved)
+        except Exception:  # noqa: BLE001 - selection is best effort
+            logger.exception("Personen kunde inte markeras i listan.")
+        self.open_person_editor(resolved)
+
     def open_person_editor(self, person_id: str) -> None:
         """Open the person editor dialog for the given person.
 
@@ -271,6 +317,11 @@ class Application:
             person_id: The ID of the person to edit.
         """
         from slaktbusken.ui.editors.person_editor import PersonEditor
+
+        resolved = self._resolve_person_request(person_id)
+        if resolved is None:
+            return
+        person_id = resolved
 
         # Find the person
         person = None
@@ -1684,6 +1735,17 @@ class Application:
         """
         if self.project_service.project_path is None:
             return
+        requested = [p for p in (person_1_id, person_2_id) if p]
+        resolved_ids: list[str] = []
+        for pid in requested:
+            resolved = self._resolve_person_request(pid)
+            if resolved is None:
+                return
+            resolved_ids.append(resolved)
+        if len(resolved_ids) == 2 and resolved_ids[0] == resolved_ids[1]:
+            resolved_ids = resolved_ids[:1]
+        person_1_id = resolved_ids[0] if resolved_ids else ""
+        person_2_id = resolved_ids[1] if len(resolved_ids) > 1 else ""
         try:
             from slaktbusken.ui.merge.person_comparison_window import (
                 open_comparison_window,
@@ -1802,18 +1864,16 @@ class Application:
         window.activateWindow()
 
     def open_history(self, person_id: str | None = None) -> None:
-        """Open the merge history view (provided by a later part of the feature)."""
-        try:
-            from slaktbusken.ui.merge.merge_history_window import (  # type: ignore
-                MergeHistoryWindow,
-            )
-        except ImportError:
-            self.main_window.statusBar().showMessage(
-                "Sammanslagningshistoriken är inte tillgänglig.", 5000
-            )
+        """Open the merge history window, scoped to one person when given.
+
+        The window reaches this application through the registered merge gateway.
+        """
+        from slaktbusken.ui.merge.merge_history_window import open_merge_history_window
+
+        if self.project_service.project_path is None:
+            self.main_window.statusBar().showMessage("Inget projekt är öppet.", 5000)
             return
-        window = MergeHistoryWindow(self.project_service, person_id, parent=self.main_window)
-        window.show()
+        open_merge_history_window(self.project_service, person_id, parent=self.main_window)
 
     def _close_candidate_register(self) -> None:
         window = getattr(self, "_candidate_register", None)

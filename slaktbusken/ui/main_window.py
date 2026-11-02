@@ -237,6 +237,11 @@ class MainWindow(QMainWindow):
         self.action_research_candidates.triggered.connect(
             lambda: self._app.open_register()
         )
+        self.action_research_history = QAction("&Sammanslagningshistorik", self)
+        self.action_research_history.setToolTip(
+            "Visa historik över alla sammanslagningar av personer"
+        )
+        self.action_research_history.triggered.connect(self._open_merge_history)
 
         # Verktyg (Tools)
         self.action_relationship = QAction("&Släktskapsberäknare...", self)
@@ -345,6 +350,7 @@ class MainWindow(QMainWindow):
         self.menu_research.addAction(self.action_research_todo)
         self.menu_research.addAction(self.action_research_hypotheses)
         self.menu_research.addAction(self.action_research_candidates)
+        self.menu_research.addAction(self.action_research_history)
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
@@ -518,6 +524,14 @@ class MainWindow(QMainWindow):
                 self._detail_panel_saved_width = current_sizes[2]
             self.detail_panel.hide()
 
+    def _open_merge_history(self) -> None:
+        """Open the merge history for all entries (no person filter)."""
+        from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
+
+        gateway = get_merge_gateway()
+        if gateway is not None:
+            gateway.open_history(None)
+
     def _on_person_activated_for_detail(self, person_id: str) -> None:
         """Update the detail panel when a person is selected.
 
@@ -611,6 +625,7 @@ class MainWindow(QMainWindow):
         self.action_research_todo.setEnabled(project_open)
         self.action_research_hypotheses.setEnabled(project_open)
         self.action_research_candidates.setEnabled(project_open)
+        self.action_research_history.setEnabled(project_open)
         self.action_view_family.setEnabled(project_open)
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)

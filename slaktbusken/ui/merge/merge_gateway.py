@@ -32,6 +32,9 @@ class MergeGateway(Protocol):
 
     def open_history(self, person_id: Optional[str] = None) -> None: ...
 
+    def show_person(self, person_id: str) -> None:
+        """Select the person in the person list and open the person editor."""
+
 
 @dataclass(frozen=True)
 class MergeExecutionResult:

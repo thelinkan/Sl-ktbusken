@@ -817,29 +817,29 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `services/person_lookup.py` with `resolve_person_request(data, person_id) -> LookupResult` (active id unchanged; retired id to the final survivor with the retired name; cycle or ambiguity gives no person)
     - Extend `PersonSearchIndex` in `services/person_search.py` so that a query equal to a Retired_Person_ID (exact, case-insensitive) returns the survivor with the label "Sammanslagen med <namn> (<år–år>)"; ordinary results and ordering are unchanged when no retired id matches
     - _Requirements: 36.13, 36.14, 28.2_
-  - [~] 20.5 Implement `MergeHistoryWindow`
+  - [x] 20.5 Implement `MergeHistoryWindow`
     - Create `ui/merge/merge_history_window.py`: non-modal window "Sammanslagningshistorik" with the table (merged person name, lifespan, id, date, behållen person, sammanfattning), the details pane with archived candidates, the empty-state label, the button "Gå till behållen person" (disabled for an unresolved survivor), a 500 ms refresh from the `merge_changed` signal that keeps the selected entry, and `open_merge_history_window(project_service, person_id, parent)` that reuses one window per scope
     - Navigation calls the merge gateway (new method `show_person(person_id)` added to `MergeGateway` in `ui/merge/merge_gateway.py`, implemented by `Application` in 20.6); without a gateway the button does nothing
     - _Requirements: 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9_
-  - [~] 20.6 Wire `Application.open_history`, navigation, the success box and retired-id redirects
+  - [x] 20.6 Wire `Application.open_history`, navigation, the success box and retired-id redirects
     - In `app.py` import `MergeHistoryWindow` directly in `open_history` (remove the `ImportError` status-bar fallback; keep a message only when no project is open); implement `show_person(person_id)` (select in the person list and call `open_person_editor`); keep the "Visa sammanslagningshistorik" button of `ask_show_history` and make it open the window for the survivor
     - Call `resolve_person_request` in `open_person_editor`, `open_comparison` and `open_candidate` before acting; show "Personen <id> slogs samman med <namn>." in the status bar for a redirect and a message naming the id (opening nothing) when no person resolves
     - _Requirements: 36.7, 36.11, 36.12, 36.14, 20.12_
-  - [~] 20.7 Add the Merge_History block to the Person_Editor section
+  - [x] 20.7 Add the Merge_History block to the Person_Editor section
     - In `ui/merge/candidate_section.py` add a `MergeHistoryBlock` below the candidate list showing "Sammanslagningshistorik" rows (name, lifespan, date) from `build_history_rows`, the empty state "Inga sammanslagningar finns." and the button "Visa sammanslagningshistorik" that calls `gateway.open_history(person_id)`; refresh from `merge_changed` together with the candidate list; hidden or disabled together with the section for an unsaved person
     - _Requirements: 36.10, 28.9, 28.10, 16.11, 16.12_
-  - [~] 20.8 Add the person list context menu entry and the main menu item
+  - [x] 20.8 Add the person list context menu entry and the main menu item
     - Add `SHOW_HISTORY_ACTION` to `ui/context_menu_builder.py`, add "Visa sammanslagningshistorik" to the person list context menu in `ui/person_list_panel.py` (enabled only when `CandidateIndex.relations(person_id).has_history`) and route it to `gateway.open_history`; add the main menu action "&Sammanslagningshistorik" next to `action_research_candidates` in `ui/main_window.py` calling `Application.open_history()` without a person id
     - _Requirements: 36.11, 8.1_
-  - [~] 20.9 Add history buttons to the Candidate_Register and the comparison window
+  - [x] 20.9 Add history buttons to the Candidate_Register and the comparison window
     - Add the toolbar button "Sammanslagningshistorik" to `ui/merge/candidate_register_window.py` (opens the window for the person the register is filtered to, otherwise for all entries) and the slot button "Sammanslagningshistorik" to `ui/merge/person_comparison_window.py`, visible only while the person in that slot has at least one entry
     - _Requirements: 36.11, 36.15_
-  - [~] 20.10 Write property test for history rows
+  - [x] 20.10 Write property test for history rows
     - **Property 52: History rows equal the stored entries**
     - Create `tests/properties/test_property_52_history_rows.py` with the tag `# Feature: person-comparison-and-merge, Property 52: History rows equal the stored entries`; at least 100 examples; include chains of merges, equal dates and unresolvable entries
     - **Validates: Requirements 36.2, 36.3, 36.4, 36.16**
     - _Requirements: 36.2, 36.3, 36.4, 36.16_
-  - [~] 20.11 Write property test for the Merge_Summary
+  - [x] 20.11 Write property test for the Merge_Summary
     - **Property 53: Merge summary is a snapshot of the plan and round-trips**
     - Create `tests/properties/test_property_53_merge_summary.py` with the tag `# Feature: person-comparison-and-merge, Property 53: Merge summary is a snapshot of the plan and round-trips`; counts in `summary_lines` equal the plan's change counts; serialise, deserialise and serialise gives equal entries including Swedish characters
     - **Validates: Requirements 36.1**
@@ -849,10 +849,10 @@ The design's remaining open questions are implemented with the design's stated d
     - Create `tests/properties/test_property_54_retired_lookup.py` with the tag `# Feature: person-comparison-and-merge, Property 54: Retired ids are redirected`; acyclic histories, cycles, ambiguous ids and active ids; the search index returns the survivor with the label for a retired id
     - **Validates: Requirements 36.13, 36.14**
     - _Requirements: 36.13, 36.14_
-  - [~] 20.13 Write regression tests for the content of engine-written history entries
+  - [x] 20.13 Write regression tests for the content of engine-written history entries
     - Create `tests/test_services/test_merge_history_content.py`: execute a merge (fake persistence as in the engine tests) and assert that the written entry has the retired person's name and lifespan (`1829–1890`, `(1829)`, `(–1890)`, empty), the local ISO date, the survivor id, the direct candidate id and archived candidate, the identity mappings and a non-empty `summary_lines` whose counts match the preview; a retired person without a name and a second merge into the same survivor (two entries, newest first in the view rows); entries are unchanged after a later merge of the survivor
     - _Requirements: 28.1, 28.5, 28.6, 36.1, 36.2, 36.3_
-  - [~] 20.14 Write widget tests for `MergeHistoryWindow`
+  - [x] 20.14 Write widget tests for `MergeHistoryWindow`
     - Create `tests/test_ui/test_merge_history_window.py` (`pytest-qt`, offscreen): newest first order; columns and values; survivor name and id; summary lines and "Ingen sammanfattning sparades."; empty state "Inga sammanslagningar finns."; unresolved survivor text and disabled navigation; archived candidates in the details pane and "Ingen kandidat arkiverades."; "Gå till behållen person" calls the gateway with the resolved survivor; refresh within 500 ms on `merge_changed` keeps the selection; the window for a person lists only that person's entries and the window without a person lists all
     - _Requirements: 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9_
   - [~] 20.15 Write widget tests for all history entry points

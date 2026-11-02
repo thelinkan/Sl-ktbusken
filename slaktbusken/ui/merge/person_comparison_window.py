@@ -53,6 +53,7 @@ from slaktbusken.services.project_service import ProjectNotOpenError, ProjectSer
 from slaktbusken.ui.merge.candidate_editor_dialog import SAVE, DISCARD, CandidatePanel
 from slaktbusken.ui.merge.comparison_family_view import MAX_EXPANDED, ComparisonFamilyView
 from slaktbusken.ui.merge.comparison_table import ComparisonTable
+from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
 from slaktbusken.ui.merge.slot_search import SlotSearchControl
 from slaktbusken.ui.swedish_locale import get_candidate_assessment_label
 from slaktbusken.ui.widgets.research_marker import begin_diagram_render
@@ -61,6 +62,7 @@ logger = logging.getLogger(__name__)
 
 WINDOW_TITLE = "Jämför personer"
 SWAP_TEXT = "Byt plats"
+HISTORY_TEXT = "Sammanslagningshistorik"
 BACK_TEXT = "Tillbaka till föregående jämförelse"
 CONTINUE_TEXT = "Fortsätt till sammanslagning"
 MARK_TEXT = "Markera som kandidater"
@@ -183,6 +185,7 @@ class PersonComparisonWindow(QMainWindow):
         self._searches: list[SlotSearchControl] = []
         self._family_views: list[ComparisonFamilyView] = []
         self._selected_labels: list[QLabel] = []
+        self._history_buttons: list[QPushButton] = []
         for i in (0, 1):
             pane = QWidget(self._splitter)
             pane.setMinimumWidth(120)
@@ -193,6 +196,12 @@ class PersonComparisonWindow(QMainWindow):
             search.person_selected.connect(lambda pid, slot=i: self.assign_person(slot, pid))
             search.person_cleared.connect(lambda slot=i: self.clear_slot(slot))
             layout.addWidget(search)
+            history = QPushButton(HISTORY_TEXT, pane)
+            history.setVisible(False)
+            history.setEnabled(False)
+            history.clicked.connect(lambda _=False, slot=i: self.open_slot_history(slot))
+            layout.addWidget(history)
+            self._history_buttons.append(history)
             view = ComparisonFamilyView(i, pane)
             view.person_clicked.connect(lambda pid, slot=i: self.select_in_view(slot, pid))
             view.person_navigated.connect(lambda pid, slot=i: self.navigate(slot, pid))
@@ -645,6 +654,7 @@ class PersonComparisonWindow(QMainWindow):
             for view in views:
                 self._family_views[view].render(ProjectData(), None, self._config)
             self._table.set_rows([], filled=(False, False))
+            self._update_history_buttons(None)
             self._update_controls()
             return
         begin_diagram_render(
@@ -672,6 +682,7 @@ class PersonComparisonWindow(QMainWindow):
         self._update_table(data)
         self._update_selected_labels()
         self._update_candidate(data)
+        self._update_history_buttons(data)
         self._update_markers(data)
         self._swap_button.setEnabled(True)
         self._update_controls()
@@ -696,6 +707,29 @@ class PersonComparisonWindow(QMainWindow):
                 self._selected_labels[view].setText(
                     f"Vald i vyn: {self._summaries.name(pid)} ({pid})"
                 )
+
+    @property
+    def history_buttons(self) -> list[QPushButton]:
+        """The per-slot "Sammanslagningshistorik" buttons."""
+        return list(self._history_buttons)
+
+    def _update_history_buttons(self, data: Optional[ProjectData]) -> None:
+        """Show a slot's history button only while its person has history."""
+        index = CandidateIndex.build(data) if data is not None else None
+        for slot, button in enumerate(self._history_buttons):
+            pid = self._session.slots[slot]
+            has = bool(
+                index is not None and pid and index.relations(pid).has_history
+            )
+            button.setVisible(has)
+            button.setEnabled(has)
+
+    def open_slot_history(self, slot: int) -> None:
+        """Open the merge history of the person in ``slot`` via the gateway."""
+        pid = self._session.slots[slot]
+        gateway = get_merge_gateway()
+        if pid and gateway is not None:
+            gateway.open_history(pid)
 
     def _update_candidate(self, data: ProjectData) -> None:
         """Assessment and comments of the saved candidate of the current pair."""

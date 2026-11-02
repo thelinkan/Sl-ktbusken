@@ -2658,6 +2658,16 @@ class PersonListPanel(QWidget):
         mark.setEnabled(False)
         self._exec_menu(menu, self._tree_widget.mapToGlobal(pos))
 
+    def _person_has_history(self, person_id: str) -> bool:
+        """True when the candidate index records merge history for the person."""
+        index = self._candidate_index
+        if index is None:
+            return False
+        try:
+            return bool(index.relations(person_id).has_history)
+        except Exception:  # noqa: BLE001 - the menu must still open
+            return False
+
     def _exec_menu(self, menu: QMenu, global_pos: QPoint):
         """Show the context menu modally and return the chosen action.
 
@@ -2680,6 +2690,7 @@ class PersonListPanel(QWidget):
         """
         from slaktbusken.ui.context_menu_builder import (
             COMPARE_ACTION,
+            SHOW_HISTORY_ACTION,
             ContextMenuBuilder,
             merge_action_ids,
         )
@@ -2716,10 +2727,24 @@ class PersonListPanel(QWidget):
             self,
             selected_ids=selected_ids,
             project_open=self._app.project_service.project_path is not None,
+            has_history=self._person_has_history(person_id),
         )
 
         action = self._exec_menu(menu, self._tree_widget.mapToGlobal(pos))
         if action is None:
+            return
+
+        action_data = action.data()
+        if (
+            isinstance(action_data, tuple)
+            and len(action_data) == 2
+            and action_data[0] == SHOW_HISTORY_ACTION
+        ):
+            from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
+
+            gateway = get_merge_gateway()
+            if gateway is not None:
+                gateway.open_history(action_data[1])
             return
 
         merge_action = merge_action_ids(action)

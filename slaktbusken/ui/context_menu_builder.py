@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 COMPARE_ACTION = "compare_persons"
 MARK_CANDIDATES_ACTION = "mark_candidates"
+SHOW_HISTORY_ACTION = "show_merge_history"
 
 
 def merge_action_ids(action) -> Optional[tuple[str, list[str]]]:
@@ -46,6 +47,7 @@ class ContextMenuBuilder:
         parent_widget: QWidget,
         selected_ids: Optional[Sequence[str]] = None,
         project_open: bool = True,
+        has_history: bool = False,
     ) -> QMenu:
         """Create a QMenu with standard person actions.
 
@@ -156,6 +158,13 @@ class ContextMenuBuilder:
             action_mark.setData((MARK_CANDIDATES_ACTION, tuple(ids)))
             action_mark.setEnabled(
                 project_open and state.mark_candidates_enabled
+            )
+            # Merge history (Req 36.11): exactly one selected person who has
+            # history. Opens the history view only.
+            action_history = menu.addAction("Visa sammanslagningshistorik")
+            action_history.setData((SHOW_HISTORY_ACTION, person_id))
+            action_history.setEnabled(
+                project_open and len(ids) == 1 and bool(has_history)
             )
 
         # Separator before destructive action

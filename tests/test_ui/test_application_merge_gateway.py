@@ -38,6 +38,7 @@ def app_like(qapp):
         open_merge_review=lambda *_a: None,
     )
     fake._forget_comparison_window = lambda w: Application._forget_comparison_window(fake, w)
+    fake._resolve_person_request = lambda pid: Application._resolve_person_request(fake, pid)
     yield fake
     for w in main.findChildren(QMainWindow):
         w.close()

@@ -31,6 +31,10 @@ from slaktbusken.services.merge_candidate_service import (
     MSG_DUPLICATE_PAIR,
     MSG_SELF_PAIR,
 )
+from slaktbusken.services.merge_history_view import (
+    EMPTY_HISTORY_TEXT,
+    build_history_rows,
+)
 from slaktbusken.services.person_summary import UNKNOWN_PERSON, PersonSummaryIndex
 from slaktbusken.services.project_service import ValidationError
 from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
@@ -47,6 +51,8 @@ MSG_EMPTY = "Inga sammanslagningskandidater."
 MSG_SAVE_FIRST = "Spara personen först."
 MSG_NO_SELECTION = "Välj en person först."
 MSG_NO_SERVICE = "Projektet är inte tillgängligt."
+HISTORY_HEADING = "Sammanslagningshistorik"
+HISTORY_BUTTON_TEXT = "Visa sammanslagningshistorik"
 
 CANDIDATE_ID_ROLE = Qt.ItemDataRole.UserRole
 
@@ -67,6 +73,79 @@ def latest_comment_text(candidate: MergeCandidate) -> str:
         enumerate(candidate.comments), key=lambda pair: (pair[1].date or "", pair[0])
     )[1]
     return best.text or ""
+
+
+class MergeHistoryBlock(QWidget):
+    """The "Sammanslagningshistorik" block: merges into one person (Req 36.10).
+
+    Lists merged name, lifespan, id and date plus a short summary per merge
+    (``build_history_rows``), or an empty note, and a button that opens the
+    Merge_History_Window scoped to the person. Hidden for an unsaved person.
+    """
+
+    def __init__(
+        self,
+        data: ProjectData,
+        person_id: Callable[[], str],
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._data = data
+        self._person_id = person_id
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self._heading = QLabel(HISTORY_HEADING, self)
+        self._heading.setAccessibleName(HISTORY_HEADING)
+        layout.addWidget(self._heading)
+
+        self._empty_label = QLabel(EMPTY_HISTORY_TEXT, self)
+        self._empty_label.setAccessibleName("Ingen sammanslagningshistorik")
+        layout.addWidget(self._empty_label)
+
+        self._list = QListWidget(self)
+        self._list.setAccessibleName("Sammanslagningar in i personen")
+        self._list.setMaximumHeight(140)
+        layout.addWidget(self._list)
+
+        buttons = QHBoxLayout()
+        self._button = QPushButton(HISTORY_BUTTON_TEXT, self)
+        self._button.setAccessibleName(HISTORY_BUTTON_TEXT)
+        self._button.clicked.connect(self._on_show_history)
+        buttons.addWidget(self._button)
+        buttons.addStretch()
+        layout.addLayout(buttons)
+
+        gateway = get_merge_gateway()
+        if gateway is not None:
+            gateway.merge_changed.connect(self.refresh)
+        self.refresh()
+
+    def row_texts(self) -> list[str]:
+        return [self._list.item(i).text() for i in range(self._list.count())]
+
+    def refresh(self) -> None:
+        pid = self._person_id()
+        saved = bool(pid) and any(p.id == pid for p in self._data.persons)
+        rows = build_history_rows(self._data, pid) if saved else []
+        self._list.clear()
+        for row in rows:
+            lifespan = f" ({row.merged_lifespan})" if row.merged_lifespan else ""
+            text = f"{row.display_name}{lifespan} · {row.merged_id} · {row.merge_date}"
+            summary = row.summary_text_lines[0]
+            item = QListWidgetItem(f"{text} · {summary}")
+            item.setToolTip("\n".join(row.summary_text_lines))
+            self._list.addItem(item)
+        self._empty_label.setVisible(saved and not rows)
+        self._list.setVisible(bool(rows))
+        self._button.setEnabled(saved)
+        self.setVisible(saved)
+
+    def _on_show_history(self) -> None:
+        gateway = get_merge_gateway()
+        pid = self._person_id()
+        if gateway is not None and pid:
+            gateway.open_history(pid)
 
 
 class CandidatesSection(QGroupBox):
@@ -137,6 +216,9 @@ class CandidatesSection(QGroupBox):
         self._error_label.setVisible(False)
         layout.addWidget(self._error_label)
 
+        self._history_block = MergeHistoryBlock(data, person_id, self)
+        layout.addWidget(self._history_block)
+
         gateway = get_merge_gateway()
         if gateway is not None:
             gateway.merge_changed.connect(self.refresh)
@@ -180,6 +262,7 @@ class CandidatesSection(QGroupBox):
         saved = self.is_saved()
 
         self._save_first_label.setVisible(not saved)
+        self._history_block.refresh()
         self._add_button.setEnabled(saved)
         self._search.setEnabled(saved)
         self._add_button.setToolTip("" if saved else MSG_SAVE_FIRST)

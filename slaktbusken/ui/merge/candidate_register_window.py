@@ -37,9 +37,11 @@ from slaktbusken.services.editor_registry import EditorRegistry
 from slaktbusken.services.parent_service import _format_person_name
 from slaktbusken.services.project_service import ProjectService
 from slaktbusken.ui.merge.candidate_editor_dialog import CandidateEditorDialog
+from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
 from slaktbusken.ui.swedish_locale import get_candidate_assessment_label
 
 WINDOW_TITLE = "Sammanslagningskandidater"
+HISTORY_TEXT = "Sammanslagningshistorik"
 REFRESH_DELAY_MS = 50  # well inside the 1 second of requirement 15.10
 
 _ALL = "__all__"
@@ -145,6 +147,12 @@ class CandidateRegisterWindow(QWidget):
         self._open_button = QPushButton("Öppna jämförelse")
         buttons.addWidget(self._edit_button)
         buttons.addWidget(self._open_button)
+        self._history_button = QPushButton(HISTORY_TEXT)
+        self._history_button.setToolTip(
+            "Visa sammanslagningshistorik för filtrerad person, annars alla"
+        )
+        self._history_button.clicked.connect(self.open_history)
+        buttons.addWidget(self._history_button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
 
@@ -333,6 +341,12 @@ class CandidateRegisterWindow(QWidget):
         self.candidate_activated.emit(cand.person_1_id, cand.person_2_id)
         if self._gateway is not None:
             self._gateway.open_comparison(cand.person_1_id, cand.person_2_id)
+
+    def open_history(self) -> None:
+        """Open the merge history for the filtered person, else for all entries."""
+        gateway = get_merge_gateway()
+        if gateway is not None:
+            gateway.open_history(self._person.currentData())
 
     def edit_selected(self) -> None:
         """Edit assessment, active flag, research case and comments."""
