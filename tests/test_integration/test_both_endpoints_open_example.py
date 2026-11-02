@@ -6,7 +6,7 @@ Brita at Place C with start.latest=1840 (no earliest) and end.earliest=1846
 - Zero errors and zero warning-level findings (15.1)
 - Two open-endpoint research suggestions (15.2)
 - The rendered interval "senast 1840–tidigast 1846" (15.3, 15.4)
-- "säker"/"möjlig" query labelling (15.5, 15.6)
+- "möjlig" + odaterat query labelling for unbounded spans (15.5, 15.6, 8.9)
 - The derived Certain_Core (1840–1846) and unbounded Possible_Span (15.7)
 - Zero coverage gaps when observations are complete (15.8)
 - No lifespan clamping for unbounded spans (15.9)
@@ -36,7 +36,6 @@ from slaktbusken.services.residence_coverage import (
     open_endpoint_suggestions,
 )
 from slaktbusken.services.residence_query import (
-    LABEL_CERTAIN,
     LABEL_POSSIBLE,
     residents_of_place,
 )
@@ -216,33 +215,41 @@ class TestRenderedInterval:
 
 
 # ===========================================================================
-# Requirements 15.5, 15.6: Query labelling ("säker" / "möjlig")
+# Requirements 15.5, 15.6, 8.9: Query labelling ("möjlig" + odaterat)
 # ===========================================================================
 
 
 class TestQueryLabelling:
-    """Requirements 15.5, 15.6: years inside core are 'säker', outside 'möjlig'."""
+    """Requirements 15.5, 15.6, 8.9: labelling for a fact unbounded in both directions.
 
-    def test_year_1840_is_certain(self):
-        """1840 overlaps the Certain_Core → 'säker'."""
+    A Possible_Span unbounded in both directions is always 'möjlig' + odaterat,
+    even when the year lies inside the Certain_Core (Requirement 8.9 takes
+    precedence over 8.2; see bugfix spec residence-query-and-gedcom-place-fixes).
+    """
+
+    def test_year_1840_is_possible(self):
+        """1840 overlaps the Certain_Core but the span is unbounded → 'möjlig', odaterat."""
         data = _project_with_brita()
         entries = residents_of_place(data, "place_c", 1840)
         assert len(entries) == 1
-        assert entries[0].label == LABEL_CERTAIN
+        assert entries[0].label == LABEL_POSSIBLE
+        assert entries[0].undated is True
 
-    def test_year_1843_is_certain(self):
-        """1843 is inside the Certain_Core → 'säker'."""
+    def test_year_1843_is_possible(self):
+        """1843 is inside the Certain_Core but the span is unbounded → 'möjlig', odaterat."""
         data = _project_with_brita()
         entries = residents_of_place(data, "place_c", 1843)
         assert len(entries) == 1
-        assert entries[0].label == LABEL_CERTAIN
+        assert entries[0].label == LABEL_POSSIBLE
+        assert entries[0].undated is True
 
-    def test_year_1846_is_certain(self):
-        """1846 overlaps the Certain_Core → 'säker'."""
+    def test_year_1846_is_possible(self):
+        """1846 overlaps the Certain_Core but the span is unbounded → 'möjlig', odaterat."""
         data = _project_with_brita()
         entries = residents_of_place(data, "place_c", 1846)
         assert len(entries) == 1
-        assert entries[0].label == LABEL_CERTAIN
+        assert entries[0].label == LABEL_POSSIBLE
+        assert entries[0].undated is True
 
     def test_year_1850_is_possible(self):
         """Requirement 15.5: 1850 lies inside the Possible_Span, outside the core."""

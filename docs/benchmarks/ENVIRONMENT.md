@@ -1,7 +1,7 @@
 # Benchmark environment
 
 Written by `tests/benchmarks/test_merge_performance.py` (requirement 32.11).
-Recorded at 2026-11-01T21:28:47+00:00.
+Recorded at 2026-11-02T11:59:54+00:00.
 
 | Field | Value |
 |-------|-------|
@@ -20,8 +20,8 @@ Recorded at 2026-11-01T21:28:47+00:00.
 
 | Metric | Median | p95 | Max | Limit or target | Kind |
 |--------|--------|-----|-----|-----------------|------|
-| Candidate index build | 6.7 ms | 13.0 ms | 16.0 ms | < 50 ms | target, not gated |
-| Candidate index build + colour of all involved persons | 49.0 ms | 104.4 ms | 106.1 ms | < 1000 ms (on max) | gated |
-| Person list indicators (index + colour of all 20,000 persons; upper bound of the extra cost) | 83.1 ms | 177.2 ms | 198.0 ms | < 20 ms | target, not gated |
-| Comparison views (set_slot, refresh of both views and table, grab) | 1564.6 ms | 1973.4 ms | 1973.4 ms | < 2000 ms (on max) | gated |
-| Merge_Plan build (regression guard on median) | 11789.4 ms | 17412.0 ms | 17412.0 ms | - | recorded |
+| Candidate index build | 2.7 ms | 3.3 ms | 5.6 ms | < 50 ms | target, not gated |
+| Candidate index build + colour of all involved persons | 15.7 ms | 18.3 ms | 22.7 ms | < 1000 ms (on max) | gated |
+| Person list indicators (index + colour of all 20,000 persons; upper bound of the extra cost) | 22.4 ms | 27.4 ms | 29.7 ms | < 20 ms | target, not gated |
+| Comparison views (set_slot, refresh of both views and table, grab) | 320.1 ms | 363.8 ms | 363.8 ms | < 2000 ms (on max) | gated |
+| Merge_Plan build (regression guard on median) | 975.4 ms | 1016.2 ms | 1016.2 ms | - | recorded |

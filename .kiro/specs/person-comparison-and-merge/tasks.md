@@ -70,7 +70,7 @@ The design's remaining open questions are implemented with the design's stated d
     - A mandatory module imports PySide6, the GEDCOM modules and Hypothesis unconditionally (collection error, never a skip)
     - _Requirements: 35.1, 35.2, 35.3, 35.5, 35.6_
 
-- [ ] 2. Checkpoint - Ensure all tests pass
+- [x] 2. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 3. Phase 2: Candidate model, persistence and version 0.4
@@ -163,7 +163,7 @@ The design's remaining open questions are implemented with the design's stated d
     - The Recovery_Point side (with and without `persons.json`) is covered by the crash matrix in 13.13
     - _Requirements: 7.8, 7.9, 7.10_
 
-- [ ] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 5. Phase 3: Candidate register, saved state and research integration
@@ -272,7 +272,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Registry order, weak references, `unsaved_editors()` with a counting `FakeEditor`; a completeness test enumerates the `QWidget` subclasses in `slaktbusken/ui/editors` and fails for any class that is neither registered nor exempted with a documented reason
     - _Requirements: 26.14, 27.23_
 
-- [ ] 6. Checkpoint - Ensure all tests pass
+- [x] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 7. Phase 4: Comparison window
@@ -382,7 +382,7 @@ The design's remaining open questions are implemented with the design's stated d
     - (1) A plain click selects one row and `person_selected` and the current person are set as before this feature; (2) Ctrl-click adds a second row and Ctrl-click on a selected row removes it; (3) Shift-click selects the contiguous range from the anchor; (4) with two rows selected the context menu enables "Jämför personer..." and "Markera som sammanslagningskandidater", with one row only the first, with three rows or none neither; (5) right-click on a row inside a two-person selection leaves `selectedItems()` unchanged and opens the menu with both ids; (6) right-click on a row outside the selection selects only that row and opens the menu with that id; (7) right-click on empty space opens a menu with both entries disabled; (8) a Ctrl-click that changes the current item still navigates to that person
     - _Requirements: 8.4, 8.5, 8.6, 8.12, 8.13, 8.14, 8.15, 8.16_
 
-- [ ] 8. Checkpoint - Ensure all tests pass
+- [x] 8. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - Includes `tests/test_ui/test_person_list_selection.py` (Property 51 and the Req 8.16 regression tests) and the existing person-list tests, unmodified.
 
@@ -460,7 +460,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Banner shows name and id; "Visa alla" restores the unfiltered tables and the previous status choice; a deleted person shows the empty state; a research change keeps the filter; a click on the research glyph in the person list and on a diagram box calls the gateway with `person_filter`; a click on the candidate glyph does not; each existing caller opens an unfiltered overview with no banner and the same rows and widget state as before
     - _Requirements: 17.8, 17.15, 17.16, 18.14_
 
-- [ ] 10. Checkpoint - Ensure all tests pass
+- [x] 10. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 11. Phase 6: Merge planning and review
@@ -578,7 +578,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Every case also asserts, through the planner of 11.2, that both events are present with unchanged ids and that the warning is non-blocking
     - _Requirements: 21.14, 21.15_
 
-- [ ] 12. Checkpoint - Ensure all tests pass
+- [x] 12. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 13. Phase 7: Atomic merge engine and checksum-based recovery
@@ -716,7 +716,7 @@ The design's remaining open questions are implemented with the design's stated d
     - A refusal changes nothing in memory or on disk, leaves the dirty flag and `revision` unchanged, and calls no save, commit, discard or resolution method of anything
     - _Requirements: 26.14, 27.22, 27.23_
 
-- [ ] 14. Checkpoint - Ensure all tests pass
+- [x] 14. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 15. Phase 8: GEDCOM and consistency integration
@@ -751,7 +751,7 @@ The design's remaining open questions are implemented with the design's stated d
     - Export contains every active person and not the Merged_Away_Person
     - _Requirements: 30.12_
 
-- [ ] 16. Checkpoint - Ensure all tests pass
+- [x] 16. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 17. Phase 9: Regression, performance and mandatory-test enforcement
@@ -793,10 +793,10 @@ The design's remaining open questions are implemented with the design's stated d
     - This task only records the item. Implementing TRK-1 (baseline snapshots, three-way comparison, review dialog) is NOT part of this feature and has no task here
     - _Requirements: 30.14, 33.10_
 
-- [ ] 18. Checkpoint - Mandatory run with zero skipped
+- [x] 18. Checkpoint - Mandatory run with zero skipped
   - Run `python scripts/run_mandatory_tests.py` and require exit code 0, every one of the six Mandatory_Test_Groups non-empty with all required tests present and passed, and zero skipped, xfail-ed, deselected or missing tests; on Windows also require that no `windows_only` preflight test was skipped; ask the user if questions arise.
 
-- [ ] 19. Final checkpoint - Ensure all tests pass
+- [x] 19. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - The feature counts as complete only when `python scripts/run_mandatory_tests.py` exits with 0 with zero skipped mandatory tests AND the full suite (`python -m pytest`) passes (Requirements 35.3, 35.4).
 
