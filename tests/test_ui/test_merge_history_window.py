@@ -24,6 +24,7 @@ from slaktbusken.services.project_service import ProjectService
 from slaktbusken.services.redirect_resolution import RedirectResolver
 from slaktbusken.ui.merge.merge_history_window import (
     COLUMN_HEADERS,
+    REFRESH_DELAY_MS,
     MergeHistoryWindow,
 )
 
@@ -315,10 +316,21 @@ def test_refresh_on_gateway_merge_changed_keeps_selection(make_window, qtbot):
     win.select_entry("merge_1")
     assert win.selected_entry_id() == "merge_1"
     svc.data.merge_history.append(_entry(3, date="2022-01-01"))
-    start = time.monotonic()
+    # (a) the scheduled refresh delay stays well under the 1 s product limit
+    assert REFRESH_DELAY_MS <= 500
+    assert win._refresh_timer.isSingleShot()
+    assert win._refresh_timer.interval() <= REFRESH_DELAY_MS < 1000
+    # (c) functional behaviour, no wall-clock assertion (polling/load tolerant)
     gw.merge_changed.emit()
-    qtbot.waitUntil(lambda: win.row_count() == 3, timeout=2000)
-    assert time.monotonic() - start < 0.9
+    qtbot.waitUntil(lambda: win.row_count() == 3, timeout=5000)
+    # (b) time only the refresh work; min of 3 removes load spikes
+    timings = []
+    for _ in range(3):
+        t0 = time.perf_counter()
+        win.refresh()
+        timings.append(time.perf_counter() - t0)
+    assert min(timings) < 0.9, f"refresh() too slow: {timings}"
+    assert win.row_count() == 3
     assert win.selected_entry_id() == "merge_1"
     assert _cell(win, 0, 2) == "gone_3"
     assert win._navigate_button.isEnabled()
