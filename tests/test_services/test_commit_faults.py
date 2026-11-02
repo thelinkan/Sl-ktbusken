@@ -666,9 +666,11 @@ def test_crash_during_recovery_converges(
                 where = f"state {label}, {kind}@{n} ({counting.ops[n - 1]})"
                 again = _recover(dest)
                 assert again[0] != "refused", f"{where}: next recovery refused ({again[1]})"
-                if kind == "io_error_before":
-                    # A transient read error can legitimately steer recovery onto the
-                    # damaged-journal path (table B); only all-or-nothing is required.
+                on_journal = counting.ops[n - 1].args[0] == journal_path_for(project)
+                if kind == "io_error_before" and not on_journal:
+                    # A read error on a temp file or backup (not the journal) is still
+                    # treated as "not verified" by the classifier and may choose roll
+                    # back over roll forward; only all-or-nothing is required there.
                     case = Case(dest, with_persons, case_old[0], case_old[1])
                     p_new = dest.read_bytes() != case.old_project
                     if with_persons:
@@ -676,6 +678,8 @@ def test_crash_during_recovery_converges(
                         assert t_new == p_new, f"{where}: mixed project/persons state"
                     assert _leftovers(dest.parent) == [], where
                 else:
+                    # A read error on the journal is retried or refused (never classified
+                    # DAMAGED), so it converges exactly like every other fault.
                     assert snapshot_dir(dest.parent) == ref_snapshot, (
                         f"{where}: final disk differs from undisturbed recovery"
                     )
@@ -726,3 +730,101 @@ def test_property_41_recovery_deterministic() -> None:
             shutil.rmtree(work, ignore_errors=True)
 
         check()
+
+
+# ---------------------------------------------------------------------------
+# Journal read errors: retry, then refuse (never DAMAGED)
+# ---------------------------------------------------------------------------
+
+from slaktbusken.services.commit import journal as _journal_module  # noqa: E402
+from slaktbusken.services.commit import recovery as _recovery_module  # noqa: E402
+
+
+class _JournalDownFs(CountingFs):
+    """Every exists/read_bytes of the journal file fails, persistently."""
+
+    def __init__(self, journal: Path) -> None:
+        super().__init__(RealFs(delays=(), sleep=lambda _s: None))
+        self._journal = journal
+
+    def _pre(self, op) -> None:
+        if op.name in ("exists", "read_bytes") and op.args[0] == self._journal:
+            raise OSError(5, f"simulated persistent read error on {op.args[0]}")
+
+
+def _journal_states(templates: dict[bool, Path], with_persons: bool, base: Path) -> list[Path]:
+    return [p for label, p in _distinct_interrupted_states(templates, with_persons, base) if label.endswith("/journal")]
+
+
+@pytest.mark.parametrize("with_persons", [True, False], ids=["with_persons", "no_persons"])
+def test_transient_journal_read_error_converges_to_undisturbed_recovery(
+    templates: dict[bool, Path], with_persons: bool, tmp_path: Path, monkeypatch
+) -> None:
+    """A single I/O error on exists/read of the journal is retried; the result and
+    the final disk equal an undisturbed recovery (no roll back instead of forward)."""
+    monkeypatch.setattr(_journal_module, "_sleep", lambda _s: None)
+    states = _journal_states(templates, with_persons, tmp_path / "states")
+    assert states
+    injected = 0
+    for i, project in enumerate(states):
+        reference = _clone(project, tmp_path / f"ref{i}")
+        ref_result = _recover(reference)
+        ref_snapshot = snapshot_dir(reference.parent)
+        counting = CountingFs()
+        probe = _clone(project, tmp_path / f"probe{i}")
+        _recover(probe, counting)
+        journal = journal_path_for(probe)
+        # The leading operations are read_journal's exists/read_bytes of the journal.
+        ops = []
+        for op in counting.ops:
+            if op.name not in ("exists", "read_bytes") or op.args[0] != journal:
+                break
+            ops.append(op.index)
+        assert len(ops) == 2
+        for n in ops:
+            dest = _clone(project, tmp_path / f"d{i}_{n}")
+            fs = FaultFs(n, "io_error_before", RealFs(delays=(), sleep=lambda _s: None))
+            result = _recover(dest, fs)
+            assert fs.triggered
+            injected += 1
+            assert result == ref_result, f"state {i}, fault at {counting.ops[n - 1]}"
+            assert snapshot_dir(dest.parent) == ref_snapshot
+    assert injected >= 2
+
+
+@pytest.mark.parametrize("with_persons", [True, False], ids=["with_persons", "no_persons"])
+def test_persistent_journal_read_error_refuses_and_changes_nothing(
+    templates: dict[bool, Path], with_persons: bool, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(_journal_module, "_sleep", lambda _s: None)
+    states = _journal_states(templates, with_persons, tmp_path / "states")
+    assert states
+    for i, project in enumerate(states):
+        dest = _clone(project, tmp_path / f"p{i}")
+        before = snapshot_dir(dest.parent)
+        fs = _JournalDownFs(journal_path_for(dest))
+        with pytest.raises(RecoveryRefusedError) as info:
+            recover_if_needed(dest, fs)
+        refusal = info.value.refusal
+        assert refusal.code == "R11"
+        assert refusal.journal_path == journal_path_for(dest)
+        assert str(journal_path_for(dest)) in refusal.message
+        assert snapshot_dir(dest.parent) == before  # byte-for-byte unchanged
+        # The fault is gone: the same state recovers normally afterwards.
+        assert _recover(dest)[0] != "refused"
+
+
+def test_read_journal_io_error_is_unreadable_not_damaged(tmp_path: Path, monkeypatch) -> None:
+    """Retried per RETRY_DELAYS; bad content stays DAMAGED."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(_journal_module, "_sleep", sleeps.append)
+    project = tmp_path / "Test.json.gz"
+    jp = journal_path_for(project)
+    jp.write_bytes(b"not json")
+    assert read_journal(RealFs(), project).state is JournalState.DAMAGED
+    assert sleeps == []
+    fs = _JournalDownFs(jp)
+    result = read_journal(fs, project)
+    assert result.state is JournalState.UNREADABLE
+    assert tuple(sleeps) == _journal_module.fs_ops.RETRY_DELAYS
+    assert len([o for o in fs.ops if o.name == "exists"]) == len(sleeps) + 1

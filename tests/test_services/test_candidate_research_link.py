@@ -98,3 +98,17 @@ def test_case_deletion_leaves_candidate_unchanged(svc) -> None:
     assert data.research_cases == []
     assert data.merge_candidates == [before]
     assert data.merge_candidates[0].research_case_id == case.id
+
+
+def test_service_defines_create_research_case_for_candidate_once() -> None:
+    import ast
+    import inspect
+
+    from slaktbusken.services import project_service
+
+    tree = ast.parse(inspect.getsource(project_service))
+    cls = next(
+        n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ProjectService"
+    )
+    names = [n.name for n in cls.body if isinstance(n, ast.FunctionDef)]
+    assert names.count("create_research_case_for_candidate") == 1

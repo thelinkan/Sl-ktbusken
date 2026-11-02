@@ -552,7 +552,12 @@ class MergeReviewWizard(QDialog):
         if self._use_worker and hasattr(executor, "run_disk_phase") and hasattr(executor, "finish"):
             self._start_background_execution(executor, plan)
             return
-        self._handle_result(executor.execute(plan))
+        self._finishing = True  # our own adoption is not a foreign change
+        try:
+            result = executor.execute(plan)
+        finally:
+            self._finishing = False
+        self._handle_result(result)
 
     def _start_background_execution(self, executor: Any, plan: MergePlan) -> None:
         """Disk phase on a worker behind a progress overlay without cancel (27.11)."""

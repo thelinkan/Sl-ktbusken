@@ -417,3 +417,25 @@ def test_preview_lists_unresolved_choice_and_gedcom_warning(qapp, service):
     assert any(l.startswith("Val saknas:") for l in lines)
     assert wiz.preview.gedcom_label.text() == GEDCOM_WARNING_TEXT
     assert wiz.preview.gedcom_label.isHidden() == (not mp.gedcom_warning_visible())
+
+
+def test_synchronous_merge_does_not_treat_own_adoption_as_foreign_change(
+    qapp, tmp_path, monkeypatch
+) -> None:
+    """Real engine on a saved project, synchronous path: no rebuild, plan kept."""
+    from tests.test_services.test_saved_state import _merge_service, _wizard_for
+
+    svc = _merge_service(tmp_path)
+    wiz, executor = _wizard_for(svc, EditorRegistry())
+    plan_before = wiz.plan
+    assert plan_before is not None
+    rebuilds: list[int] = []
+    real_rebuild = wiz._rebuild_plan
+    monkeypatch.setattr(wiz, "_rebuild_plan", lambda: rebuilds.append(1) or real_rebuild())
+    monkeypatch.setattr(wiz, "_confirm_merge", lambda text: True)
+    wiz.preview.execute_button.click()
+    assert wiz.executed
+    assert wiz.last_result is not None and wiz.last_result.success
+    assert rebuilds == []
+    assert wiz.plan is plan_before
+    assert wiz._finishing is False

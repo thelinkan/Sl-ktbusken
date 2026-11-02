@@ -74,6 +74,10 @@ REFUSAL_REASONS: dict[str, str] = {
     "R8": "Säkerhetskopian som behövs är skadad.",
     "R9": "Sammanslagningsjournalen saknas men filerna är i olika tillstånd.",
     "R10": "Återställningen kunde inte verifieras.",
+    "R11": (
+        "Sammanslagningsjournalen kunde inte läsas på grund av ett filfel som kvarstod efter flera försök. "
+        "Ingenting har ändrats. Försök igen när filen går att läsa."
+    ),
 }
 
 FORWARD = "ROLL_FORWARD"
@@ -293,6 +297,7 @@ class _Ctx:
         backup_dir: Path | None,
         states: tuple[tuple[str, str], ...] = (),
         extra_temps: list[Path] = (),
+        journal_known: bool = False,
     ) -> RecoveryRefusedError:
         if backup_dir is None:
             dirs = self.backup_dirs()
@@ -303,7 +308,11 @@ class _Ctx:
             RecoveryRefusal(
                 code=code,
                 project_path=self.project_file,
-                journal_path=self.journal_path if _exists(self.fs, self.journal_path) else None,
+                journal_path=(
+                    self.journal_path
+                    if journal_known or _exists(self.fs, self.journal_path)
+                    else None
+                ),
                 temp_paths=self.all_temps(list(extra_temps)),
                 backup_dir=backup_dir,
                 target_states=states,
@@ -341,6 +350,9 @@ def recover_if_needed(project_file: Path, fs: CommitFs | None = None) -> Recover
     """
     ctx = _Ctx(Path(project_file), fs if fs is not None else RealFs())
     jr = read_journal(ctx.fs, ctx.project_file)
+    if jr.state is JournalState.UNREADABLE:
+        # An I/O error says nothing about the content: do not guess (R11).
+        raise ctx.refusal("R11", backup_dir=None, journal_known=True)
     if jr.state is JournalState.VALID:
         assert jr.journal is not None
         return _recover_valid(ctx, jr.journal)

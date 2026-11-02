@@ -2,7 +2,8 @@
 
 Both documents carry their own SHA-256 over the canonical JSON of everything
 except the checksum key. Reading never raises for bad content: it returns a
-result with state VALID / DAMAGED / ABSENT (journal) or VALID / UNUSABLE /
+result with state VALID / DAMAGED / ABSENT / UNREADABLE (journal; UNREADABLE
+only for I/O errors that persist after retries) or VALID / UNUSABLE /
 ABSENT (manifest), so recovery can classify from read-only inspection. A
 leftover ``<journal>.tmp`` is never read and never counts as a journal.
 
@@ -13,11 +14,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from slaktbusken.services.commit import fs_ops
 from slaktbusken.services.commit.fs_ops import CommitFs
 from slaktbusken.services.commit.preflight import journal_path_for, lock_path_for
 
@@ -48,11 +51,17 @@ __all__ = [
 SCHEMA = 1
 MANIFEST_NAME = "manifest.json"
 
+# Indirection so tests can run the retry loop without waiting.
+_sleep = time.sleep
+
 
 class JournalState(str, Enum):
     VALID = "VALID"
     DAMAGED = "DAMAGED"
     ABSENT = "ABSENT"
+    # Present or not, but reading failed with an I/O error that persisted after
+    # retries. Says nothing about the content; recovery refuses (R11).
+    UNREADABLE = "UNREADABLE"
 
 
 class ManifestState(str, Enum):
@@ -268,16 +277,23 @@ def write_journal(fs: CommitFs, project_file: Path, journal: MergeJournal) -> No
 def read_journal(fs: CommitFs, project_file: Path) -> JournalReadResult:
     """Read-only classification of the journal beside ``project_file``."""
     path = journal_path_for(project_file)
-    try:
-        present = fs.exists(path)
-    except OSError as exc:
-        return JournalReadResult(JournalState.DAMAGED, reason=f"kan inte kontrolleras: {exc}")
-    if not present:
-        return JournalReadResult(JournalState.ABSENT)
-    try:
-        raw = fs.read_bytes(path)
-    except OSError as exc:
-        return JournalReadResult(JournalState.DAMAGED, reason=f"kan inte läsas: {exc}")
+    # An I/O error is not evidence about the content: retry (same delays as the
+    # commit's retry policy), then report UNREADABLE instead of guessing DAMAGED.
+    delays = tuple(fs_ops.RETRY_DELAYS)
+    last_error = ""
+    raw: bytes | None = None
+    for attempt in range(len(delays) + 1):
+        try:
+            if not fs.exists(path):
+                return JournalReadResult(JournalState.ABSENT)
+            raw = fs.read_bytes(path)
+            break
+        except OSError as exc:
+            last_error = str(exc)
+            if attempt < len(delays):
+                _sleep(delays[attempt])
+    if raw is None:
+        return JournalReadResult(JournalState.UNREADABLE, reason=f"kan inte läsas: {last_error}")
     try:
         doc = json.loads(raw.decode("utf-8"))
         return JournalReadResult(JournalState.VALID, MergeJournal.from_dict(doc))
