@@ -382,13 +382,21 @@ class ComparisonFamilyView(QWidget):
         callback: Callable[[str], None],
         slot: int = 0,
     ) -> list[CandidateAssessmentBadge]:
-        """Put a Candidate_Assessment badge on every box of ``person_id``."""
+        """Put a Candidate_Assessment badge on every box of ``person_id``.
+
+        The hosting box reserves extra height below its text (comparison view
+        only) so the badge sits under the content instead of over the birth
+        line. The reservation grows with the number of badges already placed.
+        """
         added = []
         for box in self.person_boxes():
             if box.person_id != person_id:
                 continue
+            # Reserve room for every badge row up to and including this one.
+            box.set_reserved_badge_rows(max(box.extra_badge_rows, slot + 1))
             badge = CandidateAssessmentBadge(text, tooltip, candidate_id, callback, box)
-            badge.setPos(4.0, box.box_height - BADGE_HEIGHT - 3.0 - slot * (BADGE_HEIGHT + 2.0))
+            content_bottom = box.box_height - box.extra_bottom_height
+            badge.setPos(4.0, content_bottom + slot * (BADGE_HEIGHT + 2.0))
             self._markers.append(badge)
             added.append(badge)
         return added

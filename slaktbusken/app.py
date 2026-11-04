@@ -1777,6 +1777,7 @@ class Application:
             self.project_service,
             person_1_id or None,
             person_2_id or None,
+            state_store=lambda: self.app_settings_service._settings.comparison_window_state,
         )
         window.setProperty("rememberGeometry", True)
         window.continue_to_merge_requested.connect(self.open_merge_review)

@@ -29,6 +29,7 @@ from slaktbusken.ui.merge.person_comparison_window import (
     BACK_TEXT,
     COMPARE_TEXT,
     CONTINUE_TEXT,
+    MARK_SLOTS_TEXT,
     MARK_TEXT,
     REGISTER_ERROR_TEXT,
     PersonComparisonWindow,
@@ -366,3 +367,81 @@ def test_candidate_indicator_on_comparison_boxes(qapp, service, monkeypatch, ena
     finally:
         win._panel = None
         win.close()
+
+
+# -- Requirement 13 (toolbar "Markera dessa som kandidater") ------------------
+
+
+def _toolbar_index(win, button) -> int:
+    layout = win.toolbar_layout
+    for i in range(layout.count()):
+        if layout.itemAt(i).widget() is button:
+            return i
+    return -1
+
+
+def test_mark_slots_button_is_left_of_continue(make_window):
+    win = make_window("person_1", "person_3")
+    assert win.mark_slots_button.text() == MARK_SLOTS_TEXT == "Markera dessa som kandidater"
+    mark_index = _toolbar_index(win, win.mark_slots_button)
+    continue_index = _toolbar_index(win, win.continue_button)
+    assert mark_index >= 0 and continue_index >= 0
+    assert mark_index < continue_index
+
+
+def test_mark_slots_button_enabled_only_with_two_slot_persons(make_window):
+    win = make_window("person_1", None)
+    assert not win.mark_slots_button.isEnabled()
+    win.assign_person(1, "person_3")
+    assert win.mark_slots_button.isEnabled()
+    # Independent of any in-view selection.
+    win.select_in_view(0, None)
+    win.select_in_view(1, None)
+    assert win.mark_slots_button.isEnabled()
+    win.clear_slot(1)
+    assert not win.mark_slots_button.isEnabled()
+
+
+def test_mark_slots_button_same_person_disabled(make_window):
+    # Two distinct slots are required; the window already rejects same-id slots,
+    # but the button guard must also hold for the slot pair directly.
+    win = make_window("person_1", "person_3")
+    assert win.mark_slots_button.isEnabled()
+
+
+def test_mark_slots_creates_and_opens_candidate_for_slot_pair(make_window, service):
+    win = make_window("person_1", "person_3")
+    # No in-view selection at all.
+    assert win.session.selections() == (None, None)
+    assert win.mark_slots_as_candidates()
+    assert len(service.data.merge_candidates) == 1
+    cand = service.data.merge_candidates[0]
+    assert {cand.person_1_id, cand.person_2_id} == {"person_1", "person_3"}
+    assert win.candidate_panel is not None
+    assert win.candidate_panel.candidate_id == cand.id
+    # Reused, not duplicated.
+    win._close_panel()
+    assert win.mark_slots_as_candidates()
+    assert len(service.data.merge_candidates) == 1
+
+
+def test_mark_slots_failure_shows_error(make_window, service, monkeypatch):
+    win = make_window("person_1", "person_3")
+
+    def boom(*_a):
+        raise RuntimeError("fel")
+
+    monkeypatch.setattr(service, "get_or_create_merge_candidate", boom)
+    assert not win.mark_slots_as_candidates()
+    assert win.message_text() == REGISTER_ERROR_TEXT
+    assert service.data.merge_candidates == []
+    assert win.candidate_panel is None
+
+
+def test_old_mark_button_reads_new_label_and_works_on_in_view_selection(make_window, service):
+    win = make_window("person_1", "person_3")
+    assert win.mark_button.text() == MARK_TEXT == "Markera valda som kandidater"
+    _select(win, "person_4", "person_5")
+    assert win.mark_as_candidates()
+    cand = service.data.merge_candidates[0]
+    assert {cand.person_1_id, cand.person_2_id} == {"person_4", "person_5"}

@@ -76,6 +76,11 @@ class AppSettings:
         person_list_column_widths: Width in pixels of each person list
             column, keyed by a stable column key (for example "name"), saved
             when the program closes.
+        comparison_window_state: Internal state of the Person_Comparison_Window,
+            keyed by window type (the same key the geometry uses). Each entry
+            holds the three-panel splitter sizes and the per-view zoom levels.
+            Stored per computer here rather than in projects, since projects
+            move between computers with other screens.
     """
 
     recent_projects: list[str] = field(default_factory=list)
@@ -89,6 +94,7 @@ class AppSettings:
     column_visibility: ColumnVisibility = field(default_factory=ColumnVisibility)
     window_geometries: dict[str, str] = field(default_factory=dict)
     person_list_column_widths: dict[str, int] = field(default_factory=dict)
+    comparison_window_state: dict[str, dict] = field(default_factory=dict)
 
 
 class AppSettingsService:
@@ -286,6 +292,7 @@ class AppSettingsService:
             },
             "window_geometries": dict(settings.window_geometries),
             "person_list_column_widths": dict(settings.person_list_column_widths),
+            "comparison_window_state": dict(settings.comparison_window_state),
         }
 
     def _deserialize(self, data: dict) -> AppSettings:
@@ -439,6 +446,9 @@ class AppSettingsService:
             person_list_column_widths=_deserialize_column_widths(
                 data.get("person_list_column_widths")
             ),
+            comparison_window_state=_deserialize_comparison_window_state(
+                data.get("comparison_window_state")
+            ),
         )
 
 
@@ -454,6 +464,23 @@ def _deserialize_window_geometries(value: object) -> dict[str, str]:
         key: item
         for key, item in value.items()
         if isinstance(key, str) and isinstance(item, str) and key and item
+    }
+
+
+def _deserialize_comparison_window_state(value: object) -> dict[str, dict]:
+    """Return the stored comparison-window state, dropping anything malformed.
+
+    Only string keys mapping to dict values are kept. The window itself
+    validates the contents of each entry when it restores them, so a damaged
+    or hand-edited entry simply makes that window open with its default
+    splitter proportions and zoom.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: dict(item)
+        for key, item in value.items()
+        if isinstance(key, str) and key and isinstance(item, dict)
     }
 
 

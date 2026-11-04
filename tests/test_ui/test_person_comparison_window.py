@@ -342,3 +342,112 @@ def test_comparison_stage_is_read_only(make_window, service):
     win.refresh()
     assert service.data == before
     assert service.revision == revision
+
+
+# --------------------------------------------------------------------------
+# Remembered internal state: splitter sizes and per-view zoom (per computer).
+
+
+def test_comparison_state_store_none_opens_and_closes_cleanly(make_window):
+    """A window without a state store works exactly like before."""
+    win = make_window("person_1", "person_2")
+    win.resize(1400, 800)
+    win.show()
+    QTest.qWait(30)
+    # Default proportions are untouched, no error on close.
+    sizes = win.splitter.sizes()
+    assert len(sizes) == 3
+    assert win.close()
+
+
+def test_comparison_state_saved_on_close(make_window):
+    """Closing writes splitter sizes and both zoom levels under the window key."""
+    store: dict[str, dict] = {}
+    win = make_window("person_1", "person_2", state_store=lambda: store)
+    win.resize(1400, 800)
+    win.show()
+    QTest.qWait(30)
+    win.session.set_zoom(0, 1.5)
+    win.session.set_zoom(1, 0.5)
+    recorded = list(win.splitter.sizes())
+    win.close()
+
+    assert "PersonComparisonWindow" in store
+    entry = store["PersonComparisonWindow"]
+    assert entry["splitter_sizes"] == recorded
+    assert entry["zoom"] == [1.5, 0.5]
+
+
+def test_comparison_state_restored_on_open(make_window):
+    """A new window with a populated store restores splitter sizes and zoom."""
+    store: dict[str, dict] = {}
+    first = make_window("person_1", "person_2", state_store=lambda: store)
+    first.resize(1400, 800)
+    first.show()
+    QTest.qWait(30)
+    first.session.set_zoom(0, 2.0)
+    first.session.set_zoom(1, 0.5)
+    # Nudge the splitter so the stored sizes differ from the 35/35/30 default.
+    total = sum(first.splitter.sizes())
+    custom = [int(total * 0.5), int(total * 0.3), 0]
+    custom[2] = total - custom[0] - custom[1]
+    first.splitter.setSizes(custom)
+    saved_sizes = list(first.splitter.sizes())
+    first.close()
+
+    second = make_window("person_1", "person_2", state_store=lambda: store)
+    second.resize(1400, 800)
+    second.show()
+    QTest.qWait(30)
+
+    assert second.splitter.sizes() == saved_sizes
+    assert second.session.zoom(0) == pytest.approx(2.0)
+    assert second.session.zoom(1) == pytest.approx(0.5)
+    assert second.family_views[0].zoom_factor == pytest.approx(2.0)
+    assert second.family_views[1].zoom_factor == pytest.approx(0.5)
+
+
+def test_comparison_state_garbage_falls_back_to_defaults(make_window):
+    """Mismatched/garbage stored state falls back to 35/35/30 and default zoom."""
+    store = {
+        "PersonComparisonWindow": {
+            "splitter_sizes": ["a", "b", "c"],
+            "zoom": ["x", None],
+        }
+    }
+    win = make_window("person_1", "person_2", state_store=lambda: store)
+    win.resize(1400, 800)
+    win.show()
+    QTest.qWait(30)
+
+    sizes = win.splitter.sizes()
+    total = sum(sizes)
+    shares = [s / total * 100 for s in sizes]
+    assert abs(shares[0] - 35) <= 2
+    assert abs(shares[1] - 35) <= 2
+    assert abs(shares[2] - 30) <= 2
+    assert win.session.zoom(0) == pytest.approx(1.0)
+    assert win.session.zoom(1) == pytest.approx(1.0)
+    assert win.close()
+
+
+def test_comparison_state_wrong_sum_keeps_default_proportions(make_window):
+    """Splitter sizes whose sum is far from the width are ignored."""
+    store = {
+        "PersonComparisonWindow": {
+            "splitter_sizes": [10, 10, 10],
+            "zoom": [1.0, 1.0],
+        }
+    }
+    win = make_window("person_1", "person_2", state_store=lambda: store)
+    win.resize(1400, 800)
+    win.show()
+    QTest.qWait(30)
+
+    sizes = win.splitter.sizes()
+    total = sum(sizes)
+    shares = [s / total * 100 for s in sizes]
+    assert abs(shares[0] - 35) <= 2
+    assert abs(shares[1] - 35) <= 2
+    assert abs(shares[2] - 30) <= 2
+    assert win.close()

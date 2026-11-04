@@ -57,6 +57,7 @@ from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
 from slaktbusken.ui.merge.slot_search import SlotSearchControl
 from slaktbusken.ui.swedish_locale import get_candidate_assessment_label
 from slaktbusken.ui.widgets.research_marker import begin_diagram_render
+from slaktbusken.ui.window_geometry import geometry_key
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,8 @@ SWAP_TEXT = "Byt plats"
 HISTORY_TEXT = "Sammanslagningshistorik"
 BACK_TEXT = "Tillbaka till föregående jämförelse"
 CONTINUE_TEXT = "Fortsätt till sammanslagning"
-MARK_TEXT = "Markera som kandidater"
+MARK_TEXT = "Markera valda som kandidater"
+MARK_SLOTS_TEXT = "Markera dessa som kandidater"
 COMPARE_TEXT = "Jämför dessa"
 REGISTER_ERROR_TEXT = "Kandidaterna kunde inte registreras."
 SAVE_ERROR_TEXT = "Kommentaren kunde inte sparas."
@@ -73,6 +75,13 @@ NO_PAIR_TEXT = "Välj en person i vardera familjevyn för att markera eller jäm
 MAX_BADGES_PER_BOX = 3
 SPLITTER_PROPORTIONS = (0.35, 0.35, 0.30)
 REFRESH_DELAY_MS = 50
+
+#: Zoom range a restored value must fall in; mirrors ZoomableGraphicsView.
+MIN_ZOOM = 0.01
+MAX_ZOOM = 4.0
+#: How close the three restored splitter sizes must sum to the splitter width
+#: before they are applied (a few pixels of rounding slack).
+_SPLITTER_SUM_TOLERANCE = 16
 
 _open_windows: set["PersonComparisonWindow"] = set()
 
@@ -97,6 +106,12 @@ class PersonComparisonWindow(QMainWindow):
             main diagram's configuration found through ``parent.diagram_panel``
             and otherwise to :class:`PersonBoxConfig` defaults.
         diagram_settings: Diagram settings; same fallback as the config.
+        state_store: Zero-arg callable returning the dict map the window's
+            internal state (splitter sizes and per-view zoom) is kept in, keyed
+            by window type. A callable (rather than the dict itself), like
+            ``WindowGeometryKeeper``, so the window always writes into the
+            settings object that is current when it closes. ``None`` disables
+            persistence of this state.
     """
 
     refreshed = Signal()
@@ -114,10 +129,12 @@ class PersonComparisonWindow(QMainWindow):
         person_box_config: Optional[PersonBoxConfig] = None,
         diagram_settings: Optional[DiagramSettings] = None,
         editor_registry: Optional[EditorRegistry] = None,
+        state_store: Optional[Callable[[], dict[str, dict]]] = None,
     ) -> None:
         super().__init__(parent)
         self._service = project_service
         self._registry = editor_registry or getattr(parent, "editor_registry", None)
+        self._state_store = state_store
         self.continue_to_merge_callback: Optional[Callable[[str, str], None]] = None
         self._panel: Optional[CandidatePanel] = None
         self.setWindowTitle(WINDOW_TITLE)
@@ -139,6 +156,7 @@ class PersonComparisonWindow(QMainWindow):
         self._expansion_order: list[list[str]] = [[], []]
         self._summaries: Optional[PersonSummaryIndex] = None
         self._splitter_touched = False
+        self._state_restored = False
         self._focus_pending: Optional[int] = None
         self.last_lookup = None
 
@@ -168,6 +186,9 @@ class PersonComparisonWindow(QMainWindow):
         self._back_button.clicked.connect(self.go_back)
         self.toolbar_layout.addWidget(self._back_button)
         self.toolbar_layout.addStretch(1)
+        self._mark_slots_button = QPushButton(MARK_SLOTS_TEXT, central)
+        self._mark_slots_button.clicked.connect(self.mark_slots_as_candidates)
+        self.toolbar_layout.addWidget(self._mark_slots_button)
         self._continue_button = QPushButton(CONTINUE_TEXT, central)
         self._continue_button.clicked.connect(self.continue_to_merge)
         self.toolbar_layout.addWidget(self._continue_button)
@@ -290,6 +311,11 @@ class PersonComparisonWindow(QMainWindow):
         return self._continue_button
 
     @property
+    def mark_slots_button(self) -> QPushButton:
+        """Toolbar button marking the two slot persons as candidates."""
+        return self._mark_slots_button
+
+    @property
     def mark_button(self) -> QPushButton:
         return self._mark_button
 
@@ -341,6 +367,12 @@ class PersonComparisonWindow(QMainWindow):
         super().showEvent(event)
         if not self._splitter_touched:
             self.apply_initial_proportions()
+        # The geometry keeper restores size/position on the first show through
+        # the application event filter; once the window has its final width the
+        # saved splitter sizes and zoom can be applied on top of the defaults.
+        if not self._state_restored:
+            self._state_restored = True
+            self._restore_saved_state()
         if self._focus_pending is not None:
             slot = self._focus_pending
             self._focus_pending = None
@@ -355,10 +387,86 @@ class PersonComparisonWindow(QMainWindow):
         if not self.resolve_unsaved_comment():
             event.ignore()
             return
+        self._save_state()
         self._remove_listener()
         self._refresh_timer.stop()
         _open_windows.discard(self)
         super().closeEvent(event)
+
+    # ------------------------------------------------- remembered state
+
+    def _save_state(self) -> None:
+        """Record this window's splitter sizes and per-view zoom.
+
+        Stored under the same key the geometry uses, so there is one entry per
+        window type. A missing store (``state_store`` was ``None``) or any
+        failure is ignored so closing the window can never break.
+        """
+        if self._state_store is None:
+            return
+        try:
+            self._state_store()[geometry_key(self)] = {
+                "splitter_sizes": list(self._splitter.sizes()),
+                "zoom": [self._session.zoom(0), self._session.zoom(1)],
+            }
+        except Exception:  # noqa: BLE001 - never break closing a window
+            logger.exception("Kunde inte spara jämförelsefönstrets läge.")
+
+    def _restore_saved_state(self) -> None:
+        """Apply saved splitter sizes and per-view zoom, if any are valid.
+
+        Garbage or missing entries fall back to the 35/35/30 proportions and
+        the default zoom without error.
+        """
+        if self._state_store is None:
+            return
+        try:
+            state = self._state_store().get(geometry_key(self))
+        except Exception:  # noqa: BLE001 - a bad store must not stop opening
+            logger.exception("Kunde inte läsa jämförelsefönstrets läge.")
+            return
+        if not isinstance(state, dict):
+            return
+        self._restore_splitter_sizes(state.get("splitter_sizes"))
+        self._restore_zoom(state.get("zoom"))
+
+    def _restore_splitter_sizes(self, sizes: Any) -> None:
+        """Apply three saved splitter sizes when they match the splitter width.
+
+        Keeps the default 35/35/30 proportions (and the ``_splitter_touched``
+        logic intact) when ``sizes`` is not a list of three numbers whose sum
+        is close to the current splitter width.
+        """
+        if not isinstance(sizes, (list, tuple)) or len(sizes) != 3:
+            return
+        if any(isinstance(s, bool) or not isinstance(s, (int, float)) for s in sizes):
+            return
+        if any(s < 0 for s in sizes):
+            return
+        total = self._splitter.width()
+        if total <= 0:
+            return
+        if abs(sum(sizes) - total) > _SPLITTER_SUM_TOLERANCE:
+            return
+        self._splitter.setSizes([int(s) for s in sizes])
+        self._splitter_touched = True
+
+    def _restore_zoom(self, zoom: Any) -> None:
+        """Apply saved per-view zoom, clamped to the allowed range.
+
+        Each entry must be a finite number; anything else leaves that view at
+        its current (default) zoom.
+        """
+        if not isinstance(zoom, (list, tuple)) or len(zoom) != 2:
+            return
+        for view, value in enumerate(zoom):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            if value != value or value in (float("inf"), float("-inf")):
+                continue
+            clamped = max(MIN_ZOOM, min(MAX_ZOOM, float(value)))
+            self._session.set_zoom(view, clamped)
+            self._family_views[view].set_zoom(clamped)
 
     # ----------------------------------------------------------- focus
 
@@ -541,6 +649,8 @@ class PersonComparisonWindow(QMainWindow):
         self._pair_label.setText(text)
         self._back_button.setEnabled(self._session.can_go_back())
         self._continue_button.setEnabled(self._session.can_continue_to_merge())
+        left, right = self._session.slot_persons()
+        self._mark_slots_button.setEnabled(bool(left and right and left != right))
 
     def resolve_unsaved_comment(self) -> bool:
         """Ask save / discard / stay for unsaved comment text; True to go on (14.6)."""
@@ -597,6 +707,28 @@ class PersonComparisonWindow(QMainWindow):
                 state.left_id, state.right_id
             )
         except Exception:  # noqa: BLE001 - any failure is reported, selection kept
+            logger.exception("Kandidaterna kunde inte registreras.")
+            self._show_message(REGISTER_ERROR_TEXT)
+            return False
+        self._show_message("")
+        return self.open_candidate_panel(candidate.id)
+
+    def mark_slots_as_candidates(self) -> bool:
+        """Mark the two slot persons as candidates, independent of in-view selection.
+
+        Enabled whenever both slots are filled with two different persons. On
+        success it gets or creates the candidate for the slot pair and opens the
+        candidate panel; on failure it shows ``REGISTER_ERROR_TEXT`` and keeps
+        the current state unchanged.
+        """
+        left, right = self._session.slot_persons()
+        if not left or not right or left == right:
+            return False
+        if not self.resolve_unsaved_comment():
+            return False
+        try:
+            candidate, _created = self._service.get_or_create_merge_candidate(left, right)
+        except Exception:  # noqa: BLE001 - any failure is reported, state kept
             logger.exception("Kandidaterna kunde inte registreras.")
             self._show_message(REGISTER_ERROR_TEXT)
             return False
@@ -776,6 +908,7 @@ def open_comparison_window(
     person_box_config: Optional[PersonBoxConfig] = None,
     diagram_settings: Optional[DiagramSettings] = None,
     editor_registry: Optional[EditorRegistry] = None,
+    state_store: Optional[Callable[[], dict[str, dict]]] = None,
 ) -> PersonComparisonWindow:
     """Open a non-modal comparison window and return it.
 
@@ -793,6 +926,9 @@ def open_comparison_window(
         diagram_settings: Optional diagram settings override.
         editor_registry: Registry that lets the embedded candidate panel take
             part in unsaved-text checks (defaults to ``parent.editor_registry``).
+        state_store: Zero-arg callable returning the dict map the window's
+            internal state (splitter sizes and per-view zoom) is kept in, or
+            None to not persist it.
     """
     window = PersonComparisonWindow(
         project_service,
@@ -802,6 +938,7 @@ def open_comparison_window(
         person_box_config,
         diagram_settings,
         editor_registry,
+        state_store,
     )
     window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
     _open_windows.add(window)

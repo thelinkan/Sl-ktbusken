@@ -141,6 +141,11 @@ class PersonBoxItem(QGraphicsItem):
         self._display_data = display_data
         self._config = config
         self._selected = False
+        #: Opt-in extra height (comparison view only) reserved below the text so
+        #: candidate badges sit under the content instead of over it. Zero in
+        #: the normal family/ancestry/descendants diagram.
+        self._extra_bottom_height: float = 0.0
+        self._extra_badge_rows: int = 0
         self._is_ancestor: bool = bool(display_data.get("is_ancestor"))
         self._is_descendant: bool = bool(display_data.get("is_descendant"))
         self._is_main_person: bool = bool(display_data.get("is_main_person"))
@@ -160,12 +165,46 @@ class PersonBoxItem(QGraphicsItem):
         return self._person_id
 
     @property
-    def box_height(self) -> float:
-        """The actual rendered height of this box."""
+    def _content_height(self) -> float:
+        """Height needed by the text content alone (no reserved badge area)."""
         return max(
             _BOX_HEIGHT_MIN,
             len(self._lines) * _LINE_HEIGHT + 2 * _PADDING,
         )
+
+    @property
+    def extra_bottom_height(self) -> float:
+        """Opt-in height reserved below the text; 0 in the normal diagram."""
+        return self._extra_bottom_height
+
+    @property
+    def extra_badge_rows(self) -> int:
+        """Number of badge rows currently reserved below the text (0 by default)."""
+        return self._extra_badge_rows
+
+    def set_reserved_badge_rows(self, rows: int) -> None:
+        """Reserve ``rows`` badge rows of extra height below the text.
+
+        Used only by the comparison family view so a Candidate_Assessment badge
+        sits under the content rather than over the birth line. ``rows`` is the
+        number of badge rows to reserve; the normal diagram never calls this and
+        keeps its default (zero) height.
+        """
+        from slaktbusken.ui.merge.comparison_markers import BADGE_HEIGHT
+
+        rows = max(0, int(rows))
+        extra = rows * (BADGE_HEIGHT + 2.0) + (_PADDING if rows else 0.0)
+        if rows == self._extra_badge_rows and extra == self._extra_bottom_height:
+            return
+        self.prepareGeometryChange()
+        self._extra_badge_rows = rows
+        self._extra_bottom_height = extra
+        self.update()
+
+    @property
+    def box_height(self) -> float:
+        """The actual rendered height of this box, reserved badge area included."""
+        return self._content_height + self._extra_bottom_height
 
     @property
     def is_selected(self) -> bool:
@@ -202,10 +241,7 @@ class PersonBoxItem(QGraphicsItem):
         Returns:
             The bounding rect encompassing the box and border.
         """
-        height = max(
-            _BOX_HEIGHT_MIN,
-            len(self._lines) * _LINE_HEIGHT + 2 * _PADDING,
-        )
+        height = self.box_height
         # Extra pixel for pen width
         return QRectF(-1, -1, _BOX_WIDTH + 2, height + 2)
 
@@ -227,10 +263,7 @@ class PersonBoxItem(QGraphicsItem):
             option: Style options (unused).
             widget: The widget being painted on (unused).
         """
-        height = max(
-            _BOX_HEIGHT_MIN,
-            len(self._lines) * _LINE_HEIGHT + 2 * _PADDING,
-        )
+        height = self.box_height
         rect = QRectF(0, 0, _BOX_WIDTH, height)
 
         # Background
@@ -651,7 +684,7 @@ class PersonBoxItem(QGraphicsItem):
         gap = 2.0
         total_width = n * _DNA_LOGO_SIZE + (n - 1) * gap
         start_x = _BOX_WIDTH - _PADDING / 2 - total_width
-        y = self.box_height - _DNA_LOGO_SIZE - _PADDING / 2
+        y = self._content_height - _DNA_LOGO_SIZE - _PADDING / 2
 
         painter.save()
         for i, company in enumerate(logos):

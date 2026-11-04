@@ -424,3 +424,74 @@ class TestParentageDiagramSettings:
         assert result.diagram_settings.parentage_show_level == "biological"
         assert result.diagram_settings.parentage_badge is False
         assert result.diagram_settings.parentage_fallback is True
+
+
+class TestComparisonWindowStateSettings:
+    """Tests for the comparison_window_state app setting (per-computer)."""
+
+    def test_default_is_empty_dict(self) -> None:
+        settings = AppSettings()
+        assert settings.comparison_window_state == {}
+
+    def test_missing_key_loads_as_empty(
+        self, service: AppSettingsService
+    ) -> None:
+        service.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        service.SETTINGS_PATH.write_text(json.dumps({}), encoding="utf-8")
+
+        result = service.load()
+        assert result.comparison_window_state == {}
+
+    def test_empty_default_round_trip(
+        self, service: AppSettingsService
+    ) -> None:
+        service.save(AppSettings())
+
+        svc2 = AppSettingsService()
+        svc2.SETTINGS_PATH = service.SETTINGS_PATH
+        loaded = svc2.load()
+        assert loaded.comparison_window_state == {}
+
+    def test_populated_map_round_trip(
+        self, service: AppSettingsService
+    ) -> None:
+        state = {
+            "PersonComparisonWindow": {
+                "splitter_sizes": [490, 490, 420],
+                "zoom": [1.25, 0.75],
+            }
+        }
+        service.save(AppSettings(comparison_window_state=state))
+
+        svc2 = AppSettingsService()
+        svc2.SETTINGS_PATH = service.SETTINGS_PATH
+        loaded = svc2.load()
+        assert loaded.comparison_window_state == state
+
+    def test_non_dict_entries_dropped(
+        self, service: AppSettingsService
+    ) -> None:
+        data = {
+            "comparison_window_state": {
+                "PersonComparisonWindow": {"splitter_sizes": [1, 2, 3]},
+                "bad": "not-a-dict",
+                "": {"ignored": True},
+            }
+        }
+        service.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        service.SETTINGS_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+        result = service.load()
+        assert result.comparison_window_state == {
+            "PersonComparisonWindow": {"splitter_sizes": [1, 2, 3]}
+        }
+
+    def test_non_dict_top_level_loads_as_empty(
+        self, service: AppSettingsService
+    ) -> None:
+        data = {"comparison_window_state": ["not", "a", "dict"]}
+        service.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        service.SETTINGS_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+        result = service.load()
+        assert result.comparison_window_state == {}

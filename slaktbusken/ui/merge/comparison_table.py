@@ -93,8 +93,15 @@ class ComparisonTable(QWidget):
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self._table.setWordWrap(True)
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self._table.horizontalHeader().setStretchLastSection(True)
+        header = self._table.horizontalHeader()
+        header.setStretchLastSection(False)
+        # "Rad" and "Markering" hug their content; the two person columns take
+        # the remaining width so long values wrap instead of being clipped.
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(_MARK_COLUMN, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeaderItem(_MARK_COLUMN).setToolTip(LEGEND_TEXT)
         self._table.setAccessibleName("Jämförelsetabell")
         layout.addWidget(self._table, stretch=1)
@@ -124,6 +131,17 @@ class ComparisonTable(QWidget):
         return self._table.rowCount()
 
     def cell_text(self, row: int, column: int) -> str:
+        """The value shown in a cell.
+
+        When a source cell widget renders the value, the underlying item text
+        is empty (so the value is not drawn twice); the plain value is read back
+        from the widget instead.
+        """
+        widget = self._table.cellWidget(row, column)
+        if widget is not None:
+            value = widget.property("value_text")
+            if value is not None:
+                return str(value)
         item = self._table.item(row, column)
         return item.text() if item is not None else ""
 
@@ -182,6 +200,7 @@ class ComparisonTable(QWidget):
 
     def _fill_row(self, r: int, row: ComparisonRow) -> None:
         label = QTableWidgetItem(row.label)
+        label.setTextAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._table.setItem(r, 0, label)
         for column, values, source_ids, missing in (
             (1, row.left, row.left_source_ids, row.status == STATUS_MISSING_LEFT),
@@ -190,7 +209,12 @@ class ComparisonTable(QWidget):
             text = "\n".join(values)
             if missing:
                 text = "Saknas"
-            item = QTableWidgetItem(text)
+            use_source_widget = bool(source_ids) and not missing
+            # When a source cell widget renders the value, the underlying item
+            # keeps no text so the value is not drawn twice behind the widget
+            # (the empty item still carries background, row sizing and tooltip).
+            item = QTableWidgetItem("" if use_source_widget else text)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
             if row.status == STATUS_DIFFERS:
                 item.setBackground(_DIFFERS_BRUSH)
                 item.setToolTip(LEGEND_TEXT)
@@ -200,9 +224,10 @@ class ComparisonTable(QWidget):
                 font.setItalic(True)
                 item.setFont(font)
             self._table.setItem(r, column, item)
-            if source_ids and not missing:
+            if use_source_widget:
                 self._table.setCellWidget(r, column, self._source_cell(text, source_ids))
         mark = QTableWidgetItem(row.status_label)
+        mark.setTextAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         if row.status == STATUS_DIFFERS:
             font = QFont(mark.font())
             font.setBold(True)
@@ -217,14 +242,17 @@ class ComparisonTable(QWidget):
         self._table.setItem(r, _MARK_COLUMN, mark)
 
     def _source_cell(self, text: str, source_ids: Sequence[str]) -> QLabel:
-        """Value text followed by one link per referenced source."""
+        """Value text with the "Källa: [n]" links on their own line below it."""
         links = " ".join(
             f'<a href="{html.escape(sid, quote=True)}">[{i}]</a>'
             for i, sid in enumerate(source_ids, start=1)
         )
-        label = QLabel(f"{html.escape(text).replace(chr(10), '<br>')} Källa: {links}")
+        value_html = html.escape(text).replace(chr(10), "<br>")
+        label = QLabel(f"{value_html}<br>Källa: {links}")
+        label.setProperty("value_text", text)
         label.setTextFormat(Qt.TextFormat.RichText)
         label.setWordWrap(True)
+        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         label.setToolTip("Öppna källan")
         label.linkActivated.connect(self.open_source)
