@@ -34,6 +34,7 @@ from slaktbusken.services.diagram_lookup import (
 )
 from slaktbusken.ui.diagram_panel import ZoomableGraphicsView
 from slaktbusken.ui.views.family_view import FamilyView, _build_display_data
+from slaktbusken.ui.views.parent_display import order_parents_by_sex
 from slaktbusken.ui.merge.comparison_markers import (
     BADGE_HEIGHT,
     MARKER_SIZE,
@@ -279,7 +280,22 @@ class ComparisonFamilyView(QWidget):
             parent_ids: list[str] = []
             families = find_parent_families(data, pid)
             if families:
-                parent_ids = [p.person_id for p in families[0].partners]
+                # Parents come from this child's parent_child_links (never from
+                # marriage/partner roles), ordered male -> left / female ->
+                # right with a link-order fallback for ambiguous sexes.
+                link_parent_ids = [
+                    link.parent_id
+                    for link in families[0].parent_child_links
+                    if link.child_id == pid and link.parent_id
+                ]
+                left_id, right_id = order_parents_by_sex(
+                    link_parent_ids,
+                    lambda p: (
+                        person.sex
+                        if (person := find_person(data, p)) else None
+                    ),
+                )
+                parent_ids = [p for p in (left_id, right_id) if p]
             partner_ids: list[str] = []
             child_ids: list[str] = []
             for family in find_partner_families(data, pid):

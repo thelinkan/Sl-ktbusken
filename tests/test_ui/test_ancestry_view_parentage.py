@@ -224,3 +224,81 @@ class TestBadgeToggle:
 
         assert _badges(scene) == []
 
+
+
+# ---------------------------------------------------------------------------
+# Regression: ancestry parents come from parent_child_links + sex (not role)
+# ---------------------------------------------------------------------------
+
+
+def _two_parent_project(
+    *,
+    father_role: str,
+    mother_role: str,
+    father_sex: str = "M",
+    mother_sex: str = "F",
+) -> ProjectData:
+    """Active child p1 with two parents (p2 male, p3 female) via links."""
+    child = _person("p1", "Barn", "M")
+    father = _person("p2", "Far", father_sex)
+    mother = _person("p3", "Mor", mother_sex)
+    family = Family(
+        id="f1",
+        partners=[
+            FamilyPartner(person_id="p2", role=father_role),
+            FamilyPartner(person_id="p3", role=mother_role),
+        ],
+        children=["p1"],
+        parent_child_links=[
+            ParentChildLink(child_id="p1", parent_id="p2", parentage_type="biological"),
+            ParentChildLink(child_id="p1", parent_id="p3", parentage_type="biological"),
+        ],
+    )
+    return ProjectData(
+        project=ProjectMetadata(title="Bio", main_person_id="p1"),
+        persons=[child, father, mother],
+        families=[family],
+    )
+
+
+class TestAncestryParentsFromLinksAndSex:
+    """Ancestry father/mother slots come from links + sex, never partner role."""
+
+    def _render_depth1(self, data: ProjectData) -> tuple[AncestryView, QGraphicsScene]:
+        scene = QGraphicsScene()
+        view = AncestryView()
+        view.render(scene, data, "p1", PersonBoxConfig(name=True), depth=1)
+        return view, scene
+
+    def test_make_maka_roles_draw_both_parents_sex_ordered(self) -> None:
+        """Reported bug: 'make'/'maka' roles still place both ancestors by sex."""
+        view, _scene = self._render_depth1(
+            _two_parent_project(father_role="make", mother_role="maka")
+        )
+        boxes = {b.person_id: b for b in view.get_person_boxes()}
+        assert {"p2", "p3"} <= set(boxes), "Both parents must be drawn"
+        # Father slot (even) sits above mother slot (odd); placement is by sex,
+        # so the male p2 takes the father slot: father y < mother y.
+        assert boxes["p2"].pos().y() < boxes["p3"].pos().y()
+
+    def test_father_mother_roles_not_regressed(self) -> None:
+        """Existing father/mother roles keep father-top/mother-bottom."""
+        view, _scene = self._render_depth1(
+            _two_parent_project(father_role="father", mother_role="mother")
+        )
+        boxes = {b.person_id: b for b in view.get_person_boxes()}
+        assert {"p2", "p3"} <= set(boxes)
+        assert boxes["p2"].pos().y() < boxes["p3"].pos().y()
+
+    def test_equal_sex_falls_back_to_link_order(self) -> None:
+        """Two same-sex parents fall back to link order (first link -> father slot)."""
+        view, _scene = self._render_depth1(
+            _two_parent_project(
+                father_role="make", mother_role="maka",
+                father_sex="M", mother_sex="M",
+            )
+        )
+        boxes = {b.person_id: b for b in view.get_person_boxes()}
+        assert {"p2", "p3"} <= set(boxes)
+        # First link p2 -> father (top), second link p3 -> mother (bottom).
+        assert boxes["p2"].pos().y() < boxes["p3"].pos().y()

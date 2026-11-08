@@ -43,6 +43,7 @@ from slaktbusken.services.safe_io import resolve_within
 from slaktbusken.ui.views.parent_display import (
     ParentSetDisplay,
     _connection_type_for,
+    order_parents_by_sex,
     resolve_parent_display,
 )
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
@@ -344,22 +345,28 @@ class FamilyView:
                 if len(set_parent_ids) >= 2:
                     mother_id = set_parent_ids[1]
                 slot_family_id = drawn_set.family_id
+            elif drawn_set is not None:
+                # Biological pair: derive the parents from the drawn set's
+                # parent_child_links (never from marriage/partner roles — two
+                # people can be a child's parents with no marriage event and no
+                # spouse role). Place them into the father/mother slots by each
+                # parent's SEX (male -> left, female -> right); when the sexes
+                # are equal, both unknown, or otherwise ambiguous, fall back to
+                # the links' order.
+                set_parent_ids = [
+                    link.parent_id for link in drawn_set.links if link.parent_id
+                ]
+                father_id, mother_id = order_parents_by_sex(
+                    set_parent_ids,
+                    lambda pid: (
+                        p.sex if (p := _find_person(project_data, pid)) else None
+                    ),
+                )
+                slot_family_id = drawn_set.family_id
             else:
-                # Biological pair: derive father/mother from the family roles.
-                slot_source = sibling_source if sibling_source else parent_family
-                if slot_source:
-                    for partner in slot_source.partners:
-                        if partner.role in ("father", "husband"):
-                            father_id = partner.person_id
-                        elif partner.role in ("mother", "wife"):
-                            mother_id = partner.person_id
-                        elif partner.role == "partner":
-                            # Same-sex / gender-neutral: first empty slot.
-                            if father_id is None:
-                                father_id = partner.person_id
-                            elif mother_id is None:
-                                mother_id = partner.person_id
-                slot_family_id = slot_source.id if slot_source else None
+                # Nothing drawn: empty biological placeholders keyed to the
+                # biological parent family when one exists.
+                slot_family_id = parent_family.id if parent_family else None
 
             # Create parent boxes to determine their heights
             father_box: Optional[PersonBoxItem] = None

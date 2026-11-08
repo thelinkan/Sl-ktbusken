@@ -36,7 +36,10 @@ from slaktbusken.services.diagram_lookup import (
     person_dna_company_ids,
 )
 from slaktbusken.services.safe_io import resolve_within
-from slaktbusken.ui.views.parent_display import resolve_parent_display
+from slaktbusken.ui.views.parent_display import (
+    order_parents_by_sex,
+    resolve_parent_display,
+)
 from slaktbusken.ui.widgets.connection_line import ConnectionLineItem, ConnectionType
 from slaktbusken.ui.widgets.person_box import PersonBoxItem, _BOX_WIDTH
 from slaktbusken.ui.widgets.research_marker import diagram_candidate_state, diagram_research_counts
@@ -493,13 +496,13 @@ class AncestryView:
         parent_ids = [link.parent_id for link in chosen.links if link.parent_id]
 
         if not chosen.is_derived:
-            # Biological pair: honour father/mother roles so the existing slot
-            # geometry and placeholders are preserved exactly.
-            family = next(
-                (f for f in parent_families if f.id == chosen.family_id),
-                None,
+            # Biological pair: derive the two parents from the set's
+            # parent_child_links and place them into the even (father) and odd
+            # (mother) slots by each parent's SEX — never from a marriage/partner
+            # role. Ambiguous cases (equal/unknown sex) fall back to link order.
+            father_id, mother_id = _split_parents_by_sex(
+                project_data, parent_ids
             )
-            father_id, mother_id = _split_parents_by_role(family, parent_ids)
             # Biological slots keep the solid PARENT_CHILD style and no badge.
             self._slot_connection[even_slot] = ConnectionType.PARENT_CHILD
             self._slot_connection[odd_slot] = ConnectionType.PARENT_CHILD
@@ -690,16 +693,18 @@ def collect_ancestors(
             mother_id: Optional[str] = None
 
             if parent_family:
-                for partner in parent_family.partners:
-                    if partner.role in ("father", "husband"):
-                        father_id = partner.person_id
-                    elif partner.role in ("mother", "wife"):
-                        mother_id = partner.person_id
-                    elif partner.role == "partner":
-                        if father_id is None:
-                            father_id = partner.person_id
-                        elif mother_id is None:
-                            mother_id = partner.person_id
+                # Parenthood is derived from parent_child_links, not from
+                # marriage/partner roles: collect this child's parent ids (in
+                # link order) and place them into the father/mother slots by
+                # each parent's SEX, falling back to link order when ambiguous.
+                parent_ids = [
+                    link.parent_id
+                    for link in parent_family.parent_child_links
+                    if link.child_id == pid and link.parent_id
+                ]
+                father_id, mother_id = _split_parents_by_sex(
+                    project_data, parent_ids
+                )
 
             ancestor_map[(next_gen, pos * 2)] = father_id
             ancestor_map[(next_gen, pos * 2 + 1)] = mother_id
@@ -743,49 +748,30 @@ def _find_parent_family(
     return families[0] if families else None
 
 
-def _split_parents_by_role(
-    family: Optional[Family], parent_ids: list[str]
+def _split_parents_by_sex(
+    project_data: ProjectData, parent_ids: list[str]
 ) -> tuple[Optional[str], Optional[str]]:
-    """Split a biological family's parents into (father_slot, mother_slot).
+    """Split a biological pair's parents into (father_slot, mother_slot) by sex.
 
-    Mirrors the original slot assignment: a ``father``/``husband`` partner goes
-    in the even (father) slot and a ``mother``/``wife`` partner in the odd
-    (mother) slot; generic ``partner`` roles fill father then mother. Only
-    parents present in ``parent_ids`` (the links the resolver chose to draw) are
-    placed, so a missing parent leaves its slot ``None`` for the normal
-    placeholder (Requirement 3.10).
+    Parenthood comes from ``parent_child_links`` (the ``parent_ids`` the resolver
+    chose to draw), so slot placement is decided by each parent's ``Person.sex``
+    — never a marriage/partner role: a male parent goes in the even (father)
+    slot and a female parent in the odd (mother) slot. When that rule is
+    ambiguous (equal sexes, both unknown, or only one known sex) the links' own
+    order decides. A missing parent leaves its slot ``None`` so the normal
+    father/mother placeholder is drawn (Requirement 3.10).
 
     Args:
-        family: The biological family whose partner roles are read, or ``None``.
-        parent_ids: The parent ids of the drawn biological links.
+        project_data: Project data used to resolve each parent's sex.
+        parent_ids: The parent ids of the drawn biological links, in link order.
 
     Returns:
         ``(father_slot_id, mother_slot_id)``, either of which may be ``None``.
     """
-    father_id: Optional[str] = None
-    mother_id: Optional[str] = None
-    drawn = set(parent_ids)
-    if family is not None:
-        for partner in family.partners:
-            if partner.person_id not in drawn:
-                continue
-            if partner.role in ("father", "husband"):
-                father_id = partner.person_id
-            elif partner.role in ("mother", "wife"):
-                mother_id = partner.person_id
-            elif partner.role == "partner":
-                if father_id is None:
-                    father_id = partner.person_id
-                elif mother_id is None:
-                    mother_id = partner.person_id
-    # Fallback: if the family had no partner metadata matching the drawn links
-    # (defensive), fill slots in order so no parent is lost.
-    leftover = [pid for pid in parent_ids if pid not in (father_id, mother_id)]
-    if father_id is None and leftover:
-        father_id = leftover.pop(0)
-    if mother_id is None and leftover:
-        mother_id = leftover.pop(0)
-    return father_id, mother_id
+    return order_parents_by_sex(
+        parent_ids,
+        lambda pid: (p.sex if (p := _find_person(project_data, pid)) else None),
+    )
 
 
 def _build_display_data(

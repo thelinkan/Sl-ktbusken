@@ -11,7 +11,7 @@ from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
 
-from slaktbusken.model.family import Family, FamilyPartner
+from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.ui.views.ancestry_view import collect_ancestors
@@ -85,6 +85,7 @@ def family_tree_strategy(draw: DrawFn) -> tuple[ProjectData, str, int]:
             continue  # No parent family
 
         partners: list[FamilyPartner] = []
+        links: list[ParentChildLink] = []
         father_id = None
         mother_id = None
 
@@ -92,18 +93,25 @@ def family_tree_strategy(draw: DrawFn) -> tuple[ProjectData, str, int]:
             father_id = next_id()
             persons.append(_make_person(father_id, "M"))
             partners.append(FamilyPartner(person_id=father_id, role="father"))
+            links.append(ParentChildLink(
+                child_id=pid, parent_id=father_id, parentage_type="biological"
+            ))
             queue.append((father_id, gen + 1))
 
         if has_mother:
             mother_id = next_id()
             persons.append(_make_person(mother_id, "F"))
             partners.append(FamilyPartner(person_id=mother_id, role="mother"))
+            links.append(ParentChildLink(
+                child_id=pid, parent_id=mother_id, parentage_type="biological"
+            ))
             queue.append((mother_id, gen + 1))
 
         family = Family(
             id=next_family_id(),
             partners=partners,
             children=[pid],
+            parent_child_links=links,
         )
         families.append(family)
 
@@ -152,6 +160,11 @@ def tree_with_gaps_strategy(draw: DrawFn) -> tuple[ProjectData, str, int]:
         id=next_family_id(),
         partners=[FamilyPartner(person_id=father_id, role="father")],
         children=[active_id],
+        parent_child_links=[
+            ParentChildLink(
+                child_id=active_id, parent_id=father_id, parentage_type="biological"
+            ),
+        ],
     ))
 
     # Give the father parents (both known) - these are at depth 2
@@ -166,6 +179,14 @@ def tree_with_gaps_strategy(draw: DrawFn) -> tuple[ProjectData, str, int]:
             FamilyPartner(person_id=grandmother_id, role="mother"),
         ],
         children=[father_id],
+        parent_child_links=[
+            ParentChildLink(
+                child_id=father_id, parent_id=grandfather_id, parentage_type="biological"
+            ),
+            ParentChildLink(
+                child_id=father_id, parent_id=grandmother_id, parentage_type="biological"
+            ),
+        ],
     ))
 
     # Optionally extend deeper
@@ -177,6 +198,13 @@ def tree_with_gaps_strategy(draw: DrawFn) -> tuple[ProjectData, str, int]:
             id=next_family_id(),
             partners=[FamilyPartner(person_id=great_grandfather_id, role="father")],
             children=[grandfather_id],
+            parent_child_links=[
+                ParentChildLink(
+                    child_id=grandfather_id,
+                    parent_id=great_grandfather_id,
+                    parentage_type="biological",
+                ),
+            ],
         ))
 
     project_data = ProjectData(
@@ -220,14 +248,15 @@ def _collect_ancestors_reference(
         if gen >= depth:
             continue
 
-        # Find parent family
+        # Find parent family — parenthood comes from parent_child_links.
         for family in project_data.families:
             if pid in family.children:
-                for partner in family.partners:
-                    if partner.role in ("father", "mother"):
-                        if partner.person_id not in ancestors:
-                            ancestors.add(partner.person_id)
-                            queue.append((partner.person_id, gen + 1))
+                for link in family.parent_child_links:
+                    if link.child_id != pid or not link.parent_id:
+                        continue
+                    if link.parent_id not in ancestors:
+                        ancestors.add(link.parent_id)
+                        queue.append((link.parent_id, gen + 1))
                 break  # Only consider first parent family
 
     return ancestors

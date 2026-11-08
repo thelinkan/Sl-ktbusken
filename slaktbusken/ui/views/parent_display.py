@@ -41,10 +41,84 @@ it imports cleanly whether or not that task has landed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from slaktbusken.model.family import Family, ParentChildLink
 from slaktbusken.ui.widgets.connection_line import ConnectionType
+
+# Sex values that place a parent in the left ("father") slot and the right
+# ("mother") slot respectively. Both the single-letter GEDCOM codes ("M"/"F")
+# and the spelled-out forms ("male"/"female") are accepted so the ordering
+# works regardless of how a project stores Person.sex. Anything else (unknown
+# "U"/"X", empty, or an unexpected value) is treated as unknown and falls back
+# to link order.
+_MALE_SEX = frozenset({"M", "male"})
+_FEMALE_SEX = frozenset({"F", "female"})
+
+
+def order_parents_by_sex(
+    parent_ids: list[str],
+    sex_of: Callable[[str], Optional[str]],
+) -> tuple[Optional[str], Optional[str]]:
+    """Order a Parent_Set's parents into (left/father, right/mother) slots by sex.
+
+    Parenthood comes from ``parent_child_links`` — never from a marriage/partner
+    role — so slot placement is decided purely by each parent's ``Person.sex``:
+    a male parent goes left (father slot) and a female parent goes right (mother
+    slot). When that rule is ambiguous — both parents the same sex, both unknown,
+    or only one sex known in a way that does not uniquely fill the two slots —
+    the links' own order decides (first link -> left, second link -> right).
+
+    Args:
+        parent_ids: The parent ids of the drawn biological pair, in link order.
+            Expected to hold one or two ids; extras beyond two are ignored.
+        sex_of: Resolves a person id to its ``Person.sex`` (or ``None`` if the
+            person is missing). Accepts "M"/"male" and "F"/"female".
+
+    Returns:
+        ``(left_id, right_id)`` — the father-slot and mother-slot ids, either of
+        which may be ``None`` (a one-parent pair leaves the empty slot ``None``
+        for the father/mother placeholder).
+    """
+    ids = [pid for pid in parent_ids if pid]
+    if not ids:
+        return None, None
+    if len(ids) == 1:
+        # One parent: place by sex so a lone father sits left and a lone mother
+        # right, keeping the father/mother placeholder in the correct slot.
+        sex = (sex_of(ids[0]) or "").strip()
+        if sex in _FEMALE_SEX:
+            return None, ids[0]
+        # Male or unknown -> father slot (matches the prior default).
+        return ids[0], None
+
+    first, second = ids[0], ids[1]
+    first_sex = (sex_of(first) or "").strip()
+    second_sex = (sex_of(second) or "").strip()
+
+    first_male = first_sex in _MALE_SEX
+    first_female = first_sex in _FEMALE_SEX
+    second_male = second_sex in _MALE_SEX
+    second_female = second_sex in _FEMALE_SEX
+
+    # Unambiguous sex-based placement: exactly one maps left and the other right.
+    if first_male and second_female:
+        return first, second
+    if first_female and second_male:
+        return second, first
+    # One known, one unknown: place the known parent in its sex's slot and the
+    # other parent in the remaining slot.
+    if first_male and not (second_male or second_female):
+        return first, second
+    if first_female and not (second_male or second_female):
+        return second, first
+    if second_male and not (first_male or first_female):
+        return second, first
+    if second_female and not (first_male or first_female):
+        return first, second
+
+    # Ambiguous (equal sexes, both unknown): fall back to link order.
+    return first, second
 
 # Show_Level internal values (Requirement 4.1).
 SHOW_BIOLOGICAL = "biological"
