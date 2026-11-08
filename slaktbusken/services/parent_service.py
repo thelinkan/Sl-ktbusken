@@ -179,6 +179,90 @@ class ParentService:
 
         return errors
 
+    def _existing_biological_parents(self, child_id: str) -> list[str]:
+        """Return parent_ids of the child's existing biological parent links."""
+        parents: list[str] = []
+        for family in self._project_data.families:
+            for link in family.parent_child_links:
+                if (
+                    link.child_id == child_id
+                    and link.parentage_type == "biological"
+                    and link.parent_id is not None
+                ):
+                    parents.append(link.parent_id)
+        return parents
+
+    def _try_move_into_existing_couple(
+        self,
+        child_id: str,
+        parent_id: str,
+        role: str,
+        new_link: ParentChildLink,
+    ) -> Optional[ParentChildLink]:
+        """Try to move the child into an existing family matching the couple.
+
+        Computes the intended biological parent set (existing biological parents
+        of the child plus the new parent). If an existing family's partner set
+        (matched by partner person_ids, ignoring role) equals that set, the child
+        is moved into that family: the child's biological links (existing ones in
+        old families plus the new link) land in the target family, and the child is
+        removed from its old family. An old family left with no children is deleted.
+
+        Returns the newly-added link if a move happened, otherwise ``None``.
+        """
+        existing_bio_parents = self._existing_biological_parents(child_id)
+        intended_couple = set(existing_bio_parents) | {parent_id}
+
+        # Find an existing family whose partner set equals the intended couple.
+        target_family: Optional[Family] = None
+        for family in self._project_data.families:
+            partner_ids = {p.person_id for p in family.partners}
+            if partner_ids == intended_couple:
+                target_family = family
+                break
+
+        if target_family is None:
+            return None
+
+        # Collect the child's existing biological links that live in OTHER families
+        # so they can be moved into the target family alongside the new link.
+        for family in list(self._project_data.families):
+            if family is target_family:
+                continue
+            moved_links = [
+                link
+                for link in family.parent_child_links
+                if link.child_id == child_id and link.parentage_type == "biological"
+            ]
+            if not moved_links:
+                continue
+            # Remove these links from the old family.
+            for link in moved_links:
+                family.parent_child_links.remove(link)
+                target_family.parent_child_links.append(link)
+            # Remove the edited child from the old family's children list.
+            while child_id in family.children:
+                family.children.remove(child_id)
+            # If the old family has no children left, drop it entirely.
+            if not family.children:
+                self._project_data.families.remove(family)
+
+        # Ensure the new parent is a partner in the target family.
+        target_partner_ids = {p.person_id for p in target_family.partners}
+        if parent_id not in target_partner_ids:
+            target_family.partners.append(
+                FamilyPartner(person_id=parent_id, role=role)
+            )
+
+        # Add the child into the target family's children list.
+        if child_id not in target_family.children:
+            target_family.children.append(child_id)
+
+        # Add the new biological link to the target family.
+        target_family.parent_child_links.append(new_link)
+
+        return new_link
+
     def add_parent(
         self, child_id: str, parent_id: str, parentage_type: str
     ) -> ParentChildLink:
@@ -200,6 +284,17 @@ class ParentService:
         # Determine role for the parent
         parent = self._find_person(parent_id)
         role = _role_for_sex(parent.sex) if parent else "partner"
+
+        # Special handling for biological parents: if the child's intended
+        # biological parent set (existing biological parents + the new parent)
+        # exactly matches an existing family's partner set, MOVE the child into
+        # that family instead of leaving overlapping families behind.
+        if parentage_type == "biological":
+            moved_link = self._try_move_into_existing_couple(
+                child_id, parent_id, role, link
+            )
+            if moved_link is not None:
+                return moved_link
 
         # Find an existing family where child is a child
         # Prefer a family whose existing links match the parentage_type

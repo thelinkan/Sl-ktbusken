@@ -546,14 +546,69 @@ class Application:
         Directly calls handle_placeholder_click with an explicit target
         person ID, avoiding fragile active-person swapping.
 
+        For the ``child`` role, if the clicked person has one or more partner
+        families, first show a chooser letting the user pick which partner
+        family the child belongs to (i.e. who the other parent is), or create
+        a new single-parent family. Choosing an existing family routes through
+        the regular ``family_id`` path so the child is added exactly like the
+        in-graph "Lägg till barn" flow (ParentChildLink from every partner).
+
         Args:
             role: The relationship role ('partner', 'father', 'mother', 'child').
             person_id: The ID of the person to add the relative to.
         """
+        if role == "child":
+            self._handle_context_add_child(person_id)
+            return
+
         # Use empty family_id — handle_placeholder_click will first search for an
         # existing family containing the child before creating a new one.
         # Pass target_person_id explicitly so it doesn't depend on active_person_id
         self.handle_placeholder_click(role, "", target_person_id=person_id)
+
+    def _handle_context_add_child(self, person_id: str) -> None:
+        """Resolve the other-parent chooser, then add a child via the editor.
+
+        Args:
+            person_id: The clicked person who will be a parent of the new child.
+        """
+        from slaktbusken.services.diagram_lookup import find_partner_families
+        from slaktbusken.ui.dialogs.add_child_parent_dialog import (
+            NEW_FAMILY_SENTINEL,
+            AddChildParentDialog,
+        )
+
+        data = self.project_service.data
+        if data is None:
+            return
+
+        partner_families = find_partner_families(data, person_id)
+
+        if partner_families:
+            persons_by_id = {p.id: p for p in data.persons}
+            dialog = AddChildParentDialog(
+                partner_families,
+                persons_by_id,
+                person_id,
+                parent=self.main_window,
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                # Cancel: add nothing, do not open the editor.
+                return
+            chosen = dialog.chosen_family_id
+            if chosen and chosen != NEW_FAMILY_SENTINEL:
+                # Route through the existing-family path (same as in-graph
+                # "Lägg till barn"): append child + ParentChildLink per partner.
+                self.handle_placeholder_click(
+                    "child", chosen, target_person_id=person_id
+                )
+                return
+            # NEW_FAMILY_SENTINEL (or None) -> single-parent family with link.
+
+        # No partner family, or "Annan/ingen andra förälder" chosen:
+        # create a single-parent family. The empty-family_id child branch in
+        # handle_placeholder_click now always adds the ParentChildLink.
+        self.handle_placeholder_click("child", "", target_person_id=person_id)
 
     def _handle_delete_person(self, person_id: str) -> None:
         """Handle deletion of a person via context menu.
@@ -916,13 +971,23 @@ class Application:
                             )
                         )
             else:
-                # Create new family with active person as partner and new person as child
+                # Create new single-parent family with active person as partner
+                # and new person as child. Always include a ParentChildLink so
+                # the parent and child can see each other in the diagrams
+                # (views draw parents/children from parent_child_links).
                 if active_id:
                     fam_id = id_gen.generate("family")
                     new_family = Family(
                         id=fam_id,
                         partners=[FamilyPartner(person_id=active_id, role="partner")],
                         children=[saved.id],
+                        parent_child_links=[
+                            ParentChildLink(
+                                child_id=saved.id,
+                                parent_id=active_id,
+                                parentage_type="biological",
+                            )
+                        ],
                     )
                     data.families.append(new_family)
 
