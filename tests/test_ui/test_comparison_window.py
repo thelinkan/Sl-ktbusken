@@ -22,10 +22,7 @@ from slaktbusken.services.comparison_session import SHARED_PERSON_TOOLTIP
 from slaktbusken.services.diagram_lookup import DiagramLookup
 from slaktbusken.services.project_service import ProjectService
 from slaktbusken.ui.context_menu_builder import ContextMenuBuilder
-from slaktbusken.ui.merge.comparison_markers import (
-    CandidateAssessmentBadge,
-    SharedPersonMarker,
-)
+from slaktbusken.ui.merge.comparison_markers import SharedPersonMarker
 from slaktbusken.ui.merge.person_comparison_window import (
     COMPARE_TEXT,
     CONTINUE_TEXT,
@@ -159,21 +156,6 @@ def test_no_shared_marker_when_views_show_disjoint_persons(make_window, service)
     )
     for view in win.family_views:
         assert not [m for m in view.markers() if isinstance(m, SharedPersonMarker)]
-
-
-def test_candidate_badge_shown_for_saved_candidate(make_window, service):
-    candidate = service.add_merge_candidate("person_1", "person_2")
-    service.set_candidate_assessment(candidate.id, "possible")
-    win = make_window("person_1", "person_2")
-    badges = [
-        m
-        for v in win.family_views
-        for m in v.markers()
-        if isinstance(m, CandidateAssessmentBadge)
-    ]
-    assert len(badges) == 2
-    # the shared marker and the badge are different marker kinds
-    assert not isinstance(badges[0], SharedPersonMarker)
 
 
 # ------------------------------------------------------------ action area (13.x)

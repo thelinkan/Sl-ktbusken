@@ -36,9 +36,7 @@ from slaktbusken.ui.diagram_panel import ZoomableGraphicsView
 from slaktbusken.ui.views.family_view import FamilyView, _build_display_data
 from slaktbusken.ui.views.parent_display import order_parents_by_sex
 from slaktbusken.ui.merge.comparison_markers import (
-    BADGE_HEIGHT,
     MARKER_SIZE,
-    CandidateAssessmentBadge,
     SharedPersonMarker,
     _TooltipItem,
 )
@@ -366,7 +364,7 @@ class ComparisonFamilyView(QWidget):
     # -- markers -------------------------------------------------------------------
 
     def clear_markers(self) -> None:
-        """Remove every marker added by :meth:`add_shared_marker` / :meth:`add_candidate_badge`."""
+        """Remove every marker added by :meth:`add_shared_marker`."""
         for item in self._markers:
             if shiboken6.isValid(item):
                 scene = item.scene()
@@ -384,37 +382,11 @@ class ComparisonFamilyView(QWidget):
             if box.person_id != person_id:
                 continue
             marker = SharedPersonMarker(tooltip, box)
-            marker.setPos(_BOX_WIDTH - MARKER_SIZE - 3.0, 3.0)
+            # Top row, x 182..200: left of the gender icon (x 222..236) and clear of
+            # the candidate icon (x 206..220, y 20..34, hit area from x 203).
+            marker.setPos(_BOX_WIDTH - 14.0 - 4.0 - 2.0 - 14.0 - 2.0 - 3.0 - 1.0 - MARKER_SIZE, 3.0)
             self._markers.append(marker)
             added.append(marker)
-        return added
-
-    def add_candidate_badge(
-        self,
-        person_id: str,
-        text: str,
-        tooltip: str,
-        candidate_id: str,
-        callback: Callable[[str], None],
-        slot: int = 0,
-    ) -> list[CandidateAssessmentBadge]:
-        """Put a Candidate_Assessment badge on every box of ``person_id``.
-
-        The hosting box reserves extra height below its text (comparison view
-        only) so the badge sits under the content instead of over the birth
-        line. The reservation grows with the number of badges already placed.
-        """
-        added = []
-        for box in self.person_boxes():
-            if box.person_id != person_id:
-                continue
-            # Reserve room for every badge row up to and including this one.
-            box.set_reserved_badge_rows(max(box.extra_badge_rows, slot + 1))
-            badge = CandidateAssessmentBadge(text, tooltip, candidate_id, callback, box)
-            content_bottom = box.box_height - box.extra_bottom_height
-            badge.setPos(4.0, content_bottom + slot * (BADGE_HEIGHT + 2.0))
-            self._markers.append(badge)
-            added.append(badge)
         return added
 
     # -- selection ---------------------------------------------------------------

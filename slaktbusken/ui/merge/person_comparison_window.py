@@ -1,4 +1,4 @@
-﻿"""Person_Comparison_Window: two persons side by side (comparison stage).
+"""Person_Comparison_Window: two persons side by side (comparison stage).
 
 Layout (design 15.2): a toolbar row, a horizontal ``QSplitter`` with
 Comparison_Family_View 1, Comparison_Family_View 2 and the Comparison_Table in
@@ -20,6 +20,7 @@ Entry point for the application: :func:`open_comparison_window`.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -72,7 +73,6 @@ COMPARE_TEXT = "Jämför dessa"
 REGISTER_ERROR_TEXT = "Kandidaterna kunde inte registreras."
 SAVE_ERROR_TEXT = "Kommentaren kunde inte sparas."
 NO_PAIR_TEXT = "Välj en person i vardera familjevyn för att markera eller jämföra dem."
-MAX_BADGES_PER_BOX = 3
 SPLITTER_PROPORTIONS = (0.35, 0.35, 0.30)
 REFRESH_DELAY_MS = 50
 
@@ -145,7 +145,9 @@ class PersonComparisonWindow(QMainWindow):
             person_box_config = getattr(panel, "_person_box_config", None)
         if diagram_settings is None:
             diagram_settings = getattr(panel, "_diagram_settings", None)
-        self._config = person_box_config or PersonBoxConfig()
+        # The comparison views always show the candidate indicator, whatever the
+        # diagram setting says; the shared panel config is copied, never changed.
+        self._config = replace(person_box_config or PersonBoxConfig(), merge_candidates=True)
         self._diagram_settings = diagram_settings
 
         data = self._data()
@@ -594,7 +596,7 @@ class PersonComparisonWindow(QMainWindow):
     # ------------------------------------------------- markers (Requirement 12)
 
     def _update_markers(self, data: ProjectData) -> None:
-        """Shared_Person markers and candidate badges, rebuilt from current content."""
+        """Shared_Person markers, rebuilt from current content."""
         views = self._family_views
         for view in views:
             view.clear_markers()
@@ -603,32 +605,6 @@ class PersonComparisonWindow(QMainWindow):
         for pid in sorted(self._session.shared_person_ids(left_ids, right_ids)):
             for view in views:
                 view.add_shared_marker(pid, SHARED_PERSON_TOOLTIP)
-        index = CandidateIndex.build(data)
-        placed: dict[tuple[int, str], int] = {}
-        done: set[tuple[int, str, str]] = set()
-        for a in sorted(left_ids):
-            for b in sorted(right_ids):
-                candidate = self._session.candidate_relation(a, b, index)
-                if candidate is None:
-                    continue
-                label = get_candidate_assessment_label(candidate.assessment)
-                tip = f"Kandidatbedömning: {label}. Aktivera för att öppna kommentarerna."
-                for view_index, pid in ((0, a), (1, b)):
-                    key = (view_index, pid, candidate.id)
-                    if key in done:
-                        continue
-                    done.add(key)
-                    slot = placed.get((view_index, pid), 0)
-                    if slot >= MAX_BADGES_PER_BOX:
-                        continue
-                    placed[(view_index, pid)] = slot + 1
-                    views[view_index].add_candidate_badge(
-                        pid, label, tip, candidate.id, self.open_candidate_comments, slot
-                    )
-
-    def open_candidate_comments(self, candidate_id: str) -> None:
-        """Open the comments of a candidate inside this window (12.4)."""
-        self.open_candidate_panel(candidate_id)
 
     # ----------------------------------------- pair actions (Requirements 13, 14)
 
@@ -792,7 +768,7 @@ class PersonComparisonWindow(QMainWindow):
         begin_diagram_render(
             data,
             bool(getattr(self._config, "research", False)),
-            bool(getattr(self._config, "merge_candidates", False)),
+            True,
         )
         lookup = active_lookup(data)
         self.last_lookup = lookup

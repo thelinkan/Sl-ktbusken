@@ -120,17 +120,16 @@ def test_no_marker_for_different_ids_without_candidate(make_window):
     assert win.family_views[1].markers() == []
 
 
-def test_candidate_badge_on_both_boxes_and_activation_opens_comments(make_window, service):
-    cand, _ = service.get_or_create_merge_candidate("person_4", "person_6")
+def test_no_candidate_badge_for_saved_pair_indicator_instead(make_window, service):
+    # A saved candidate for (person_4, person_6) no longer draws an assessment
+    # label; the candidate indicator icon is shown on both boxes instead.
+    service.get_or_create_merge_candidate("person_4", "person_6")
     win = make_window("person_1", "person_6")
-    assert _marker_owners(win, 0, "candidate") == {"person_4"}
-    assert _marker_owners(win, 1, "candidate") == {"person_6"}
+    assert _marker_owners(win, 0, "candidate") == set()
+    assert _marker_owners(win, 1, "candidate") == set()
     assert win.candidate_panel is None
-    badge = next(m for m in win.family_views[1].markers() if m.kind == "candidate")
-    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
-    badge.keyPressEvent(ev)
-    assert isinstance(win.candidate_panel, CandidatePanel)
-    assert win.candidate_panel.candidate_id == cand.id
+    assert win.family_views[0].box_for("person_4")._candidate_indicator() is not None
+    assert win.family_views[1].box_for("person_6")._candidate_indicator() is not None
 
 
 def test_markers_follow_navigation(make_window):
@@ -333,9 +332,10 @@ def test_continue_button_only_signals(make_window, service):
 
 @pytest.mark.parametrize("enabled", [True, False])
 def test_candidate_indicator_on_comparison_boxes(qapp, service, monkeypatch, enabled):
+    # The comparison views always show the indicator, whatever the diagram
+    # setting (PersonBoxConfig.merge_candidates) says.
     from slaktbusken.persistence.settings_io import PersonBoxConfig
     from slaktbusken.services import candidate_index as ci
-    from slaktbusken.ui.widgets import research_marker as rm
 
     built = []
     real = ci.CandidateIndex.build.__func__
@@ -343,27 +343,17 @@ def test_candidate_indicator_on_comparison_boxes(qapp, service, monkeypatch, ena
         ci.CandidateIndex, "build", classmethod(lambda cls, d: built.append(1) or real(cls, d))
     )
     service.get_or_create_merge_candidate("person_4", "person_6")
-    win = PersonComparisonWindow(
-        service,
-        "person_1",
-        "person_6",
-        person_box_config=PersonBoxConfig(merge_candidates=enabled),
-    )
+    config = PersonBoxConfig(merge_candidates=enabled)
+    win = PersonComparisonWindow(service, "person_1", "person_6", person_box_config=config)
     try:
         box0 = win.family_views[0].box_for("person_4")
         box1 = win.family_views[1].box_for("person_6")
         assert box0 is not None and box1 is not None
-        if enabled:
-            assert built
-            assert box0._candidate_indicator() is not None
-            assert box1._candidate_indicator() is not None
-            # Candidate badges (child markers) remain present alongside.
-            assert _marker_owners(win, 0, "candidate") == {"person_4"}
-        else:
-            # The diagram render itself builds no index (the badge feature may).
-            assert rm._diagram_candidate_index is None
-            assert box0._candidate_indicator() is None
-            assert box1._candidate_indicator() is None
+        assert built
+        assert box0._candidate_indicator() is not None
+        assert box1._candidate_indicator() is not None
+        # The passed (shared) configuration is left untouched.
+        assert config.merge_candidates is enabled
     finally:
         win._panel = None
         win.close()

@@ -457,6 +457,20 @@ def _name_text(name) -> str:
     return f"{_display(name.given)} {_display(name.surname)}".strip()
 
 
+NAME_TYPE_LABELS = {
+    "birth": "Födelsenamn",
+    "married": "Gift namn",
+    "adopted": "Adoptivnamn",
+    "other": "Annat",
+}
+
+
+def _name_type_key(name) -> str:
+    """Name type as one of NAME_TYPE_LABELS; unknown or empty gives "other"."""
+    key = _norm(getattr(name, "type", ""))
+    return key if key in NAME_TYPE_LABELS else "other"
+
+
 def _person_events(data: ProjectData, person_id: Optional[str]) -> dict[str, list[Event]]:
     by_type: dict[str, list[Event]] = {}
     if person_id is None:
@@ -607,19 +621,18 @@ def build_rows(
             extract(right) if right is not None else [],
         )
 
-    def primary_name(p: Person) -> list[_Item]:
-        if not p.names:
-            return []
-        text = _name_text(p.names[0])
-        return [_Item(("t", _norm(text)), text)] if text else []
+    def names_of_type(name_type: str):
+        def extract(p: Person) -> list[_Item]:
+            items = []
+            for name in p.names:
+                if _name_type_key(name) != name_type:
+                    continue
+                text = _name_text(name)
+                if text:
+                    items.append(_Item(("t", _norm(text)), text))
+            return items
 
-    def other_names(p: Person) -> list[_Item]:
-        items = []
-        for name in p.names[1:]:
-            text = _name_text(name)
-            if text:
-                items.append(_Item(("t", _norm(text)), text))
-        return items
+        return extract
 
     def profile_photo(p: Person) -> list[_Item]:
         media_id = _display(p.profile_media_id)
@@ -634,8 +647,11 @@ def build_rows(
         li, ri = person_rows(extract)
         rows.append(_row(key, label, li, ri, both))
 
-    add("name", "Namn", primary_name)
-    add("alt_names", "Alternativa namn", other_names)
+    for name_type, name_label in NAME_TYPE_LABELS.items():
+        extract = names_of_type(name_type)
+        li, ri = person_rows(extract)
+        if li or ri:
+            rows.append(_row(f"name:{name_type}", name_label, li, ri, both))
     add("sex", "Kön", lambda p: _text_items(p.sex))
 
     left_events = _person_events(data, left_id if left else None)

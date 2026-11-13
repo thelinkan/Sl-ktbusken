@@ -150,7 +150,7 @@ def test_multi_valued_rows_compare_as_sets(values, rnd, drop_one):
         "a",
         "b",
     )
-    row = _row(rows, "alt_names")
+    row = _row(rows, "name:other")
     if drop_one and len(shuffled) > 1:
         assert row.status == STATUS_DIFFERS
     else:

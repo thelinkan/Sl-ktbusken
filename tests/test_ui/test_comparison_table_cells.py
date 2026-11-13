@@ -73,8 +73,8 @@ def test_source_cell_shows_value_once_and_keeps_links(qapp):
 def test_cells_without_sources_keep_value_in_item(qapp):
     table = ComparisonTable()
     row = ComparisonRow(
-        key="name",
-        label="Namn",
+        key="name:birth",
+        label="Födelsenamn",
         left=("Anna Svensson",),
         right=("Anna Svensson",),
     )
@@ -105,7 +105,7 @@ def test_missing_cell_has_no_source_widget_and_reads_saknas(qapp):
 
 def test_column_resize_modes_and_top_alignment(qapp):
     table = ComparisonTable()
-    row = ComparisonRow(key="name", label="Namn", left=("A",), right=("B",))
+    row = ComparisonRow(key="name:birth", label="Födelsenamn", left=("A",), right=("B",))
     table.set_rows([row])
     header = table.table.horizontalHeader()
     # Rad and Markering hug content; the two person columns stretch.

@@ -243,7 +243,7 @@ def test_table_marks_differs_and_missing(make_window):
     table = win.table
     birth = table.row_index("birth")
     death = table.row_index("death")
-    name = table.row_index("name")
+    name = table.row_index("name:birth")
     assert table.row_mark(birth) == "Avviker"
     assert table.row_mark(death) == "Saknas"
     assert table.cell_text(death, 2) == "Saknas"
@@ -322,7 +322,7 @@ def test_refresh_after_change_keeps_focus_and_zoom(make_window, service):
     QTest.qWait(200)
     assert win.family_views[1].focal_id == "person_3"
     assert win.family_views[1].zoom_factor == pytest.approx(1.5)
-    assert "Berta" in win.table.cell_text(win.table.row_index("name"), 2)
+    assert "Berta" in win.table.cell_text(win.table.row_index("name:birth"), 2)
 
 
 def test_comparison_stage_is_read_only(make_window, service):
