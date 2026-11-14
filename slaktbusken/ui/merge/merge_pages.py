@@ -1,4 +1,4 @@
-"""Pages of the Merge_Review wizard (design 15.8).
+﻿"""Pages of the Merge_Review wizard (design 15.8).
 
 Pages hold no merge logic. They render a ``MergePlan`` (items, conflicts and
 required choices of one section) and report the user's choices to the wizard
@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from slaktbusken.services import merge_rules as rules
 from slaktbusken.services.merge_planner import MergePlan, UnresolvedChoice
-from slaktbusken.ui.merge.merge_preview import add_conflict_item
+from slaktbusken.ui.merge.merge_preview import add_conflict_item, category_label
 from slaktbusken.ui.swedish_locale import get_sex_label
 
 KEEP_PERSON_TEXT = "Behåll den här personen"
@@ -45,20 +45,53 @@ NOTES_MODES = (
     (rules.NOTES_KEEP_OTHER, "Behåll bara den andra personens anteckningar"),
 )
 
-#: (title, plan sections shown, plan item categories shown)
+#: (id, title, plan sections shown, plan item categories shown)
 SECTION_DEFS: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("attributes", "Personuppgifter", ("attributes",), ("attributes",)),
     ("names", "Namn", ("names",), ("names",)),
     ("events", "Händelser", ("events",), ("events",)),
     ("residences", "Boenden", ("residences",), ("residences",)),
-    ("families", "Familj", ("families",), ("families",)),
-    ("media", "Källor, media och DNA", ("media", "dna", "sources"), ("media", "sources", "dna")),
+    # Relatives are listed as separate persons next to the families they belong to.
+    ("families", "Familj", ("families",), ("families", "relatives")),
+    (
+        "media", "Källor, media och DNA", ("media", "dna", "sources"),
+        ("media", "sources", "dna", "source_refs", "dna_profiles", "dna_clusters", "dna_summary"),
+    ),
     (
         "other_refs", "Forskning och övriga referenser", ("research", "other_refs"),
-        ("research", "references", "project"),
+        (
+            "research", "research_cases", "research_hypotheses", "research_notes",
+            "references", "project", "candidates", "identity_mappings", "identity_aliases",
+        ),
     ),
 )
 
+#: The page that shows everything no other page claims, so nothing can vanish.
+FALLBACK_SECTION_ID = "other_refs"
+
+#: Plan sections shown by the survivor page, not by a section page.
+_SURVIVOR_SECTION = "survivor"
+
+KNOWN_CATEGORIES = frozenset(c for _, _, _, cats in SECTION_DEFS for c in cats)
+KNOWN_PLAN_SECTIONS = frozenset(
+    {_SURVIVOR_SECTION} | {s for _, _, secs, _ in SECTION_DEFS for s in secs}
+)
+
+
+def section_id_for_category(category: str) -> str:
+    """Id of the page that shows items of ``category`` (fallback page if unmapped)."""
+    for section_id, _title, _sections, categories in SECTION_DEFS:
+        if category in categories:
+            return section_id
+    return FALLBACK_SECTION_ID
+
+
+def section_id_for_plan_section(section: str) -> str:
+    """Id of the page that shows conflicts and choices of plan ``section``."""
+    for section_id, _title, sections, _categories in SECTION_DEFS:
+        if section in sections:
+            return section_id
+    return FALLBACK_SECTION_ID
 
 @dataclass(frozen=True)
 class ChoiceOption:
@@ -202,21 +235,40 @@ class SectionPage(QWidget):
         self.problems_list.clear()
         self._selected = dict(selected)
         for spec in specs:
-            if spec.section in self._sections:
+            if self._owns_section(spec.section):
                 self._known[spec.key] = spec
         if plan is not None:
-            shown = [i for i in plan.items if i.category in self._categories]
+            shown = [i for i in plan.items if self._owns_category(i.category)]
+            prefixed = self._shows_many_categories()
             if not shown:
                 self.items_list.addItem(NO_ITEMS_TEXT)
             for item in shown:
                 text = f"{item.label} · {item.disposition.value}"
+                if prefixed:
+                    text = f"{category_label(item.category)}: {text}"
                 self.items_list.addItem(f"{text} · {item.detail}" if item.detail else text)
             for conflict in plan.conflicts:
-                if conflict.section in self._sections:
+                if self._owns_section(conflict.section):
                     add_conflict_item(self.problems_list, plan, conflict, in_owning_section=True)
         offers = plan.empty_family_offers if plan is not None and "families" in self._sections else ()
         self._rebuild_removals(offers, removed_family_ids)
         self._rebuild_choices()
+
+    def _is_fallback(self) -> bool:
+        return self.section_id == FALLBACK_SECTION_ID
+
+    def _owns_category(self, category: str) -> bool:
+        if category in self._categories:
+            return True
+        return self._is_fallback() and category not in KNOWN_CATEGORIES
+
+    def _owns_section(self, section: str) -> bool:
+        if section in self._sections:
+            return True
+        return self._is_fallback() and section not in KNOWN_PLAN_SECTIONS
+
+    def _shows_many_categories(self) -> bool:
+        return self._is_fallback() or len(self._categories) > 1
 
     def _rebuild_removals(self, offers: Sequence, checked: frozenset[str]) -> None:
         """One unchecked-by-default checkbox per removable empty duplicate family."""
