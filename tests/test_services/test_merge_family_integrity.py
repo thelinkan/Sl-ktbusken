@@ -624,3 +624,81 @@ def test_property_35_plan_equals_synchronised_result(data):
         for l in fam.parent_child_links:
             if l.parentage_type in ("foster", "adoptive"):
                 assert (m(l.child_id), m(l.parent_id), l.parentage_type) in kept
+
+
+# ---------------------------------------------------------------------------
+# Requirement 23.9: equivalent families after consecutive merges (regression)
+# ---------------------------------------------------------------------------
+
+
+def _plan_pair(data, survivor, retired):
+    return build_plan(
+        data, None,
+        MergeDecisions(survivor, retired, survivor_id=survivor, survivor_confirmed=True),
+    )
+
+
+def _dups(plan):
+    return [frozenset(c.subjects) for c in plan.warnings if c.code == "duplicate_family"]
+
+
+def _foster_couples_data():
+    """Couple (l1, r1) with a child, plus duplicates l2, r2 as foster parents."""
+    foster = Event(
+        id="E1", type="foster_home",
+        participants=[
+            Participant("c", "fosterbarn"),
+            Participant("r2", "fosterförälder"),
+            Participant("l2", "fosterförälder"),
+        ],
+    )
+    return ProjectData(
+        persons=[
+            _person("l1", "Lena", sex="F"), _person("l2", "Lena", sex="F"),
+            _person("r1", "Rutger"), _person("r2", "Rutger"),
+            _person("k", "Kid"), _person("c", "Foster"),
+        ],
+        events=[foster],
+        families=[
+            _fam("F25", ["l1", "r1"], ["k"], [_bio("k", "l1"), _bio("k", "r1")]),
+            _fam("F27", ["r2", "l2"], []),
+            _fam("F28", ["r2", "l2"], ["c"],
+                 [("c", "r2", "foster"), ("c", "l2", "foster")], ["E1"]),
+        ],
+    )
+
+
+@pytest.mark.parametrize("first,second", [(("l1", "l2"), ("r1", "r2")),
+                                          (("r1", "r2"), ("l1", "l2"))])
+def test_duplicate_family_warned_when_each_partner_is_merged_in_turn(first, second):
+    data = _foster_couples_data()
+    plan1 = _plan_pair(data, *first)
+    assert plan1.can_execute
+    # After the first merge F27 and F28 share partners, but F28 is a placement family
+    # and F25 has other partners, so there is nothing to warn about yet.
+    assert _dups(plan1) == []
+    data = _final(data, plan1)
+    plan2 = _plan_pair(data, *second)
+    assert plan2.can_execute
+    assert _dups(plan2) == [frozenset({"F25", "F27"})]
+    final = _final(data, plan2)
+    by_id = {f.id: f for f in final.families}
+    assert set(by_id) == {"F25", "F27", "F28"}
+    for f in by_id.values():
+        assert {p.person_id for p in f.partners} == {"l1", "r1"}
+
+
+def test_duplicate_family_warned_for_existing_family_and_empty_partner_family():
+    data = ProjectData(
+        persons=[_person("p1"), _person("p2"), _person("x", "Eva", sex="F"),
+                 _person("c1", "Ola")],
+        families=[
+            _fam("F1", ["p1", "x"], ["c1"], [_bio("c1", "p1"), _bio("c1", "x")]),
+            _fam("F2", ["x", "p2"], []),
+        ],
+    )
+    plan = _plan(data)
+    assert not plan.blocking and plan.can_execute
+    assert _dups(plan) == [frozenset({"F1", "F2"})]
+    final = _final(data, plan)
+    assert {f.id for f in final.families} == {"F1", "F2"}

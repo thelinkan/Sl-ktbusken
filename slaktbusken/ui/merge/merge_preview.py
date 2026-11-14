@@ -8,15 +8,21 @@ here writes data.
 
 from __future__ import annotations
 
+import html
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPalette, QTextDocument
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QVBoxLayout,
     QWidget,
 )
@@ -63,7 +69,23 @@ _CATEGORY_LABELS = {
     "research": "Forskning",
     "references": "Övriga referenser",
     "project": "Projekt",
+    "relatives": "Närstående",
+    "source_refs": "Källhänvisningar",
+    "dna_profiles": "DNA-profiler",
+    "dna_clusters": "DNA-kluster",
+    "dna_summary": "DNA-sammanfattning",
+    "research_cases": "Forskningsärenden",
+    "research_hypotheses": "Hypoteser",
+    "research_notes": "Forskningsanteckningar",
+    "candidates": "Kandidater",
+    "identity_mappings": "Identitetskopplingar",
+    "identity_aliases": "Identitetsalias",
 }
+
+
+def category_label(category: str) -> str:
+    """Swedish label for a plan item category (never the raw internal name)."""
+    return _CATEGORY_LABELS.get(category, category)
 
 
 def gedcom_warning_visible() -> bool:
@@ -80,6 +102,92 @@ def format_conflict(conflict: MergeConflict) -> str:
     return f"{icon} {label}: {conflict.message} (Avsnitt: {section})"
 
 
+#: Red used for the word "Varning" when the user still has a choice to make.
+CHOICE_WARNING_COLOR = "#c0392b"
+CHOICE_REQUIRED_SUFFIX = " (val krävs)"
+#: Item data role holding True for a warning that has an open choice.
+CHOICE_OPEN_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+def conflict_has_open_choice(plan: Optional[MergePlan], conflict: MergeConflict) -> bool:
+    """True when ``conflict`` is a warning with a choice the user has not made.
+
+    Data-driven: a warning whose subjects include a family offered for removal
+    (``plan.empty_family_offers``) that is not in ``decisions.remove_empty_family_ids``.
+    """
+    if plan is None or conflict.is_blocking:
+        return False
+    chosen = set(plan.decisions.remove_empty_family_ids)
+    return any(
+        offer.family_id in conflict.subjects and offer.family_id not in chosen
+        for offer in plan.empty_family_offers
+    )
+
+
+def add_conflict_item(list_widget: QListWidget, plan: Optional[MergePlan],
+                      conflict: MergeConflict, in_owning_section: bool = False) -> QListWidgetItem:
+    """Add one conflict line; "Varning" is red when a choice is still open.
+
+    ``in_owning_section`` is True when the list belongs to the section where the
+    choice is made; otherwise the tooltip names that section.
+    """
+    text = format_conflict(conflict)
+    item = QListWidgetItem(text)
+    if conflict_has_open_choice(plan, conflict):
+        item.setData(CHOICE_OPEN_ROLE, True)
+        item.setData(Qt.ItemDataRole.AccessibleTextRole, text + CHOICE_REQUIRED_SUFFIX)
+        if in_owning_section:
+            item.setToolTip("Det finns ett val att göra i det här avsnittet.")
+        else:
+            section = SECTION_NAMES.get(conflict.section, conflict.section)
+            item.setToolTip(f"Det finns ett val att göra i avsnittet {section}.")
+        if not isinstance(list_widget.itemDelegate(), ChoiceWarningDelegate):
+            list_widget.setItemDelegate(ChoiceWarningDelegate(list_widget))
+    list_widget.addItem(item)
+    return item
+
+
+class ChoiceWarningDelegate(QStyledItemDelegate):
+    """Paints the word "Varning" in red for items flagged with ``CHOICE_OPEN_ROLE``."""
+
+    def _html(self, text: str, color: str) -> str:
+        label = f"{WARNING_ICON} {WARNING_LABEL}"
+        escaped = html.escape(text)
+        prefix = html.escape(label)
+        if escaped.startswith(prefix):
+            icon = html.escape(WARNING_ICON)
+            word = html.escape(WARNING_LABEL)
+            rest = escaped[len(prefix):]
+            return f'{icon} <span style="color:{CHOICE_WARNING_COLOR};font-weight:bold">{word}</span>{rest}'
+        return escaped
+
+    def paint(self, painter, option, index) -> None:  # noqa: ANN001
+        if not index.data(CHOICE_OPEN_ROLE):
+            super().paint(painter, option, index)
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        text = opt.text
+        opt.text = ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        role = QPalette.ColorRole.HighlightedText if selected else QPalette.ColorRole.Text
+        color = opt.palette.color(role).name()
+        doc = QTextDocument()
+        doc.setDefaultFont(opt.font)
+        doc.setDocumentMargin(0)
+        doc.setHtml(f'<span style="color:{color}">{self._html(text, color)}</span>')
+        rect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, opt, opt.widget)
+        painter.save()
+        painter.translate(rect.left() + 3, rect.top() + max(0, (rect.height() - doc.size().height()) / 2))
+        doc.drawContents(painter)
+        painter.restore()
+
+    def sizeHint(self, option, index):  # noqa: ANN001
+        return super().sizeHint(option, index)
+
+
 def summary_lines(plan: MergePlan, person_text: Callable[[str], str]) -> list[str]:
     """Plain-text summary of what the merge does (Requirement 26.2)."""
     if plan.survivor_id is None or plan.retired_id is None:
@@ -92,7 +200,7 @@ def summary_lines(plan: MergePlan, person_text: Callable[[str], str]) -> list[st
     for item in plan.items:
         counts[(item.category, item.disposition)] = counts.get((item.category, item.disposition), 0) + 1
     for (category, disposition), n in sorted(counts.items(), key=lambda kv: (kv[0][0], kv[0][1].value)):
-        lines.append(f"{_CATEGORY_LABELS.get(category, category)}: {n} · {disposition.value}")
+        lines.append(f"{category_label(category)}: {n} · {disposition.value}")
     p = plan.preview
     lines.append(
         f"Familjer efter sammanslagningen: {p.family_count} "
@@ -212,7 +320,7 @@ class MergePreviewWidget(QWidget):
             for line in summary_lines(plan, self._person_text):
                 self.summary_list.addItem(line)
             for conflict in sorted(plan.conflicts, key=lambda c: not c.is_blocking):
-                self.problem_list.addItem(QListWidgetItem(format_conflict(conflict)))
+                add_conflict_item(self.problem_list, plan, conflict)
             for choice in plan.unresolved:
                 section = SECTION_NAMES.get(choice.section, choice.section)
                 self.problem_list.addItem(f"Val saknas: {choice.label} (Avsnitt: {section})")

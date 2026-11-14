@@ -144,7 +144,7 @@ def _check_entry(svc, plan, dates, original_direct) -> None:
     assert entry.identity_mappings == [
         MergedIdentityMapping("@I2@", "fp2"), MergedIdentityMapping("@I9@", None)]
 
-    assert len(entry.summary_lines) == 11
+    assert len(entry.summary_lines) == 12
     assert all(isinstance(line, str) and line for line in entry.summary_lines)
     (planned,) = plan.change_set.added["merge_history"]
     assert entry.summary_lines == planned.summary_lines  # snapshot of the confirmed plan
@@ -209,7 +209,7 @@ def test_entry_without_candidates_or_mappings(tmp_path: Path) -> None:
     assert entry.merge_candidate_id is None
     assert entry.archived_candidates == []
     assert entry.identity_mappings == []
-    assert len(entry.summary_lines) == 11
+    assert len(entry.summary_lines) == 12
 
 
 def test_second_merge_keeps_first_entry_unchanged(tmp_path: Path) -> None:

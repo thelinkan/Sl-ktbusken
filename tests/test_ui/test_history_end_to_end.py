@@ -151,7 +151,7 @@ def test_merge_history_end_to_end(qapp, tmp_path: Path, monkeypatch) -> None:
     assert window.row_count() == 1
     entry = svc.data.merge_history[0]
     assert entry.merged_person_id == RETIRED and entry.surviving_person_id == SURVIVOR
-    assert len(entry.summary_lines) == 11
+    assert len(entry.summary_lines) == 12
 
     table = window._table
     cells = [table.item(0, c).text() for c in range(5)]

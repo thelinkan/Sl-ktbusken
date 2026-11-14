@@ -18,6 +18,7 @@ from slaktbusken.model.event import Event
 from slaktbusken.model.person import Person
 from slaktbusken.services import merge_rules as rules
 from slaktbusken.services import person_reference_index as pri
+from slaktbusken.ui.swedish_locale import get_sex_label
 from slaktbusken.services.merge_planner import (
     SEVERITY_BLOCKING,
     SEVERITY_WARNING,
@@ -149,7 +150,8 @@ def plan_attributes(ctx: PlanContext) -> None:
             ctx.add_item("attributes", "sex", "Kön", Disposition.FLAGGED, "Val krävs")
             ctx.add_conflict(
                 SEVERITY_BLOCKING, "sex_conflict", "attributes",
-                f"Personerna har olika kön ({survivor.sex} och {retired.sex}). Välj ett.",
+                f"Personerna har olika kön ({get_sex_label(survivor.sex.strip())} och "
+                f"{get_sex_label(retired.sex.strip())}). Välj ett.",
                 (survivor.id, retired.id),
             )
             ctx.add_unresolved("sex", "attributes", "Välj kön.", sorted(known))

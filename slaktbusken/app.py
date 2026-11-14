@@ -1,4 +1,4 @@
-"""Application shell — thin wiring layer between services and UI.
+﻿"""Application shell — thin wiring layer between services and UI.
 
 Instantiates all services, creates the main window, and forwards
 UI events (menu actions) to the appropriate service methods.
@@ -1756,11 +1756,20 @@ class Application:
 
     def open_merge_review(self, person_1_id: str, person_2_id: str) -> None:
         """Open the Merge_Review wizard for two persons (from the comparison window)."""
-        from slaktbusken.ui.merge.merge_review_wizard import MergeReviewWizard
+        from slaktbusken.ui.merge.merge_review_wizard import (
+            MergeReviewWizard,
+            ensure_saved_before_merge,
+        )
 
         if self.project_service.project_path is None:
             return
         parent = self._comparison_window or self.main_window
+        was_saved = self.project_service.is_saved_state()
+        allowed = ensure_saved_before_merge(self.project_service, self.editor_registry, parent)
+        if not was_saved:
+            self._update_status()
+        if not allowed:
+            return
         try:
             wizard = MergeReviewWizard(
                 self.project_service,

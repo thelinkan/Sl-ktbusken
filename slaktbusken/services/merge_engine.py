@@ -266,7 +266,8 @@ class MergeEngine:
                 data, plan.decisions.person_ids, translation
             )
             fingerprint = compute_fingerprint(
-                data, plan.decisions.person_ids, index, translation
+                data, plan.decisions.person_ids, index, translation,
+                plan.decisions.remove_empty_family_ids,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Kontrollen av förhandsgranskningen misslyckades.")

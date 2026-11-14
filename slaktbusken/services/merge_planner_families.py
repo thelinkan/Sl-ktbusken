@@ -10,8 +10,10 @@ clones (partners, children, parent-child links), collapses duplicates, checks
 self-relationships and records the intended links. ``reconcile`` reads the
 synchronised view only: it compares intended and synchronised links, warns
 about different-type links for one pair, detects cycles through the survivor,
-warns about equivalent families (which stay separate, nothing is combined) and
-runs ``validate_family`` on every changed family.
+warns about equivalent families (which stay separate, nothing is combined),
+offers and, on the user's opt-in, removes an empty duplicate family
+(Requirements 23.14 to 23.17) and runs ``validate_family`` on every changed
+family.
 
 Relatives with different ids are never paired, merged or flagged as
 duplicates. The only thing said about same-named relatives is the
@@ -22,10 +24,11 @@ informational note of Requirement 24.5, produced by
 from __future__ import annotations
 
 from collections import deque
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from slaktbusken.model.family import Family
 from slaktbusken.model.person import Person
+from slaktbusken.model.research_case import case_entity_links
 from slaktbusken.model.validators import validate_family
 from slaktbusken.services import merge_rules as rules
 from slaktbusken.services import person_reference_index as pri
@@ -33,7 +36,9 @@ from slaktbusken.services.merge_planner import (
     SEVERITY_BLOCKING,
     SEVERITY_WARNING,
     Disposition,
+    EmptyFamilyOffer,
     PlanContext,
+    PlanItem,
     plan_step,
 )
 from slaktbusken.services.merge_planner_person import MISSING_NAME, _display_name
@@ -306,6 +311,79 @@ def zip_links(new_links, old_links, retired: str, survivor: str):
 # ---------------------------------------------------------------------------
 
 
+def referenced_family_ids(data: Any, translation: Any = None) -> set[str]:
+    """Ids of families that something else in the project refers to.
+
+    A family has no notes or source references of its own, so the places that
+    can point at it are: media links and image regions, research notes, research
+    case and hypothesis links, and GEDCOM family mappings of the translation
+    data. Read-only.
+    """
+    ids: set[str] = set()
+
+    def add(links: Iterable[Any]) -> None:
+        ids.update(l.entity_id for l in links if l.entity_type == "family")
+
+    for item in data.media:
+        add(item.linked_entities)
+        add(item.annotations)
+    for note in data.research_notes:
+        add(note.linked_entities)
+    for case in data.research_cases:
+        add(case_entity_links(case))
+    for hypothesis in data.research_hypotheses:
+        add(hypothesis.linked_entities)
+    ids.update(m.app_id for m in getattr(translation, "families", None) or [])
+    return ids
+
+
+def is_empty_family(fam: Family, referenced: set[str]) -> bool:
+    """True when the family holds nothing but its partners and nothing refers to it.
+
+    That is: no children, no parent-child links, no events and no reference
+    from elsewhere in the project (see :func:`referenced_family_ids`).
+    """
+    return (
+        not fam.children
+        and not fam.parent_child_links
+        and not fam.event_ids
+        and fam.id not in referenced
+    )
+
+
+def _partner_roles(fam: Family) -> list[tuple[str, str]]:
+    return sorted((p.person_id, p.role) for p in fam.partners)
+
+
+def _partner_names(persons: dict[str, Person], fam: Family) -> str:
+    names = [
+        _display_name(persons[p.person_id]) if p.person_id in persons else p.person_id
+        for p in fam.partners
+    ]
+    return ", ".join(names)
+
+
+def _remove_families(ctx: PlanContext, view: Any, removing: set[str]) -> None:
+    """Drop the chosen empty families from the plan, the view and the item list."""
+    cs = ctx.work.change_set
+    cs.removed.setdefault("families", set()).update(removing)
+    for fid in removing:
+        cs.replaced.get("families", {}).pop(fid, None)
+    cs.added["families"] = [f for f in cs.added.get("families", []) if f.id not in removing]
+    view.families = [f for f in view.families if f.id not in removing]
+    for fid in sorted(removing):
+        item = PlanItem(
+            "families", fid, f"Familj {fid}", Disposition.EXCLUDED,
+            "Tom dubblettfamilj tas bort efter val",
+        )
+        for index, existing in enumerate(ctx.items):
+            if existing.category == "families" and existing.item_id == fid:
+                ctx.items[index] = item
+                break
+        else:
+            ctx.add_item(item.category, fid, item.label, item.disposition, item.detail)
+
+
 def _family_text(view_persons: dict[str, Person], fam: Family) -> str:
     names = [_label(view_persons, p.person_id) for p in fam.partners]
     return ", ".join(names) if names else "inga partner"
@@ -372,7 +450,8 @@ def reconcile_families(ctx: PlanContext) -> None:
             tuple(dict.fromkeys(cycle)),
         )
 
-    # 23.9, 23.10: equivalent families stay separate, one warning per pair.
+    # 23.9, 23.10, 23.14: equivalent families stay separate, one warning per
+    # pair. An empty duplicate can be removed when the user opted in.
     event_types = {e.id: e.type for e in view.events}
     affected = ctx.state.get(_STATE_AFFECTED, set())
     candidates = [
@@ -380,19 +459,76 @@ def reconcile_families(ctx: PlanContext) -> None:
         if any(p.person_id == s for p in f.partners)
         and not any(event_types.get(eid) in _PLACEMENT_START_TYPES for eid in f.event_ids)
     ]
+    referenced = referenced_family_ids(data, ctx.translation)
+    empty_ids = {f.id for f in candidates if is_empty_family(f, referenced)}
+    pairs: list[tuple[Family, Family, Optional[Family], Optional[Family]]] = []
     for i, first in enumerate(candidates):
         for second in candidates[i + 1:]:
             if first.id not in affected and second.id not in affected:
                 continue
             set_1 = frozenset(p.person_id for p in first.partners)
-            if set_1 and set_1 == frozenset(p.person_id for p in second.partners):
-                ctx.add_conflict(
-                    SEVERITY_WARNING, "duplicate_family", "families",
-                    f"Familjerna {first.id} och {second.id} har samma partner efter "
-                    f"sammanslagningen: {_family_text(persons, first)}. "
-                    "De behålls som separata familjer.",
-                    (first.id, second.id),
-                )
+            if not set_1 or set_1 != frozenset(p.person_id for p in second.partners):
+                continue
+            victim = kept = None
+            if _partner_roles(first) == _partner_roles(second):
+                if second.id in empty_ids:
+                    victim, kept = second, first  # both empty: the later one goes
+                elif first.id in empty_ids:
+                    victim, kept = first, second
+            pairs.append((first, second, victim, kept))
+
+    # One offer per removable family. The family that stays is the first listed
+    # equivalent family that is not empty, else the first listed one, so a
+    # family that stays is never itself offered for removal.
+    def _group_key(fam: Family) -> tuple:
+        return (frozenset(p.person_id for p in fam.partners), tuple(_partner_roles(fam)))
+
+    groups: dict[tuple, list[Family]] = {}
+    for fam in candidates:
+        groups.setdefault(_group_key(fam), []).append(fam)
+
+    offered: dict[str, Family] = {}
+    victims_by_id: dict[str, Family] = {}
+    for _first, _second, victim, _kept in pairs:
+        if victim is None or victim.id in offered:
+            continue
+        members = [f for f in groups[_group_key(victim)] if f.id != victim.id]
+        offered[victim.id] = next(
+            (f for f in members if f.id not in empty_ids), members[0]
+        )
+        victims_by_id[victim.id] = victim
+    chosen = set(ctx.decisions.remove_empty_family_ids)
+    removing = {fid for fid in offered if fid in chosen}
+
+    for first, second, victim, _kept in pairs:
+        if victim is not None and victim.id in removing:
+            message = (
+                f"Familjen {victim.id} är tom och tas bort; {offered[victim.id].id} behålls."
+            )
+        else:
+            message = (
+                f"Familjerna {first.id} och {second.id} har samma partner efter "
+                f"sammanslagningen: {_family_text(persons, first)}. "
+                "De behålls som separata familjer."
+            )
+        ctx.add_conflict(
+            SEVERITY_WARNING, "duplicate_family", "families", message, (first.id, second.id),
+        )
+    for fid in sorted(chosen - set(offered)):
+        ctx.add_conflict(
+            SEVERITY_BLOCKING, "stale_family_removal", "families",
+            f"Familjen {fid} kan inte tas bort: den är inte längre en tom dubblettfamilj. "
+            "Avmarkera valet.",
+            (fid,),
+        )
+
+    ctx.empty_family_offers = tuple(
+        EmptyFamilyOffer(fid, offered[fid].id, _partner_names(persons, victims_by_id[fid]))
+        for fid in offered
+    )
+    ctx.removed_empty_family_ids = tuple(sorted(removing))
+    if removing:
+        _remove_families(ctx, view, removing)
 
     # 23.13: validate every changed family of the synchronised view.
     valid_ids = {p.id for p in view.persons}

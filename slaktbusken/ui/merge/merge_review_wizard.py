@@ -172,6 +172,60 @@ class UnsavedEditorsDialog(QDialog):
         return label
 
 
+def ensure_saved_before_merge(
+    service: ProjectService,
+    registry: Any,
+    parent: Optional[QWidget],
+    *,
+    show_editor_block: Optional[Callable[[Sequence[Any]], None]] = None,
+    ask_save_choice: Optional[Callable[[], str]] = None,
+    show_message: Optional[Callable[[str], None]] = None,
+) -> bool:
+    """Saved_State_Precondition: True when the merge may proceed.
+
+    Unsaved open editors block first; then an unsaved project asks
+    "Spara och fortsätt" / "Avbryt". The optional callables replace the
+    default dialogs (the wizard passes its own).
+    """
+
+    def _block(editors: Sequence[Any]) -> None:
+        UnsavedEditorsDialog(editors, parent).exec()
+
+    def _ask() -> str:
+        box = QMessageBox(parent)
+        box.setWindowTitle(WINDOW_TITLE)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(SAVE_PROMPT_TEXT)
+        save = box.addButton(SAVE_AND_CONTINUE_TEXT, QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(CANCEL_TEXT, QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        return SAVE if box.clickedButton() is save else CANCEL
+
+    def _message(text: str) -> None:
+        QMessageBox.warning(parent, WINDOW_TITLE, text)
+
+    show_editor_block = show_editor_block or _block
+    ask_save_choice = ask_save_choice or _ask
+    show_message = show_message or _message
+
+    if registry is not None:
+        editors = registry.unsaved_editors()
+        if editors:
+            show_editor_block(editors)
+            if registry.unsaved_editors():
+                return False  # no "Spara och fortsätt", no second confirmation
+    if not service.is_saved_state():
+        if ask_save_choice() != SAVE:
+            return False
+        try:
+            service.save_project()
+        except Exception:  # noqa: BLE001 - reported to the user, nothing merged
+            logger.exception("Projektet kunde inte sparas före sammanslagning.")
+            show_message(SAVE_FAILED_TEXT)
+            return False
+    return True
+
+
 class MergeReviewWizard(QDialog):
     """Review two persons and start a merge through the executor.
 
@@ -209,6 +263,7 @@ class MergeReviewWizard(QDialog):
         self._survivor_confirmed = False
         self._choices: dict[str, str] = {}
         self._notes_mode = rules.NOTES_CONCATENATE
+        self._remove_family_ids: set[str] = set()
         self._section_confirmed: list[bool] = [False] * len(SECTION_DEFS)
         self._plan: Optional[MergePlan] = None
         self._generation = 0
@@ -256,6 +311,7 @@ class MergeReviewWizard(QDialog):
             page = SectionPage(sid, title, sections, categories)
             page.choice_made.connect(self._on_choice_made)
             page.notes_mode_changed.connect(self._on_notes_mode)
+            page.remove_family_toggled.connect(self._on_remove_family_toggled)
             page.confirmed.connect(lambda i=index: self._on_section_confirmed(i))
             self.section_pages.append(page)
             self._add_page(title, page)
@@ -312,6 +368,7 @@ class MergeReviewWizard(QDialog):
         self._survivor = person_id
         self._survivor_confirmed = False
         self._choices.clear()
+        self._remove_family_ids.clear()
         self._notes_mode = rules.NOTES_CONCATENATE
         self._section_confirmed = [False] * len(SECTION_DEFS)
         self._needs_reconfirm = False
@@ -340,6 +397,15 @@ class MergeReviewWizard(QDialog):
         self._notes_mode = mode
         self._rebuild_plan()
 
+    def _on_remove_family_toggled(self, family_id: str, checked: bool) -> None:
+        if checked == (family_id in self._remove_family_ids):
+            return
+        if checked:
+            self._remove_family_ids.add(family_id)
+        else:
+            self._remove_family_ids.discard(family_id)
+        self._rebuild_plan()
+
     def _on_section_confirmed(self, index: int) -> None:
         self._section_confirmed[index] = True
         self._update_section_states()
@@ -365,6 +431,7 @@ class MergeReviewWizard(QDialog):
             primary_name=primary,
             participant_roles=roles,
             connection_override=c.get("connection_override"),
+            remove_empty_family_ids=tuple(sorted(self._remove_family_ids)),
         )
 
     # ------------------------------------------------------------------
@@ -418,6 +485,12 @@ class MergeReviewWizard(QDialog):
             self._plan = None
             self.preview.set_plan(None, unavailable=True)
             return
+        if plan.survivor_id is not None:
+            stale = self._remove_family_ids - {o.family_id for o in plan.empty_family_offers}
+            if stale:  # the family is no longer an empty duplicate: drop the choice
+                self._remove_family_ids -= stale
+                self._rebuild_plan()
+                return
         self._plan = plan
         self.preview.set_plan(plan)
         if self._needs_reconfirm:
@@ -445,7 +518,7 @@ class MergeReviewWizard(QDialog):
                 name_options,
             )
         for page in self.section_pages:
-            page.show_plan(plan, specs, self._choices)
+            page.show_plan(plan, specs, self._choices, frozenset(self._remove_family_ids))
 
     # ------------------------------------------------------------------
     # Project changes while open (26.9)
@@ -474,7 +547,10 @@ class MergeReviewWizard(QDialog):
         data = self._service.data
         translation = self._translation_provider()
         index = pri.PersonReferenceIndex.build(data, plan.decisions.person_ids, translation)
-        return compute_fingerprint(data, plan.decisions.person_ids, index, translation) == plan.fingerprint
+        return compute_fingerprint(
+            data, plan.decisions.person_ids, index, translation,
+            plan.decisions.remove_empty_family_ids,
+        ) == plan.fingerprint
 
     # ------------------------------------------------------------------
     # Execution (Saved_State_Precondition, 26.6, 26.11 to 26.14, then 26.7)
@@ -507,27 +583,27 @@ class MergeReviewWizard(QDialog):
         QMessageBox.warning(self, WINDOW_TITLE, text)
 
     def check_saved_state(self) -> bool:
-        """Run the Saved_State_Precondition. True when the merge may proceed."""
-        if self._registry is not None:
-            editors = self._registry.unsaved_editors()
-            if editors:
-                self._show_editor_block(editors)
-                if self._registry.unsaved_editors():
-                    return False  # no "Spara och fortsätt", no second confirmation
-        if not self._service.is_saved_state():
-            if self._ask_save_choice() != SAVE:
-                return False  # back to the preview, decisions intact
-            try:
-                self._service.save_project()
-            except Exception:  # noqa: BLE001 - reported to the user, nothing merged
-                logger.exception("Projektet kunde inte sparas före sammanslagning.")
-                self._show_message(SAVE_FAILED_TEXT)
-                return False
-            if not self._plan_is_current() or not self._fingerprint_unchanged():
-                self._needs_reconfirm = True
-                self.preview.set_stale(True)
-                self._rebuild_plan()
-                return False
+        """Run the Saved_State_Precondition. True when the merge may proceed.
+
+        Safety net at execute time: normally the project was already saved when
+        the user continued from the comparison window, so nothing is asked.
+        """
+        was_saved = self._service.is_saved_state()
+        ok = ensure_saved_before_merge(
+            self._service,
+            self._registry,
+            self,
+            show_editor_block=self._show_editor_block,
+            ask_save_choice=self._ask_save_choice,
+            show_message=self._show_message,
+        )
+        if not ok:
+            return False
+        if not was_saved and (not self._plan_is_current() or not self._fingerprint_unchanged()):
+            self._needs_reconfirm = True
+            self.preview.set_stale(True)
+            self._rebuild_plan()
+            return False
         return True
 
     def _on_execute(self) -> None:

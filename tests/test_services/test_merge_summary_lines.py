@@ -76,6 +76,7 @@ def test_summary_counts_match_the_plan():
         "Anteckningar sammanslagna: ja",
         "Kandidater omdirigerade: 1",
         "Kandidater arkiverade: 1",
+        "Tomma dubblettfamiljer borttagna: 0",
     ]
 
 

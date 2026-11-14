@@ -1,7 +1,7 @@
 """Property 53: The Merge_Summary is a snapshot of the plan.
 
 The ``summary_lines`` of the history entry created by planning a merge are the
-11 fixed Swedish lines in fixed order. Every count equals a count taken
+12 fixed Swedish lines in fixed order. Every count equals a count taken
 independently from the input data, the decisions and the plan's change set.
 Planning is deterministic, never mutates its input, and the lines hold counts
 only (no names).
@@ -45,6 +45,7 @@ _LABELS = (
     "Anteckningar sammanslagna",
     "Kandidater omdirigerade",
     "Kandidater arkiverade",
+    "Tomma dubblettfamiljer borttagna",
 )
 _LINE = re.compile(r"^([^:]+): (\d+|ja|nej)$")
 
@@ -202,7 +203,8 @@ def _expected_lines(data, d: MergeDecisions, plan) -> list[str]:
     archived = len(cs.removed.get("merge_candidates", set()))
     values = [names, len(events), len(residences), citations, media, families,
               research, _expected_decisions(data, d),
-              "ja" if notes_joined else "nej", redirected, archived]
+              "ja" if notes_joined else "nej", redirected, archived,
+              len(d.remove_empty_family_ids)]
     return [f"{label}: {v}" for label, v in zip(_LABELS, values)]
 
 
@@ -229,7 +231,7 @@ def test_property_53_merge_summary_is_snapshot_of_plan(scenario):
     assert data == data_before
     assert translation == translation_before
 
-    # 11 fixed lines in fixed order, each "label: count".
+    # 12 fixed lines in fixed order, each "label: count".
     assert len(lines) == len(_LABELS)
     parsed = [_LINE.match(x) for x in lines]
     assert all(parsed), lines

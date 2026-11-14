@@ -264,6 +264,7 @@ def merge_summary_lines(ctx: PlanContext) -> list[str]:
         f"Anteckningar sammanslagna: {'ja' if notes_joined else 'nej'}",
         f"Kandidater omdirigerade: {len(set(ops.redirected))}",
         f"Kandidater arkiverade: {len(ops.archived)}",
+        f"Tomma dubblettfamiljer borttagna: {len(ctx.removed_empty_family_ids)}",
     ]
 
 

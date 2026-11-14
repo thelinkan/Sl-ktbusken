@@ -99,6 +99,9 @@ class MergeDecisions:
     primary_name: Optional[NameKey] = None
     participant_roles: Mapping[str, str] = field(default_factory=dict)
     connection_override: Optional[str] = None
+    #: Ids of empty duplicate families the user chose to remove (Requirement 23.14).
+    #: Normalised to a sorted tuple without duplicates; empty by default.
+    remove_empty_family_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -113,6 +116,10 @@ class MergeDecisions:
         # the dict the caller passed in.
         object.__setattr__(
             self, "participant_roles", MappingProxyType(dict(self.participant_roles))
+        )
+        object.__setattr__(
+            self, "remove_empty_family_ids",
+            tuple(sorted({str(x) for x in self.remove_empty_family_ids})),
         )
 
     @classmethod
@@ -145,6 +152,7 @@ class MergeDecisions:
                 self.title_from, self.occupation_from, self.profile_media_id,
                 self.notes_mode, self.primary_name,
                 tuple(sorted(self.participant_roles.items())), self.connection_override,
+                self.remove_empty_family_ids,
             )
         )
 
@@ -232,6 +240,20 @@ class IdentityOps:
     aliases_rewritten: tuple[str, ...] = ()
     new_aliases: tuple[Any, ...] = ()
     rewritten_aliases: tuple[Any, ...] = ()
+
+
+@dataclass(frozen=True)
+class EmptyFamilyOffer:
+    """An empty duplicate family the user may remove (Requirement 23.14).
+
+    ``family_id`` is the empty family that would be removed, ``kept_family_id``
+    the duplicate that stays and ``partner_names`` the display names of the
+    shared partners (the wizard builds the Swedish text from these).
+    """
+
+    family_id: str
+    kept_family_id: str
+    partner_names: str = ""
 
 
 @dataclass(frozen=True)
@@ -651,12 +673,14 @@ def compute_fingerprint(
     person_ids: Iterable[str],
     index: pri.PersonReferenceIndex,
     translation: Any = None,
+    removed_family_ids: Iterable[str] = (),
 ) -> str:
     """SHA-256 over every object the plan read.
 
     That is: the two persons, every object the reference index found, all
     candidates and history entries, the translation mappings of the two ids,
-    all identity aliases and the id high-water marks.
+    all identity aliases, the id high-water marks and the families the user
+    chose to remove (``removed_family_ids``, Requirement 23.14).
     """
     ids = set(person_ids)
     seen: dict[int, Any] = {}
@@ -678,6 +702,10 @@ def compute_fingerprint(
         add("candidate", cand)
     for entry in getattr(data, "merge_history", None) or []:
         add("history", entry)
+    wanted = set(removed_family_ids)
+    for fam in data.families:
+        if fam.id in wanted and id(fam) not in seen:
+            add("ref", fam)
     add("marks", dict(data.id_high_water_marks))
     add("main_person", data.project.main_person_id)
     add("overrides", {k: v for k, v in data.connection_overrides.items() if k in ids})
@@ -717,6 +745,10 @@ class MergePlan:
     preview: PreviewModel
     ledger_before: InformationLedger
     ledger_after_expected: InformationLedger
+    #: Empty duplicate families that can be removed (checkboxes of the Familj section).
+    empty_family_offers: tuple[EmptyFamilyOffer, ...] = ()
+    #: The families this plan removes because the user chose so (subset of the offers).
+    removed_empty_family_ids: tuple[str, ...] = ()
 
     @property
     def blocking(self) -> tuple[MergeConflict, ...]:
@@ -765,6 +797,9 @@ class PlanContext:
     #: Scratch space a step may use to hand data to a later step (for example
     #: the intended links of "families" to "reconcile").
     state: dict[str, Any] = field(default_factory=dict)
+    #: Set by the "reconcile" step (Requirement 23.14).
+    empty_family_offers: tuple[EmptyFamilyOffer, ...] = ()
+    removed_empty_family_ids: tuple[str, ...] = ()
     _item_keys: set[tuple[str, str]] = field(default_factory=set)
 
     def add_item(
@@ -862,7 +897,9 @@ def build_plan(
         raise MergeRefusal(THIRD_PERSON_MESSAGE)
 
     index = pri.PersonReferenceIndex.build(data, decisions.person_ids, translation)
-    fingerprint = compute_fingerprint(data, decisions.person_ids, index, translation)
+    fingerprint = compute_fingerprint(
+        data, decisions.person_ids, index, translation, decisions.remove_empty_family_ids
+    )
     ledger_before = compute_ledger(data)
     survivor, retired = decisions.survivor_id, decisions.retired_id
 
@@ -905,6 +942,15 @@ def build_plan(
     except Exception as exc:
         raise MergePlanError(PREVIEW_UNAVAILABLE_MESSAGE) from exc
 
+    if ctx.removed_empty_family_ids:
+        gone = set(ctx.removed_empty_family_ids)
+        preview = replace(
+            preview,
+            family_count=preview.family_count - len(gone),
+            removed_family_ids=tuple(sorted(set(preview.removed_family_ids) | gone)),
+            changed_family_ids=tuple(x for x in preview.changed_family_ids if x not in gone),
+        )
+
     deltas = dict(ctx.ledger_deltas)
     deltas["persons"] = deltas.get("persons", 0) - 1  # the retired person
     return MergePlan(
@@ -917,6 +963,8 @@ def build_plan(
         identity_ops=ctx.identity_ops, change_set=ctx.work.change_set, preview=preview,
         ledger_before=ledger_before,
         ledger_after_expected=ledger_before.adjusted(deltas),
+        empty_family_offers=ctx.empty_family_offers,
+        removed_empty_family_ids=ctx.removed_empty_family_ids,
     )
 
 

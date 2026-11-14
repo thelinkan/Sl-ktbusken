@@ -14,6 +14,7 @@ from typing import Callable, Optional, Sequence
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
@@ -27,7 +28,8 @@ from PySide6.QtWidgets import (
 
 from slaktbusken.services import merge_rules as rules
 from slaktbusken.services.merge_planner import MergePlan, UnresolvedChoice
-from slaktbusken.ui.merge.merge_preview import format_conflict
+from slaktbusken.ui.merge.merge_preview import add_conflict_item
+from slaktbusken.ui.swedish_locale import get_sex_label
 
 KEEP_PERSON_TEXT = "Behåll den här personen"
 CONFIRM_SURVIVOR_TEXT = "Bekräfta val"
@@ -36,6 +38,7 @@ SURVIVOR_RESET_TEXT = (
     "Personen som behålls ändrades. Alla övriga val har nollställts och behöver göras om."
 )
 NO_ITEMS_TEXT = "Inga"
+REMOVE_EMPTY_FAMILY_TEXT = "Ta bort den tomma dubblettfamiljen {family_id} ({partners})"
 NOTES_MODES = (
     (rules.NOTES_CONCATENATE, "Slå ihop anteckningarna"),
     (rules.NOTES_KEEP_SURVIVOR, "Behåll bara den behållna personens anteckningar"),
@@ -127,6 +130,7 @@ class SectionPage(QWidget):
 
     choice_made = Signal(str, str)  # key, value
     notes_mode_changed = Signal(str)
+    remove_family_toggled = Signal(str, bool)  # family id, checked
     confirmed = Signal()
 
     def __init__(self, section_id: str, title: str, sections: tuple[str, ...],
@@ -156,6 +160,11 @@ class SectionPage(QWidget):
         self.choices_layout = QVBoxLayout()
         layout.addLayout(self.choices_layout)
 
+        # Opt-in removal of empty duplicate families (Requirement 23.14).
+        self._removal_boxes: dict[str, QCheckBox] = {}
+        self.removal_layout = QVBoxLayout()
+        layout.addLayout(self.removal_layout)
+
         self.notes_combo: Optional[QComboBox] = None
         if section_id == "attributes":
             self.notes_combo = QComboBox()
@@ -176,6 +185,7 @@ class SectionPage(QWidget):
     def reset(self) -> None:
         self._known.clear()
         self._selected.clear()
+        self._rebuild_removals((), frozenset())
         if self.notes_combo is not None:
             self.notes_combo.blockSignals(True)
             self.notes_combo.setCurrentIndex(0)
@@ -186,7 +196,8 @@ class SectionPage(QWidget):
         self._selected = dict(selected)
 
     def show_plan(self, plan: Optional[MergePlan], specs: Sequence[ChoiceSpec],
-                  selected: dict[str, str]) -> None:
+                  selected: dict[str, str],
+                  removed_family_ids: frozenset[str] = frozenset()) -> None:
         self.items_list.clear()
         self.problems_list.clear()
         self._selected = dict(selected)
@@ -202,8 +213,35 @@ class SectionPage(QWidget):
                 self.items_list.addItem(f"{text} · {item.detail}" if item.detail else text)
             for conflict in plan.conflicts:
                 if conflict.section in self._sections:
-                    self.problems_list.addItem(format_conflict(conflict))
+                    add_conflict_item(self.problems_list, plan, conflict, in_owning_section=True)
+        offers = plan.empty_family_offers if plan is not None and "families" in self._sections else ()
+        self._rebuild_removals(offers, removed_family_ids)
         self._rebuild_choices()
+
+    def _rebuild_removals(self, offers: Sequence, checked: frozenset[str]) -> None:
+        """One unchecked-by-default checkbox per removable empty duplicate family."""
+        while self.removal_layout.count():
+            child = self.removal_layout.takeAt(0)
+            widget = child.widget()
+            if widget is not None:
+                widget.hide()
+                widget.deleteLater()
+        self._removal_boxes.clear()
+        for offer in offers:
+            text = REMOVE_EMPTY_FAMILY_TEXT.format(
+                family_id=offer.family_id, partners=offer.partner_names
+            )
+            box = QCheckBox(text)
+            box.setAccessibleName(text)
+            box.setChecked(offer.family_id in checked)
+            box.toggled.connect(
+                lambda on, fid=offer.family_id: self.remove_family_toggled.emit(fid, on)
+            )
+            self.removal_layout.addWidget(box)
+            self._removal_boxes[offer.family_id] = box
+
+    def removal_checkbox(self, family_id: str) -> Optional[QCheckBox]:
+        return self._removal_boxes.get(family_id)
 
     def _rebuild_choices(self) -> None:
         while self.choices_layout.count():
@@ -259,6 +297,9 @@ def build_choice_specs(
                 for pid in (survivor_id, retired_id)
                 if profile_media.get(pid)
             )
+        elif u.key == "sex":
+            # Keep the internal code as the value; show the Swedish label.
+            options = tuple(ChoiceOption(o, get_sex_label(o)) for o in u.options)
         elif u.key == "primary_name":
             options = tuple(ChoiceOption(k, text) for k, text in name_options)
         else:
