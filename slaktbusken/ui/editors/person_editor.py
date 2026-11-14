@@ -68,8 +68,15 @@ from slaktbusken.ui.widgets.boenden_tab import BoendenTab
 from slaktbusken.model.residence import Endpoint, ResidenceFact
 from slaktbusken.ui.widgets.foto_tab import FotoTab
 from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.services.source_stats import event_cited_sources
 from slaktbusken.ui.research_gateway import connect_research_tab
-from slaktbusken.ui.widgets.research_marker import apply_research_marker, paint_research_dot
+from slaktbusken.ui.widgets.list_icon_delegate import (
+    HAS_COORDS_ROLE,
+    HAS_SOURCE_ROLE,
+    SOURCE_TITLES_ROLE,
+    ListIconDelegate,
+)
+from slaktbusken.ui.widgets.research_marker import apply_research_marker
 from slaktbusken.ui.widgets.family_research_panel import FamilyResearchPanel
 from slaktbusken.ui.widgets.research_tab import ResearchTab
 
@@ -103,81 +110,15 @@ _PARENTAGE_TYPE_TO_PLACEMENT: dict[str, tuple[str, str]] = {
 }
 
 # Custom role for storing the has-coordinates flag on event list items
-_HAS_COORDS_ROLE = Qt.ItemDataRole.UserRole + 1
+_HAS_COORDS_ROLE = HAS_COORDS_ROLE
 
 
-class EventListMapIconDelegate(QStyledItemDelegate):
-    """Delegate that draws a trailing map icon on event list items with coordinates.
+class EventListMapIconDelegate(ListIconDelegate):
+    """Delegate drawing trailing map pin, source icon and research dot on list items.
 
-    When an item has data set at _HAS_COORDS_ROLE == True, the map icon is drawn
-    after the item text, providing a visual indicator that the event's place is
-    mappable.
+    See :class:`ListIconDelegate`; the pin is drawn when ``_HAS_COORDS_ROLE`` is
+    set and the source icon when ``HAS_SOURCE_ROLE`` is set.
     """
-
-    _ICON_SIZE = 14
-    _ICON_SPACING = 8
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._map_pixmap: QPixmap | None = None
-
-    def _get_map_pixmap(self) -> QPixmap:
-        """Lazily load and cache the map icon pixmap."""
-        if self._map_pixmap is None:
-            self._map_pixmap = icon_registry.get_map_icon()
-        return self._map_pixmap
-
-    def paint(
-        self,
-        painter: QPainter,
-        option: QStyleOptionViewItem,
-        index,
-    ) -> None:
-        """Paint the item, appending a map icon after the text when flagged."""
-        super().paint(painter, option, index)
-
-        has_coords = index.data(_HAS_COORDS_ROLE)
-        if not has_coords:
-            paint_research_dot(painter, option, index, icon_width=16 + 4)
-            return
-
-        # Calculate text width to position the icon after it
-        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
-        font_metrics = option.fontMetrics
-        text_width = font_metrics.horizontalAdvance(text)
-
-        # Account for the item's decoration (event icon) width + spacing
-        icon_offset = 0
-        item_icon = index.data(Qt.ItemDataRole.DecorationRole)
-        if item_icon is not None:
-            # Standard icon size used in list items (16px) + spacing
-            icon_offset = 16 + 4
-
-        style = option.widget.style() if option.widget else None
-        text_margin = (
-            style.pixelMetric(
-                style.PixelMetric.PM_FocusFrameHMargin, option, option.widget
-            )
-            + 1
-            if style
-            else 4
-        )
-
-        map_pixmap = self._get_map_pixmap()
-        x = option.rect.left() + text_margin + icon_offset + text_width + self._ICON_SPACING
-        y = option.rect.top() + (option.rect.height() - self._ICON_SIZE) // 2
-
-        painter.drawPixmap(x, y, self._ICON_SIZE, self._ICON_SIZE, map_pixmap)
-
-        # The research marker follows the map icon.
-        paint_research_dot(
-            painter,
-            option,
-            index,
-            extra_offset=self._ICON_SPACING + self._ICON_SIZE,
-            icon_width=16 + 4,
-        )
-
 
 class PersonEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Person records with tabs for names, events, photos, and DNA.
@@ -1419,10 +1360,11 @@ class PersonEditor(EditorRegistryParticipant, QWidget):
 
         # Build a places lookup for resolving event place references
         places_by_id = {p.id: p for p in self._project_data.places}
+        source_titles = {s.id: s.title for s in self._project_data.sources}
 
         # Collect events for this person
         # (date_sort_key, display, event_id, event_type, has_coords)
-        person_events: list[tuple[str, str, str, str, bool]] = []
+        person_events: list[tuple[str, str, str, str, bool, list[str]]] = []
         for event in self._project_data.events:
             for participant in event.participants:
                 if participant.person_id == self._person.id:
@@ -1444,19 +1386,27 @@ class PersonEditor(EditorRegistryParticipant, QWidget):
                                 and place.longitude is not None
                             )
 
-                    person_events.append((date_key, display, event.id, event.type, has_coords))
+                    cited = [
+                        title for _sid, title in event_cited_sources(event, source_titles)
+                    ]
+                    person_events.append(
+                        (date_key, display, event.id, event.type, has_coords, cited)
+                    )
                     break
 
         # Sort by date (empty dates last)
         person_events.sort(key=lambda x: (x[0] == "", x[0]))
 
         research_index = ResearchIndex(self._project_data)
-        for _date_key, display, event_id, event_type, has_coords in person_events:
+        for _date_key, display, event_id, event_type, has_coords, cited in person_events:
             item = QListWidgetItem(display)
             item.setIcon(QIcon(icon_registry.get_event_icon(event_type)))
             item.setData(Qt.ItemDataRole.UserRole, event_id)
             if has_coords:
                 item.setData(_HAS_COORDS_ROLE, True)
+            if cited:
+                item.setData(HAS_SOURCE_ROLE, True)
+                item.setData(SOURCE_TITLES_ROLE, cited)
             apply_research_marker(
                 item, research_index.counts_for_entity("event", event_id)
             )

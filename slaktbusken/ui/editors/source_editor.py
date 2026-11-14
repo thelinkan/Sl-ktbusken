@@ -10,7 +10,12 @@ Validates that title and type are set before save. All UI text is in Swedish.
 from __future__ import annotations
 
 from slaktbusken.services.editor_registry import EditorRegistry
-from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+from slaktbusken.ui.editors.registry_participation import (
+    DISCARD_CHOICE,
+    SAVE_CHOICE,
+    EditorRegistryParticipant,
+    prompt_resolution,
+)
 
 import logging
 import shutil
@@ -107,6 +112,11 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
 
     save_requested = Signal()
     cancel_requested = Signal()
+    # Carries the id of the source whose persons the Personlista should show.
+    filter_persons_requested = Signal(str)
+
+    FILTER_TOOLTIP = "Filtrerar på källa och stänger källredigerarfönstret"
+    FILTER_TOOLTIP_NO_PERSONS = "Vald källa har ingen person ansluten till sig"
 
     def __init__(
         self,
@@ -188,6 +198,16 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
         self._edit_arkivref_button.setObjectName("edit_arkivref_button")
         self._ui.repository_buttons_layout.addWidget(self._edit_arkivref_button)
 
+        # "Filtrera källans personer": in the left button row, right of "Ta bort",
+        # far from "Spara"/"Avbryt" in the right panel.
+        self._filter_persons_button = QPushButton("Filtrera källans personer")
+        self._filter_persons_button.setObjectName("filter_persons_button")
+        self._ui.list_buttons_layout.addSpacing(20)
+        self._ui.list_buttons_layout.addWidget(self._filter_persons_button)
+        self._ui.list_buttons_layout.addStretch(1)
+        self._filter_persons_button.clicked.connect(self._on_filter_persons_clicked)
+
+        self._form_baseline: tuple = ()
         self._populate_provider_combo()
         self._connect_signals()
         self._update_structured_fields()
@@ -195,6 +215,8 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
 
         if self._source is not None:
             self._load_source()
+        self._form_baseline = self._form_signature()
+        self._update_filter_button()
 
     # ------------------------------------------------------------------
     # Public API
@@ -213,9 +235,88 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
         """
         return self._saved_source
 
+    def set_person_filter_available(self, available: bool) -> None:
+        """Show or hide "Filtrera källans personer" (hidden when embedded in
+        another editor, where there is no host that can filter the Personlista)."""
+        self._filter_persons_button.setVisible(available)
+
+    def is_dirty(self) -> bool:
+        """True when the form differs from the loaded (or last saved) source."""
+        return self._form_signature() != self._form_baseline
+
     # ------------------------------------------------------------------
-    # Private: setup
+    # Private: unsaved-change detection and person filter button
     # ------------------------------------------------------------------
+
+    def _form_signature(self) -> tuple:
+        """Snapshot of every editable form field, for unsaved-change detection."""
+        ui = self._ui
+        line_edits = (
+            ui.title_input, ui.reference_text_input, ui.provider_ref_input,
+            ui.short_note_input, ui.parish_input, ui.county_code_input,
+            ui.series_input, ui.volume_input, ui.years_input, ui.image_input,
+            ui.page_input, ui.database_name_input, ui.record_id_input,
+            ui.dn_newspaper_input, ui.publication_date_input, ui.dn_page_input,
+            ui.np_newspaper_input, ui.np_date_input, ui.np_page_input,
+            ui.article_title_input,
+        )
+        media = tuple(
+            ui.media_list.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(ui.media_list.count())
+        )
+        arkiv = tuple(
+            tuple(
+                (self._arkivref_table.item(r, c).text() if self._arkivref_table.item(r, c) else "")
+                for c in range(2)
+            )
+            for r in range(self._arkivref_table.rowCount())
+        )
+        return (
+            tuple(e.text() for e in line_edits),
+            ui.free_note_input.toPlainText(),
+            ui.provider_combo.currentData() or "",
+            ui.kalltyp_combo.currentData() or "",
+            media,
+            arkiv,
+        )
+
+    def _mark_form_clean(self) -> None:
+        self._form_baseline = self._form_signature()
+
+    def _selected_source_stats(self):
+        """Usage stats of the currently edited saved source, or None."""
+        if self._source is None:
+            return None
+        if not any(s.id == self._source.id for s in self._project_data.sources):
+            return None
+        return compute_usage_stats(
+            self._source.id, self._project_data.events, self._project_data.residences
+        )
+
+    def _update_filter_button(self) -> None:
+        """Enable the filter button only for a saved source with persons."""
+        stats = self._selected_source_stats()
+        if stats is not None and stats.person_count == 0:
+            self._filter_persons_button.setToolTip(self.FILTER_TOOLTIP_NO_PERSONS)
+        else:
+            self._filter_persons_button.setToolTip(self.FILTER_TOOLTIP)
+        self._filter_persons_button.setEnabled(stats is not None and stats.person_count >= 1)
+
+    def _on_filter_persons_clicked(self) -> None:
+        """Resolve unsaved changes, then ask the host to filter the person list."""
+        stats = self._selected_source_stats()
+        if stats is None or stats.person_count < 1 or self._source is None:
+            return
+        source_id = self._source.id
+        if self.is_dirty():
+            choice = prompt_resolution(self, self.editor_title)
+            if choice == SAVE_CHOICE:
+                self._on_save()
+                if self.is_dirty():
+                    return  # validation failed: stay open
+            elif choice != DISCARD_CHOICE:
+                return
+        self.filter_persons_requested.emit(source_id)
 
     def _populate_provider_combo(self) -> None:
         """Fill the provider combo box with Leverantörer from project data."""
@@ -417,12 +518,19 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
                     continue
 
             # Compute usage stats for this source
-            stats = compute_usage_stats(source.id, self._project_data.events)
+            stats = compute_usage_stats(
+                source.id, self._project_data.events, self._project_data.residences
+            )
 
             display = source.title or source.id
             if source.provider:
                 display = f"{display} ({source.provider})"
-            display = f"{display} [{stats.person_count} pers, {stats.event_count} händ]"
+            counts = f"{stats.person_count} pers"
+            if stats.event_count:
+                counts += f", {stats.event_count} händ"
+            if stats.residence_count:
+                counts += f", {stats.residence_count} boende"
+            display = f"{display} [{counts}]"
 
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, source.id)
@@ -432,6 +540,7 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
                 item, research_index.counts_for_entity("source", source.id)
             )
             self._ui.source_list.addItem(item)
+        self._update_filter_button()
 
     def _on_search_changed(self, text: str) -> None:
         """Handle search input text changes.
@@ -465,6 +574,8 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
             source=source,
             events=self._project_data.events,
             persons=self._project_data.persons,
+            residences=self._project_data.residences,
+            places=self._project_data.places,
         )
         dialog.exec()
 
@@ -648,6 +759,8 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
             self._update_direct_link()
         finally:
             self._inhibit_reference_parse = False
+        self._mark_form_clean()
+        self._update_filter_button()
 
     def _load_structured_reference(self) -> None:
         """Populate structured reference fields from the source data."""
@@ -1300,6 +1413,7 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
 
         # Update the in-memory editing source
         self._source = self._saved_source
+        self._mark_form_clean()
         self._refresh_research_section()
 
         # Refresh the source list
@@ -1430,6 +1544,8 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
             self._direct_link_label.setVisible(False)
         finally:
             self._inhibit_reference_parse = False
+        self._mark_form_clean()
+        self._update_filter_button()
 
     def _update_status(self, message: str) -> None:
         """Update the status label text with an error/info message.

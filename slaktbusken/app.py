@@ -1,4 +1,4 @@
-﻿"""Application shell — thin wiring layer between services and UI.
+"""Application shell — thin wiring layer between services and UI.
 
 Instantiates all services, creates the main window, and forwards
 UI events (menu actions) to the appropriate service methods.
@@ -1454,7 +1454,33 @@ class Application:
         editor.save_requested.connect(lambda: setattr(self.project_service, '_dirty', True))
         editor.save_requested.connect(self._update_status)
 
+        self._exec_source_editor_dialog(dialog, editor)
+
+    def _exec_source_editor_dialog(self, dialog: QDialog, editor) -> None:
+        """Run a source editor dialog and honour "Filtrera källans personer".
+
+        The signal only closes the dialog; the person list is filtered after
+        exec() returns, so the filtered view is showing back in the main window.
+        Filtering is a view change and does not mark the project dirty.
+        """
+        requested: list[str] = []
+
+        def _on_filter(source_id: str) -> None:
+            requested.append(source_id)
+            dialog.accept()
+
+        editor.filter_persons_requested.connect(_on_filter)
         dialog.exec()
+        if requested:
+            self._filter_persons_by_source(requested[-1])
+
+    def _filter_persons_by_source(self, source_id: str) -> None:
+        """Show only the persons connected to a source in the Personlista."""
+        from slaktbusken.services.source_stats import compute_usage_stats
+
+        data = self.project_service.data
+        stats = compute_usage_stats(source_id, data.events, data.residences)
+        self.main_window.person_list_panel.apply_person_id_filter(set(stats.person_ids))
 
     def show_place_editor(self) -> None:
         """Open the place editor dialog.
@@ -2126,7 +2152,10 @@ class Application:
         saved: list[bool] = []
         if hasattr(editor, "save_requested"):
             editor.save_requested.connect(lambda: saved.append(True))
-        dialog.exec()
+        if entity_type == "source":
+            self._exec_source_editor_dialog(dialog, editor)
+        else:
+            dialog.exec()
         # The editors change project data in place, so a save marks it changed.
         if saved or entity_type == "media":
             self.project_service._dirty = True

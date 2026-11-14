@@ -26,7 +26,13 @@ from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import Endpoint, ResidenceFact
 from slaktbusken.services.residence_query import residence_timeline
+from slaktbusken.services.source_stats import residence_cited_sources
 from slaktbusken.ui.swedish_locale import format_residence_line
+from slaktbusken.ui.widgets.list_icon_delegate import (
+    HAS_SOURCE_ROLE,
+    SOURCE_TITLES_ROLE,
+    ListIconDelegate,
+)
 
 
 class BoendenTab(QWidget):
@@ -80,6 +86,7 @@ class BoendenTab(QWidget):
         else:
             self._stack.setCurrentWidget(self._list)
             places_by_id = {p.id: p for p in self._project_data.places}
+            source_titles = {s.id: s.title for s in self._project_data.sources}
             for fact in facts:
                 place = places_by_id.get(fact.place_id)
                 place_display = place.name if place else fact.place_id
@@ -88,6 +95,12 @@ class BoendenTab(QWidget):
                 )
                 item = QListWidgetItem(line)
                 item.setData(Qt.ItemDataRole.UserRole, fact.id)
+                cited = [
+                    title for _sid, title in residence_cited_sources(fact, source_titles)
+                ]
+                if cited:
+                    item.setData(HAS_SOURCE_ROLE, True)
+                    item.setData(SOURCE_TITLES_ROLE, cited)
                 self._list.addItem(item)
 
         self._update_button_states()
@@ -111,6 +124,7 @@ class BoendenTab(QWidget):
 
         self._list = QListWidget()
         self._list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._list.setItemDelegate(ListIconDelegate(self._list))
         self._stack.addWidget(self._list)
 
         layout.addWidget(self._stack_widget)

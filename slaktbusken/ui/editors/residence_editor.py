@@ -2150,6 +2150,7 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
             parent=dialog,
         )
         layout.addWidget(editor)
+        editor.set_person_filter_available(False)
 
         editor.save_requested.connect(dialog.accept)
         editor.cancel_requested.connect(dialog.reject)
@@ -2233,6 +2234,7 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
             parent=dialog,
         )
         layout.addWidget(editor)
+        editor.set_person_filter_available(False)
 
         # Connect editor signals to dialog accept/reject
         editor.save_requested.connect(dialog.accept)

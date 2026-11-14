@@ -1907,26 +1907,33 @@ class PersonListPanel(QWidget):
             self._update_list_widget()
 
     def apply_dna_match_filter(self, person_ids: set[str], select_person_id: str | None = None) -> None:
+        """Filter the person list to the DNA-match persons (see apply_person_id_filter)."""
+        self.apply_person_id_filter(person_ids, select_person_id)
+
+    def apply_person_id_filter(self, person_ids: set[str], select_person_id: str | None = None) -> None:
         """Filter the person list to show only persons with given IDs.
 
-        Used for "Filtrera på DNA-träffar" — shows the right-clicked person
-        and all persons who share DNA matches with them.
+        Used for "Filtrera på DNA-träffar" and "Filtrera källans personer".
+        Switches to the filtered view; "Visa alla" clears it.
 
         Args:
             person_ids: Set of person IDs to include in the filtered view.
             select_person_id: Optional person ID to select after filtering.
         """
-        self._filtered_list = [
-            p for p in self._display_list if p.person_id in person_ids
-        ]
+        def _matching() -> list[PersonDisplayInfo]:
+            return [p for p in self._display_list if p.person_id in person_ids]
+
+        self._filtered_list = _matching()
         # Guard against emitting person_selected during rebuild
         self._refreshing = True
         try:
             # Automatically switch to filtered view
             if not self._showing_filtered:
+                # Toggling recomputes the list from the criteria; restore ours.
                 self._toggle_button.setChecked(True)
-            else:
-                self._update_list_widget()
+            self._filtered_list = _matching()
+            self._update_list_widget()
+            self._emit_person_count()
         finally:
             self._refreshing = False
 

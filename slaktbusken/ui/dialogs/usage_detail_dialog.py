@@ -21,7 +21,10 @@ from PySide6.QtWidgets import (
 
 from slaktbusken.model.event import Event
 from slaktbusken.model.person import Person
+from slaktbusken.model.place import Place
+from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.source import Source
+from slaktbusken.services.source_stats import residence_usage_text
 
 
 # Swedish translations for known event types
@@ -118,17 +121,34 @@ def build_usage_groups(
     return person_events
 
 
+def build_residence_groups(
+    source_id: str,
+    residences: list[ResidenceFact],
+) -> dict[str, list[ResidenceFact]]:
+    """Build a mapping of person_id -> residence facts citing the source.
+
+    A residence cites the source when at least one of its observations does.
+    """
+    groups: dict[str, list[ResidenceFact]] = {}
+    for fact in residences:
+        if any(obs.source_ref.source_id == source_id for obs in fact.observations):
+            groups.setdefault(fact.person_id, []).append(fact)
+    return groups
+
+
 class UsageDetailDialog(QDialog):
     """Dialog som visar användningsdetaljer för en källa.
 
-    Listar alla distinkta personer som refererar till källan, med
-    varje persons refererande händelser grupperade under personens namn.
+    Listar alla distinkta personer som refererar till källan (via händelser
+    eller boenden), med varje persons händelser och boenden under namnet.
 
     Args:
         parent: Föräldrawidget.
         source: Källan vars användning visas.
         events: Alla händelser i projektet.
         persons: Alla personer i projektet.
+        residences: Alla boenden i projektet (valfritt).
+        places: Alla platser i projektet, för platsnamn (valfritt).
     """
 
     def __init__(
@@ -137,19 +157,15 @@ class UsageDetailDialog(QDialog):
         source: Source,
         events: list[Event],
         persons: list[Person],
+        residences: Optional[list[ResidenceFact]] = None,
+        places: Optional[list[Place]] = None,
     ) -> None:
-        """Initiera dialogen med käll- och projektdata.
-
-        Args:
-            parent: Föräldrawidget.
-            source: Källan vars användning visas.
-            events: Alla händelser i projektet.
-            persons: Alla personer i projektet.
-        """
         super().__init__(parent)
         self._source = source
         self._events = events
         self._persons = persons
+        self._residences = residences or []
+        self._places = places or []
 
         self.setWindowTitle(f"Användning: {source.title or source.id}")
         self.setMinimumWidth(450)
@@ -161,64 +177,75 @@ class UsageDetailDialog(QDialog):
         """Bygg dialogens UI-layout."""
         layout = QVBoxLayout(self)
 
-        # Header
         header = QLabel(f"<b>Källa:</b> {self._source.title or self._source.id}")
         header.setWordWrap(True)
         layout.addWidget(header)
 
-        # Scrollable content area
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
 
-        # Build grouped usage data
-        person_events = build_usage_groups(
-            self._source.id, self._events, self._persons
-        )
+        person_events = build_usage_groups(self._source.id, self._events, self._persons)
+        person_residences = build_residence_groups(self._source.id, self._residences)
+        person_ids = set(person_events) | set(person_residences)
 
-        if not person_events:
-            no_usage_label = QLabel("Inga händelser refererar till denna källa.")
+        if not person_ids:
+            no_usage_label = QLabel(
+                "Inga händelser eller boenden refererar till denna källa."
+            )
+            no_usage_label.setObjectName("no_usage")
             no_usage_label.setWordWrap(True)
             scroll_layout.addWidget(no_usage_label)
         else:
-            # Sort persons by display name for consistent ordering
-            sorted_persons = sorted(
-                person_events.items(),
-                key=lambda item: _get_person_display_name(item[0], self._persons).lower(),
-            )
-
-            for person_id, events_for_person in sorted_persons:
+            place_names = {p.id: p.name for p in self._places}
+            for person_id in sorted(
+                person_ids,
+                key=lambda pid: _get_person_display_name(pid, self._persons).lower(),
+            ):
                 display_name = _get_person_display_name(person_id, self._persons)
 
-                # Person header
                 person_label = QLabel(f"<b>{display_name}</b>")
                 person_label.setObjectName("person_header")
                 scroll_layout.addWidget(person_label)
 
-                # Events for this person
-                for event in events_for_person:
+                for event in person_events.get(person_id, []):
                     event_type = _translate_event_type(event)
                     date_str = event.date.value if event.date else "inget datum"
                     event_label = QLabel(f"  • {event_type} ({date_str})")
                     event_label.setObjectName("event_item")
                     scroll_layout.addWidget(event_label)
 
-            # Summary at bottom
-            total_persons = len(person_events)
-            total_events = sum(
-                1 for event in self._events
-                if self._event_references_source(event)
-            )
+                for fact in person_residences.get(person_id, []):
+                    residence_label = QLabel(
+                        f"  • {residence_usage_text(fact, place_names)}"
+                    )
+                    residence_label.setObjectName("residence_item")
+                    scroll_layout.addWidget(residence_label)
+
+            total_events = sum(1 for e in self._events if self._event_references_source(e))
+            total_residences = sum(len(v) for v in person_residences.values())
             summary = QLabel(
-                f"\n<i>Totalt: {total_persons} person{'er' if total_persons != 1 else ''}, "
-                f"{total_events} händelse{'r' if total_events != 1 else ''}</i>"
+                "\n<i>"
+                + self._summary_text(len(person_ids), total_events, total_residences)
+                + "</i>"
             )
+            summary.setObjectName("usage_summary")
             scroll_layout.addWidget(summary)
 
         scroll_layout.addStretch()
         scroll_area.setWidget(scroll_widget)
         layout.addWidget(scroll_area)
+
+    @staticmethod
+    def _summary_text(persons: int, events: int, residences: int) -> str:
+        """Swedish summary line; omits the zero händelse/boende parts."""
+        parts = [f"{persons} person{'er' if persons != 1 else ''}"]
+        if events or not residences:
+            parts.append(f"{events} händelse{'r' if events != 1 else ''}")
+        if residences:
+            parts.append(f"{residences} boende{'n' if residences != 1 else ''}")
+        return "Totalt: " + ", ".join(parts)
 
     def _event_references_source(self, event: Event) -> bool:
         """Check if an event references this dialog's source."""
