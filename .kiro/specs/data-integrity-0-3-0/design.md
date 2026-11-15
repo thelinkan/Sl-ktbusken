@@ -8,7 +8,7 @@ This design fixes ten confirmed data-loss and consistency bugs (B1-B10) and adds
 2. **Edit a copy, do not rebuild.** The event editor rebuilds `Event(...)` from form fields and so loses every field it does not know (`from_place`, citations on places, new fields). The new pure assembler starts from a deep copy of the stored event and overwrites only fields the user edited. When the user clears or changes a cited date, place or from-place, a prompt decides what happens to the citations.
 3. **One citation helper.** All reads of citations go through `event_citations(event)`. A guard test forbids direct reads elsewhere.
 4. **Structured dates.** `DateValue` gains `qualifier`, `value_to`, `calendar` and `original_text`. A new `Date_Semantics` module validates, bounds and formats dates. A date that cannot be interpreted reliably (unknown phrase, dual year, impossible day) is stored as an *unparsed* date with its original text, never dropped and never given a misleading exact value. Julian dates are stored as written. The exceptional Swedish calendar of 1700-1712 is not modelled.
-5. **Durable GEDCOM identity for events and residences.** Events created by GEDCOM import carry an `origin` record, and residences carry an `origins` list, both in the project file. One pure matching function decides whether an incoming record is an existing event or residence. It claims a record only on `_UID`, equal record hash or exact legacy content, never on position or on equal date and place, and preserves every existing record when identity is uncertain. Residences were the last known duplication source on update import (former known limitation 2); they now follow the same rules as events.
+5. **Durable GEDCOM identity for events and residences.** Events created by GEDCOM import carry an `origin` record, and residences carry an `origins` list, both in the project file. One pure matching function decides whether an incoming record is an existing event or residence. It claims a record only on `_UID`, equal record hash or exact legacy content, never on position or on equal date and place, and preserves every existing record when identity is uncertain. Residences were the last known duplication source on update import (former known limitation 2); they now follow the same rules as events. The claim unit is the *origin group*, not the object: all objects of one owner that carry an equal origin (a residence split copies its origin on purpose) are claimed together, are left unchanged, and count as one original record. Separately imported identical records stay distinct through an import-assigned `instance` number in the origin.
 6. **Atomic, crash-consistent and conflict-safe import save.** The import runs on a working copy. The importer writes no translation file. The translation data it produced is held in memory with a digest record of the files it was based on, and written together with the project at the next save, through a write-ahead intent file. Before any file is replaced, during the save and during the open-time recovery, the actual file contents are checked by digest against the expected old and new state. A file that matches neither is never overwritten; the save or the open is refused with a Swedish message that names the file, and the intent is kept.
 
 Format version moves from "0.4" to "0.5". The migration is additive and version-only.
@@ -64,6 +64,8 @@ Each fact below was read in the code during this revision. File and line referen
 | F38 | Reusable commit helpers: `CommitFs`, `RealFs`, `sha256_hex`, `temp_path_for`, `Preflight.check`. `write_file_durable` writes in place, not through a temp file. | `fs_ops.py:91-105, 108-150`; `journal.py:91-102`; `preflight.py:34-77` | The intent must be written to a temp file and then replaced, so that it is either absent or complete. |
 | F39 | Translation files are written with a plain `path.write_text`; the Place and Source translation editors write them directly. | `translation_io.py:425-448, 486-505`; `place_translation_editor.py:419-423, 866`; `source_translation_editor.py:95-99, 343` | The commit writes each translation file through a temp file and a replace, after digest verification. |
 | F40 | `ImportService.run` receives the project folder and derives `translation/` from it; `app.import_gedcom` returns when no project is open. | `import_service.py:109-110`; `app.py:1133-1135` | The translation directory and the project file path for digests come from the Project_Service. |
+| F41 | A residence split copies the complete `origins` list to both halves (Requirement 22.22), so one `RecordOrigin` identity can sit on two `ResidenceFact` objects of one owner. A residence merge (after the dedupe rule) and a merge of residences from different records produce residences with one or two origins. | `residence_edit_ops.py:420, 446, 584` (design Component 9) | An "origin identifies one object" matcher would claim only one half and create a third residence, or would report the halves as ambiguous. The claim unit is the Origin_Group (Component 7). Separately imported identical records need a stable distinguishing field, because `index` is a file position. The origin gets `instance`. |
+| F42 | No event operation copies an event or its origin. The event editor and the assembler write back the same event id (task 9.1 copies the stored event, then overwrites form fields); the merge planner clones per event id; `foster_sync` and the end-event construction at `event_editor.py:1928` create new events without origin; `residence_editor.py:1667` creates a new flytt event; the importer creates events through the matcher. A search for event copy, duplicate or split code in `services/`, `ui/` and `gedcom/` found none. | `event_editor.py:1928, 2085`; `merge_planner_person.py:289`; `residence_editor.py:1667`; `foster_sync.py` | `Event.origin` stays single. A duplicate event origin can only come from a manual edit of the project file; the matcher treats it as an Origin_Group too (Requirement 19.13), without modification. |
 
 ## Architecture
 
@@ -430,26 +432,47 @@ class PoolEntry:
     obj: Event | ResidenceFact
     origin: RecordOrigin              # an event has one entry; a residence has one entry per origin
 
+def origin_key(o: RecordOrigin) -> tuple      # (owner_kind, owner_id, tag_key, record_hash, instance, uid or "")
+
+@dataclass(frozen=True)
+class OriginGroup:
+    key: tuple                                 # the Origin_Key
+    members: tuple[Event | ResidenceFact, ...] # every pool object that carries an origin with this key, once each
+
 class Outcome(Enum):
     UNCHANGED; CHANGED_UID; LEGACY_CLAIMED; NEW; NEW_AMBIGUOUS
 
 @dataclass
 class MatchResult:
     incoming: IncomingRecord
-    existing: Optional[Event | ResidenceFact]   # claimed object (UNCHANGED, CHANGED_UID, LEGACY_CLAIMED)
+    members: list[Event | ResidenceFact]        # claimed objects: the whole Origin_Group (UNCHANGED, CHANGED_UID)
+                                                # or the one legacy object (LEGACY_CLAIMED); empty for NEW*
     candidates: list[Event | ResidenceFact]     # NEW_AMBIGUOUS: unclaimed objects that might be the earlier version
+    instance: Optional[int]                     # Origin_Instance for the origin the importer writes (LEGACY_CLAIMED, NEW*)
     outcome: Outcome
 
 def record_hash(record: GedcomLine, source_ids: Mapping[str, str]) -> str
 def event_fingerprint(event: Event) -> str
 def residence_fingerprint(fact: ResidenceFact) -> str
 def tag_key_of(event: Event) -> str                 # origin.tag_key, or derived from type for legacy events
+def build_origin_groups(pool: Sequence[PoolEntry]) -> list[OriginGroup]
 def match_records(incoming: Sequence[IncomingRecord], pool: Sequence[PoolEntry],
                   legacy_pool: Sequence[Event | ResidenceFact],
                   foreign: Sequence[Event | ResidenceFact]) -> list[MatchResult]
 ```
 
 The function is pure (no Qt, no file access), so it is property-testable.
+
+**Origin_Instance (decision, with justification).** `RecordOrigin` gets an integer field `instance`, assigned by `match_records` and written by the importer. Value: the smallest integer that no origin of the same owner with the same `(tag_key, record_hash)` uses, counting the pool origins and the instances assigned earlier in the same run. Why this and not something else:
+
+- The occurrence `index` cannot serve. It is a file position, so it changes when records are reordered, and a record created by a later import can receive an index that an older identical record already has. It stays informational.
+- A random id would work but makes golden fixtures and the property tests non-deterministic. The smallest-unused rule is deterministic for a given project and file.
+- The value is unique among the origins of one owner, tag key and hash, which is exactly the set in which identical records need to be told apart.
+- It is stable: nothing rewrites it after the import, a split copies it (so both halves share the identity of the one record), a merge keeps it, and save and reopen keep it. Reordered or reduced files do not change it, because it is never derived from the file again; the matcher pairs by count of groups, and the instance only orders the groups and keeps equal records of different imports apart.
+- When the user deletes the first of two identical imported residences (instance 0), the surviving one keeps instance 1, one incoming record is `UNCHANGED`, and the other becomes `NEW` with instance 0 (the smallest unused). No collision is possible.
+- A file without the key (the origin written by a pre-release build) is read as `instance = 0`; no released format has origins without it.
+
+**Origin group.** `build_origin_groups(pool)` groups the pool entries of the owner by `origin_key`. The key has six parts: owner kind, owner id, tag key, record hash, instance and uid. `owner_xref` and `index` are not part of it. A group with several members is intentional one-to-many provenance, not a conflict. A residence with two origins (after a merge) is a member of two groups. An object listed twice in one group (two equal origins on one residence, for example after a manual edit) is one member.
 
 **Candidate sets (Requirements 19.4 and 22.4).** For one owner record the importer builds:
 
@@ -461,14 +484,30 @@ The function is pure (no Qt, no file access), so it is property-testable.
 
 **Algorithm, per owner and kind, incoming records in file order (Requirements 19.5 and 22.5):**
 
-1. **UID.** If `uid` is set and exactly one unclaimed pool entry has the same `origin.uid`, claim it. The outcome is `UNCHANGED` when the hash is equal and `CHANGED_UID` otherwise (the importer leaves the object unchanged and logs a notice).
-2. **Tag key and hash.** Group the remaining incoming records by `(tag_key, record_hash)` and the unclaimed pool entries by `(origin.tag_key, origin.record_hash)`. Pair each group one to one in file order against the entries ordered by stored `origin.index`. Paired records are `UNCHANGED`. Surplus incoming records stay unresolved; surplus pool entries stay unclaimed. This gives the rules for reordering (hashes still pair), insertion (one unresolved record), removal (one unclaimed entry), identical records (pairing by count) and user edits (the stored hash is that of the GEDCOM record, not of the edited object).
-3. **Legacy fingerprint.** Only when `legacy_pool` still holds an unclaimed object: for each remaining incoming record, evaluate `fingerprint()` and claim the first unclaimed `legacy_pool` object whose fingerprint is equal. Outcome `LEGACY_CLAIMED`. Each legacy object is claimed at most once.
-4. **Otherwise no claim.** The record is `NEW`. If unclaimed objects with the same tag key exist in `pool`, `legacy_pool` or `foreign`, they are returned in `candidates` and the outcome is `NEW_AMBIGUOUS`.
+0. **Groups.** `groups = build_origin_groups(pool)`. The claim unit from here on is the Origin_Group.
+1. **UID.** If `uid` is set and exactly one unclaimed group has that uid in its key, claim the group. The outcome is `UNCHANGED` when the record hash of the group equals the incoming hash and `CHANGED_UID` otherwise. In both cases `members` is the whole group, and the importer leaves every member unchanged (for `CHANGED_UID` it logs one notice). If several unclaimed groups share the uid, the uid is ambiguous and step 1 does not claim.
+2. **Tag key and hash.** Group the remaining incoming records by `(tag_key, record_hash)` and the unclaimed Origin_Groups by `(tag_key, record_hash)` of their key. Within each bucket order the groups by `instance` (then by the remaining key parts, only to be deterministic) and pair them one to one with the incoming records in file order. Paired records are `UNCHANGED` and claim the whole group. Surplus incoming records stay unresolved; surplus groups stay unclaimed. The count that matters is the number of groups: a group of two split halves is one group and absorbs one incoming record; two separately imported identical records are two groups (different `instance`) and absorb two incoming records. This gives the rules for reordering (hashes still pair), insertion (one unresolved record), removal (one unclaimed group), identical records (pairing by count of groups), split and merge (below), and user edits (the stored hash is that of the GEDCOM record, not of the edited object).
+3. **Legacy fingerprint.** Only when `legacy_pool` still holds an unclaimed object: for each remaining incoming record, evaluate `fingerprint()` and claim the first unclaimed `legacy_pool` object whose fingerprint is equal. Outcome `LEGACY_CLAIMED`, `members` holds that one object, and `instance` is assigned for the origin that the importer writes. Legacy objects have no origin, so they are never grouped: each is its own unit, claimed one to one and only on exact content.
+4. **Otherwise no claim.** The record is `NEW` with an assigned `instance`. If unclaimed groups, unclaimed legacy objects or `foreign` objects with the same tag key exist, their member objects (each once) are returned in `candidates` and the outcome is `NEW_AMBIGUOUS`.
 
-There is no step that claims by tag and occurrence index. Event type and place alone never claim an event. Equal date and place never claim a residence. The fingerprint is evaluated lazily and only in step 3, so after the first 0.5 import (when no legacy object is left) it is never evaluated and no place is resolved for an unchanged record (F27).
+There is no step that claims by tag and occurrence index. Event type and place alone never claim an event. Equal date and place never claim a residence. The `index` field is not read by any step. The fingerprint is evaluated lazily and only in step 3, so after the first 0.5 import (when no legacy object is left) it is never evaluated and no place is resolved for an unchanged record (F27).
 
-**Pool entry claims.** The unit of a claim is the pool entry. A residence that carries two origins (after a merge of two residences, Component 9) can be claimed by two different incoming records, once per origin. A claim never writes to the object, so two claims on one residence are harmless.
+**Origin groups, claims and conflicts (Requirements 22.27 to 22.32).**
+
+- **A claim covers the whole group.** The incoming record that pairs with a group claims every member. The importer writes nothing to any member, so there is no write conflict between members. A group is claimed once per run, a legacy object once per run, an incoming record resolves once.
+- **Why this is not an ambiguity.** The old design counted one origin per object. A residence split copies the origin to both halves, so counting objects would pair the record with one half and leave the other half unclaimed, and the record count `k` against `m` objects would create a third residence or report the unclaimed half as a stale candidate. Counting groups removes both errors. The real conflicts are different in kind and are all resolved without guessing: different hashes never claim each other (the incoming record becomes `NEW`, and unclaimed same-tag groups are listed as candidates); more identical incoming records than groups create one `NEW` record per surplus record; two groups with the same uid make the uid unusable and the hash step decides; an object without origin is never grouped.
+- **Split.** After a split the groups are unchanged (two members, one key). The next import of the same record claims the group: both halves `UNCHANGED`, no residence created.
+- **Split of one of two identical imports.** Groups: instance 0 with two members, instance 1 with one member. Two incoming identical records pair with both groups. Three incoming records: the third is `NEW` with instance 2.
+- **Merge after split.** The merge keeps the origin once (dedupe by Origin_Key, Component 9), so the merged residence is a one-member group again. The next import is `UNCHANGED`.
+- **Merge of residences from different records.** The merged residence carries two origins and is a member of two groups. Each incoming record pairs with its own group; nothing is created.
+- **Split of a residence that carries two origins.** Both halves carry both origins: two groups, each with two members. Each incoming record claims one group.
+- **Edit of one half, save, reopen.** `origins` are not touched by an edit (Component 9), and serialization keeps every field of every origin, so group membership is unchanged.
+- **CHANGED_UID with groups.** The group is claimed, every member is left unchanged, one notice is logged for the incoming record (not one per member).
+- **Legacy claim with groups.** A legacy object that an incoming record claims receives one new origin with the assigned `instance`; it becomes a one-member group. A legacy object never joins an existing group, even when the content matches the content of a group member, because legacy objects are matched on content only and groups are matched on identity evidence. The two halves of a legacy residence that the user split before the first 0.5 import are two legacy objects; each is claimed only if its own content equals what the importer derives from an incoming record, and otherwise the incoming record becomes `NEW_AMBIGUOUS` with both halves as candidates and neither half is changed.
+- **Events.** `Event.origin` is single and no application operation copies it (F42). The same code runs for events: a duplicate origin on two events (manual edit of the project file) forms a group with two members, which an incoming matching record claims together without modification. This is the conservative reading: nothing is deleted, merged or written.
+- **Pool entry of a residence with two origins.** Pairs `(residence, origin_a)` and `(residence, origin_b)` put the residence into two groups. The `members` lists of two different claims may contain the same residence; claims never write, so this is harmless.
+
+**Instance assignment.** For `NEW`, `NEW_AMBIGUOUS` and `LEGACY_CLAIMED`, `match_records` returns `instance = min(i >= 0 : i not in used)` where `used` is the set of `instance` values of all pool origins of this owner with equal `(tag_key, record_hash)` plus the values assigned earlier in this call. Pool origins of other owners (including `foreign` ones, whose `owner_id` differs) are not in the key and never take part.
 
 **Record hash (Requirements 19.3 and 22.3; correction B).** `record_hash` is SHA-256 over a canonical text form of the event record or `RESI` record:
 
@@ -488,16 +527,16 @@ A golden-vector test (`test_record_hash_golden_vectors`) pins the hash of fixed 
 - `residence_fingerprint(fact)`: SHA-256 over `(person_id, place_id, start.earliest, start.latest, start.event_id, start.note, end.earliest, end.latest, end.event_id, end.note, role_in_household, notes, [(source_id, quality, observed_from, observed_to, page_note) for each observation in order])`. `Endpoint.precision` is excluded because it is descriptive only and the date parser's precision labels changed (F26).
 - The incoming side builds the content with the importer's own derivation code (`_derive_residence`, Component 8), so both sides are produced by the same function. The place id of the incoming record comes from the importer's normal place resolution, which only runs in step 3 (F27).
 
-**Legacy claim rule (AP1 for events, AP4 for residences, one rule).** A legacy object is claimed only on exact content equality, one to one. A claim writes the origin onto the object, counts as a project change, and is counted in the import log. An object that differs in any compared field is not claimed and the incoming record becomes a new object with a notice. Duplicates that earlier imports created stay; one of them is claimed and the others are reported (Requirement 22.16). A residence that the user typed by hand and that equals exactly what the importer would create (same place, dates, source observation, empty role and notes) is indistinguishable from an import and is claimed too; the alternative would create an identical second residence.
+**Legacy claim rule (AP1 for events, AP4 for residences, one rule).** A legacy object (empty `origins`, or no `origin`) is never grouped. It is claimed only on exact content equality, one to one. A claim writes the origin (with the assigned `instance`) onto the object, counts as a project change, and is counted in the import log. An object that differs in any compared field is not claimed and the incoming record becomes a new object with a notice. Duplicates that earlier imports created stay; one of them is claimed and the others are reported (Requirement 22.16). A residence that the user typed by hand and that equals exactly what the importer would create (same place, dates, source observation, empty role and notes) is indistinguishable from an import and is claimed too; the alternative would create an identical second residence.
 
 ### 8. Importer integration for events and residences (changes in `gedcom/importer.py`)
 
 **Events (Requirements 10 and 19).**
 
 - `_create_person_events` and the family-event loops of `_create_family` and `_update_family` first collect the event-bearing child records (`_INDI_EVENT_TAGS`, `ADOP`, `EVEN`, `_FAM_EVENT_TAGS`) into `IncomingRecord` objects, call `match_records` once per owner and then act per result in file order:
-  - `UNCHANGED`: skip. No id, no place resolution, no write, no placement bookkeeping.
+  - `UNCHANGED`: skip, for every member of the claimed Origin_Group. No id, no place resolution, no write, no placement bookkeeping.
   - `CHANGED_UID`: skip; Swedish notice `GEDCOM-posten för händelsen {typ} ({person}) har ändrats sedan importen men har samma _UID. Den befintliga händelsen lämnades oförändrad.`
-  - `LEGACY_CLAIMED`: set `event.origin` (the only modification of an existing event); counted for the log line `{n} befintliga händelser kopplades till GEDCOM-posterna och fick ursprungsmärkning.`
+  - `LEGACY_CLAIMED`: set `event.origin` including the `instance` returned by the matcher (the only modification of an existing event); counted for the log line `{n} befintliga händelser kopplades till GEDCOM-posterna och fick ursprungsmärkning.`
   - `NEW` and `NEW_AMBIGUOUS`: create the event through the existing creation code with its `Event_Origin`; for `NEW_AMBIGUOUS` add the Swedish notice `En ny händelse {typ} skapades för {person} eftersom GEDCOM-posten inte kunde kopplas till en befintlig händelse. Befintliga händelser som inte kopplades: {lista}. Granska och ta bort det som är inaktuellt.` The list shows at most five candidates and then "och {n} till". The existing placement bookkeeping (`_imported_placement_events`) runs for new events only.
 - `_update_family` no longer removes events (F13). It keeps every id in `family.event_ids` and appends the ids of new events. `existing_family.partners`, `children` and `parent_child_links` are still replaced as today.
 - Records of a Merged_Identity_Record or an ambiguous record never reach `_create_person_events` (F10), so the matcher is not called for them.
@@ -514,10 +553,10 @@ def _add_residence(self, person_id, resi_record, incoming: IncomingRecord) -> st
 
 `_create_person_events` collects the `RESI` children of the person into `IncomingRecord` objects (kind `residence`, tag key `RESI`, index counted among the `RESI` children), calls `match_records` once, and then walks the children in file order, so that ids are issued in the same order as before for new records. Per result:
 
-- `UNCHANGED`: skip entirely (no id, no place, no coordinates, no mapping, no warning).
-- `CHANGED_UID`: skip; notice `GEDCOM-posten för ett boende ({person}) har ändrats sedan importen men har samma _UID. Det befintliga boendet lämnades oförändrat.`
-- `LEGACY_CLAIMED`: `fact.origins = [origin]`; counted. When other unclaimed legacy residences of the person have the same fingerprint, add the notice of Requirement 22.16.
-- `NEW` and `NEW_AMBIGUOUS`: `_resolve_residence_place`, `_derive_residence`, `_add_residence`. The date and place warnings of the current code (`importer.py:2260-2269, 2297-2328`) are produced here, so they now appear only for residences that are created, not on every re-import. For `NEW_AMBIGUOUS` add the notice `Ett nytt boende skapades för {person} ({datum}, {plats}) eftersom GEDCOM-posten inte kunde kopplas till ett befintligt boende. Befintliga boenden som inte kopplades: {lista}. Granska och ta bort det som är inaktuellt.` with the same five-candidate cap.
+- `UNCHANGED`: skip entirely, for every member of the claimed Origin_Group (no id, no place, no coordinates, no mapping, no warning, no write to any member).
+- `CHANGED_UID`: skip; one notice per incoming record: `GEDCOM-posten för ett boende ({person}) har ändrats sedan importen men har samma _UID. Det befintliga boendet lämnades oförändrat.` (the same text for a group; every member is left unchanged).
+- `LEGACY_CLAIMED`: `fact.origins = [origin]` with the `instance` from the matcher; counted. When other unclaimed legacy residences of the person have the same fingerprint, add the notice of Requirement 22.16.
+- `NEW` and `NEW_AMBIGUOUS`: `_resolve_residence_place`, `_derive_residence`, `_add_residence` (the origin gets the `instance` from the matcher). The date and place warnings of the current code (`importer.py:2260-2269, 2297-2328`) are produced here, so they now appear only for residences that are created, not on every re-import. For `NEW_AMBIGUOUS` add the notice `Ett nytt boende skapades för {person} ({datum}, {plats}) eftersom GEDCOM-posten inte kunde kopplas till ett befintligt boende. Befintliga boenden som inte kopplades: {lista}. Granska och ta bort det som är inaktuellt.` with the same five-candidate cap.
 
 `ImportResult` gains `residences_added`, `residences_claimed` and `events_claimed`; `ImportService.format_result` adds the line `Boenden: {n} nya, {m} kopplade till befintliga`. The Import_Log carries the Swedish notices above.
 
@@ -536,8 +575,8 @@ F31 shows that 16 places rebuild a `ResidenceFact` from named fields, so any new
 | Operation | Sites | Rule for `origins` |
 |---|---|---|
 | Edit that keeps the id: attach observations, exact start, exact end, remove observation, role, Endpoint link to a flytt, editor save | `residence_edit_ops.py:145, 183, 227, 316`; `residence_editor.py:1009, 1407-1450 (build_fact_from_fields), 1705, 1735, 2088`; `person_editor.py:1864` | Build the result with `dataclasses.replace(existing, ...)`, so every field not named stays equal. When no existing fact is present (new residence) the field is empty. |
-| Split at a gap | `residence_edit_ops.py:420, 446` | Both halves get `copy.deepcopy(fact.origins)`. A later import claims at most one pool entry per record, so the second half stays as a user-made residence. |
-| Merge of two residences | `residence_edit_ops.py:584` | `earlier.origins` followed by the origins of `later` that are not equal to one already present. A later import then still recognises both GEDCOM records and does not create the merged-away one again. |
+| Split at a gap | `residence_edit_ops.py:420, 446` | Both halves get `copy.deepcopy(fact.origins)`, including every `instance`. Both halves are then members of the same Origin_Group(s). A later import claims each group as a whole, so both halves stay unchanged and no third residence is created (Component 7). |
+| Merge of two residences | `residence_edit_ops.py:584` | `earlier.origins` followed by the origins of `later` whose Origin_Key is not equal to one already present (equal Origin_Keys are deduplicated, so merging two split halves leaves the origin once). Merging residences from different records keeps both origins. A later import then recognises both GEDCOM records and creates neither again. |
 | New residence typed by the user | `residence_editor.py:1023`, `person_editor.py:1793` | Empty list. |
 | Importer | `importer.py:2341` | Set by `_add_residence`. |
 
@@ -559,7 +598,7 @@ The edit session needs no change: the snapshot copies whole `ResidenceFact` obje
 - Reads during one import see the pre-import state in both modes (F5), so a staged import produces the same project data and the same translation data as today.
 - The diagnostic log `C:\Temp\gedcom_import.log` (`importer.py:1362`) and the project log folder written by `app._write_import_log` are not project data and are outside the byte-identity guarantee.
 
-**Translation base.** `PendingTranslation(data: TranslationData, base: dict[str, str])`, where `base` maps `translation/persons.json`, `translation/places.json` and `translation/sources.json` to the SHA-256 digest of the file bytes or the marker `absent`. `ImportService.run` captures `base` from the three files before the importer starts, when no pending translation exists, and captures it again after the importer finished; if the two captures differ, a file changed during the import and the import is aborted with `Översättningsfilerna ändrades under importen. Ingenting har ändrats.` before anything is adopted. A second import that starts from a pending translation keeps `base` of the first (Requirement 20.15).
+**Translation base.** `PendingTranslation(data: TranslationData, base: dict[str, str])`, where `base` maps `translation/persons.json`, `translation/places.json` and `translation/sources.json` to the SHA-256 digest of the file bytes or the marker `absent`. `ImportService.run` captures `base` from the three files before the importer starts, when no pending translation exists, and captures it again after the importer finished; if the two captures differ, a file changed during the import and the import is aborted with `Översättningsfilerna ändrades under importen. Ingenting har ändrats.` before anything is adopted. The Working_Copy is discarded and the live project data, the pending translation and the files stay as they were (approved decision R4). A second import that starts from a pending translation keeps `base` of the first (Requirement 20.15).
 
 **Working copy and adoption.** `ImportService.run`:
 
@@ -588,9 +627,9 @@ else:
 |---|---|---|
 | S1 | Pre-flight (`Preflight.check` for the project file and the translation files; writable, space). Encode the new translation files with `translation_io.dumps_*` and compute their digests. Verify: project file `OLD` (digest equals `expected_project_digest`); each translation file `OLD` (digest equals `pending.base[file]`) or `NEW` (digest equals the digest of the content to write). | A file `OTHER`: `SaveConflict(files)`. Nothing was written. Message of Requirement 20.8. State unchanged, no intent. |
 | S2 | Write the Translation_Intent to `temp_path_for(intent, txid)` durably. | Error: remove the temp, `SaveFailed`. |
-| S3 | `replace(intent temp, intent)`, `fsync_dir`. The intent is now either absent or complete. | Error: remove intent and temps, `SaveFailed`. |
-| S4 | Write the project temp `temp_path_for(project, txid)` durably; read it back and compare its digest with the new digest. | Error: remove intent and temps, `SaveFailed`. |
-| S5 | For each changed translation file: write `temp_path_for(file, txid)` durably and verify its digest. Doing this before the commit point puts disk-space and permission errors before the project is replaced. | Error: remove intent and temps, `SaveFailed`. |
+| S3 | `replace(intent temp, intent)`, `fsync_dir`. The intent is now either absent or complete. | Error: remove only the intent and temps this attempt created, `SaveFailed`; the project stays dirty and the pending translation stays in memory for retry. |
+| S4 | Write the project temp `temp_path_for(project, txid)` durably; read it back and compare its digest with the new digest. | Error: remove only the intent and temps this attempt created, `SaveFailed`; the project stays dirty and the pending translation stays in memory for retry. |
+| S5 | For each changed translation file: write `temp_path_for(file, txid)` durably and verify its digest. Doing this before the commit point puts disk-space and permission errors before the project is replaced. | Error: remove only the intent and temps this attempt created, `SaveFailed`; the project stays dirty and the pending translation stays in memory for retry. |
 | S6 | Commit point. Verify again that the project file is `OLD`; `replace(project temp, project)`. | Project `OTHER`: remove only the artifacts this save created (intent and temps; nothing was replaced), `SaveConflict`, state unchanged. Other error: remove artifacts, `SaveFailed`. |
 | S7.i | For each changed translation file in name order: verify the state again. `OLD`: `replace(temp, file)`. `NEW`: remove the temp, continue. `OTHER`: stop. | `OTHER` or an error: keep the intent and the temps, `ImportSaveUnfinished(files)`; the project is saved (clean) and Import_Save_Unfinished holds (Requirement 20.11, 20.20). |
 | S8 | Remove the intent, remove stray temps, `fsync_dir`. Clear the pending translation. | An error here: Import_Save_Unfinished (the next open completes the removal, because project and files are `NEW`). |
@@ -694,9 +733,12 @@ class RecordOrigin:
     owner_id: str            # app person or family id resolved at import; used for matching
     owner_xref: str          # "@I12@" at import time; informational, never used for matching
     tag_key: str             # "BIRT", "EVEN:flytt", "RESI"
-    index: int               # occurrence among records with this tag_key; informational, never updated
+    index: int               # occurrence among records with this tag_key; informational, never updated, never used for matching
     record_hash: str         # sha256 hex of the canonical record
     uid: Optional[str] = None
+    instance: int = 0        # Origin_Instance: import-assigned, smallest unused for (owner, tag_key, record_hash); copied by a split, kept by a merge
+
+# Origin_Key = (owner_kind, owner_id, tag_key, record_hash, instance, uid or "")   -- see Component 7
 
 # slaktbusken/model/event.py
 @dataclass
@@ -712,9 +754,11 @@ class ResidenceFact:
     origins: list[RecordOrigin] = field(default_factory=list)    # Residence_Origins; empty for user-made and legacy residences
 ```
 
-`ResidenceFact.origins` is a list, not a single field, for one reason: the Residence_Editor can merge two imported residences into one (`residence_edit_ops.merge`, `residence_edit_ops.py:584`). With a single origin the merged-away GEDCOM record would be created again by the next update import, which is the duplication this requirement removes. Events are never merged by the application, so `Event.origin` stays a single optional record.
+`ResidenceFact.origins` is a list, not a single field, for one reason: the Residence_Editor can merge two imported residences into one (`residence_edit_ops.merge`, `residence_edit_ops.py:584`). With a single origin the merged-away GEDCOM record would be created again by the next update import, which is the duplication this requirement removes. The same editor splits a residence at a gap and copies the origin to both halves (`residence_edit_ops.py:420, 446`), which is why the matcher claims Origin_Groups. Events are never merged, split or copied by the application (F42), so `Event.origin` stays a single optional record.
 
-Validators (`model/validators.py`, next to `validate_residence` at L1363): `owner_kind` in `INDI`, `FAM`; for residences `owner_kind == "INDI"` and `tag_key == "RESI"`; `record_hash` is 64 lowercase hex characters; `index >= 0`. A violation is reported as a validation finding; it never blocks opening a project.
+The same `RecordOrigin` may therefore appear on several residences of one owner (a split copies it on purpose). Equal origins on several residences are valid data, not a validation finding. The merge keeps one copy per Origin_Key.
+
+Validators (`model/validators.py`, next to `validate_residence` at L1363): `owner_kind` in `INDI`, `FAM`; for residences `owner_kind == "INDI"` and `tag_key == "RESI"`; `record_hash` is 64 lowercase hex characters; `index >= 0`; `instance >= 0`. A violation is reported as a validation finding; it never blocks opening a project.
 
 ### Serialization (format 0.5)
 
@@ -724,7 +768,7 @@ Keys are written only when they differ from the default:
 |---|---|
 | `event.source_refs` | list is non-empty |
 | `event.origin` | not none (the `uid` key only when set) |
-| `residence.origins` | list is non-empty (each element as `origin`, the `uid` key only when set) |
+| `residence.origins` | list is non-empty (each element as `origin`, the `uid` key only when set; `instance` is always written, like `index`, and read as 0 when missing) |
 | `date.qualifier` | not `exact` |
 | `date.value_to` | not none |
 | `date.calendar` | not `gregorian` |
@@ -750,7 +794,7 @@ Example of a residence with its origin:
 {"id": "residence_4", "person_id": "person_2", "place_id": "place_9",
  "start": {"latest": "1850"}, "end": {"earliest": "1860"},
  "origins": [{"owner_kind": "INDI", "owner_id": "person_2", "owner_xref": "@I2@",
-              "tag_key": "RESI", "index": 0, "record_hash": "9f2c...e1"}]}
+              "tag_key": "RESI", "index": 0, "record_hash": "9f2c...e1", "instance": 0}]}
 ```
 
 `DateValue.source_refs` and `PlaceRef.source_refs` keep their current serialization. A reader of an older application ignores the unknown `origins` key of a residence (F33), but an older application refuses a 0.5 file by version in any case.
@@ -846,9 +890,27 @@ These are design decisions inside the approved frame. None needs a new approval,
 - **Performance test bound is 10 s with a reported 1.5 s goal** (Component 1).
 - **`pending_translation` is stored only when the staged translation differs from the effective one.** A project-only change uses the normal save.
 
+### Decisions approved by the user for this revision
+
+These four decisions are binding and are realised as worded here.
+
+| ID | Decision | Where it is realised |
+|---|---|---|
+| R1 | `ResidenceFact.origins` is a list. `Event.origin` stays single. | Data Models, Component 9, Requirement 22.1 |
+| R2 | Intent cleanup before the commit point: when a save fails or finds a conflict before the project file is replaced, remove only this attempt's intent and temporary artifacts, and keep the project dirty and the pending translation in memory for retry. After the project file has been replaced, keep the intent and the recovery artifacts until the save is completed or the situation is resolved. | Component 10 (S1 to S8), Requirements 20.9 to 20.11 |
+| R3 | An unresolved recovery conflict at open refuses to open the project through the existing recovery-refusal mechanism. | Component 10 (Conflict_Refusal at open), Requirements 20.17, 20.18 |
+| R4 | The import aborts when a translation file changes during the import: the Working_Copy is discarded and the previous state is preserved. | Component 10 (translation base), Requirements 20.1, 20.5 |
+
+### Decisions made for the origin group fix
+
+- **The claim unit is the Origin_Group.** Alternative: forbid copying the origin on split (the second half would then be an unclaimed user residence, and an import would still create a third residence unless the split half carried a marker). Rejected, because the user-visible effect on a split is exactly the duplicate that this spec removes.
+- **`instance` is an integer assigned as smallest unused per `(owner, tag_key, record_hash)`.** Alternatives: a random id (non-deterministic fixtures) and the occurrence index (file position, not stable). See Component 7.
+- **Legacy objects are never grouped.** Grouping needs identity evidence, and a legacy object has none. Alternative: group legacy objects with equal content; rejected because it would hide duplicates that earlier imports made.
+- **Events use the same grouping code.** No event operation copies an origin (F42), so a group of events can only come from a manual file edit, and is then left untouched.
+
 ### Approval items
 
-No decision of this revision needs the user's approval. The five items AP1 to AP5 are decided above. The only choices that the user may still want to veto are listed in "Decisions made in this revision" with their alternatives; the most consequential are the narrowed intent-keeping rule before the commit point, the refusal instead of a read-only open, and the `origins` list.
+No decision of this revision needs the user's approval beyond those recorded above. The five items AP1 to AP5 are decided above. The only choices that the user may still want to veto are listed in "Decisions made in this revision" with their alternatives; the most consequential are the narrowed intent-keeping rule before the commit point, the refusal instead of a read-only open, and the `origins` list.
 
 ## Correctness Properties
 
@@ -936,9 +998,9 @@ Reflection on the prework: cancel-restores-state and "dirty and revision unchang
 
 ### Property 14: The identity matcher claims each record at most once, only on identity evidence
 
-*For any* record kind (event or residence), *for any* pool of entries, legacy pool and foreign objects, and *for any* list of incoming records, `match_records` SHALL claim each pool entry and each legacy object at most once; SHALL claim an object only through `_UID` equality, equal tag key and record hash, or equal legacy fingerprint of an object without origin; SHALL never claim an object because of equal tag and occurrence index, equal event type and place, or equal residence date and place; SHALL never claim a `foreign` object; with k identical incoming records and m pool entries of that hash SHALL pair min(k, m) of them and return `NEW` for the rest; SHALL return `NEW_AMBIGUOUS` with the unclaimed same-tag objects as candidates when nothing claims the record; SHALL evaluate no fingerprint while the legacy pool is empty; and SHALL never alter any object.
+*For any* record kind (event or residence), *for any* pool of entries (including pools in which several objects, or one object twice, carry equal origins), legacy pool and foreign objects, and *for any* list of incoming records, `match_records` SHALL group the pool by Origin_Key and SHALL claim each Origin_Group and each legacy object at most once; a claim of a group SHALL return all its members and a claim of a legacy object SHALL return exactly that object; SHALL claim only through `_UID` equality with one group, equal tag key and record hash, or equal legacy fingerprint of an object without origin; SHALL never group a legacy object; SHALL never claim an object because of equal tag and occurrence index, equal event type and place, or equal residence date and place; SHALL never claim a `foreign` object; with k identical incoming records and m Origin_Groups of that hash SHALL pair min(k, m) of them (an Origin_Group with several members counts once) and return `NEW` for the other k - m; SHALL return `NEW_AMBIGUOUS` with the unclaimed same-tag objects as candidates when nothing claims the record and such objects exist; SHALL assign to every `NEW`, `NEW_AMBIGUOUS` and `LEGACY_CLAIMED` result an `instance` that is unused among the owner's origins with the same tag key and hash and different from every instance assigned earlier in the call; SHALL return the same results when the incoming records or the pool are reordered, up to which equal-hash record is paired; SHALL evaluate no fingerprint while the legacy pool is empty; and SHALL never alter any object.
 
-**Validates: Requirements 10.1, 10.8, 10.10, 10.11, 19.4, 19.5, 19.6, 19.7, 22.4, 22.5, 22.9, 22.14, 22.25**
+**Validates: Requirements 10.1, 10.8, 10.10, 10.11, 19.4, 19.5, 19.6, 19.7, 19.12, 19.13, 22.4, 22.5, 22.9, 22.14, 22.25, 22.27, 22.28, 22.30, 22.31**
 
 ### Property 15: The record hash is canonical for harmless differences and sensitive to meaningful ones
 
@@ -948,15 +1010,15 @@ Reflection on the prework: cancel-restores-state and "dirty and revision unchang
 
 ### Property 16: Repeated import is stable and never removes, merges, duplicates or silently rewrites events and residences
 
-*For any* generated GEDCOM file (person and family event records, `RESI` records with every date form, `PLAC`, `SOUR`, `NOTE` and `_UID` children, identical records, and `EVEN` TYPE Flytt records) imported twice into a project, and *for any* perturbation of the second import's file or of the project between the imports taken from {none, reorder the records of an owner, remove a record, insert a record, edit an imported event or residence in the project (including residence merge and split and a flytt link between two residences), change a record without `_UID`, replace the imported records by legacy records without origin, merge two persons}: the set of event ids and the set of residence ids present before the second import SHALL be subsets of the sets after it; every event and residence that existed before SHALL be equal to itself before and after (the only allowed difference is a newly added origin on a legacy record that matches exactly); every `Family.event_ids` list SHALL keep all its previous ids; every `Endpoint.event_id` link and every flytt event SHALL be unchanged; with perturbation none, reorder, remove or edit the Canonical_Form SHALL be equal before and after the second import; with insert exactly one event or residence per inserted record SHALL be added; with a changed record exactly one new event or residence SHALL be added and a notice logged; and no residence SHALL be created for a Merged_Identity_Record.
+*For any* generated GEDCOM file (person and family event records, `RESI` records with every date form, `PLAC`, `SOUR`, `NOTE` and `_UID` children, identical records, and `EVEN` TYPE Flytt records) imported twice into a project, and *for any* perturbation of the second import's file or of the project between the imports taken from {none, reorder the records of an owner, remove a record, insert a record, edit an imported event or residence in the project (including residence merge and split, split followed by merge, merge of residences from different records, split of one of two identical imports, an edit of one half after a split, a save and reopen of the project, and a flytt link between two residences), change a record without `_UID`, replace the imported records by legacy records without origin, merge two persons}: the set of event ids and the set of residence ids present before the second import SHALL be subsets of the sets after it; every event and residence that existed before SHALL be equal to itself before and after (the only allowed difference is a newly added origin on a legacy record that matches exactly); every `Family.event_ids` list SHALL keep all its previous ids; every `Endpoint.event_id` link and every flytt event SHALL be unchanged; with perturbation none, reorder, remove or edit the Canonical_Form SHALL be equal before and after the second import; with insert exactly one event or residence per inserted record SHALL be added; with a changed record exactly one new event or residence SHALL be added and a notice logged; and no residence SHALL be created for a Merged_Identity_Record.
 
-**Validates: Requirements 10.2, 10.4, 10.5, 10.6, 10.7, 10.9, 10.10, 10.14, 10.15, 19.8, 22.7, 22.10, 22.11, 22.12, 22.13, 22.15, 22.20, 22.21, 22.23, 22.24, 22.25**
+**Validates: Requirements 10.2, 10.4, 10.5, 10.6, 10.7, 10.9, 10.10, 10.14, 10.15, 19.8, 22.7, 22.10, 22.11, 22.12, 22.13, 22.15, 22.20, 22.21, 22.23, 22.24, 22.25, 22.27, 22.28, 22.29, 22.32**
 
 ### Property 17: Dateless events and identical residence records stay distinct
 
-*For any* person with k dateless events of the same type and place, or k identical `RESI` records, in a GEDCOM file (k at least 1), the first import SHALL create exactly k events or k residences, and every later import of the same file SHALL create none.
+*For any* person with k dateless events of the same type and place, or k identical `RESI` records, in a GEDCOM file (k at least 1), the first import SHALL create exactly k events or k residences, and every later import of the same file SHALL create none, also after any one of the k residences was split (a split adds a residence object but no Origin_Group, so the number of groups stays k).
 
-**Validates: Requirements 10.1, 10.3, 22.14**
+**Validates: Requirements 10.1, 10.3, 22.14, 22.28**
 
 ### Property 18: A failed or cancelled import changes nothing
 
@@ -1002,21 +1064,27 @@ Reflection on the prework: cancel-restores-state and "dirty and revision unchang
 
 ### Property 25: Residence origins survive every residence edit operation
 
-*For any* residence with any list of origins and *for any* operation of {Residence_Editor save, attach observations, exact start, exact end, remove observation, role change, flytt link, split at a gap, merge with another residence of the same person and place}: an operation that keeps the id SHALL leave `origins` equal; a split SHALL give both resulting residences `origins` equal to the original; a merge SHALL give the merged residence the origins of the earlier residence followed by those of the later one that are not already present; and no operation SHALL change the owner id, record hash or index of any origin.
+*For any* residence with any list of origins and *for any* operation of {Residence_Editor save, attach observations, exact start, exact end, remove observation, role change, flytt link, split at a gap, merge with another residence of the same person and place}: an operation that keeps the id SHALL leave `origins` equal; a split SHALL give both resulting residences `origins` equal to the original (every field, including `instance`); a merge SHALL give the merged residence the origins of the earlier residence followed by those of the later one whose Origin_Key is not already present; and no operation SHALL change the owner id, record hash, index, uid or instance of any origin.
 
-**Validates: Requirements 22.22**
+**Validates: Requirements 22.22, 22.29**
 
 ### Property 26: A legacy residence is claimed only on exact content, one to one
 
-*For any* person with legacy residences (empty `origins`) and *for any* incoming `RESI` records, a legacy residence SHALL be claimed only when its person id, place id, Endpoint bounds, event ids and notes, role, notes and Observations equal the content that the importer derives from the incoming record; a legacy residence that differs in any one of those fields SHALL NOT be claimed, even when date and place are equal; each legacy residence SHALL be claimed at most once; the number of claimed residences SHALL not exceed the number of incoming records; and every claim SHALL change only `origins` of the claimed residence.
+*For any* person with legacy residences (empty `origins`) and *for any* incoming `RESI` records, a legacy residence SHALL be claimed only when its person id, place id, Endpoint bounds, event ids and notes, role, notes and Observations equal the content that the importer derives from the incoming record; a legacy residence that differs in any one of those fields SHALL NOT be claimed, even when date and place are equal; each legacy residence SHALL be claimed at most once; the number of claimed residences SHALL not exceed the number of incoming records; a legacy residence SHALL never be grouped with another residence, including a legacy residence that came from a split; and every claim SHALL change only `origins` of the claimed residence (one origin with an unused `instance`).
 
-**Validates: Requirements 22.6, 22.8, 22.16, 22.25**
+**Validates: Requirements 22.6, 22.8, 22.16, 22.25, 22.30**
 
 ### Property 27: A file changed outside Släktbusken is never overwritten
 
 *For any* project, pending translation, *for any* file among the project file and the Translation_Files, *for any* replacement content that matches neither the expected old nor the expected new state, and *for any* point in time among {before the save, between any two file-system operations of the save, between a crash and the recovery}, the changed file SHALL be byte-identical to the replacement content after the save or the recovery; the save or the open SHALL be refused with a message that names the file; no save step after the detection SHALL replace any file (a conflict before the commit point removes only the intent and temps that the save created, a conflict after it keeps them); and a recovery that refuses SHALL leave the intent file byte-identical to its content before the recovery.
 
 **Validates: Requirements 20.7, 20.8, 20.10, 20.11, 20.16, 20.17, 20.18**
+
+### Property 28: An unchanged re-import after any sequence of residence splits and merges creates, deletes and modifies nothing
+
+*For any* project that was created by importing a generated GEDCOM file with `RESI` records (including identical records and records with `_UID`), *for any* sequence of residence operations applied afterwards from {split at a gap, merge of two residences of the same person and place (from equal or different records), edit of a residence field, save and reopen of the project, none}, and *for any* re-import of the same unchanged file: the set of residence ids SHALL be unchanged (none created, none deleted), every residence SHALL be equal to itself before and after the import (the Canonical_Form of the project SHALL be equal), the number of Origin_Groups per `(tag key, record hash)` SHALL be unchanged, no residence SHALL be created merely because one Origin_Key occurs on several residences, and the Import_Log SHALL contain no ambiguity notice. The same SHALL hold for events when the generator duplicates an event origin on a second event of the same owner.
+
+**Validates: Requirements 22.27, 22.28, 22.29, 22.31, 22.32, 19.13**
 
 ## Error Handling
 
@@ -1054,7 +1122,7 @@ Reflection on the prework: cancel-restores-state and "dirty and revision unchang
 
 ### Approach
 
-Both unit tests and property-based tests are used. Property tests cover the 27 properties above. Example tests cover the acceptance tests named in the requirements, the UI behaviour (prompts, read-only display, table column, from-place selector), the static guards and the refusals.
+Both unit tests and property-based tests are used. Property tests cover the 28 properties above. Example tests cover the acceptance tests named in the requirements, the UI behaviour (prompts, read-only display, table column, from-place selector), the static guards and the refusals.
 
 Property-based testing applies: the date parser and formatter, the date semantics, the event assembler, the matcher, the record hash, the serializer, the migration, the edit session, the residence edit operations, the change-path registry and the save protocol (with a fault-injecting file system) are pure or in-memory logic with large input spaces. It does not apply to the Qt layout of the Event_Editor (example tests with `QT_QPA_PLATFORM=offscreen`, following the conventions in `tests/test_ui`) or to the real file system backup step (integration test with a temporary directory). The fault-injection and external-modification tests run the real recovery on real files in a temporary directory and enumerate every file-system operation, which is exhaustive rather than random; Property 24 and 27 are implemented with Hypothesis only for the choice of project content, pending translation, file and replacement bytes, while the injection point is enumerated.
 
@@ -1082,6 +1150,7 @@ Property-based testing applies: the date parser and formatter, the date semantic
 | `test_merge_origin.py` | Requirements 19.9, 19.10, 22.21, 22.26 (property 23), inventory rows |
 | `test_reimport.py` | Requirement 10 (properties 16, 17 for events and residences, generators with `RESI`) |
 | `test_residence_reimport.py` | Requirement 22.6 to 22.25 examples: idempotence, reorder, insert, remove, identical, edited, changed, legacy, merged persons, flytt linkage |
+| `test_origin_groups.py` | Requirements 19.12, 19.13, 22.27 to 22.32 (property 28): split, merge, split then merge, merge of different records, save and reopen, edit of one half, identical records then split, legacy split, instance assignment, event origin duplicates; generated split and merge sequences between imports |
 | `test_residence_legacy.py` | Requirement 22.6, 22.16 (property 26), counts and notices |
 | `test_residence_edit_paths.py` | Requirement 22.22 (property 25) and the construction guard (allow-list `residence_construction_allowlist.py`) |
 | `test_import_atomicity.py` | Requirements 3, 20.1 to 20.5, 20.12 to 20.15 (properties 18, 19) |
@@ -1102,6 +1171,7 @@ Property-based testing applies: the date parser and formatter, the date semantic
 - Dirty-state notifications: `test_change_paths.py`, `test_import_atomicity.py`.
 - Import identity for events (reorder, insert, remove, identical, edited, merged) and for residences (the same, plus legacy, save and reopen, repeated import): `test_record_identity.py`, `test_reimport.py`, `test_residence_reimport.py`, `test_residence_legacy.py`, `test_merge_origin.py`, `test_round_trips.py`.
 - Residence origins through every residence edit operation: `test_residence_edit_paths.py`.
+- One origin on several residences (split, merge, reopen, edit, identical records, legacy split) and the repeated import after each: `test_origin_groups.py`, plus `test_record_identity.py` for the pure matcher.
 - Flytt linkage not duplicated or detached by import: `test_residence_reimport.py`.
 - Translation consistency across crash, close and reopen: `test_translation_commit.py`.
 - Refusal to overwrite a changed file in saving and in recovery: `test_translation_conflicts.py`.
