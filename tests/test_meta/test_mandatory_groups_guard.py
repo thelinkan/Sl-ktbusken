@@ -34,6 +34,16 @@ from tests.mandatory_groups import (
     all_required_tests,
 )
 
+from tests.reduced_example_counts import (  # noqa: E402
+    ABSOLUTE_FLOOR,
+    DEFAULT_FLOOR,
+    REDUCED_COUNT_ALLOWLIST,
+    ReducedCount,
+    conftest_profile_problems,
+    hypothesis_override_problems,
+    profile_max_examples,
+)
+
 pytestmark = pytest.mark.mandatory_integrity
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +66,6 @@ _PROPERTY_TAG = "# Feature: person-comparison-and-merge, Property {n}:"
 
 
 DATASKYDD_PREFIX = "tests/test_dataskydd/"
-DATASKYDD_MIN_EXAMPLES = 10
 
 
 def _group_modules() -> list[str]:
@@ -218,11 +227,201 @@ def test_every_mandatory_module_has_pytestmark() -> None:
 def test_hypothesis_settings_not_weakened() -> None:
     problems: list[str] = []
     for module in _existing(scanned_modules()):
-        # data-integrity-0-3-0 design ("Libraries and configuration"): expensive
-        # Dataskydd properties may use a smaller stated example count (at least 10).
-        minimum = DATASKYDD_MIN_EXAMPLES if module.startswith(DATASKYDD_PREFIX) else 100
+        # Dataskydd counts are judged by the allow-list rule (Requirement 23.8 to
+        # 23.11) in test_dataskydd_example_counts; here only derandomize applies.
+        minimum = 0 if module.startswith(DATASKYDD_PREFIX) else DEFAULT_FLOOR
         problems += [f"{module}: {hit}" for hit in weak_settings(_read(module), minimum)]
     assert not problems, "Försvagade Hypothesis-inställningar:\n" + "\n".join(problems)
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis example counts of the Dataskydd group (Requirement 23.8 to 23.14)
+# ---------------------------------------------------------------------------
+
+_MEASURED_WINDOW = 25  # lines above the first decorator that may hold the measurement
+
+
+def _is_name(node: ast.AST, name: str) -> bool:
+    return (isinstance(node, ast.Name) and node.id == name) or (
+        isinstance(node, ast.Attribute) and node.attr == name
+    )
+
+
+def _module_constants(tree: ast.Module) -> dict[str, ast.AST]:
+    consts: dict[str, ast.AST] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    consts[target.id] = node.value
+    return consts
+
+
+def _resolve_kwargs(call: ast.Call, consts: dict[str, ast.AST], profile: int) -> tuple[dict, list[str]]:
+    """Keyword values of a ``settings(...)`` call, following ``**NAME`` and constants.
+
+    Returns ({"max_examples": int | None, "derandomize": bool}, unresolved reasons).
+    ``None`` for max_examples means "not set here".
+    """
+    out: dict = {"max_examples": None, "derandomize": False}
+    bad: list[str] = []
+
+    def value_of(node: ast.AST):
+        if isinstance(node, ast.Name) and node.id in consts:
+            node = consts[node.id]
+        return node.value if isinstance(node, ast.Constant) else ast.unparse(node)
+
+    for arg in call.args:  # settings(parent, ...): only the sbk profile is understood
+        if (
+            isinstance(arg, ast.Call)
+            and _is_name(arg.func, "get_profile")
+            and arg.args
+            and isinstance(arg.args[0], ast.Constant)
+            and arg.args[0].value == "sbk"
+        ):
+            out["max_examples"] = profile
+        else:
+            bad.append(f"positionellt argument {ast.unparse(arg)}")
+    for kw in call.keywords:
+        if kw.arg is None:  # **NAME
+            target = consts.get(kw.value.id) if isinstance(kw.value, ast.Name) else None
+            if isinstance(target, ast.Call) and _is_name(target.func, "dict"):
+                inner = ast.Call(func=ast.Name(id="settings", ctx=ast.Load()), args=[], keywords=target.keywords)
+            elif isinstance(target, ast.Dict) and all(isinstance(k, ast.Constant) for k in target.keys):
+                inner = ast.Call(
+                    func=ast.Name(id="settings", ctx=ast.Load()), args=[],
+                    keywords=[ast.keyword(arg=k.value, value=v) for k, v in zip(target.keys, target.values)],
+                )
+            else:
+                bad.append(f"**{ast.unparse(kw.value)} kan inte tolkas")
+                continue
+            sub, sub_bad = _resolve_kwargs(inner, consts, profile)
+            bad += sub_bad
+            if sub["max_examples"] is not None:
+                out["max_examples"] = sub["max_examples"]
+            out["derandomize"] = out["derandomize"] or sub["derandomize"]
+        elif kw.arg == "max_examples":
+            value = value_of(kw.value)
+            if isinstance(value, int) and not isinstance(value, bool):
+                out["max_examples"] = value
+            else:
+                bad.append(f"max_examples={value}")
+        elif kw.arg == "derandomize":
+            value = value_of(kw.value)
+            if value is True or not isinstance(value, bool):
+                out["derandomize"] = True
+    return out, bad
+
+
+def property_test_counts(source: str, profile: int = DEFAULT_FLOOR) -> dict[str, dict]:
+    """Effective Hypothesis settings per ``@given`` test function of one module.
+
+    Returns {name: {"count": int | None, "derandomize": bool, "unresolved": [..],
+    "measured": bool}}. ``count`` is None when it cannot be resolved (fail closed).
+    """
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    consts = _module_constants(tree)
+    found: dict[str, dict] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        decorators = node.decorator_list
+        if not any(_is_name(d.func if isinstance(d, ast.Call) else d, "given") for d in decorators):
+            continue
+        count: int | None = profile
+        derandomize = False
+        unresolved: list[str] = []
+        for deco in decorators:
+            if isinstance(deco, ast.Call) and _is_name(deco.func, "settings"):
+                resolved, bad = _resolve_kwargs(deco, consts, profile)
+                unresolved += bad
+                if resolved["max_examples"] is not None:
+                    count = resolved["max_examples"]
+                derandomize = derandomize or resolved["derandomize"]
+        first = min(d.lineno for d in decorators)
+        window = "\n".join(lines[max(0, first - 1 - _MEASURED_WINDOW): max(d.end_lineno or d.lineno for d in decorators)])
+        found[node.name] = {
+            "count": None if unresolved else count,
+            "derandomize": derandomize,
+            "unresolved": unresolved,
+            "measured": "MEASURED" in window,
+        }
+    return found
+
+
+def example_count_problems(
+    sources: dict[str, str],
+    allowlist: dict[str, ReducedCount],
+    profile: int = DEFAULT_FLOOR,
+) -> list[str]:
+    """Violations of the Default_Floor / Reduced_Count_Allowlist rule (Req. 23.8 to 23.11)."""
+    problems: list[str] = []
+    seen: dict[str, dict] = {}
+    for module, source in sorted(sources.items()):
+        for name, info in property_test_counts(source, profile).items():
+            test_id = f"{module}::{name}"
+            seen[test_id] = info
+            if info["unresolved"]:
+                problems.append(
+                    f"{test_id}: max_examples kan inte läsas statiskt ({'; '.join(info['unresolved'])})"
+                )
+                continue
+            if info["derandomize"]:
+                problems.append(f"{test_id}: derandomize=True är förbjudet")
+            count = info["count"]
+            entry = allowlist.get(test_id)
+            if entry is None and count < DEFAULT_FLOOR:
+                problems.append(
+                    f"{test_id}: max_examples={count}, minst {DEFAULT_FLOOR} krävs "
+                    "utan post i REDUCED_COUNT_ALLOWLIST"
+                )
+            elif entry is not None and count < entry.min_examples:
+                problems.append(
+                    f"{test_id}: max_examples={count} understiger postens min_examples={entry.min_examples}"
+                )
+    for test_id, entry in sorted(allowlist.items()):
+        info = seen.get(test_id)
+        if entry.min_examples < ABSOLUTE_FLOOR:
+            problems.append(
+                f"{test_id}: min_examples={entry.min_examples} understiger absolutgolvet {ABSOLUTE_FLOOR}"
+            )
+        if entry.min_examples >= DEFAULT_FLOOR:
+            problems.append(f"{test_id}: föråldrad post, min_examples={entry.min_examples} är minst {DEFAULT_FLOOR}")
+        if entry.measured_s_per_example <= 0 or not entry.reason.strip():
+            problems.append(f"{test_id}: posten saknar uppmätt tid eller skäl")
+        if info is None:
+            problems.append(f"{test_id}: föråldrad post, testet finns inte")
+            continue
+        if info["count"] is not None and info["count"] >= DEFAULT_FLOOR:
+            problems.append(
+                f"{test_id}: föråldrad post, testets max_examples={info['count']} är minst {DEFAULT_FLOOR}"
+            )
+        if not info["measured"]:
+            problems.append(f"{test_id}: föråldrad post, ingen MEASURED-dokumentation bredvid @settings")
+    return problems
+
+
+def _dataskydd_sources() -> dict[str, str]:
+    return {
+        m: _read(m)
+        for m in sorted(str(p.relative_to(ROOT).as_posix()) for p in (ROOT / "tests/test_dataskydd").glob("test_*.py"))
+    }
+
+
+def _conftest_profile() -> int:
+    return profile_max_examples((ROOT / "tests" / "conftest.py").read_text(encoding="utf-8-sig"))
+
+
+def test_dataskydd_example_counts() -> None:
+    problems = example_count_problems(_dataskydd_sources(), REDUCED_COUNT_ALLOWLIST, _conftest_profile())
+    assert not problems, "Hypothesis-antal i Dataskydd:\n" + "\n".join(problems)
+
+
+def test_hypothesis_profile_is_not_lowered() -> None:
+    assert _conftest_profile() >= DEFAULT_FLOOR
+    problems = hypothesis_override_problems([], {}, ROOT)
+    assert not problems, "Hypothesis-profil eller -åsidosättning:\n" + "\n".join(problems)
 
 
 def test_every_mandatory_property_is_tagged() -> None:
@@ -502,6 +701,114 @@ def test_detects_missing_pytestmark_and_weak_settings(tmp_path: Path) -> None:
     hits = weak_settings(source)
     assert any("max_examples=99" in h for h in hits)
     assert any("derandomize" in h for h in hits)
+
+
+_PROP_MODULE = "tests/test_dataskydd/test_fixture.py"
+_TEST_ID = f"{_PROP_MODULE}::test_property_x"
+
+
+def _prop_source(count: object, *, measured: bool = False, extra: str = "") -> str:
+    note = "MEASURED_S_PER_EXAMPLE = 0.5  # measured, fixture\n" if measured else ""
+    return (
+        "from hypothesis import given, settings, strategies as st\n"
+        f"{note}"
+        f"@settings(max_examples={count}, deadline=None{extra})\n"
+        "@given(st.integers())\n"
+        "def test_property_x(n): pass\n"
+    )
+
+
+def _entry(minimum: int = 30) -> dict[str, ReducedCount]:
+    return {_TEST_ID: ReducedCount(minimum, 0.5, "full GEDCOM import per example")}
+
+
+def test_guard_requires_100_examples_by_default() -> None:
+    assert DEFAULT_FLOOR == 100
+    assert example_count_problems({_PROP_MODULE: _prop_source(99)}, {}) != []
+    assert example_count_problems({_PROP_MODULE: _prop_source(100)}, {}) == []
+    # no @settings at all: the profile count applies
+    plain = "from hypothesis import given, strategies as st\n@given(st.integers())\ndef test_property_x(n): pass\n"
+    assert example_count_problems({_PROP_MODULE: plain}, {}, profile=100) == []
+    assert example_count_problems({_PROP_MODULE: plain}, {}, profile=50) != []
+    # a count the guard cannot resolve fails closed
+    assert example_count_problems({_PROP_MODULE: _prop_source("SOME_NAME")}, {}) != []
+    # a shared dict of settings is followed
+    shared = (
+        "from hypothesis import given, settings, strategies as st\n"
+        "_S = dict(max_examples=40, deadline=None)\n"
+        "@settings(**_S)\n@given(st.integers())\ndef test_property_x(n): pass\n"
+    )
+    assert example_count_problems({_PROP_MODULE: shared}, {}) != []
+    # derandomize=True is rejected, also through a shared dict
+    assert example_count_problems({_PROP_MODULE: _prop_source(100, extra=", derandomize=True")}, {}) != []
+    assert example_count_problems({_PROP_MODULE: shared.replace("40", "100").replace("deadline=None", "derandomize=True")}, {}) != []
+
+
+def test_guard_accepts_allowlisted_reduced_count() -> None:
+    source = _prop_source(30, measured=True)
+    assert example_count_problems({_PROP_MODULE: source}, _entry(30)) == []
+    # a count below the entry's minimum is rejected
+    assert example_count_problems({_PROP_MODULE: _prop_source(29, measured=True)}, _entry(30)) != []
+
+
+def test_guard_rejects_count_below_absolute_floor() -> None:
+    assert ABSOLUTE_FLOOR == 20
+    problems = example_count_problems({_PROP_MODULE: _prop_source(19, measured=True)}, _entry(19))
+    assert any("absolutgolvet" in p for p in problems)
+    assert example_count_problems({_PROP_MODULE: _prop_source(20, measured=True)}, _entry(20)) == []
+
+
+def test_guard_rejects_stale_allowlist_entry() -> None:
+    # unknown test
+    assert any("testet finns inte" in p for p in example_count_problems({}, _entry()))
+    # the test now uses 100 examples
+    problems = example_count_problems({_PROP_MODULE: _prop_source(100, measured=True)}, _entry())
+    assert any("föråldrad" in p and _TEST_ID in p for p in problems)
+    # no documented measurement next to @settings
+    problems = example_count_problems({_PROP_MODULE: _prop_source(30)}, _entry())
+    assert any("MEASURED" in p for p in problems)
+    # the real allow-list has no stale entry (also covered by test_dataskydd_example_counts)
+    assert not [p for p in example_count_problems(_dataskydd_sources(), REDUCED_COUNT_ALLOWLIST, _conftest_profile()) if "föråldrad" in p]
+
+
+def test_runner_rejects_hypothesis_override(tmp_path: Path) -> None:
+    import importlib.util
+
+    assert hypothesis_override_problems([], {}, ROOT) == []
+    assert hypothesis_override_problems(["--hypothesis-profile=ci"], {}, ROOT)
+    assert hypothesis_override_problems([], {"HYPOTHESIS_PROFILE": "fast"}, ROOT)
+    assert hypothesis_override_problems([], {"PYTEST_ADDOPTS": "--hypothesis-seed=1"}, ROOT)
+    # a conftest that registers or loads another profile, or lowers sbk
+    for body in (
+        "from hypothesis import settings\nsettings.register_profile('fast', max_examples=5)\n",
+        "from hypothesis import settings\nsettings.load_profile('fast')\n",
+        "from hypothesis import settings\nsettings.register_profile('sbk', max_examples=10)\n"
+        "settings.load_profile('sbk')\n",
+    ):
+        project = tmp_path / str(abs(hash(body)))
+        (project / "tests").mkdir(parents=True)
+        (project / "tests" / "conftest.py").write_text(body, encoding="utf-8")
+        assert hypothesis_override_problems([], {}, project), body
+    assert conftest_profile_problems(
+        "from hypothesis import settings\nsettings.register_profile('sbk', max_examples=100)\n"
+        "settings.load_profile('sbk')\n", "tests/conftest.py", root_conftest=True) == []
+    # the runner script itself refuses to start with an override
+    spec = importlib.util.spec_from_file_location("sbk_runner", ROOT / "scripts" / "run_mandatory_tests.py")
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    old_argv, old_env = sys.argv, os.environ.get("HYPOTHESIS_PROFILE")
+    try:
+        sys.argv = ["run_mandatory_tests.py", "--hypothesis-profile=fast"]
+        assert runner.main() == runner.EXIT_FAILED
+        sys.argv = ["run_mandatory_tests.py"]
+        os.environ["HYPOTHESIS_PROFILE"] = "fast"
+        assert runner.main() == runner.EXIT_FAILED
+    finally:
+        sys.argv = old_argv
+        if old_env is None:
+            os.environ.pop("HYPOTHESIS_PROFILE", None)
+        else:
+            os.environ["HYPOTHESIS_PROFILE"] = old_env
 
 
 def test_detects_registry_entry_naming_missing_test(tmp_path: Path) -> None:

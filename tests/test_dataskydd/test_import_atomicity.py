@@ -34,6 +34,7 @@ from hypothesis import strategies as st  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import slaktbusken.app as app_module  # noqa: E402
+from slaktbusken.gedcom.errors import ImportAborted  # noqa: E402
 from slaktbusken.gedcom.importer import GEDCOMImporter  # noqa: E402
 from slaktbusken.model.person import Name, Person  # noqa: E402
 from slaktbusken.persistence.serialization import serialize  # noqa: E402
@@ -58,7 +59,7 @@ from slaktbusken.ui.merge.recovery_dialogs import MSG_PENDING_TRANSLATION  # noq
 pytestmark = pytest.mark.mandatory_integrity
 
 _PROPERTY_SETTINGS = dict(
-    max_examples=25,
+    max_examples=100,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
 )
@@ -73,8 +74,8 @@ _TRANSLATION_NAMES = ("persons.json", "places.json", "sources.json")
 
 class _InjectedFailure(BaseException):
     """Raised by a test inside the importer. A ``BaseException`` so that the
-    importer's own per-record ``except Exception`` handlers cannot swallow it;
-    it stands for any error or user cancellation that escapes the importer."""
+    importer does not wrap it in ``ImportAborted``; it stands for a user
+    cancellation that escapes the importer."""
 
 
 class World:
@@ -245,7 +246,8 @@ def run_with_failure(world: World, point: str, text: str) -> None:
             def failing_create_event(self, *a, **kw):
                 calls["n"] += 1
                 if calls["n"] == 1:
-                    raise _InjectedFailure()
+                    # An ordinary error: the importer aborts the import.
+                    raise RuntimeError("händelsen kunde inte skapas")
                 return original(self, *a, **kw)
 
             stack.enter_context(patch.object(GEDCOMImporter, "_create_event", failing_create_event))
@@ -256,7 +258,9 @@ def run_with_failure(world: World, point: str, text: str) -> None:
                 if point == "cancel":
                     # Cancelled after the residence was added to the working copy.
                     original_add(self, *a, **kw)
-                raise _InjectedFailure()
+                    raise _InjectedFailure()
+                # An ordinary error: the importer aborts the import.
+                raise RuntimeError("boendet kunde inte skapas")
 
             stack.enter_context(patch.object(GEDCOMImporter, "_add_residence", failing_add_residence))
         elif point == "validation":
@@ -276,7 +280,7 @@ def run_with_failure(world: World, point: str, text: str) -> None:
             service._validation_service = _ValidationHook(touch_translation_file)
         try:
             world.run(text)
-        except (ImportServiceError, RuntimeError, _InjectedFailure):
+        except (ImportServiceError, ImportAborted, RuntimeError, _InjectedFailure):
             return
     raise AssertionError(f"import with failure point {point!r} did not fail")
 
@@ -351,14 +355,17 @@ def test_dp_property_19_success_marks_once_noop_not_at_all(
 
         world.run(text)
 
-        changed = (
-            serialize(world.ps.data) != before_project
-            or world.effective_translation() != before_translation
-        )
+        translation_changed = world.effective_translation() != before_translation
+        changed = serialize(world.ps.data) != before_project or translation_changed
         if changed:
             assert world.ps.content_revision == before_revision + 1
             assert world.ps.is_dirty
-            assert world.ps.pending_translation is not None
+            if translation_changed:
+                assert world.ps.pending_translation is not None
+            else:
+                # A project-only change uses the normal save: the pending
+                # translation stays what it was.
+                assert world.ps.pending_translation is before_pending
             assert len(notifications) == 1
         else:
             assert world.ps.content_revision == before_revision
@@ -418,6 +425,30 @@ def test_import_marks_dirty_and_bumps_revision(qapp, boxes, monkeypatch, world: 
     assert world.ps.content_revision == revision + 1
     boxes.critical.assert_not_called()
     fake._update_status.assert_called()
+
+
+def test_app_shows_abort_message_and_no_success_report(
+    qapp, boxes, monkeypatch, world: World
+) -> None:
+    """An aborted import shows the Swedish abort message and never a success report."""
+    path = world.write(TWO)
+    dialog = MagicMock()
+    dialog.getOpenFileName.return_value = (str(path), "")
+    monkeypatch.setattr(app_module, "QFileDialog", dialog)
+
+    def boom(self, *a, **kw):
+        raise RuntimeError("internt fel")
+
+    monkeypatch.setattr(GEDCOMImporter, "_create_person", boom)
+    fake = _fake_app(world)
+    before = world.snapshot()
+
+    app_module.Application.import_gedcom(fake)
+
+    message = boxes.critical.call_args.args[2]
+    assert message.startswith("Importen avbröts och ingenting har ändrats. Fel i post @I1@ (Anna")
+    boxes.information.assert_not_called()
+    assert world.snapshot() == before
 
 
 def test_noop_import_does_not_mark_dirty(world: World) -> None:

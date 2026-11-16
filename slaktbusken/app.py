@@ -18,6 +18,7 @@ from slaktbusken.services.commit.translation_commit import (
     SaveFailed,
 )
 from slaktbusken.services.delete_service import DeleteService
+from slaktbusken.gedcom.errors import ImportAborted
 from slaktbusken.services.edit_session import MSG_IMPORT_SAVE_UNFINISHED
 from slaktbusken.services.export_service import ExportService
 from slaktbusken.services.import_service import ImportError as ImportServiceError
@@ -1372,6 +1373,16 @@ class Application:
                 "Fel",
                 str(e),
             )
+        except ImportAborted as e:
+            # Nothing has changed; the working copy was dropped. No import
+            # report is shown (Requirements 20.25 to 20.27).
+            logger.error(
+                "GEDCOM-importen avbröts (%s): %s\n%s",
+                e.phase or "okänd fas",
+                e.message_sv,
+                e.traceback_text,
+            )
+            QMessageBox.critical(self.main_window, "Importen avbröts", e.message_sv)
         except ImportServiceError as e:
             QMessageBox.critical(self.main_window, "Importfel", e.message)
         except Exception as e:

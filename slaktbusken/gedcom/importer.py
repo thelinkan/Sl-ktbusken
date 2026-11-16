@@ -20,12 +20,15 @@ Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 11.7, 22.3
 
 from __future__ import annotations
 
+import logging
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable, Iterator, Optional, Sequence
 
 from slaktbusken.gedcom.dates import parse_gedcom_date
+from slaktbusken.gedcom.errors import ImportAborted
 from slaktbusken.model.date_semantics import validate_date_value
 from slaktbusken.gedcom.parser import GedcomLine, GedcomParseError, parse_gedcom
 from slaktbusken.gedcom.translation import TranslationManager
@@ -77,6 +80,8 @@ from slaktbusken.persistence.translation_io import (
     SourceMapping,
     TranslationData,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -1193,7 +1198,85 @@ class GEDCOMImporter:
         self._sources_added = 0
         self._places_added = 0
 
+        # Record context for ImportAborted (Requirement 20.26)
+        self._ctx_xref: Optional[str] = None
+        self._ctx_label: Optional[str] = None
+        self._ctx_phase: Optional[str] = None
+
+    @contextmanager
+    def _record_context(
+        self, xref: Optional[str], label: Optional[str], phase: str
+    ) -> Iterator[None]:
+        """Mark the record being processed.
+
+        On normal exit the previous context is restored. When an exception
+        leaves the block the context stays, so the outer handler in
+        ``import_file`` can name the failed record.
+        """
+        previous = (self._ctx_xref, self._ctx_label, self._ctx_phase)
+        self._ctx_xref, self._ctx_label, self._ctx_phase = xref, label, phase
+        yield
+        self._ctx_xref, self._ctx_label, self._ctx_phase = previous
+
+    @staticmethod
+    def _record_label(record: GedcomLine) -> str:
+        """Name of an INDI record, else its tag."""
+        name = _get_child_value(record, "NAME")
+        if name:
+            name = name.replace("/", " ")
+            name = " ".join(name.split())
+        return name or record.tag.upper()
+
     def import_file(self, gedcom_path: Path) -> ImportResult:
+        """Import a GEDCOM file; any unexpected error aborts the import.
+
+        Reading and parsing errors (``FileNotFoundError``,
+        ``UnicodeDecodeError``, ``GedcomParseError``) keep their own types.
+        Every other ``Exception`` raised while records are processed is
+        wrapped in ``ImportAborted`` (cause kept, traceback written to the
+        import log). ``BaseException`` is not touched. Nothing is converted
+        into a warning (Requirements 20.23, 20.24).
+        """
+        self._ctx_xref = self._ctx_label = self._ctx_phase = None
+        try:
+            return self._import_file(gedcom_path)
+        except (
+            ImportAborted,
+            GedcomParseError,
+            UnicodeDecodeError,
+            FileNotFoundError,
+        ):
+            raise
+        except Exception as exc:
+            aborted = ImportAborted.from_exception(
+                exc,
+                xref=self._ctx_xref,
+                label=self._ctx_label,
+                phase=self._ctx_phase,
+            )
+            logger.error("GEDCOM-importen avbröts:\n%s", aborted.traceback_text)
+            self._write_abort_log(gedcom_path, aborted)
+            raise aborted from exc
+
+    def _write_abort_log(self, gedcom_path: Path, aborted: ImportAborted) -> None:
+        """Append the abort message and traceback to the import log."""
+        import datetime
+
+        try:
+            log_dir = Path(r"C:\Temp")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / "gedcom_import.log", "w", encoding="utf-8") as f:
+                f.write(
+                    f"GEDCOM Import Log — {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"
+                )
+                f.write(f"Source file: {gedcom_path}\n")
+                f.write("IMPORT ABORTED\n")
+                f.write(f"{aborted.message_sv}\n\n")
+                f.write(aborted.traceback_text)
+        except OSError:
+            pass  # A missing diagnostic log must not hide the abort
+
+    def _import_file(self, gedcom_path: Path) -> ImportResult:
         """Import a GEDCOM file into the project.
 
         Reads the file, parses it, and translates all records into App_JSON
@@ -1279,18 +1362,23 @@ class GEDCOMImporter:
                 ))
 
         # Step 1: Process sources
+        self._ctx_phase = "källor"
         self._process_sources(sour_records, translation_data)
 
         # Step 2: Process persons (pass fam_records for fingerprint matching)
+        self._ctx_phase = "personer"
         self._process_persons(indi_records, translation_data, fam_records)
 
         # Step 2b: Collect FAMC/PEDI pedigree so family-link creation can
         # set parentage_type (the pedigree lives under the child INDI's
         # FAMC, not under the family's CHIL).
+        self._ctx_phase = "släktskap"
         self._collect_famc_pedigree(indi_records)
 
         # Step 3: Process families
+        self._ctx_phase = "familjer"
         self._process_families(fam_records, translation_data)
+        self._ctx_phase = "avslutande kontroller"
 
         # Step 3b: Finalise imported placement START events (ADOP / Fosterhem
         # EVEN). Now that the families exist, resolve each event's subordinate
@@ -1552,6 +1640,8 @@ class GEDCOMImporter:
             translation_data: Translation data to update with new mappings.
         """
         for record in sour_records:
+            self._ctx_xref = record.xref_id
+            self._ctx_label = _get_child_value(record, "TITL") or "SOUR"
             gedcom_source = _extract_gedcom_source(record)
 
             # Use translation manager to map (handles existing matching)
@@ -1590,6 +1680,7 @@ class GEDCOMImporter:
                         title=source.title,
                     )
                 )
+        self._ctx_xref = self._ctx_label = None
 
     def _attach_arkiv_digital_repository(self, source: Source) -> None:
         """Find or create an ArkivDigital Repository and attach it to a Source.
@@ -1662,28 +1753,20 @@ class GEDCOMImporter:
         # Extract all GedcomPerson and GedcomFamily objects for classification
         incoming_persons: list[GedcomPerson] = []
         person_records_by_xref: dict[str, GedcomLine] = {}
+        # An extraction error is not a Recoverable_Input_Problem: it aborts
+        # the import (Requirement 20.23).
         for record in indi_records:
-            try:
+            with self._record_context(
+                record.xref_id, self._record_label(record), "personer"
+            ):
                 gp = _extract_gedcom_person(record)
-                incoming_persons.append(gp)
-                person_records_by_xref[gp.xref_id] = record
-            except Exception as exc:
-                line_num = record.line_number if record else "?"
-                self._warnings.append(WarningEntry(
-                    gedcom_file=self._gedcom_filename,
-                    record_xref=record.xref_id or "?",
-                    person_or_family_name=_get_child_value(record, "NAME") or None,
-                    raw_value=f"Rad {line_num}",
-                    reason=f"Kunde inte importera person: {exc}",
-                    action_taken="Hoppades över",
-                ))
+            incoming_persons.append(gp)
+            person_records_by_xref[gp.xref_id] = record
 
         families: list[GedcomFamily] = []
         for fam_rec in fam_records:
-            try:
+            with self._record_context(fam_rec.xref_id, "FAM", "familjer"):
                 families.append(_extract_gedcom_family(fam_rec))
-            except Exception:
-                pass  # Family extraction failures handled in _process_families
 
         # Resolve merged identities (aliases) before classification so a
         # record of a merged-away person never creates or updates a person.
@@ -1766,7 +1849,9 @@ class GEDCOMImporter:
             if record is None:
                 continue
 
-            try:
+            with self._record_context(
+                record.xref_id, self._record_label(record), "personer"
+            ):
                 diff_entry = diff_by_xref.get(gedcom_person.xref_id)
 
                 if diff_entry is None or diff_entry.category == DiffCategory.NEW:
@@ -1812,17 +1897,6 @@ class GEDCOMImporter:
                 else:
                     # Fallback: treat as new
                     self._create_person(gedcom_person, record, translation_data)
-
-            except Exception as exc:
-                line_num = record.line_number if record else "?"
-                self._warnings.append(WarningEntry(
-                    gedcom_file=self._gedcom_filename,
-                    record_xref=record.xref_id or "?",
-                    person_or_family_name=_get_child_value(record, "NAME") or None,
-                    raw_value=f"Rad {line_num}",
-                    reason=f"Kunde inte importera person: {exc}",
-                    action_taken="Hoppades över",
-                ))
 
     def _resolve_merged_identities(
         self,
@@ -2410,10 +2484,10 @@ class GEDCOMImporter:
     def _event_label(self, event_type: str, custom_type_name: Optional[str]) -> str:
         try:
             from slaktbusken.ui.swedish_locale import get_event_type_label
-
-            label = get_event_type_label(event_type)
-        except Exception:  # label is cosmetic only
+        except ImportError:  # label is cosmetic: UI module not available
             label = event_type
+        else:
+            label = get_event_type_label(event_type)
         if event_type.startswith("custom_") and custom_type_name:
             label = custom_type_name
         return label
@@ -2953,29 +3027,41 @@ class GEDCOMImporter:
         }
 
         for record in fam_records:
-            gedcom_family = _extract_gedcom_family(record)
-            existing_mapping = family_mapping_by_xref.get(gedcom_family.xref_id)
+            with self._record_context(record.xref_id, "FAM", "familjer"):
+                self._process_one_family(
+                    record, translation_data, family_mapping_by_xref
+                )
 
-            # Two merged records listed as husband and wife resolve to one
-            # person: drop the second partner (no self-partner family).
-            husb_id = self._person_xref_map.get(gedcom_family.husb_xref or "")
-            wife_id = self._person_xref_map.get(gedcom_family.wife_xref or "")
-            if husb_id and husb_id == wife_id:
-                gedcom_family.wife_xref = None
-                self._warnings.append(WarningEntry(
-                    gedcom_file=self._gedcom_filename,
-                    record_xref=gedcom_family.xref_id,
-                    reason=(
-                        f"Båda partnerna i familjen {gedcom_family.xref_id} "
-                        "pekar på samma person."
-                    ),
-                    action_taken="Den andra partnern ignorerades",
-                ))
+    def _process_one_family(
+        self,
+        record: GedcomLine,
+        translation_data: TranslationData,
+        family_mapping_by_xref: dict[str, FamilyMapping],
+    ) -> None:
+        """Create or update the family of one FAM record."""
+        gedcom_family = _extract_gedcom_family(record)
+        existing_mapping = family_mapping_by_xref.get(gedcom_family.xref_id)
 
-            if existing_mapping:
-                self._update_family(gedcom_family, existing_mapping, record)
-            else:
-                self._create_family(gedcom_family, record, translation_data)
+        # Two merged records listed as husband and wife resolve to one
+        # person: drop the second partner (no self-partner family).
+        husb_id = self._person_xref_map.get(gedcom_family.husb_xref or "")
+        wife_id = self._person_xref_map.get(gedcom_family.wife_xref or "")
+        if husb_id and husb_id == wife_id:
+            gedcom_family.wife_xref = None
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=gedcom_family.xref_id,
+                reason=(
+                    f"Båda partnerna i familjen {gedcom_family.xref_id} "
+                    "pekar på samma person."
+                ),
+                action_taken="Den andra partnern ignorerades",
+            ))
+
+        if existing_mapping:
+            self._update_family(gedcom_family, existing_mapping, record)
+        else:
+            self._create_family(gedcom_family, record, translation_data)
 
     def _create_family(
         self,
@@ -3380,10 +3466,10 @@ class GEDCOMImporter:
         if date_value.qualifier == "unparsed":
             try:
                 from slaktbusken.ui.swedish_locale import get_event_type_label
-
-                label = get_event_type_label(event_type)
-            except Exception:  # label is cosmetic only
+            except ImportError:  # label is cosmetic: UI module not available
                 label = event_type
+            else:
+                label = get_event_type_label(event_type)
             if event_type.startswith("custom_") and custom_type_name:
                 label = custom_type_name
             names = [

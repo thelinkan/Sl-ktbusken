@@ -254,7 +254,13 @@ def _run_property_16(
 
 @pytest.mark.parametrize("reopen", [False, True], ids=["same_session", "save_and_reopen"])
 @pytest.mark.parametrize("perturbation", _PERTURBATIONS)
-@settings(max_examples=20, **_PROPERTY_SETTINGS)
+# Reduced count (Requirement 23.9, allow-listed in tests/reduced_example_counts.py).
+# MEASURED_S_PER_EXAMPLE = 0.073  # measured 2026-11-16 (task 16.3): 204.8 s for
+# 28 parametrised cases x 100 examples = 2.05 s per example across the function.
+# Each example runs two full GEDCOM imports (and a save and reopen in half the
+# cases). 100 examples would take about 205 s; 25 take about 51 s, under the
+# 60 s per test function threshold.
+@settings(max_examples=25, **_PROPERTY_SETTINGS)
 @given(spec=sr.file_specs(rich=True), rnd=st.randoms(use_true_random=False))
 def test_dp_property_16_repeated_import_is_stable(spec, rnd, perturbation, reopen) -> None:
     """Feature: data-integrity-0-3-0, Property 16: Repeated import is stable and
@@ -272,7 +278,7 @@ def test_dp_property_16_repeated_import_is_stable(spec, rnd, perturbation, reope
 # ---------------------------------------------------------------------------
 
 
-@settings(max_examples=40, **_PROPERTY_SETTINGS)
+@settings(max_examples=100, **_PROPERTY_SETTINGS)
 @given(case=sr.identical_k(residence=False), later_imports=st.integers(1, 3))
 def test_dp_property_17_dateless_events_stay_distinct(case, later_imports) -> None:
     """Feature: data-integrity-0-3-0, Property 17: Dateless events and identical
@@ -293,7 +299,7 @@ def test_dp_property_17_dateless_events_stay_distinct(case, later_imports) -> No
     _with_world(body)
 
 
-@settings(max_examples=40, **_PROPERTY_SETTINGS)
+@settings(max_examples=100, **_PROPERTY_SETTINGS)
 @given(
     case=sr.identical_k(residence=True),
     later_imports=st.integers(1, 2),
@@ -413,7 +419,7 @@ def test_reimport_identical_file_creates_no_events(world: World) -> None:
     assert not world.ps.is_dirty  # nothing adopted
 
 
-@settings(max_examples=40, **_PROPERTY_SETTINGS)
+@settings(max_examples=100, **_PROPERTY_SETTINGS)
 @given(spec=sr.file_specs(with_residences=False))
 def test_reimport_is_idempotent_property(spec) -> None:
     """Includes the whole-project post-steps of the importer (importer.py post-steps)."""
@@ -430,7 +436,7 @@ def test_reimport_is_idempotent_property(spec) -> None:
     _with_world(body)
 
 
-@settings(max_examples=40, **_PROPERTY_SETTINGS)
+@settings(max_examples=100, **_PROPERTY_SETTINGS)
 @given(spec=sr.file_specs(with_residences=True))
 def test_reimport_is_idempotent_with_resi_property(spec) -> None:
     def body(world: World) -> None:

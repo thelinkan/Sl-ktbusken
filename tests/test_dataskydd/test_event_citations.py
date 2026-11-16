@@ -204,7 +204,7 @@ def test_dp_property_5_helper_returns_every_reference_exactly_once(event: Event)
 
 
 # Feature: data-integrity-0-3-0, Property 6: Consumers agree on cited sources and keep distinct citation contexts
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=100, deadline=None)
 @given(events=cited_event_lists())
 def test_dp_property_6_consumers_agree_on_cited_sources(events: list[Event]) -> None:
     """**Validates: Requirements 13.3, 13.4, 13.5, 13.6**"""
@@ -279,7 +279,7 @@ def test_dp_property_6_consumers_agree_on_cited_sources(events: list[Event]) -> 
 
 
 # Feature: data-integrity-0-3-0, Property 6 (unique-source report part)
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=100, deadline=None)
 @given(events=cited_event_lists(max_size=1))
 def test_dp_property_6_unique_source_report_lists_distinct_entries(
     events: list[Event],

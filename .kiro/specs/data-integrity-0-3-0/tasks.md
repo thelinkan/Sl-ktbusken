@@ -301,6 +301,37 @@ No task implements Package 2. No task commits to git.
 - [x] 15. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
+- [x] 16. Post-review corrections (Package 1 closure)
+  - [x] 16.1 Abort the import on unexpected errors
+    - Add `slaktbusken/gedcom/errors.py` with `RecoverableInputProblem` and `ImportAborted` (Swedish `message_sv`, `xref`, `label`, `phase`, `traceback_text`, original exception as `__cause__`), as in design "Post-review corrections", Correction 1.
+    - In `gedcom/importer.py` remove every per-record `except Exception` that turns an error into a "Hoppades över" warning (around lines 1670, 1685 and 1816, and any similar handler for events, residences, families, places, sources). Add the record context and the single outer handler that raises `ImportAborted` and writes the traceback to the import log. Keep warnings for uninterpretable dates (original text preserved) and unknown tags.
+    - In `services/import_service.py` let `ImportAborted` pass through the existing failure path: drop the Working_Copy and Staged_Translation, no adoption, no `mark_changed`, no Pending_Translation, no `ImportResult`.
+    - In `app.py` show `message_sv` in the existing import error dialog and log `traceback_text`.
+    - Update existing tests that relied on the skip-as-warning behaviour so that they expect `ImportAborted`; keep and verify the tests for recoverable date and tag warnings.
+    - _Requirements: 20.5, 20.23, 20.24, 20.25, 20.26, 20.27, 9.1_
+
+  - [x] 16.2 Write mandatory abort regression tests
+    - Create the NEW module `tests/test_dataskydd/test_import_abort.py` with the tests named in Requirement 20.28: one per entity kind (person create, person update, event, residence, family, place and source), plus message, traceback, no-result, recoverable-date and property tests.
+    - Each abort test injects a failure and asserts: Project_Data unchanged (Canonical_Form), Dirty_State and Content_Revision unchanged, Pending_Translation unchanged, Translation_File bytes unchanged, no successful `ImportResult`, a Swedish message naming the xref and name or tag, and an available traceback.
+    - The property test (entity kind, position, exception type) uses at least 100 examples, or a reduced count that is documented with a measured per-example time next to `@settings` and listed in the allow-list of task 16.3.
+    - Register the module and every test name in `tests/mandatory_groups.py` (this spec authorises the edit).
+    - _Requirements: 20.5, 20.25, 20.26, 20.27, 20.28, 23.1, 23.2_
+
+  - [x] 16.3 Enforce Hypothesis example counts
+    - Raise every ordinary property test in `tests/test_dataskydd/` to at least 100 examples.
+    - Measure the runtime per example of the expensive tests (integration, filesystem fault injection, full GEDCOM import), including the tests of task 16.2. Keep a reduced count (never below 20) only with a documented measurement next to `@settings` and an entry in the allow-list.
+    - In `tests/test_meta/test_mandatory_groups_guard.py` replace the universal floor of 10 with the rule of design Correction 2: default floor 100, reviewed allow-list, absolute floor 20, `derandomize=True` rejected, stale entries fail. Add the tests named in Requirement 23.14 and register them in `tests/mandatory_groups.py`.
+    - Verify `scripts/run_mandatory_tests.py` uses no profile or environment override that lowers `max_examples`; enforce and check it as in Requirement 23.12 and print the group runtime and the reduced-count list.
+    - Report the total runtime of the Dataskydd group and the list of tests with reduced counts.
+    - _Requirements: 23.8, 23.9, 23.10, 23.11, 23.12, 23.13, 23.14_
+
+- [x] 17. Final checkpoint - Package 1 closure
+  - Run the complete Dataskydd group, all mandatory groups, and the migration, GEDCOM, merge, residence and event-editor regression tests.
+  - Report test counts, failures, skips and runtime, the Dataskydd group runtime and the list of reduced-count tests.
+  - Ensure the working tree is clean after the separate commit (the user commits; no task commits).
+  - Ensure all tests pass, ask the user if questions arise.
+  - _Requirements: 20.5, 20.23 to 20.28, 23.8 to 23.14_
+
 ## Requirement traceability
 
 | Requirement | Implemented by | Tested by |
@@ -324,10 +355,10 @@ No task implements Package 2. No task commits to git.
 | 17 mark_changed | 6.1, 6.2, 7.1 | 6.3, 7.3 |
 | 18 Change-path guard | 6.2, 11.5 | 6.3, 11.5 |
 | 19 Event identity (AP1, AP5), including Origin_Instance (19.12) and event origin groups (19.13) | 2.1, 2.2, 2.4, 10.1, 10.2, 10.4 | 2.5, 10.5, 10.6, 10.7, 10.9 |
-| 20 Atomic import, conflict-safe crash-consistent save (AP2) | 11.1, 11.2, 11.3, 11.4 | 11.5, 11.6, 11.7 |
+| 20 Atomic import, conflict-safe crash-consistent save (AP2); 20.23 to 20.28 abort on unexpected errors | 11.1, 11.2, 11.3, 11.4, 16.1 | 11.5, 11.6, 11.7, 16.2 |
 | 21 Format 0.5 | 2.3 | 2.5 |
 | 22 Residence identity (AP4), including origin groups (22.27 to 22.32) | 2.1, 2.2, 2.4, 10.1, 10.3, 10.4 | 2.5, 7.3, 10.5, 10.6, 10.7, 10.8, 10.9, 13.1 |
-| 23 Mandatory group | 14.1 | 14.1 |
+| 23 Mandatory group; 23.8 to 23.14 example counts | 14.1, 16.3 | 14.1, 16.3 |
 
 ## Notes
 
@@ -335,7 +366,8 @@ No task implements Package 2. No task commits to git.
 - Each test sub-task names the design properties it implements and the requirement clauses it validates.
 - The approval items AP1 to AP5 are decided and implemented as listed in the Overview. The design records the few choices that the user may still veto (`design.md`, "Decisions made in this revision").
 - Task 1.2 reports the measured snapshot time and never changes the snapshot scope by itself.
-- Task 14.1 is the only task that edits `tests/mandatory_groups.py`.
+- Task 14.1 edited `tests/mandatory_groups.py` first; tasks 16.2 and 16.3 edit it again (authorised by Requirements 20.28 and 23.14).
+- Tasks 16 and 17 are post-review corrections of Package 1; tasks 1 to 15 stay as completed.
 - Strategies for new test tasks go into their own module (`strategies_gedcom.py` and similar) so that tasks of one wave never write the same file.
 - Package 2 (Advanced Person Filtering) is out of scope. Task 5.1 provides `date_bounds` only as preparation.
 - Do not commit as part of any task unless the user asks.
@@ -355,7 +387,10 @@ No task implements Package 2. No task commits to git.
     { "id": 7, "tasks": ["10.5", "10.6", "10.7", "10.8", "11.4", "11.6"] },
     { "id": 8, "tasks": ["10.9", "11.5", "11.7"] },
     { "id": 9, "tasks": ["13.1"] },
-    { "id": 10, "tasks": ["14.1"] }
+    { "id": 10, "tasks": ["14.1"] },
+    { "id": 11, "tasks": ["16.1"] },
+    { "id": 12, "tasks": ["16.2"] },
+    { "id": 13, "tasks": ["16.3"] }
   ]
 }
 ```

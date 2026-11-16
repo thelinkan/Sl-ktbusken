@@ -62,7 +62,7 @@ TNAMES = ("persons.json", "places.json", "sources.json")
 
 _PROPERTY_SETTINGS = dict(
     deadline=None,
-    max_examples=40,
+    max_examples=100,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
 )
 

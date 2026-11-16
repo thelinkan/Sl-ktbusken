@@ -484,7 +484,7 @@ def _assert_marks_exactly_when_changed(path: ChangePath, apply, shape, k) -> Non
 
 
 # Feature: data-integrity-0-3-0, Property 20: Every mutation path marks the project changed exactly when data changed
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=100, deadline=None)
 @given(
     path=st.sampled_from(CHANGE_PATH_REGISTRY),
     shape=project_shapes,

@@ -90,7 +90,7 @@ def _identity_state(data: ProjectData) -> dict:
 # ----------------------------------------------------------------------
 
 
-@settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(data=project_strategy, ops=ops_strategy)
 def test_dp_property_1_cancel_restores_state_exactly(data, ops):
     """**Property 1: Cancelling an edit session restores state exactly**
@@ -125,7 +125,7 @@ def test_dp_property_1_cancel_restores_state_exactly(data, ops):
     assert service.active_edit_session is None
 
 
-@settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(data=project_strategy, ops=ops_strategy)
 def test_dp_property_2_commit_marks_changed_exactly_when_data_changed(data, ops):
     """**Property 2: Committing an edit session marks the project changed exactly

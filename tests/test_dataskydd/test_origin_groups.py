@@ -92,7 +92,7 @@ def _run_sequence(world: World, spec: sg.FileSpec, plan: list, duplicate_event: 
     return effective
 
 
-@settings(max_examples=40, **_PROPERTY_SETTINGS)
+@settings(max_examples=100, **_PROPERTY_SETTINGS)
 @given(spec=sg.file_specs(), plan=st.lists(sg.steps, max_size=6))
 def test_dp_property_28_unchanged_reimport_after_split_and_merge_changes_nothing(
     spec, plan
@@ -107,7 +107,7 @@ def test_dp_property_28_unchanged_reimport_after_split_and_merge_changes_nothing
         event(f"step: {kind}")
 
 
-@settings(max_examples=25, **_PROPERTY_SETTINGS)
+@settings(max_examples=100, **_PROPERTY_SETTINGS)
 @given(spec=sg.file_specs(with_events=True), plan=st.lists(sg.steps, max_size=4))
 def test_dp_property_28_event_origin_duplicated_on_a_second_event(spec, plan) -> None:
     """Property 28, event variant: an event origin that sits on two events of one

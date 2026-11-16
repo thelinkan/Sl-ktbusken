@@ -188,16 +188,9 @@ class TestImportServiceIntegration:
 
         result = service.run(project_data, gedcom_path, project_path, _ps(project_data))
 
-        # The result should have a warnings list (may or may not have entries
-        # depending on whether validation finds issues after a clean import).
-        # At minimum, the list should exist and be a list.
+        # A clean import introduces no finding, so no validation warning.
         assert isinstance(result.warnings, list)
-
-        # If there are warnings, they should contain "Valideringsvarning" prefix
-        # for any validation-originated warnings
-        for warning in result.warnings:
-            if "Valideringsvarning" in warning:
-                assert "Valideringsvarning" in warning
+        assert not any("Valideringsvarning" in w for w in result.warnings)
 
     def test_import_minimal_gedcom(self, tmp_path: Path) -> None:
         """Importing a minimal GEDCOM (HEAD + one person + TRLR) works."""
@@ -336,3 +329,138 @@ class TestAtomicImport:
             service.run(project_data, bad, tmp_path, ps)
 
         assert ps.pending_translation is pending
+
+
+# ---------------------------------------------------------------------------
+# Validation aborts the import when it introduces findings (task 16.1)
+# ---------------------------------------------------------------------------
+
+
+class _FakeValidation(ValidationService):
+    """Validator whose findings are chosen by a function of the project data."""
+
+    def __init__(self, findings) -> None:  # type: ignore[no-untyped-def]
+        super().__init__()
+        self._findings = findings
+
+    def validate_project(self, project_data):  # type: ignore[no-untyped-def]
+        return self._findings(project_data)
+
+
+def _run_with_validator(tmp_path: Path, validator: ValidationService):  # type: ignore[no-untyped-def]
+    from slaktbusken.services.report_service import ReportService as _R
+
+    service = ImportService(validator, _R())
+    project_data = _make_project_data()
+    ps = _ps(project_data)
+    gedcom_path = _write_gedcom(tmp_path, FULL_GEDCOM)
+    project_path = tmp_path / "project"
+    (project_path / "translation").mkdir(parents=True)
+    before = _tree(project_path)
+    return service, project_data, ps, gedcom_path, project_path, before
+
+
+class TestValidationAbort:
+    def test_new_finding_aborts_and_changes_nothing(self, tmp_path: Path) -> None:
+        from slaktbusken.gedcom.errors import ImportAborted
+        from slaktbusken.services.validation_service import ValidationError
+
+        def findings(data):  # type: ignore[no-untyped-def]
+            return [
+                ValidationError("Person", p.id, f"fel {i}")
+                for i, p in enumerate(data.persons)
+            ] + [ValidationError("Family", f.id, "fel") for f in data.families] * 3
+
+        service, data, ps, ged, proj, before = _run_with_validator(
+            tmp_path, _FakeValidation(findings)
+        )
+
+        with pytest.raises(ImportAborted) as exc_info:
+            service.run(data, ged, proj, ps)
+
+        exc = exc_info.value
+        assert exc.phase == "validation"
+        assert exc.message_sv.startswith(
+            "Importen avbröts och ingenting har ändrats. "
+            "Importen skulle ha gett ogiltiga data: 5 fel, t.ex. "
+        )
+        assert "Person" in exc.message_sv
+        assert "Family" in exc.traceback_text
+        assert data.persons == [] and data.families == [] and data.events == []
+        assert not ps.is_dirty
+        assert ps.pending_translation is None
+        assert ps.content_revision == 0
+        assert _tree(proj) == before
+        assert not ps.import_in_progress
+
+    def test_at_most_five_findings_are_named(self, tmp_path: Path) -> None:
+        from slaktbusken.gedcom.errors import ImportAborted
+        from slaktbusken.services.validation_service import ValidationError
+
+        def findings(data):  # type: ignore[no-untyped-def]
+            return [ValidationError("Event", e.id, "fel") for e in data.events]
+
+        service, data, ps, ged, proj, _ = _run_with_validator(
+            tmp_path, _FakeValidation(findings)
+        )
+        with pytest.raises(ImportAborted) as exc_info:
+            service.run(data, ged, proj, ps)
+
+        message = exc_info.value.message_sv
+        assert message.count("Event ") <= 5
+        assert len(exc_info.value.traceback_text.splitlines()) > 1
+
+    def test_pre_existing_finding_only_warns(self, tmp_path: Path) -> None:
+        from slaktbusken.services.validation_service import ValidationError
+
+        def findings(data):  # type: ignore[no-untyped-def]
+            return [ValidationError("Place", "place_old", "gammalt fel")]
+
+        service, data, ps, ged, proj, _ = _run_with_validator(
+            tmp_path, _FakeValidation(findings)
+        )
+
+        result = service.run(data, ged, proj, ps)
+
+        assert "Valideringsvarning (Place place_old): gammalt fel" in result.warnings
+        assert len(data.persons) == 2
+        assert ps.is_dirty
+
+    def test_validator_exception_aborts_with_cause(self, tmp_path: Path) -> None:
+        from slaktbusken.gedcom.errors import ImportAborted
+
+        def findings(data):  # type: ignore[no-untyped-def]
+            raise RuntimeError("valideringen kraschade")
+
+        service, data, ps, ged, proj, before = _run_with_validator(
+            tmp_path, _FakeValidation(findings)
+        )
+
+        with pytest.raises(ImportAborted) as exc_info:
+            service.run(data, ged, proj, ps)
+
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+        assert exc_info.value.phase == "validation"
+        assert data.persons == []
+        assert not ps.is_dirty
+        assert _tree(proj) == before
+
+    def test_residence_without_place_and_orphan_place_only_warn(
+        self, tmp_path: Path
+    ) -> None:
+        """The two findings the importer produces on purpose do not abort."""
+        text = MINIMAL_GEDCOM.replace(
+            "1 SEX M\n",
+            "1 SEX M\n1 RESI\n2 DATE 1870\n1 BIRT\n2 PLAC Bergsjö\n",
+        )
+        service = _make_service()
+        data = _make_project_data()
+        ps = _ps(data)
+
+        result = service.run(data, _write_gedcom(tmp_path, text), tmp_path, ps)
+
+        assert len(data.residences) == 1 and data.residences[0].place_id == ""
+        assert any(
+            "Boendet måste ange både person och plats." in w for w in result.warnings
+        )
+        assert any("överordnad plats" in w for w in result.warnings)

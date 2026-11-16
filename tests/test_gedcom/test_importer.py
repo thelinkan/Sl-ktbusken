@@ -2625,3 +2625,79 @@ class TestImportRunsSyncStep3d:
         # Full, UNSCOPED round-trip: no spurious parent->parent adoptive links
         # are fabricated — the set of adoptive pairs is exactly preserved.
         assert all_adoptive_pairs(second_project) == pairs_before
+
+
+# ---------------------------------------------------------------------------
+# Unexpected errors abort the import (Requirements 20.23 to 20.27)
+# ---------------------------------------------------------------------------
+
+
+class TestImportAbortsOnUnexpectedError:
+    """An unexpected exception is never turned into a "Hoppades över" warning."""
+
+    def _run(self, project, translation_dir, tmp_path, text=_MINIMAL_GEDCOM):
+        path = tmp_path / "abort.ged"
+        path.write_text(text, encoding="utf-8")
+        return GEDCOMImporter(project, translation_dir).import_file(path)
+
+    def test_person_create_error_aborts_with_record_and_cause(
+        self, empty_project, translation_dir, tmp_path, monkeypatch
+    ):
+        from slaktbusken.gedcom.errors import ImportAborted
+
+        def boom(self, *a, **kw):
+            raise RuntimeError("internt fel")
+
+        monkeypatch.setattr(GEDCOMImporter, "_create_person", boom)
+        with pytest.raises(ImportAborted) as info:
+            self._run(empty_project, translation_dir, tmp_path)
+        aborted = info.value
+        assert aborted.xref == "@I1@"
+        assert "Johan" in aborted.label
+        assert aborted.message_sv.startswith(
+            "Importen avbröts och ingenting har ändrats. Fel i post @I1@ (Johan"
+        )
+        assert "internt fel" in aborted.message_sv
+        assert isinstance(aborted.__cause__, RuntimeError)
+        assert "RuntimeError: internt fel" in aborted.traceback_text
+
+    def test_family_error_aborts_and_names_the_family(
+        self, empty_project, translation_dir, tmp_path, monkeypatch
+    ):
+        from slaktbusken.gedcom.errors import ImportAborted
+
+        def boom(self, *a, **kw):
+            raise ValueError("familjefel")
+
+        monkeypatch.setattr(GEDCOMImporter, "_create_family", boom)
+        with pytest.raises(ImportAborted) as info:
+            self._run(empty_project, translation_dir, tmp_path)
+        assert info.value.xref == "@F1@"
+        assert info.value.phase == "familjer"
+
+    def test_baseexception_is_not_wrapped(
+        self, empty_project, translation_dir, tmp_path, monkeypatch
+    ):
+        class Cancel(BaseException):
+            pass
+
+        def boom(self, *a, **kw):
+            raise Cancel()
+
+        monkeypatch.setattr(GEDCOMImporter, "_create_person", boom)
+        with pytest.raises(Cancel):
+            self._run(empty_project, translation_dir, tmp_path)
+
+    def test_uninterpretable_date_still_warns_and_continues(
+        self, empty_project, translation_dir, tmp_path
+    ):
+        text = (
+            "0 HEAD\n1 CHAR UTF-8\n0 @I1@ INDI\n1 NAME Anna /Berg/\n"
+            "1 BIRT\n2 DATE NÅGONTING OKÄNT\n0 TRLR\n"
+        )
+        result = self._run(empty_project, translation_dir, tmp_path, text)
+        assert result.persons_added == 1
+        birth = next(e for e in empty_project.events if e.type == "birth")
+        assert birth.date.qualifier == "unparsed"
+        assert "NÅGONTING OKÄNT" in (birth.date.original_text or "")
+        assert any("NÅGONTING OKÄNT" in w for w in result.warnings)

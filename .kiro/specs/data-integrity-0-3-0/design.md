@@ -1028,7 +1028,7 @@ Reflection on the prework: cancel-restores-state and "dirty and revision unchang
 
 ### Property 19: A successful import marks the project changed exactly once, and a no-op import not at all
 
-*For any* project and GEDCOM file, a successful import SHALL increase `content_revision` by one, set the dirty state and store a Pending_Translation if the project Canonical_Form or the translation data changed, and SHALL leave all three unchanged if neither did.
+*For any* project and GEDCOM file, a successful import SHALL increase `content_revision` by one, set the dirty state if the project Canonical_Form or the translation data changed, store a Pending_Translation only if the Staged_Translation differs from the effective translation data (a project-only change marks the project changed once and leaves the Pending_Translation as it was), and SHALL leave revision, dirty state and Pending_Translation unchanged if neither changed.
 
 **Validates: Requirements 3.1, 3.2, 3.3, 3.5, 20.3, 20.4**
 
@@ -1086,10 +1086,76 @@ Reflection on the prework: cancel-restores-state and "dirty and revision unchang
 
 **Validates: Requirements 22.27, 22.28, 22.29, 22.31, 22.32, 19.13**
 
+## Post-review corrections (Package 1 closure)
+
+Two corrections follow the user's review of commit 51f5f23. They change Requirements 20 (criteria 23 to 28) and 23 (criteria 8 to 14). No new architecture is added.
+
+### Correction 1: Unexpected import errors abort the import (Requirement 20.23 to 20.28)
+
+**Problem.** `GEDCOMImporter` catches any `Exception` per person (`importer.py` around lines 1670, 1685 and 1816) and records a "Hoppades över" warning. The import then succeeds with missing or half-built data, and Import_Service adopts it.
+
+**Exception taxonomy.**
+
+| Class | Raised or handled by | Behaviour |
+|---|---|---|
+| `RecoverableInputProblem` (new, `gedcom/errors.py`) | Raised only by explicit checks for known input problems (uninterpretable date, unknown tag) | Caught at the one place that handles that problem: warning in the Import_Log, original text kept as unparsed data, import continues. Date parsing already returns `unparsed` and needs no exception. |
+| `ImportAborted(Exception)` (new, `gedcom/errors.py`) | Raised by the importer wrapper (below) | Carries `message_sv`, `xref`, `label` (name or tag), `phase` and the original exception as `__cause__`; `traceback_text` holds `traceback.format_exception` output |
+| Any other exception (`Exception` subclass) | Anywhere in the importer | Not caught by per-record code. It propagates to the nearest record-level wrapper, which wraps it in `ImportAborted`. `BaseException` (cancel, `KeyboardInterrupt`) is untouched; user cancel keeps its existing path. |
+
+**Importer.** Every per-record `try/except Exception` that appends a skip warning is removed. A context manager `_record_context(xref, label, phase)` sets the current record on the importer. One outer handler in `GEDCOMImporter.import_file` catches `Exception` (not `ImportAborted`, not the cancel exception), builds `ImportAborted` from the current record context with `raise ... from exc`, and also writes the traceback to the import log buffer. No code path after the handler creates an `ImportResult`. Internal consistency checks (for example a failed validation of the Working_Copy) raise plain exceptions and therefore abort.
+
+**Message.** "Importen avbröts och ingenting har ändrats. Fel i post {xref} ({label}): {exception_text}". When no record is known: "Importen avbröts och ingenting har ändrats. Ett oväntat fel inträffade ({exception_text})."
+
+**ImportService.** The existing failure path of Component 10 applies unchanged: the Working_Copy and Staged_Translation are dropped, nothing is adopted, `mark_changed` is not called, no Pending_Translation is stored, no Translation_File is touched. `ImportAborted` passes through the service without being replaced, so no `ImportResult` exists. Other unexpected exceptions raised by the service itself keep the existing generic failure path.
+
+**Validation abort rule (Requirement 20.29 to 20.31).** After the importer returns, `ImportService` validates the original project data and the Working_Copy and compares findings by the key `(entity_type, entity_id, message)`. A finding in the Working_Copy whose key is not in the original findings was introduced by the import and aborts with `ImportAborted`, phase `"validation"`, message "Importen avbröts och ingenting har ändrats. Importen skulle ha gett ogiltiga data: N fel, t.ex. …" naming at most five findings followed by "(och K till)"; `traceback_text` lists all of them. Findings that existed before the import stay "Valideringsvarning" warnings. An exception from the validator aborts. Two findings the importer currently produces on purpose are tolerated as warnings (temporary exemption): "Boendet måste ange både person och plats." on a residence with a person and no place (a RESI without a usable PLAC), and "… måste ha en överordnad plats." on a place without a parent (a one-part place name). Measured cost: about 0.8 s extra per import on 10,000 persons. **Known limitation / follow-up:** the importer should stop producing these two findings, after which the exemption is removed.
+
+**Application.** The import error handler in `app.py` shows `ImportAborted.message_sv` in the existing import error dialog and logs `traceback_text` with the application logger. The dialog offers the traceback under "Visa detaljer" when the existing dialog supports details; otherwise the traceback is only logged. The import report shows no completed import.
+
+**Tests.** Existing tests that expected a skip warning for an unexpected exception are changed to expect `ImportAborted`. Tests for recoverable date and tag warnings stay. New module `tests/test_dataskydd/test_import_abort.py` injects a failure per entity kind (monkeypatching the creator or updater for persons, events, residences, families, places and sources) and asserts unchanged data, Dirty_State, Content_Revision, Pending_Translation, Translation_File bytes, no `ImportResult`, a Swedish message naming the record and an available traceback. A property test draws an entity kind, a position in a generated file and an exception type, and asserts the same invariants (at least 100 examples, or a documented measured reduction under Correction 2).
+
+### Correction 2: Strict Hypothesis example counts (Requirement 23.8 to 23.14)
+
+**Rule.** Every property-based test under `tests/test_dataskydd/` uses at least 100 examples (Default_Floor). A test may use fewer only if it is in the Reduced_Count_Allowlist.
+
+**Allow-list format** (in `tests/reduced_example_counts.py`, imported by both the guard test and `scripts/run_mandatory_tests.py`):
+
+```python
+ABSOLUTE_FLOOR = 20
+DEFAULT_FLOOR = 100
+
+@dataclass(frozen=True)
+class ReducedCount:
+    min_examples: int          # >= ABSOLUTE_FLOOR, < DEFAULT_FLOOR
+    measured_s_per_example: float
+    reason: str                # expensive integration, filesystem fault injection or full GEDCOM import
+
+REDUCED_COUNT_ALLOWLIST: dict[str, ReducedCount] = {
+    "tests/test_dataskydd/test_reimport.py::test_dp_property_16_repeated_import_is_stable":
+        ReducedCount(25, 0.073, "full GEDCOM import per example and case, 28 cases"),
+}
+```
+
+**Reduction threshold.** A test function qualifies for a reduced count when its runtime at 100 examples, summed over its parametrised cases, is about 60 s or more. The single reduced test is `test_reimport.py::test_dp_property_16_repeated_import_is_stable` at 25 examples (measured 0.073 s per example and case, 28 cases, about 205 s at 100 examples). The root profile `sbk` in `tests/conftest.py` (`max_examples=100`) is the only allowed profile.
+
+The test itself documents the measurement next to `@settings`, for example `MEASURED_S_PER_EXAMPLE = 0.073  # 28 cases, full import` and `@settings(max_examples=25)`. The guard checks that the module defines a constant or comment containing "MEASURED" near the decorator.
+
+**Guard rules.** The guard reads the effective `max_examples` of each property test (decorator settings, else the registered profile `sbk`) by static inspection of `@settings` plus the profile file, and fails when:
+
+1. a test is not allow-listed and its count is below 100;
+2. an allow-listed count is below `ABSOLUTE_FLOOR`, or the test's count is below its `min_examples`;
+3. an entry is stale: unknown test, effective count at least 100, or no documented measurement near `@settings`;
+4. any test sets `derandomize=True`;
+5. a test sets `max_examples` through a name the guard cannot resolve (the guard fails closed).
+
+**Runner.** `scripts/run_mandatory_tests.py` runs pytest without `--hypothesis-profile` overrides and without `HYPOTHESIS_*` environment overrides. It fails when `HYPOTHESIS_PROFILE` or a `--hypothesis-*` option is present in its arguments or environment, and checks that the loaded `sbk` profile has `max_examples >= 100`. After the run it prints the group runtime and the list of allow-listed tests with their counts and measured runtimes.
+
 ## Error Handling
 
 | Situation | Behaviour |
 |---|---|
+| Unexpected exception while the importer creates or updates any entity | `ImportAborted` with Swedish message naming xref and name or tag; traceback as `__cause__` and in the log; Working_Copy dropped; project, Dirty_State, Content_Revision, Pending_Translation and files unchanged; no import result |
+| Recognised recoverable input problem (date, unknown tag) | Warning in the Import_Log, original text preserved, import continues |
 | Person editor opened under any Session_Start_Condition | Matching exception of Component 1; the editor does not open; Swedish message from the table, naming the blocking editor by `editor_title` |
 | Foreign change detected at rollback | `EditSessionConflict`; nothing is restored; message "Projektet har ändrats utanför redigeringen. Avbrytning kan inte ångra ändringarna säkert. Spara eller håll redigeraren öppen."; the editor stays open |
 | Snapshot cannot be taken (memory) | The editor does not open; message "Det gick inte att förbereda redigeringen. Inget har ändrats."; no data changed |

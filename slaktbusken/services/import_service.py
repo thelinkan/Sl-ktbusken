@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from slaktbusken.gedcom.errors import MSG_ABORT_PREFIX, ImportAborted
 from slaktbusken.gedcom.importer import GEDCOMImporter, ImportResult
 from slaktbusken.gedcom.parser import GedcomParseError
 from slaktbusken.model.project import ProjectData
@@ -66,6 +67,64 @@ def _dump_translation(data: TranslationData) -> tuple[bytes, bytes, bytes]:
         dumps_persons(data.persons, data.families, data.person_aliases),
         dumps_places(data.places),
         dumps_sources(data.sources),
+    )
+
+
+_MAX_NAMED_FINDINGS = 5
+
+_MSG_RESIDENCE_WITHOUT_PLACE = "Boendet måste ange både person och plats."
+_MSG_PLACE_WITHOUT_PARENT_SUFFIX = "måste ha en överordnad plats."
+
+
+def _is_tolerated_import_finding(error: ValidationError, work: ProjectData) -> bool:
+    """True for the two findings the importer produces on purpose.
+
+    Temporary exemption until the importer stops producing them:
+
+    * a residence from a RESI without a usable PLAC (person set, place empty);
+    * a place from a place string without a usable hierarchy (no parent).
+
+    These stay warnings; any other finding introduced by the import aborts.
+    """
+    if error.message == _MSG_RESIDENCE_WITHOUT_PLACE:
+        residence = next(
+            (r for r in work.residences if r.id == error.entity_id), None
+        )
+        return (
+            residence is not None
+            and bool(residence.person_id.strip())
+            and not residence.place_id.strip()
+        )
+    if error.message.endswith(_MSG_PLACE_WITHOUT_PARENT_SUFFIX):
+        place = next((p for p in work.places if p.id == error.entity_id), None)
+        return place is not None and not place.parent_place_id
+    return False
+
+
+def _finding_key(error: ValidationError) -> tuple[str, str, str]:
+    """Stable identity of a validation finding across two validation runs."""
+    return (error.entity_type, error.entity_id, error.message)
+
+
+def _validation_aborted(introduced: list[ValidationError]) -> ImportAborted:
+    """Build the abort for findings that the import introduced."""
+    named = "; ".join(
+        f"{e.entity_type} {e.entity_id}: {e.message}"
+        for e in introduced[:_MAX_NAMED_FINDINGS]
+    )
+    more = (
+        f" (och {len(introduced) - _MAX_NAMED_FINDINGS} till)"
+        if len(introduced) > _MAX_NAMED_FINDINGS
+        else ""
+    )
+    details = "\n".join(
+        f"{e.entity_type} {e.entity_id}: {e.message}" for e in introduced
+    )
+    return ImportAborted(
+        f"{MSG_ABORT_PREFIX} Importen skulle ha gett ogiltiga data: "
+        f"{len(introduced)} fel, t.ex. {named}{more}",
+        phase="validation",
+        traceback_text=f"Nya valideringsfel ({len(introduced)}):\n{details}",
     )
 
 
@@ -233,13 +292,29 @@ class ImportService:
                     place.region_levels = get_preset(preset_name)
 
         # Post-import validation
-        validation_errors = self._validation_service.validate_project(work)
-        if validation_errors:
-            for error in validation_errors:
-                result.warnings.append(
-                    f"Valideringsvarning ({error.entity_type} "
-                    f"{error.entity_id}): {error.message}"
-                )
+        # Findings that the import introduced abort it; findings that were
+        # already in the original data stay warnings.
+        try:
+            before_keys = {
+                _finding_key(e)
+                for e in self._validation_service.validate_project(project_data)
+            }
+            validation_errors = self._validation_service.validate_project(work)
+        except Exception as e:  # noqa: BLE001 - any failure of the validator aborts
+            raise ImportAborted.from_exception(e, phase="validation") from e
+        introduced = [
+            e
+            for e in validation_errors
+            if _finding_key(e) not in before_keys
+            and not _is_tolerated_import_finding(e, work)
+        ]
+        if introduced:
+            raise _validation_aborted(introduced)
+        for error in validation_errors:
+            result.warnings.append(
+                f"Valideringsvarning ({error.entity_type} "
+                f"{error.entity_id}): {error.message}"
+            )
 
         # A translation file that changed during the import aborts it; the
         # working copy is discarded and nothing has been touched.

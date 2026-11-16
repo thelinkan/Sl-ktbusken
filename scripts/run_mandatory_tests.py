@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
@@ -33,6 +34,10 @@ from tests.mandatory_groups import (  # noqa: E402
     MANDATORY_GROUPS,
     WINDOWS_ONLY_MODULE,
     WINDOWS_ONLY_TESTS,
+)
+from tests.reduced_example_counts import (  # noqa: E402
+    REDUCED_COUNT_ALLOWLIST,
+    hypothesis_override_problems,
 )
 
 EXIT_OK = 0
@@ -79,6 +84,45 @@ def _parse_junit(path: Path) -> dict[str, list[tuple[str, str]]]:
             outcome = "passed"
         by_module[module].append((_base_name(case.get("name", "")), outcome))
     return by_module
+
+
+def _module_times(path: Path) -> dict[str, float]:
+    """Summerad körtid (sekunder) per obligatorisk modul enligt JUnit-XML."""
+    times: dict[str, float] = defaultdict(float)
+    if not path.exists():
+        return times
+    modules = {m for g in MANDATORY_GROUPS for m in g.modules}
+    dotted = {_dotted(m): m for m in modules}
+    for case in ET.parse(path).getroot().iter("testcase"):
+        classname = case.get("classname", "")
+        module = next(
+            (
+                dotted[d]
+                for d in sorted(dotted, key=len, reverse=True)
+                if classname == d or classname.startswith(d + ".")
+            ),
+            None,
+        )
+        if module is not None:
+            times[module] += float(case.get("time", "0") or 0)
+    return times
+
+
+def _report_dataskydd(times: dict[str, float], wall_seconds: float) -> None:
+    """Skriver Dataskydd-gruppens körtid och listan över minskade exempelantal."""
+    group = next((g for g in MANDATORY_GROUPS if g.key == "data_protection"), None)
+    if group is not None:
+        total = sum(times.get(m, 0.0) for m in group.modules)
+        print(f"Dataskydd: gruppens körtid {total:.1f} s (hela körningen {wall_seconds:.1f} s)")
+    if not REDUCED_COUNT_ALLOWLIST:
+        print("Dataskydd: inga tester har minskat antal Hypothesis-exempel")
+        return
+    print(f"Dataskydd: {len(REDUCED_COUNT_ALLOWLIST)} tester har minskat antal Hypothesis-exempel:")
+    for test_id, entry in sorted(REDUCED_COUNT_ALLOWLIST.items()):
+        print(
+            f"  - {test_id}: minst {entry.min_examples} exempel, "
+            f"uppmätt {entry.measured_s_per_example:.2f} s/exempel, {entry.reason}"
+        )
 
 
 def _has(results: list[tuple[str, str]], pattern: str) -> bool:
@@ -171,12 +215,21 @@ def main() -> int:
         missing_modules.add(GUARD_MODULE)
     real_missing = sorted(m for m in missing_modules if m != META_DIR)
 
+    overrides = hypothesis_override_problems(sys.argv[1:], dict(os.environ), ROOT)
+    if overrides:
+        print("Obligatoriska testgrupper: UNDERKÄND, Hypothesis-inställningarna får inte åsidosättas:")
+        for problem in overrides:
+            print(f"  - {problem}")
+        return EXIT_FAILED
+
     env = dict(os.environ)
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["SBK_MANDATORY_STRICT"] = "1"
 
     pytest_code = EXIT_OK
     results: dict[str, list[tuple[str, str]]] = {}
+    times: dict[str, float] = {}
+    started = time.monotonic()
     if existing:
         with tempfile.TemporaryDirectory(prefix="sbk_mandatory_") as tmp:
             junit = Path(tmp) / "junit.xml"
@@ -187,10 +240,12 @@ def main() -> int:
             print("Kör: " + " ".join(cmd), flush=True)
             pytest_code = subprocess.run(cmd, cwd=ROOT, env=env).returncode
             results = _parse_junit(junit)
+            times = _module_times(junit)
     else:
         print("Inga obligatoriska testmoduler finns ännu.")
 
     print()
+    _report_dataskydd(times, time.monotonic() - started)
     if real_missing:
         print("Moduler som saknas:")
         for module in real_missing:
