@@ -125,7 +125,8 @@ def format_person_display(person: Person, events: list[Event]) -> str:
                     if event.date:
                         parsed = parse_date_value(event.date)
                         if parsed:
-                            birth_year = str(parsed.year)
+                            if parsed.precision in ("exact", "about"):
+                                birth_year = str(parsed.year)
                     break
             if birth_year != "?":
                 break
@@ -139,7 +140,8 @@ def format_person_display(person: Person, events: list[Event]) -> str:
                     if event.date:
                         parsed = parse_date_value(event.date)
                         if parsed:
-                            death_year = str(parsed.year)
+                            if parsed.precision in ("exact", "about"):
+                                death_year = str(parsed.year)
                     break
             if death_year != "?":
                 break

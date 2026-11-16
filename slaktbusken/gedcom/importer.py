@@ -23,8 +23,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional, Sequence
 
+from slaktbusken.gedcom.dates import parse_gedcom_date
+from slaktbusken.model.date_semantics import validate_date_value
 from slaktbusken.gedcom.parser import GedcomLine, GedcomParseError, parse_gedcom
 from slaktbusken.gedcom.translation import TranslationManager
 from slaktbusken.gedcom.translation.models import (
@@ -38,8 +40,20 @@ from slaktbusken.gedcom.translation.person_mapping import (
     classify_persons,
     compute_composite_key_hash,
 )
+from slaktbusken.gedcom.translation.record_identity import (
+    IncomingRecord,
+    MatchResult,
+    Outcome,
+    PoolEntry,
+    build_origin_groups,
+    event_fingerprint,
+    match_records,
+    residence_fingerprint,
+    record_hash,
+)
 from slaktbusken.gedcom.translation.source_translation import detect_arkiv_digital
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
+from slaktbusken.model.record_origin import RecordOrigin
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.id_generator import IDGenerator
 from slaktbusken.services.id_registry import person_id_seed, retired_person_ids
@@ -81,6 +95,11 @@ class ImportResult:
         events_added: Number of new events created.
         sources_added: Number of new sources created.
         places_added: Number of new places created.
+        events_claimed: Number of legacy events (without origin) that were
+            matched one to one and received an Event_Origin.
+        residences_added: Number of new residences created from RESI records.
+        residences_claimed: Number of legacy residences (without origins)
+            matched one to one that received an origin.
         warnings: Swedish-language warnings for skipped/problematic records.
     """
 
@@ -91,9 +110,13 @@ class ImportResult:
     events_added: int = 0
     sources_added: int = 0
     places_added: int = 0
+    events_claimed: int = 0
+    residences_added: int = 0
+    residences_claimed: int = 0
     warnings: list[str] = field(default_factory=list)
     merged_identity_matches: list["MergedIdentityMatch"] = field(default_factory=list)
     ambiguous_records: list["AmbiguousRecord"] = field(default_factory=list)
+    translation: Optional[TranslationData] = None
 
 
 @dataclass
@@ -183,25 +206,6 @@ class WarningEntry:
 
         return " | ".join(parts) if parts else self.reason
 
-
-# ---------------------------------------------------------------------------
-# GEDCOM month mapping
-# ---------------------------------------------------------------------------
-
-_GEDCOM_MONTHS: dict[str, str] = {
-    "JAN": "01",
-    "FEB": "02",
-    "MAR": "03",
-    "APR": "04",
-    "MAY": "05",
-    "JUN": "06",
-    "JUL": "07",
-    "AUG": "08",
-    "SEP": "09",
-    "OCT": "10",
-    "NOV": "11",
-    "DEC": "12",
-}
 
 # Tags for individual events we recognize
 _INDI_EVENT_TAGS: dict[str, str] = {
@@ -296,85 +300,6 @@ def _extract_famc_pedigree(record: GedcomLine) -> dict[str, str]:
     return pedigrees
 
 
-# ---------------------------------------------------------------------------
-# GEDCOM date parsing
-# ---------------------------------------------------------------------------
-
-# Date pattern: optional prefix (ABT/BEF/AFT/EST/CAL) + date components
-_DATE_PREFIX_RE = re.compile(
-    r"^(ABT|BEF|AFT|EST|CAL|FROM|TO|BET)?\s*(.+)$", re.IGNORECASE
-)
-_DATE_FULL_RE = re.compile(
-    r"^(\d{1,2})\s+([A-Z]{3})\s+(\d{4})$", re.IGNORECASE
-)
-_DATE_MONTH_YEAR_RE = re.compile(r"^([A-Z]{3})\s+(\d{4})$", re.IGNORECASE)
-_DATE_YEAR_RE = re.compile(r"^(\d{4})$")
-
-
-def parse_gedcom_date(raw_date: str) -> Optional[DateValue]:
-    """Parse a GEDCOM date string into a DateValue.
-
-    Handles formats:
-        - "1 JAN 1900" → day precision
-        - "JAN 1900" → month precision
-        - "1900" → year precision
-        - "ABT 1900", "BEF 1900", "AFT 1900" → approximate precision
-
-    Args:
-        raw_date: The raw GEDCOM DATE value string.
-
-    Returns:
-        A DateValue instance, or None if the date cannot be parsed.
-    """
-    if not raw_date or not raw_date.strip():
-        return None
-
-    stripped = raw_date.strip()
-
-    # Extract prefix (ABT, BEF, AFT, etc.)
-    prefix_match = _DATE_PREFIX_RE.match(stripped)
-    if not prefix_match:
-        return None
-
-    prefix = prefix_match.group(1)
-    date_part = prefix_match.group(2).strip()
-
-    is_approximate = prefix is not None and prefix.upper() in (
-        "ABT", "BEF", "AFT", "EST", "CAL",
-    )
-
-    # Try full date: "1 JAN 1900"
-    full_match = _DATE_FULL_RE.match(date_part)
-    if full_match:
-        day = int(full_match.group(1))
-        month_abbr = full_match.group(2).upper()
-        year = full_match.group(3)
-        month = _GEDCOM_MONTHS.get(month_abbr)
-        if month:
-            value = f"{year}-{month}-{day:02d}"
-            precision = "approximate" if is_approximate else "day"
-            return DateValue(value=value, precision=precision)
-
-    # Try month-year: "JAN 1900"
-    my_match = _DATE_MONTH_YEAR_RE.match(date_part)
-    if my_match:
-        month_abbr = my_match.group(1).upper()
-        year = my_match.group(2)
-        month = _GEDCOM_MONTHS.get(month_abbr)
-        if month:
-            value = f"{year}-{month}"
-            precision = "approximate" if is_approximate else "month"
-            return DateValue(value=value, precision=precision)
-
-    # Try year only: "1900"
-    year_match = _DATE_YEAR_RE.match(date_part)
-    if year_match:
-        value = year_match.group(1)
-        precision = "approximate" if is_approximate else "year"
-        return DateValue(value=value, precision=precision)
-
-    return None
-
 
 # ---------------------------------------------------------------------------
 # GEDCOM RESI date range parsing
@@ -391,51 +316,97 @@ _BET_AND_RE = re.compile(
 )
 
 
-def _parse_single_gedcom_date(raw: str) -> tuple[Optional[str], Optional[str]]:
-    """Parse a single GEDCOM date component into (iso_value, precision).
 
-    Returns (None, None) if the date cannot be interpreted.
+def _date_dedup_key(dv: Optional[DateValue]) -> Optional[str]:
+    """Comparison key for a date: the ISO value for exact dates, else every
+    structured field and the original text, so that two different qualified or
+    unparsed dates are never treated as equal."""
+    if dv is None:
+        return None
+    if dv.qualifier == "exact" and dv.precision != "approximate":
+        return dv.value or None
+    return "|".join(
+        (dv.qualifier, dv.calendar, dv.value or "", dv.value_to or "", dv.original_text or "")
+    )
+
+
+def _event_tag_key(tag: str, custom_type_name: Optional[str]) -> str:
+    """Tag key of an event record, consistent with ``tag_key_of``.
+
+    The GEDCOM tag, except that ``CHR`` is keyed as ``BAPM`` (both map to the
+    baptism type) and an ``EVEN`` record is ``EVEN:`` plus the normalised TYPE
+    value (``EVEN`` alone without TYPE).
     """
-    stripped = raw.strip()
-    if not stripped:
-        return None, None
+    tag = tag.upper()
+    if tag == "EVEN":
+        name = (custom_type_name or "").strip().lower()
+        return f"EVEN:{name}" if name else "EVEN"
+    return "BAPM" if tag == "CHR" else tag
 
-    # Check for approximate prefix
-    approx_match = re.match(r"^(ABT|BEF|AFT|EST|CAL)\s+(.+)$", stripped, re.IGNORECASE)
-    is_approximate = approx_match is not None
-    date_part = approx_match.group(2).strip() if approx_match else stripped
 
-    # Full date: "1 JAN 1900"
-    full_match = _DATE_FULL_RE.match(date_part)
-    if full_match:
-        day = int(full_match.group(1))
-        month_abbr = full_match.group(2).upper()
-        year = full_match.group(3)
-        month = _GEDCOM_MONTHS.get(month_abbr)
-        if month:
-            value = f"{year}-{month}-{day:02d}"
-            precision = "approximate" if is_approximate else "day"
-            return value, precision
+@dataclass
+class _EventSpec:
+    """An event-bearing child record of an INDI or FAM record."""
 
-    # Month-year: "JAN 1900"
-    my_match = _DATE_MONTH_YEAR_RE.match(date_part)
-    if my_match:
-        month_abbr = my_match.group(1).upper()
-        year = my_match.group(2)
-        month = _GEDCOM_MONTHS.get(month_abbr)
-        if month:
-            value = f"{year}-{month}"
-            precision = "approximate" if is_approximate else "month"
-            return value, precision
+    record: GedcomLine
+    event_type: str
+    tag_key: str
+    participants: list[tuple[str, str]]
+    custom_type_name: Optional[str] = None
+    placement: bool = False
 
-    # Year only: "1900"
-    year_match = _DATE_YEAR_RE.match(date_part)
-    if year_match:
-        value = year_match.group(1)
-        precision = "approximate" if is_approximate else "year"
-        return value, precision
 
-    return None, None
+class _EventIndex:
+    """Lookup tables over the project's events for the identity matcher.
+
+    Built once per import from the events present at that time and extended
+    by the importer for events it creates or claims, so that matching an
+    owner does not scan every event of the project.
+    """
+
+    def __init__(self, events: Sequence[Event]) -> None:
+        self.by_id: dict[str, Event] = {}
+        self.by_participant: dict[str, list[Event]] = {}
+        self.by_origin_owner: dict[tuple[str, str], list[Event]] = {}
+        self._seen: set[int] = set()
+        for event in events:
+            self.add(event)
+
+    def add(self, event: Event) -> None:
+        if id(event) in self._seen:
+            return
+        self._seen.add(id(event))
+        self.by_id[event.id] = event
+        listed: set[str] = set()
+        for participant in event.participants:
+            if participant.person_id not in listed:
+                listed.add(participant.person_id)
+                self.by_participant.setdefault(participant.person_id, []).append(event)
+        self.note_origin(event)
+
+    def note_origin(self, event: Event) -> None:
+        origin = event.origin
+        if origin is None:
+            return
+        bucket = self.by_origin_owner.setdefault((origin.owner_kind, origin.owner_id), [])
+        if not any(e is event for e in bucket):
+            bucket.append(event)
+
+
+class _ResidenceIndex:
+    """Per-person lookup of residences for the identity matcher."""
+
+    def __init__(self, residences: Sequence[ResidenceFact]) -> None:
+        self.by_person: dict[str, list[ResidenceFact]] = {}
+        self._seen: set[int] = set()
+        for fact in residences:
+            self.add(fact)
+
+    def add(self, fact: ResidenceFact) -> None:
+        if id(fact) in self._seen:
+            return
+        self._seen.add(id(fact))
+        self.by_person.setdefault(fact.person_id, []).append(fact)
 
 
 @dataclass
@@ -451,84 +422,104 @@ class _ResiDateResult:
     interpretable: bool = False
 
 
+def _resi_fragment(text: str) -> Optional[tuple[str, str, DateValue]]:
+    """Parse one RESI date fragment into (iso, precision, DateValue).
+
+    Only a single Gregorian date, optionally qualified (ABT, EST, CAL, BEF,
+    AFT), is usable; anything else (unparsed, Julian, a nested range) is not.
+    """
+    parsed = parse_gedcom_date(text)
+    if parsed is None:
+        return None
+    dv = parsed.value
+    if (
+        dv.qualifier not in ("exact", "about", "estimated", "calculated", "before", "after")
+        or dv.calendar != "gregorian"
+        or not dv.value
+    ):
+        return None
+    if dv.qualifier == "exact":
+        precision = {4: "year", 7: "month"}.get(len(dv.value), "day")
+    else:
+        precision = "approximate"
+    return dv.value, precision, dv
+
+
+def _resi_range_ok(first: DateValue, last: DateValue, qualifier: str) -> bool:
+    """Whether the two endpoints form a valid, non-reversed range."""
+    return not validate_date_value(
+        DateValue(
+            value=first.value, precision="approximate", qualifier=qualifier,
+            value_to=last.value,
+        )
+    )
+
+
 def _parse_resi_date(raw_date: Optional[str]) -> _ResiDateResult:
     """Parse a RESI DATE line into endpoint data for a ResidenceFact.
 
-    Handles:
-    - "FROM x TO y" → start.latest = x, end.earliest = y (core bounds)
-    - "BET x AND y" → start.earliest = x, start.latest = y, end unknown
-    - Plain date → start.latest = date, end.earliest = date (both core bounds)
-    - Missing/uninterpretable → both endpoints unknown
+    Tokenising and validation of every fragment are delegated to
+    ``gedcom.dates``; this function only maps the structured fragments onto
+    ``Endpoint`` bounds:
 
-    Returns a _ResiDateResult with the parsed values.
+    - ``FROM x TO y`` -> start.latest = x, end.earliest = y (core bounds)
+    - ``BET x AND y`` -> start.earliest = x, start.latest = y, end unknown
+    - ``FROM x`` -> start.latest = x; ``TO x`` -> end.earliest = x
+    - a single date (also ``ABT``, ``BEF`` ...) -> start.latest = end.earliest
+      = the date (approximate precision when qualified)
+    - unparsed, Julian, reversed and empty -> not interpretable, both
+      endpoints unknown (an Endpoint has no calendar, so a Julian date is
+      never stored as if it were Gregorian)
     """
     result = _ResiDateResult()
-
     if not raw_date or not raw_date.strip():
         return result
 
     stripped = raw_date.strip()
+    lead = ""
+    escape = re.match(r"^(@#D[^@]*@)\s*(.*)$", stripped)
+    if escape:
+        lead, stripped = escape.group(1) + " ", escape.group(2)
 
-    # FROM x TO y → sets start.latest and end.earliest (core bounds)
     m = _FROM_TO_RE.match(stripped)
     if m:
-        from_val, from_prec = _parse_single_gedcom_date(m.group(1))
-        to_val, to_prec = _parse_single_gedcom_date(m.group(2))
-        if from_val is not None and to_val is not None:
-            result.start_latest = from_val
-            result.start_precision = from_prec
-            result.end_earliest = to_val
-            result.end_precision = to_prec
+        a, b = _resi_fragment(lead + m.group(1)), _resi_fragment(lead + m.group(2))
+        if a and b and _resi_range_ok(a[2], b[2], "from_to"):
+            result.start_latest, result.start_precision = a[0], a[1]
+            result.end_earliest, result.end_precision = b[0], b[1]
             result.interpretable = True
-            return result
-        # One side failed → fall through to uninterpretable
         return result
 
-    # BET x AND y → start window (earliest=x, latest=y), end unknown
     m = _BET_AND_RE.match(stripped)
     if m:
-        bet_val, bet_prec = _parse_single_gedcom_date(m.group(1))
-        and_val, and_prec = _parse_single_gedcom_date(m.group(2))
-        if bet_val is not None and and_val is not None:
-            result.start_earliest = bet_val
-            result.start_latest = and_val
-            result.start_precision = and_prec
+        a, b = _resi_fragment(lead + m.group(1)), _resi_fragment(lead + m.group(2))
+        if a and b and _resi_range_ok(a[2], b[2], "between"):
+            result.start_earliest = a[0]
+            result.start_latest, result.start_precision = b[0], b[1]
             result.interpretable = True
-            return result
         return result
 
-    # FROM x only (without TO) → start.latest = x, end unknown
     m = _FROM_ONLY_RE.match(stripped)
     if m:
-        val, prec = _parse_single_gedcom_date(m.group(1))
-        if val is not None:
-            result.start_latest = val
-            result.start_precision = prec
+        a = _resi_fragment(lead + m.group(1))
+        if a:
+            result.start_latest, result.start_precision = a[0], a[1]
             result.interpretable = True
-            return result
         return result
 
-    # TO x only (without FROM) → end.earliest = x, start unknown
     m = _TO_ONLY_RE.match(stripped)
     if m:
-        val, prec = _parse_single_gedcom_date(m.group(1))
-        if val is not None:
-            result.end_earliest = val
-            result.end_precision = prec
+        a = _resi_fragment(lead + m.group(1))
+        if a:
+            result.end_earliest, result.end_precision = a[0], a[1]
             result.interpretable = True
-            return result
         return result
 
-    # Plain date → both core bounds set to the same value
-    val, prec = _parse_single_gedcom_date(stripped)
-    if val is not None:
-        result.start_latest = val
-        result.start_precision = prec
-        result.end_earliest = val
-        result.end_precision = prec
+    a = _resi_fragment(lead + stripped)
+    if a:
+        result.start_latest = result.end_earliest = a[0]
+        result.start_precision = result.end_precision = a[1]
         result.interpretable = True
-        return result
-
     return result
 
 
@@ -546,16 +537,11 @@ _AVSLUTADES_NOTE_RE = re.compile(r"^Avslutades:\s*(.+)$", re.IGNORECASE)
 def _date_value_from(raw: Optional[str]) -> Optional[DateValue]:
     """Parse a single GEDCOM date fragment into a DateValue, or None.
 
-    A thin wrapper over :func:`_parse_single_gedcom_date` that returns a
-    :class:`DateValue` when the fragment is interpretable, mirroring the
-    ``(value, precision)`` contract used by the RESI date parser.
+    ``None`` only for a blank fragment; an unreadable fragment becomes an
+    unparsed :class:`DateValue` that keeps its text.
     """
-    if not raw or not raw.strip():
-        return None
-    value, precision = _parse_single_gedcom_date(raw)
-    if value is None:
-        return None
-    return DateValue(value=value, precision=precision or "day")
+    parsed = parse_gedcom_date(raw or "")
+    return parsed.value if parsed is not None else None
 
 
 def _parse_placement_dates(
@@ -592,24 +578,30 @@ def _parse_placement_dates(
     if date_str and date_str.strip():
         stripped = date_str.strip()
 
+        # A leading calendar escape applies to every endpoint of the period.
+        lead = ""
+        escape = re.match(r"^(@#D[^@]*@)\s*(.*)$", stripped)
+        if escape:
+            lead, stripped = escape.group(1) + " ", escape.group(2)
+
         m = _FROM_TO_RE.match(stripped)
         if m:
-            start_date = _date_value_from(m.group(1))
-            end_date = _date_value_from(m.group(2))
+            start_date = _date_value_from(lead + m.group(1))
+            end_date = _date_value_from(lead + m.group(2))
             return start_date, end_date
 
         m = _FROM_ONLY_RE.match(stripped)
         if m:
-            start_date = _date_value_from(m.group(1))
+            start_date = _date_value_from(lead + m.group(1))
             return start_date, None
 
         m = _TO_ONLY_RE.match(stripped)
         if m:
-            end_date = _date_value_from(m.group(1))
+            end_date = _date_value_from(lead + m.group(1))
             return None, end_date
 
         # Plain date (no period marker): the start is this date; no end.
-        start_date = parse_gedcom_date(stripped)
+        start_date = _date_value_from(lead + stripped)
 
     # No period upper bound: fall back to a labelled "Avslutades:" NOTE.
     if end_date is None:
@@ -1099,11 +1091,26 @@ class GEDCOMImporter:
             files are stored.
     """
 
-    def __init__(self, project_data: ProjectData, translation_dir: Path) -> None:
-        """Initialize the importer with project data and translation directory."""
+    def __init__(
+        self,
+        project_data: ProjectData,
+        translation_dir: Path,
+        *,
+        overlay: Optional[TranslationData] = None,
+        stage_only: bool = False,
+    ) -> None:
+        """Initialize the importer with project data and translation directory.
+
+        Args:
+            overlay: Pending translation data used instead of the files on
+                disk for every translation read.
+            stage_only: When True the importer writes no translation file and
+                returns the mutated data in ``ImportResult.translation``.
+        """
         self._project_data = project_data
         self._translation_dir = translation_dir
-        self._translation_mgr = TranslationManager(translation_dir)
+        self._stage_only = stage_only
+        self._translation_mgr = TranslationManager(translation_dir, overlay=overlay)
         self._warnings: list[WarningEntry] = []
         self._gedcom_filename: Optional[str] = None
 
@@ -1163,10 +1170,15 @@ class GEDCOMImporter:
         # Translation data reference (set during import_file)
         self._translation_data: Optional[TranslationData] = None
 
-        # Event deduplication: set of keys for existing events when updating
-        # a person. Used by _create_event to skip duplicates.
-        # Key format: (event_type, date_value_str_or_none, place_id_or_none)
-        self._existing_event_keys: Optional[set[tuple[str, Optional[str], Optional[str]]]] = None
+        # Event identity: lookup tables over the project's events, built on the
+        # first matcher call of a run and kept current for events created in
+        # the run (see _EventIndex).
+        self._event_index: Optional[_EventIndex] = None
+        self._events_missing_from_file = 0
+        # Residence identity: per-person lookup built on first use per run.
+        self._residence_index: Optional[_ResidenceIndex] = None
+        self._residences_added = 0
+        self._residences_claimed = 0
 
         # Counters
         self._persons_added = 0
@@ -1174,6 +1186,10 @@ class GEDCOMImporter:
         self._families_added = 0
         self._families_updated = 0
         self._events_added = 0
+        self._events_claimed = 0
+        self._residences_added = 0
+        self._residences_claimed = 0
+        self._residence_index = None
         self._sources_added = 0
         self._places_added = 0
 
@@ -1209,6 +1225,7 @@ class GEDCOMImporter:
 
         # Store filename for structured warnings
         self._gedcom_filename = gedcom_path.name
+        self._event_index = None
 
         # Parse into tree
         parse_result = parse_gedcom(text)
@@ -1314,8 +1331,38 @@ class GEDCOMImporter:
         sync_parentage_links(self._project_data)
         _reconcile_imported_placement_families(self._project_data)
 
-        # Save updated translation data
-        self._translation_mgr.save_translations(translation_data)
+        # Summary notices for the event identity matcher (Requirements 10.7,
+        # 19.7): events whose GEDCOM record is no longer in the file stay
+        # untouched, and legacy events that received an Event_Origin are
+        # counted.
+        if self._events_missing_from_file:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                reason=(
+                    f"{self._events_missing_from_file} befintliga händelser "
+                    "hittades inte i GEDCOM-filen och lämnades oförändrade."
+                ),
+            ))
+        if self._events_claimed:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                reason=(
+                    f"{self._events_claimed} befintliga händelser kopplades "
+                    "till GEDCOM-posterna och fick ursprungsmärkning."
+                ),
+            ))
+        if self._residences_claimed:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                reason=(
+                    f"{self._residences_claimed} befintliga boenden kopplades "
+                    "till GEDCOM-posterna och fick ursprungsmärkning."
+                ),
+            ))
+
+        # Save updated translation data (staged imports leave the files alone)
+        if not self._stage_only:
+            self._translation_mgr.save_translations(translation_data)
 
         # Write diagnostic log to C:\Temp
         self._write_import_log(
@@ -1328,11 +1375,15 @@ class GEDCOMImporter:
             families_added=self._families_added,
             families_updated=self._families_updated,
             events_added=self._events_added,
+            events_claimed=self._events_claimed,
+            residences_added=self._residences_added,
+            residences_claimed=self._residences_claimed,
             sources_added=self._sources_added,
             places_added=self._places_added,
             warnings=[str(w) for w in self._warnings],
             merged_identity_matches=list(self._merged_identity_matches),
             ambiguous_records=list(self._ambiguous_records),
+            translation=translation_data if self._stage_only else None,
         )
 
     # ------------------------------------------------------------------
@@ -1711,10 +1762,6 @@ class GEDCOMImporter:
 
         # Process each person according to classification
         for gedcom_person in incoming_persons:
-            # Reset event-related state at the start of each INDI record
-            # to prevent leakage between persons (Bug 3 fix)
-            self._existing_event_keys = None
-
             record = person_records_by_xref.get(gedcom_person.xref_id)
             if record is None:
                 continue
@@ -1921,8 +1968,9 @@ class GEDCOMImporter:
                     continue
                 if not any(pt.person_id == person.id for pt in evt.participants):
                     continue
-                if evt.date and evt.date.value:
-                    dates.add(evt.date.value)
+                key = _date_dedup_key(evt.date)
+                if key:
+                    dates.add(key)
                 if evt.place and evt.place.place_id in place_names:
                     places.add(place_names[evt.place.place_id])
             return dates, places
@@ -1934,7 +1982,7 @@ class GEDCOMImporter:
             dates, places = event_values(event_type)
             if raw_date and raw_date.strip():
                 parsed = parse_gedcom_date(raw_date)
-                if parsed is None or parsed.value not in dates:
+                if parsed is None or _date_dedup_key(parsed.value) not in dates:
                     differing.append(f"{label}_date")
             if raw_place and raw_place.strip():
                 raw = raw_place.strip()
@@ -2122,183 +2170,605 @@ class GEDCOMImporter:
         existing_person.occupation = gedcom_person.occupation
         self._persons_updated += 1
 
-        # Event deduplication: build set of existing event keys for this person
-        # so _create_event can skip duplicates during re-import
-        existing_keys: set[tuple[str, Optional[str], Optional[str]]] = set()
-        for evt in self._project_data.events:
-            for participant in evt.participants:
-                if participant.person_id == person_id:
-                    date_val = evt.date.value if evt.date else None
-                    place_id = evt.place.place_id if evt.place else None
-                    existing_keys.add((evt.type, date_val, place_id))
-                    break
-
-        self._existing_event_keys = existing_keys
-        try:
-            self._create_person_events(person_id, record)
-        finally:
-            self._existing_event_keys = None
+        # Events are matched against the person's existing events by the
+        # identity matcher inside _create_person_events (Requirement 10).
+        self._create_person_events(person_id, record)
         return True
 
     def _create_person_events(self, person_id: str, record: GedcomLine) -> None:
         """Create events and residences for a person from GEDCOM event tags.
 
-        Scans the INDI record's children for known event tags (BIRT, DEAT,
-        BURI, BAPM, CHR, etc.) and creates Event records for each.
-        Handles RESI tags as ResidenceFact entities (not events).
-        Handles EVEN with TYPE Flytt as a flytt Event.
+        The event-bearing children (BIRT, DEAT, BURI, BAPM, CHR, ADOP, EVEN
+        and so on) are collected into incoming records and matched once
+        against the person's existing events (Requirement 10, 19). Records
+        that stand for an existing event leave it untouched; only new records
+        create events, each with its Event_Origin. RESI children become
+        ResidenceFact entities (not events) and are handled in file order.
 
         Args:
             person_id: The App_JSON person ID to use as participant.
             record: The INDI GedcomLine record with event children.
         """
+        specs: list[_EventSpec] = []
         for child in record.children:
-            tag = child.tag.upper()
-            if tag == "RESI":
-                # RESI → ResidenceFact (Requirement 12.7, 12.8, 12.12, 12.13)
-                self._create_residence(person_id, child)
-            elif tag == "ADOP":
-                # ADOP → an "adoption" placement START event. It carries the
-                # child in the "subject" role for now and (when exported by us)
-                # a subordinate FAMC pointing at the derived family for its
-                # Parent_Set. Record it for finalisation once the families exist
-                # so the adoptive parents can be attached (Requirements 11.7,
-                # 11.7a). The child's DATE/PLAC are read by _create_event, so a
-                # matching ADOP's date/place is preferred over a dateless
-                # back-fill.
-                event_id = self._create_event(
-                    event_type="adoption",
-                    event_record=child,
+            spec = self._indi_event_spec(child, person_id)
+            if spec is not None:
+                specs.append(spec)
+        owner_xref = record.xref_id or ""
+        results = self._match_owner_events("INDI", person_id, owner_xref, specs)
+        result_for = {id(s.record): (s, r) for s, r in zip(specs, results)}
+        resi_children = [c for c in record.children if c.tag.upper() == "RESI"]
+        resi_results = self._match_person_residences(
+            person_id, owner_xref, resi_children
+        )
+        resi_for = {id(c): r for c, r in zip(resi_children, resi_results)}
+        claimed_legacy: list[ResidenceFact] = []
+
+        for child in record.children:
+            if child.tag.upper() == "RESI":
+                # RESI → ResidenceFact (Requirement 12.7, 12.8, 12.12, 12.13, 22)
+                self._apply_residence_result(
+                    resi_for[id(child)], child, person_id, owner_xref, claimed_legacy
+                )
+                continue
+            pair = result_for.get(id(child))
+            if pair is None:
+                continue
+            spec, res = pair
+            event_id = self._apply_event_result(
+                res,
+                spec,
+                "INDI",
+                person_id,
+                owner_xref,
+                [person_id],
+                lambda origin, s=spec: self._create_event(
+                    event_type=s.event_type,
+                    event_record=s.record,
                     participant_id=person_id,
                     participant_role="subject",
+                    custom_type_name=s.custom_type_name,
+                    origin=origin,
+                ),
+            )
+            if event_id is not None and spec.placement:
+                # ADOP and EVEN/TYPE Fosterhem are placement START events,
+                # finalised once the families exist (Requirements 11.7, 11.7a).
+                # Only newly created events take part.
+                end_date = self._apply_placement_period(event_id, child)
+                self._imported_placement_events.append(
+                    (
+                        event_id,
+                        person_id,
+                        _get_child_value(child, "FAMC"),
+                        end_date,
+                    )
                 )
-                if event_id is not None:
-                    end_date = self._apply_placement_period(event_id, child)
-                    self._imported_placement_events.append(
-                        (
-                            event_id,
-                            person_id,
-                            _get_child_value(child, "FAMC"),
-                            end_date,
-                        )
-                    )
-            elif tag in _INDI_EVENT_TAGS:
-                event_type = _INDI_EVENT_TAGS[tag]
-                self._create_event(
-                    event_type=event_type,
-                    event_record=child,
-                    participant_id=person_id,
-                    participant_role="subject",
+        self._report_legacy_residence_duplicates(
+            person_id, owner_xref, claimed_legacy
+        )
+
+    # ------------------------------------------------------------------
+    # Event identity (Requirements 10 and 19)
+    # ------------------------------------------------------------------
+
+    def _indi_event_spec(
+        self, child: GedcomLine, person_id: str
+    ) -> Optional["_EventSpec"]:
+        """Classify an INDI child record as an event, or return None."""
+        tag = child.tag.upper()
+        participants = [(person_id, "subject")]
+        if tag == "ADOP":
+            return _EventSpec(
+                record=child,
+                event_type="adoption",
+                tag_key=_event_tag_key(tag, None),
+                participants=participants,
+                placement=True,
+            )
+        if tag in _INDI_EVENT_TAGS:
+            return _EventSpec(
+                record=child,
+                event_type=_INDI_EVENT_TAGS[tag],
+                tag_key=_event_tag_key(tag, None),
+                participants=participants,
+            )
+        if tag == "EVEN":
+            custom_type_name = _get_child_value(child, "TYPE")
+            normalized = custom_type_name.strip().lower() if custom_type_name else ""
+            tag_key = _event_tag_key(tag, custom_type_name)
+            if normalized == "flytt":
+                return _EventSpec(child, "flytt", tag_key, participants)
+            if normalized == "fosterhem":
+                return _EventSpec(
+                    child, "foster_home", tag_key, participants, placement=True
                 )
-            elif tag == "EVEN":
-                custom_type_name = _get_child_value(child, "TYPE")
-                normalized_type = (
-                    custom_type_name.strip().lower() if custom_type_name else ""
-                )
-                if normalized_type == "flytt":
-                    # Flytt event (Requirement 18.16)
-                    self._create_event(
-                        event_type="flytt",
-                        event_record=child,
-                        participant_id=person_id,
-                        participant_role="subject",
-                    )
-                elif normalized_type == "fosterhem":
-                    # EVEN / TYPE Fosterhem → a "foster_home" placement START
-                    # event, mirroring the ADOP handling above (Requirements
-                    # 11.7, 11.7a). The exporter emits this structure for a
-                    # Fosterhem event; parsing it here lets the back-fill prefer
-                    # its DATE/PLAC/FAMC over a dateless fabrication.
-                    event_id = self._create_event(
-                        event_type="foster_home",
-                        event_record=child,
-                        participant_id=person_id,
-                        participant_role="subject",
-                    )
-                    if event_id is not None:
-                        end_date = self._apply_placement_period(event_id, child)
-                        self._imported_placement_events.append(
-                            (
-                                event_id,
-                                person_id,
-                                _get_child_value(child, "FAMC"),
-                                end_date,
-                            )
-                        )
-                else:
-                    # Generic individual event → custom_individual_event
-                    self._create_event(
-                        event_type="custom_individual_event",
-                        event_record=child,
-                        participant_id=person_id,
-                        participant_role="subject",
-                        custom_type_name=custom_type_name,
-                    )
+            return _EventSpec(
+                child,
+                "custom_individual_event",
+                tag_key,
+                participants,
+                custom_type_name=custom_type_name,
+            )
+        return None
 
-    def _create_residence(self, person_id: str, resi_record: GedcomLine) -> None:
-        """Create a ResidenceFact from a GEDCOM RESI structure.
+    def _fam_event_spec(
+        self, child: GedcomLine, participants: list[tuple[str, str]]
+    ) -> Optional["_EventSpec"]:
+        """Classify a FAM child record as an event, or return None."""
+        tag = child.tag.upper()
+        if tag in _FAM_EVENT_TAGS:
+            return _EventSpec(
+                record=child,
+                event_type=_FAM_EVENT_TAGS[tag],
+                tag_key=_event_tag_key(tag, None),
+                participants=participants,
+            )
+        if tag == "EVEN":
+            custom_type_name = _get_child_value(child, "TYPE")
+            return _EventSpec(
+                record=child,
+                event_type="custom_family_event",
+                tag_key=_event_tag_key(tag, custom_type_name),
+                participants=participants,
+                custom_type_name=custom_type_name,
+            )
+        return None
 
-        Maps the DATE line according to the requirements:
-        - FROM x TO y → start.latest = x, end.earliest = y
-        - BET x AND y → start.earliest = x, start.latest = y, end unknown
-        - Plain DATE → start.latest = end.earliest = date
-        - Missing/uninterpretable DATE → both endpoints unknown + warning
+    def _get_event_index(self) -> "_EventIndex":
+        if self._event_index is None:
+            self._event_index = _EventIndex(self._project_data.events)
+        return self._event_index
 
-        Resolves the PLAC value and derives Observations from SOUR lines.
+    def _match_owner_events(
+        self,
+        owner_kind: str,
+        owner_id: str,
+        owner_xref: str,
+        specs: list["_EventSpec"],
+        legacy_event_ids: Sequence[str] = (),
+    ) -> list[MatchResult]:
+        """Match the event records of one owner against existing events.
+
+        Builds the pool (events whose origin names this owner), the legacy
+        pool (events of the owner without origin) and the foreign objects
+        (events of the owner whose origin names another owner of the same
+        kind), then calls the identity matcher once. Also counts the
+        origin groups of the owner that no record claimed.
 
         Args:
-            person_id: The App_JSON person ID for the residence.
-            resi_record: The RESI GedcomLine sub-record.
+            owner_kind: ``"INDI"`` or ``"FAM"``.
+            owner_id: The app id the importer resolved for the owner record.
+            owner_xref: The GEDCOM xref of the owner record (informational).
+            specs: The event records of the owner in file order.
+            legacy_event_ids: For ``FAM``, the ids in ``Family.event_ids``.
         """
-        residence_id = self._id_gen.generate("residence")
+        index = self._get_event_index()
+        pool = [
+            PoolEntry(e, e.origin)
+            for e in index.by_origin_owner.get((owner_kind, owner_id), [])
+            if e.origin is not None
+        ]
+        if owner_kind == "INDI":
+            related = index.by_participant.get(owner_id, [])
+        else:
+            related = [index.by_id[i] for i in legacy_event_ids if i in index.by_id]
+        legacy: list[Event] = []
+        foreign: list[Event] = []
+        for e in related:
+            if e.origin is None:
+                legacy.append(e)
+            elif e.origin.owner_kind == owner_kind and e.origin.owner_id != owner_id:
+                foreign.append(e)
 
-        # Parse the DATE line
-        date_str = _get_child_value(resi_record, "DATE")
-        date_result = _parse_resi_date(date_str)
+        counters: dict[str, int] = {}
+        incoming: list[IncomingRecord] = []
+        for spec in specs:
+            n = counters.get(spec.tag_key, 0)
+            counters[spec.tag_key] = n + 1
+            uid = (_get_child_value(spec.record, "_UID") or "").strip() or None
+            incoming.append(
+                IncomingRecord(
+                    kind="event",
+                    owner_kind=owner_kind,
+                    owner_id=owner_id,
+                    owner_xref=owner_xref,
+                    tag_key=spec.tag_key,
+                    index=n,
+                    record_hash=record_hash(spec.record, self._source_xref_map),
+                    uid=uid,
+                    fingerprint=lambda s=spec: self._incoming_event_fingerprint(s),
+                )
+            )
 
-        # Log warning if date is present but uninterpretable
-        if date_str and date_str.strip() and not date_result.interpretable:
+        results = match_records(incoming, pool, legacy, foreign)
+
+        claimed = {id(m) for r in results for m in r.members}
+        for group in build_origin_groups(pool):
+            if not any(id(m) in claimed for m in group.members):
+                self._events_missing_from_file += 1
+        return results
+
+    def _incoming_event_fingerprint(self, spec: "_EventSpec") -> str:
+        """Content fingerprint of the event the importer would create."""
+        date_str = _get_child_value(spec.record, "DATE")
+        parsed = parse_gedcom_date(date_str or "")
+        cause: Optional[str] = None
+        if spec.event_type == "death":
+            cause = _get_child_value(spec.record, "CAUS") or None
+        event = Event(
+            id="",
+            type=spec.event_type,
+            participants=[Participant(person_id=p, role=r) for p, r in spec.participants],
+            date=parsed.value if parsed is not None else None,
+            place=self._event_place_ref(spec.record, apply_coordinates=False),
+            cause_of_death=cause,
+            custom_type_name=spec.custom_type_name,
+        )
+        return event_fingerprint(event)
+
+    def _event_label(self, event_type: str, custom_type_name: Optional[str]) -> str:
+        try:
+            from slaktbusken.ui.swedish_locale import get_event_type_label
+
+            label = get_event_type_label(event_type)
+        except Exception:  # label is cosmetic only
+            label = event_type
+        if event_type.startswith("custom_") and custom_type_name:
+            label = custom_type_name
+        return label
+
+    def _event_person_label(self, person_ids: list[str]) -> str:
+        names = [
+            n for n in (self._display_name_for_person_id(p) for p in person_ids) if n
+        ]
+        return " och ".join(names) if names else "okänd person"
+
+    def _describe_event(self, event: Event) -> str:
+        label = self._event_label(event.type, event.custom_type_name)
+        date = event.date
+        text = ""
+        if date is not None:
+            text = date.value or date.original_text or ""
+        return f"{label} {text or 'utan datum'} ({event.id})"
+
+    def _apply_event_result(
+        self,
+        res: MatchResult,
+        spec: "_EventSpec",
+        owner_kind: str,
+        owner_id: str,
+        owner_xref: str,
+        person_ids: list[str],
+        create: Callable[[RecordOrigin], Optional[str]],
+    ) -> Optional[str]:
+        """Act on one matcher result; return the id of a newly created event.
+
+        ``UNCHANGED`` writes nothing. ``CHANGED_UID`` writes nothing and
+        logs a notice. ``LEGACY_CLAIMED`` only sets ``origin`` on the claimed
+        event. ``NEW`` and ``NEW_AMBIGUOUS`` create the event through
+        *create* with its origin; the latter also logs a notice. The origin's
+        ``index`` is informational and never rewritten.
+        """
+        outcome = res.outcome
+        if outcome is Outcome.UNCHANGED:
+            return None
+        label = self._event_label(spec.event_type, spec.custom_type_name)
+        person_label = self._event_person_label(person_ids)
+        if outcome is Outcome.CHANGED_UID:
             self._warnings.append(WarningEntry(
                 gedcom_file=self._gedcom_filename,
-                record_xref=None,
-                person_or_family_name=None,
-                raw_value=date_str,
-                reason="Kunde inte tolka datumraden för RESI – boendet importerades utan period.",
-                action_taken="Importerades utan period",
+                record_xref=owner_xref or None,
+                reason=(
+                    f"GEDCOM-posten för händelsen {label} ({person_label}) har "
+                    "ändrats sedan importen men har samma _UID. Den befintliga "
+                    "händelsen lämnades oförändrad."
+                ),
+            ))
+            return None
+
+        rec = res.incoming
+        origin = RecordOrigin(
+            owner_kind=owner_kind,
+            owner_id=owner_id,
+            owner_xref=owner_xref,
+            tag_key=rec.tag_key,
+            index=rec.index,
+            record_hash=rec.record_hash,
+            uid=rec.uid,
+            instance=res.instance or 0,
+        )
+        if outcome is Outcome.LEGACY_CLAIMED:
+            event = res.members[0]
+            event.origin = origin
+            self._events_claimed += 1
+            self._get_event_index().note_origin(event)
+            return None
+
+        event_id = create(origin)
+        if event_id is not None and outcome is Outcome.NEW_AMBIGUOUS:
+            shown = [self._describe_event(c) for c in res.candidates[:5]]
+            listing = ", ".join(shown)
+            if len(res.candidates) > 5:
+                listing += f" och {len(res.candidates) - 5} till"
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=owner_xref or None,
+                reason=(
+                    f"En ny händelse {label} ({event_id}) skapades för "
+                    f"{person_label} eftersom GEDCOM-posten inte kunde kopplas "
+                    "till en befintlig händelse. Befintliga händelser som inte "
+                    f"kopplades: {listing}. Granska och ta bort det som är "
+                    "inaktuellt."
+                ),
+            ))
+        return event_id
+
+    def _process_family_events(
+        self,
+        gedcom_family: GedcomFamily,
+        record: GedcomLine,
+        family_id: str,
+        existing_event_ids: Sequence[str] = (),
+    ) -> list[str]:
+        """Match the FAM event records and create the new ones.
+
+        Returns the ids of newly created events only. Existing events are
+        never removed or modified (Requirement 10.14).
+        """
+        participant_ids: list[tuple[str, str]] = []
+        for xref in (gedcom_family.husb_xref, gedcom_family.wife_xref):
+            if xref:
+                pid = self._person_xref_map.get(xref)
+                if pid:
+                    participant_ids.append((pid, "spouse"))
+        if not participant_ids:
+            return []
+
+        specs: list[_EventSpec] = []
+        for child_node in record.children:
+            spec = self._fam_event_spec(child_node, participant_ids)
+            if spec is not None:
+                specs.append(spec)
+        owner_xref = record.xref_id or gedcom_family.xref_id or ""
+        results = self._match_owner_events(
+            "FAM", family_id, owner_xref, specs, existing_event_ids
+        )
+        new_ids: list[str] = []
+        for spec, res in zip(specs, results):
+            event_id = self._apply_event_result(
+                res,
+                spec,
+                "FAM",
+                family_id,
+                owner_xref,
+                [pid for pid, _role in participant_ids],
+                lambda origin, s=spec: self._create_family_event(
+                    event_type=s.event_type,
+                    event_record=s.record,
+                    participants=s.participants,
+                    custom_type_name=s.custom_type_name,
+                    origin=origin,
+                ),
+            )
+            if event_id:
+                new_ids.append(event_id)
+        return new_ids
+
+    # ------------------------------------------------------------------
+    # Residence identity (Requirement 22)
+    # ------------------------------------------------------------------
+
+    def _get_residence_index(self) -> "_ResidenceIndex":
+        if self._residence_index is None:
+            self._residence_index = _ResidenceIndex(self._project_data.residences)
+        return self._residence_index
+
+    def _match_person_residences(
+        self, person_id: str, owner_xref: str, resi_children: list[GedcomLine]
+    ) -> list[MatchResult]:
+        """Match the RESI children of one person against existing residences.
+
+        Pool: residences of the person with an origin naming this person.
+        Legacy: residences of the person without origins. Foreign: residences
+        of the person whose origins all name another INDI owner.
+        """
+        if not resi_children:
+            return []
+        owner = ("INDI", person_id)
+        pool: list[PoolEntry] = []
+        legacy: list[ResidenceFact] = []
+        foreign: list[ResidenceFact] = []
+        # Residences with an origin on this owner may belong to the person
+        # only through the origin, so look at the person's list plus any
+        # residence carrying one of the owner's origins.
+        candidates = list(self._get_residence_index().by_person.get(person_id, []))
+        for fact in candidates:
+            if not fact.origins:
+                legacy.append(fact)
+                continue
+            own = [o for o in fact.origins if (o.owner_kind, o.owner_id) == owner]
+            if own:
+                pool.extend(PoolEntry(fact, o) for o in own)
+            elif any(
+                o.owner_kind == "INDI" and o.owner_id != person_id
+                for o in fact.origins
+            ):
+                foreign.append(fact)
+
+        counters: dict[str, int] = {}
+        incoming: list[IncomingRecord] = []
+        for child in resi_children:
+            n = counters.get("RESI", 0)
+            counters["RESI"] = n + 1
+            uid = (_get_child_value(child, "_UID") or "").strip() or None
+            incoming.append(
+                IncomingRecord(
+                    kind="residence",
+                    owner_kind="INDI",
+                    owner_id=person_id,
+                    owner_xref=owner_xref,
+                    tag_key="RESI",
+                    index=n,
+                    record_hash=record_hash(child, self._source_xref_map),
+                    uid=uid,
+                    fingerprint=lambda c=child: self._incoming_residence_fingerprint(
+                        person_id, c
+                    ),
+                )
+            )
+        return match_records(incoming, pool, legacy, foreign)
+
+    def _incoming_residence_fingerprint(
+        self, person_id: str, resi_record: GedcomLine
+    ) -> str:
+        """Content fingerprint of the residence the importer would create."""
+        place_id = self._lookup_residence_place_id(resi_record, apply_coordinates=False)[0]
+        return residence_fingerprint(
+            self._derive_residence(resi_record, person_id, place_id)
+        )
+
+    def _describe_residence(self, fact: ResidenceFact) -> str:
+        place = fact.place_id or "utan plats"
+        for p in self._project_data.places:
+            if p.id == fact.place_id:
+                place = getattr(p, "name", None) or place
+                break
+        start = fact.start.latest or fact.start.earliest or ""
+        end = fact.end.earliest or fact.end.latest or ""
+        period = f"{start}–{end}" if (start or end) else "utan datum"
+        return f"{place} {period} ({fact.id})"
+
+    def _apply_residence_result(
+        self,
+        res: MatchResult,
+        resi_record: GedcomLine,
+        person_id: str,
+        owner_xref: str,
+        claimed_legacy: list[ResidenceFact],
+    ) -> None:
+        """Act on one matcher result for a RESI record.
+
+        ``UNCHANGED`` writes nothing at all (every member of a claimed
+        Origin_Group stays as it is). ``CHANGED_UID`` writes a notice only.
+        ``LEGACY_CLAIMED`` sets ``origins`` on the claimed residence.
+        ``NEW`` and ``NEW_AMBIGUOUS`` create one residence.
+        """
+        outcome = res.outcome
+        if outcome is Outcome.UNCHANGED:
+            return
+        person_label = self._display_name_for_person_id(person_id) or "okänd person"
+        if outcome is Outcome.CHANGED_UID:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=owner_xref or None,
+                reason=(
+                    f"GEDCOM-posten för ett boende ({person_label}) har ändrats "
+                    "sedan importen men har samma _UID. Det befintliga boendet "
+                    "lämnades oförändrat."
+                ),
+            ))
+            return
+
+        rec = res.incoming
+        origin = RecordOrigin(
+            owner_kind="INDI",
+            owner_id=person_id,
+            owner_xref=owner_xref,
+            tag_key=rec.tag_key,
+            index=rec.index,
+            record_hash=rec.record_hash,
+            uid=rec.uid,
+            instance=res.instance or 0,
+        )
+        if outcome is Outcome.LEGACY_CLAIMED:
+            fact = res.members[0]
+            fact.origins = [origin]
+            self._residences_claimed += 1
+            claimed_legacy.append(fact)
+            return
+
+        place_id = self._resolve_residence_place(resi_record, person_id)
+        residence = self._derive_residence(resi_record, person_id, place_id)
+        self._warn_residence_date(resi_record)
+        residence_id = self._add_residence(residence, origin)
+        if outcome is Outcome.NEW_AMBIGUOUS:
+            shown = [self._describe_residence(c) for c in res.candidates[:5]]
+            listing = ", ".join(shown)
+            if len(res.candidates) > 5:
+                listing += f" och {len(res.candidates) - 5} till"
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=owner_xref or None,
+                reason=(
+                    f"Ett nytt boende ({residence_id}) skapades för {person_label} "
+                    "eftersom GEDCOM-posten inte kunde kopplas till ett "
+                    "befintligt boende. Befintliga boenden som inte kopplades: "
+                    f"{listing}. Granska och ta bort det som är inaktuellt."
+                ),
             ))
 
-        # Build endpoints
-        start = Endpoint(
-            earliest=date_result.start_earliest,
-            latest=date_result.start_latest,
-            precision=date_result.start_precision,
-        )
-        end = Endpoint(
-            earliest=date_result.end_earliest,
-            latest=date_result.end_latest,
-            precision=date_result.end_precision,
-        )
+    def _report_legacy_residence_duplicates(
+        self,
+        person_id: str,
+        owner_xref: str,
+        claimed_legacy: list[ResidenceFact],
+    ) -> None:
+        """Notice for identical unclaimed legacy residences (Requirement 22.16)."""
+        if not claimed_legacy:
+            return
+        remaining = [
+            f
+            for f in self._get_residence_index().by_person.get(person_id, [])
+            if not f.origins
+        ]
+        person_label = self._display_name_for_person_id(person_id) or "okänd person"
+        reported: set[str] = set()
+        for fact in claimed_legacy:
+            fp = residence_fingerprint(fact)
+            if fp in reported:
+                continue
+            reported.add(fp)
+            n = sum(1 for f in remaining if residence_fingerprint(f) == fp)
+            if n:
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    record_xref=owner_xref or None,
+                    reason=(
+                        f"{n} identiska boenden för {person_label} lämnades "
+                        "orörda. De kan vara dubbletter från tidigare importer."
+                    ),
+                ))
 
-        # Resolve place from PLAC line
-        place_id = ""
-        raw_place_value: Optional[str] = None
+    def _lookup_residence_place_id(
+        self, resi_record: GedcomLine, apply_coordinates: bool
+    ) -> tuple[str, Optional[GedcomLine]]:
+        """Resolve the PLAC of a RESI record to a place id ("" when none)."""
         plac_rec = _get_child(resi_record, "PLAC")
+        place_id = ""
         if plac_rec:
-            raw_place_value = plac_rec.value
-            resolved_place_id = self._resolve_place_from_adpl(plac_rec)
-            if resolved_place_id is None:
-                place_str = plac_rec.value
-                if place_str:
-                    resolved_place_id = self._resolve_place(place_str)
-            if resolved_place_id:
-                place_id = resolved_place_id
-                self._apply_coordinates(resolved_place_id, plac_rec)
+            resolved = self._resolve_place_from_adpl(plac_rec)
+            if resolved is None and plac_rec.value:
+                resolved = self._resolve_place(plac_rec.value)
+            if resolved:
+                place_id = resolved
+                if apply_coordinates:
+                    self._apply_coordinates(resolved, plac_rec)
+        return place_id, plac_rec
 
-        # Warn specifically when the residence has no usable place, so the
-        # user can locate the offending RESI record. The generic validation
-        # warning ("Boendet måste ange både person och plats") does not say
-        # which field is missing nor which GEDCOM record it came from.
+    def _resolve_residence_place(
+        self, resi_record: GedcomLine, person_id: str
+    ) -> str:
+        """Resolve the place of a RESI record to be created.
+
+        Side effects (F27): places, place mappings, coordinates and the
+        warning for a residence without usable place.
+        """
+        place_id, plac_rec = self._lookup_residence_place_id(
+            resi_record, apply_coordinates=True
+        )
         if not place_id:
+            raw_place_value = plac_rec.value if plac_rec else None
             person_xref = self._xref_for_person_id(person_id)
             person_name = self._display_name_for_person_id(person_id)
             if raw_place_value and raw_place_value.strip():
@@ -2325,8 +2795,40 @@ class GEDCOMImporter:
                 reason=reason,
                 action_taken="Importerades utan plats",
             ))
+        return place_id
 
-        # Derive Observations from SOUR lines
+    def _warn_residence_date(self, resi_record: GedcomLine) -> None:
+        date_str = _get_child_value(resi_record, "DATE")
+        if date_str and date_str.strip() and not _parse_resi_date(date_str).interpretable:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=None,
+                person_or_family_name=None,
+                raw_value=date_str,
+                reason="Kunde inte tolka datumraden för RESI – boendet importerades utan period.",
+                action_taken="Importerades utan period",
+            ))
+
+    def _derive_residence(
+        self, resi_record: GedcomLine, person_id: str, place_id: str
+    ) -> ResidenceFact:
+        """Build the residence a RESI record stands for (pure, empty id).
+
+        DATE mapping: FROM x TO y gives start.latest = x and end.earliest = y;
+        BET x AND y gives start.earliest/latest; a plain date gives
+        start.latest = end.earliest; anything else leaves both unknown.
+        """
+        date_result = _parse_resi_date(_get_child_value(resi_record, "DATE"))
+        start = Endpoint(
+            earliest=date_result.start_earliest,
+            latest=date_result.start_latest,
+            precision=date_result.start_precision,
+        )
+        end = Endpoint(
+            earliest=date_result.end_earliest,
+            latest=date_result.end_latest,
+            precision=date_result.end_precision,
+        )
         observations: list[Observation] = []
         for sour_child in _get_children(resi_record, "SOUR"):
             if sour_child.value:
@@ -2337,17 +2839,23 @@ class GEDCOMImporter:
                             source_ref=SourceRef(source_id=source_id, quality="secondary"),
                         )
                     )
-
-        residence = ResidenceFact(
-            id=residence_id,
+        return ResidenceFact(
+            id="",
             person_id=person_id,
             place_id=place_id,
             start=start,
             end=end,
             observations=observations,
         )
-        self._project_data.residences.append(residence)
 
+    def _add_residence(self, residence: ResidenceFact, origin: RecordOrigin) -> str:
+        """Issue the id, set the single origin and append the residence."""
+        residence.id = self._id_gen.generate("residence")
+        residence.origins = [origin]
+        self._project_data.residences.append(residence)
+        self._get_residence_index().add(residence)
+        self._residences_added += 1
+        return residence.id
     def _xref_for_person_id(self, person_id: str) -> Optional[str]:
         """Return the GEDCOM xref that maps to this App_JSON person id.
 
@@ -2503,51 +3011,11 @@ class GEDCOMImporter:
             if child_id:
                 children.append(child_id)
 
-        # Create family events
-        event_ids: list[str] = []
-        for child_node in record.children:
-            tag = child_node.tag.upper()
-            if tag in _FAM_EVENT_TAGS:
-                event_type = _FAM_EVENT_TAGS[tag]
-                # Determine participants for family events
-                participant_ids: list[tuple[str, str]] = []
-                if gedcom_family.husb_xref:
-                    husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
-                    if husb_id:
-                        participant_ids.append((husb_id, "spouse"))
-                if gedcom_family.wife_xref:
-                    wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
-                    if wife_id:
-                        participant_ids.append((wife_id, "spouse"))
-
-                event_id = self._create_family_event(
-                    event_type=event_type,
-                    event_record=child_node,
-                    participants=participant_ids,
-                )
-                if event_id:
-                    event_ids.append(event_id)
-            elif tag == "EVEN":
-                # Generic family event → custom_family_event
-                custom_type_name = _get_child_value(child_node, "TYPE")
-                participant_ids = []
-                if gedcom_family.husb_xref:
-                    husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
-                    if husb_id:
-                        participant_ids.append((husb_id, "spouse"))
-                if gedcom_family.wife_xref:
-                    wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
-                    if wife_id:
-                        participant_ids.append((wife_id, "spouse"))
-
-                event_id = self._create_family_event(
-                    event_type="custom_family_event",
-                    event_record=child_node,
-                    participants=participant_ids,
-                    custom_type_name=custom_type_name,
-                )
-                if event_id:
-                    event_ids.append(event_id)
+        # Create family events (matched by the identity matcher, which also
+        # stores each new event's Event_Origin)
+        event_ids: list[str] = self._process_family_events(
+            gedcom_family, record, family_id
+        )
 
         # Build ParentChildLinks. The parentage_type comes from the child's
         # FAMC/PEDI pedigree for THIS family and applies to both parent
@@ -2697,58 +3165,14 @@ class GEDCOMImporter:
         existing_family.parent_child_links = parent_child_links
         self._families_updated += 1
 
-        # Remove old family events from project data before re-creating
-        # to prevent duplicates on re-import
-        old_event_ids = set(existing_family.event_ids) if existing_family.event_ids else set()
-        if old_event_ids:
-            self._project_data.events = [
-                e for e in self._project_data.events if e.id not in old_event_ids
-            ]
-
-        # Re-create family events
-        event_ids: list[str] = []
-        for child_node in record.children:
-            tag = child_node.tag.upper()
-            if tag in _FAM_EVENT_TAGS:
-                event_type = _FAM_EVENT_TAGS[tag]
-                participant_ids: list[tuple[str, str]] = []
-                if gedcom_family.husb_xref:
-                    husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
-                    if husb_id:
-                        participant_ids.append((husb_id, "spouse"))
-                if gedcom_family.wife_xref:
-                    wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
-                    if wife_id:
-                        participant_ids.append((wife_id, "spouse"))
-
-                event_id = self._create_family_event(
-                    event_type=event_type,
-                    event_record=child_node,
-                    participants=participant_ids,
-                )
-                if event_id:
-                    event_ids.append(event_id)
-            elif tag == "EVEN":
-                custom_type_name = _get_child_value(child_node, "TYPE")
-                participant_ids = []
-                if gedcom_family.husb_xref:
-                    husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
-                    if husb_id:
-                        participant_ids.append((husb_id, "spouse"))
-                if gedcom_family.wife_xref:
-                    wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
-                    if wife_id:
-                        participant_ids.append((wife_id, "spouse"))
-
-                event_id = self._create_family_event(
-                    event_type="custom_family_event",
-                    event_record=child_node,
-                    participants=participant_ids,
-                    custom_type_name=custom_type_name,
-                )
-                if event_id:
-                    event_ids.append(event_id)
-        existing_family.event_ids = event_ids
+        # Family events are never removed (Requirement 10.14). The matcher
+        # decides which records already have an event; every id of
+        # ``event_ids`` is kept and the ids of new events are appended.
+        for new_id in self._process_family_events(
+            gedcom_family, record, family_id, existing_family.event_ids
+        ):
+            if new_id not in existing_family.event_ids:
+                existing_family.event_ids.append(new_id)
 
     # ------------------------------------------------------------------
     # Placement event finalisation (Requirements 11.7, 11.7a, 11.10)
@@ -2936,6 +3360,59 @@ class GEDCOMImporter:
     # Event creation helpers
     # ------------------------------------------------------------------
 
+    def _import_event_date(
+        self,
+        date_str: Optional[str],
+        event_type: str,
+        person_ids: list[str],
+        custom_type_name: Optional[str] = None,
+    ) -> Optional[DateValue]:
+        """Parse an event DATE line; a non-blank line always yields a DateValue.
+
+        A date that cannot be read reliably becomes an unparsed DateValue that
+        keeps its original text, and a Swedish warning is added to the import
+        log.
+        """
+        parsed = parse_gedcom_date(date_str or "")
+        if parsed is None:
+            return None
+        date_value = parsed.value
+        if date_value.qualifier == "unparsed":
+            try:
+                from slaktbusken.ui.swedish_locale import get_event_type_label
+
+                label = get_event_type_label(event_type)
+            except Exception:  # label is cosmetic only
+                label = event_type
+            if event_type.startswith("custom_") and custom_type_name:
+                label = custom_type_name
+            names = [
+                n for n in (self._display_name_for_person_id(p) for p in person_ids) if n
+            ]
+            person_label = " och ".join(names) if names else "okänd person"
+            text = date_value.original_text or ""
+            if parsed.dual_year:
+                reason = (
+                    f'Dubbelt årtal i datumet "{text}" kan inte tolkas entydigt '
+                    "och sparades som originaltext."
+                )
+            else:
+                reason = (
+                    f'Datumet "{text}" för {label} ({person_label}) kunde inte '
+                    "tolkas och sparades som originaltext."
+                )
+            xref = self._xref_for_person_id(person_ids[0]) if person_ids else None
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=xref,
+                person_or_family_name=person_label,
+                event_type=label,
+                raw_value=date_str,
+                reason=reason,
+                action_taken="Sparades som originaltext",
+            ))
+        return date_value
+
     def _create_event(
         self,
         event_type: str,
@@ -2943,11 +3420,13 @@ class GEDCOMImporter:
         participant_id: str,
         participant_role: str,
         custom_type_name: Optional[str] = None,
+        origin: Optional[RecordOrigin] = None,
     ) -> Optional[str]:
         """Create an event from a GEDCOM event sub-record.
 
         Extracts date, place, and source citations from the event record
-        and creates a new Event entity.
+        and creates a new Event entity. Whether the record needs a new event
+        at all is decided by the identity matcher before this is called.
 
         Args:
             event_type: The App_JSON event type string.
@@ -2955,40 +3434,24 @@ class GEDCOMImporter:
             participant_id: The person ID to add as participant.
             participant_role: The role of the participant.
             custom_type_name: Optional custom type name for custom events.
+            origin: The Event_Origin to store on the new event.
 
         Returns:
-            The new event ID, or None if the event could not be created.
+            The new event ID.
         """
         event_id = self._id_gen.generate("event")
 
         # Parse date
-        date_value: Optional[DateValue] = None
         date_str = _get_child_value(event_record, "DATE")
-        if date_str:
-            date_value = parse_gedcom_date(date_str)
+        date_value = self._import_event_date(
+            date_str,
+            event_type=event_type,
+            person_ids=[participant_id],
+            custom_type_name=custom_type_name,
+        )
 
         # Parse place
-        place_ref: Optional[PlaceRef] = None
-        plac_rec = _get_child(event_record, "PLAC")
-        if plac_rec:
-            # Try structured _ADPL first, fall back to PLAC string parsing
-            place_id = self._resolve_place_from_adpl(plac_rec)
-            if place_id is None:
-                place_str = plac_rec.value
-                if place_str:
-                    place_id = self._resolve_place(place_str)
-            if place_id:
-                place_ref = PlaceRef(place_id=place_id)
-                # Extract MAP/LATI/LONG coordinates if present
-                self._apply_coordinates(place_id, plac_rec)
-
-        # Event deduplication: skip if an identical event already exists
-        if self._existing_event_keys is not None:
-            date_val_str = date_value.value if date_value else None
-            place_id_str = place_ref.place_id if place_ref else None
-            key = (event_type, date_val_str, place_id_str)
-            if key in self._existing_event_keys:
-                return None
+        place_ref = self._event_place_ref(event_record)
 
         # Parse source citations on the event
         source_refs: list[SourceRef] = []
@@ -2999,10 +3462,6 @@ class GEDCOMImporter:
                     source_refs.append(
                         SourceRef(source_id=source_id, quality="secondary")
                     )
-
-        # Attach source refs to date if present
-        if date_value and source_refs:
-            date_value.source_refs = list(source_refs)
 
         # Cause of death for DEAT events
         cause_of_death: Optional[str] = None
@@ -3021,8 +3480,12 @@ class GEDCOMImporter:
             place=place_ref,
             cause_of_death=cause_of_death,
             custom_type_name=custom_type_name,
+            source_refs=source_refs,
+            origin=origin,
         )
         self._project_data.events.append(event)
+        if self._event_index is not None:
+            self._event_index.add(event)
         self._events_added += 1
         return event_id
 
@@ -3032,6 +3495,7 @@ class GEDCOMImporter:
         event_record: GedcomLine,
         participants: list[tuple[str, str]],
         custom_type_name: Optional[str] = None,
+        origin: Optional[RecordOrigin] = None,
     ) -> Optional[str]:
         """Create a family event (marriage, divorce, etc.) from GEDCOM data.
 
@@ -3040,6 +3504,7 @@ class GEDCOMImporter:
             event_record: The GedcomLine containing the event data.
             participants: List of (person_id, role) tuples for participants.
             custom_type_name: Optional custom type name for custom events.
+            origin: The Event_Origin to store on the new event.
 
         Returns:
             The new event ID, or None if no participants.
@@ -3050,25 +3515,16 @@ class GEDCOMImporter:
         event_id = self._id_gen.generate("event")
 
         # Parse date
-        date_value: Optional[DateValue] = None
         date_str = _get_child_value(event_record, "DATE")
-        if date_str:
-            date_value = parse_gedcom_date(date_str)
+        date_value = self._import_event_date(
+            date_str,
+            event_type=event_type,
+            person_ids=[pid for pid, _role in participants],
+            custom_type_name=custom_type_name,
+        )
 
         # Parse place
-        place_ref: Optional[PlaceRef] = None
-        plac_rec = _get_child(event_record, "PLAC")
-        if plac_rec:
-            # Try structured _ADPL first, fall back to PLAC string parsing
-            place_id = self._resolve_place_from_adpl(plac_rec)
-            if place_id is None:
-                place_str = plac_rec.value
-                if place_str:
-                    place_id = self._resolve_place(place_str)
-            if place_id:
-                place_ref = PlaceRef(place_id=place_id)
-                # Extract MAP/LATI/LONG coordinates if present
-                self._apply_coordinates(place_id, plac_rec)
+        place_ref = self._event_place_ref(event_record)
 
         # Source citations
         source_refs: list[SourceRef] = []
@@ -3079,9 +3535,6 @@ class GEDCOMImporter:
                     source_refs.append(
                         SourceRef(source_id=source_id, quality="secondary")
                     )
-
-        if date_value and source_refs:
-            date_value.source_refs = list(source_refs)
 
         event_participants = [
             Participant(person_id=pid, role=role) for pid, role in participants
@@ -3094,10 +3547,34 @@ class GEDCOMImporter:
             date=date_value,
             place=place_ref,
             custom_type_name=custom_type_name,
+            source_refs=source_refs,
+            origin=origin,
         )
         self._project_data.events.append(event)
+        if self._event_index is not None:
+            self._event_index.add(event)
         self._events_added += 1
         return event_id
+
+    def _event_place_ref(
+        self, event_record: GedcomLine, apply_coordinates: bool = True
+    ) -> Optional[PlaceRef]:
+        """Resolve the PLAC of an event record to a PlaceRef (or None)."""
+        plac_rec = _get_child(event_record, "PLAC")
+        if not plac_rec:
+            return None
+        # Try structured _ADPL first, fall back to PLAC string parsing
+        place_id = self._resolve_place_from_adpl(plac_rec)
+        if place_id is None:
+            place_str = plac_rec.value
+            if place_str:
+                place_id = self._resolve_place(place_str)
+        if not place_id:
+            return None
+        if apply_coordinates:
+            # Extract MAP/LATI/LONG coordinates if present
+            self._apply_coordinates(place_id, plac_rec)
+        return PlaceRef(place_id=place_id)
 
     # ------------------------------------------------------------------
     # Place resolution

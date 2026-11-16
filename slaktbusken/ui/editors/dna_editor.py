@@ -49,6 +49,7 @@ from slaktbusken.model.dna import (
 )
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
+from slaktbusken.services.edit_session import register_created_file_in_active_session
 from slaktbusken.model.project import ProjectData
 from slaktbusken.services.cluster_filter import get_dna_match_filtered_persons
 from slaktbusken.services.dna_file_utils import delete_dna_file
@@ -185,6 +186,7 @@ def _copy_to_logo_folder(source: Path, logo_folder: Path) -> Path | None:
         logo_folder.mkdir(parents=True, exist_ok=True)
         destination = _unique_filename(logo_folder, source.name)
         shutil.copy2(source, destination)
+        register_created_file_in_active_session(destination)
         return destination
     except OSError as e:
         logger.error("Misslyckades kopiera logofil %s: %s", source, e)

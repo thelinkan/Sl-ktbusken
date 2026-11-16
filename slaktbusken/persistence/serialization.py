@@ -19,6 +19,7 @@ from slaktbusken.model.dna import (
     DnaTriangulation,
 )
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
+from slaktbusken.model.record_origin import RecordOrigin
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
 from slaktbusken.model.merge_candidate import (
@@ -210,8 +211,19 @@ def _serialize_dataclass(obj: Any) -> dict[str, Any]:
         # Omit empty strings for fields that have default="".
         if value == "" and _has_default_empty_string(f):
             continue
+        # Omit the date qualifier and calendar at their defaults.
+        if (
+            isinstance(obj, DateValue)
+            and f.name in _DATE_DEFAULT_OMITTED
+            and value == f.default
+        ):
+            continue
         result[f.name] = _serialize_value(value)
     return result
+
+
+# DateValue fields written only when they differ from their default.
+_DATE_DEFAULT_OMITTED = frozenset({"qualifier", "calendar"})
 
 
 def _serialize_value(value: Any) -> Any:
@@ -328,6 +340,7 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (Place, "external_ids"): ExternalId,
     (Place, "region_levels"): RegionLevel,
     (ResidenceFact, "observations"): Observation,
+    (ResidenceFact, "origins"): RecordOrigin,
     (MergeCandidate, "comments"): MergeCandidateComment,
     (MergeHistoryEntry, "archived_candidates"): ArchivedCandidate,
     (ArchivedCandidate, "comments"): MergeCandidateComment,
@@ -350,6 +363,7 @@ _NESTED_OPTIONAL_TYPES: dict[tuple[type, str], type] = {
     (Event, "date"): DateValue,
     (Event, "place"): PlaceRef,
     (Event, "from_place"): PlaceRef,
+    (Event, "origin"): RecordOrigin,
     (Source, "structured_reference"): StructuredReference,
     (ResidenceFact, "start"): Endpoint,
     (ResidenceFact, "end"): Endpoint,
@@ -360,6 +374,7 @@ _NESTED_OPTIONAL_TYPES: dict[tuple[type, str], type] = {
 # Mapping of nested list fields within nested types.
 _DEEP_NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (DateValue, "source_refs"): SourceRef,
+    (Event, "source_refs"): SourceRef,
     (PlaceRef, "source_refs"): SourceRef,
     (RegionLevel, "custom_fields"): CustomFieldDef,
 }

@@ -47,8 +47,8 @@ from slaktbusken.ui.editors.residence_editor import (  # noqa: E402
     _sort_events_for_selector,
     _build_event_label,
 )
+from slaktbusken.model.date_semantics import format_date_sv  # noqa: E402
 from slaktbusken.ui.swedish_locale import (  # noqa: E402
-    format_date,
     get_event_type_label,
 )
 
@@ -233,7 +233,8 @@ class TestEndpointEventSelector:
             # just the Swedish event type label for undated.
             type_label = get_event_type_label(event.type)
             if event.date and event.date.value:
-                formatted = format_date(event.date.value)
+                # Labels use format_date_sv so qualifiers show (e.g. 'ca 1759-08-24').
+                formatted = format_date_sv(event.date)
                 assert expected_label == f"{type_label} ({formatted})"
             else:
                 assert expected_label == type_label

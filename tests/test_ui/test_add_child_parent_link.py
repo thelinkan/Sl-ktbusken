@@ -83,6 +83,12 @@ def _make_app(qapp, data: ProjectData):
             fake, role, family_id, target_person_id
         )
     )
+    # handle_placeholder_click delegates to this method on ``self``.
+    fake._add_relative_in_session = (
+        lambda role, family_id, target_person_id, session: Application._add_relative_in_session(
+            fake, role, family_id, target_person_id, session
+        )
+    )
     fake._handle_context_add_relative = (
         lambda role, pid: Application._handle_context_add_relative(fake, role, pid)
     )
@@ -104,6 +110,7 @@ def _patch_editor(monkeypatch, saved_builder):
     from PySide6.QtWidgets import QWidget
 
     class _FakeEditor(QWidget):
+        editor_title = "Personredigerare: ny person"
         save_requested = Signal()
         cancel_requested = Signal()
 

@@ -24,6 +24,7 @@ import shiboken6
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QGraphicsScene
 
+from slaktbusken.model.date_semantics import format_date_sv
 from slaktbusken.model.family import Family
 from slaktbusken.model.name_parser import ParsedGivenName, parse_given_name
 from slaktbusken.model.person import Person
@@ -972,14 +973,14 @@ def _build_display_data(
     for event in person_box_events(project_data, person.id):
         if event.type == "birth":
             if event.date:
-                data["birth_date"] = event.date.value
+                data["birth_date"] = format_date_sv(event.date)
             if event.place:
                 place = _find_place(project_data, event.place.place_id)
                 if place:
                     data["birth_place"] = place.name
         elif event.type == "death":
             if event.date:
-                data["death_date"] = event.date.value
+                data["death_date"] = format_date_sv(event.date)
             else:
                 data["death_date"] = "Datum okänt"
             if event.place:
@@ -990,7 +991,7 @@ def _build_display_data(
                 data["cause_of_death"] = event.cause_of_death
         elif event.type == "marriage":
             if event.date:
-                data["marriage_date"] = event.date.value
+                data["marriage_date"] = format_date_sv(event.date)
             if event.place:
                 place = _find_place(project_data, event.place.place_id)
                 if place:

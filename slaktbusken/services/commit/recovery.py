@@ -272,8 +272,13 @@ class _Ctx:
 
     def stray_temps(self) -> list[Path]:
         """Every ``<target>.<txid>.new|restore`` beside the project or persons file."""
-        names = {self.project_file.name, "persons.json"}
         found: list[Path] = []
+        # The temporary files of an interrupted import save (same names) belong
+        # to the translation recovery, which runs next and decides about them.
+        intent = self.project_file.with_name(self.project_file.name + ".import-intent.json")
+        if _exists(self.fs, intent):
+            return found
+        names = {self.project_file.name, "persons.json"}
         for d in (self.directory, self.directory / "translation"):
             for n in sorted(_listdir(self.fs, d)):
                 m = _TEMP_RE.match(n)

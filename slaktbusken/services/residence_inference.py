@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from slaktbusken.model.date_semantics import exact_value
 from slaktbusken.model.date_span import expand_iso, strictly_earlier
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import ResidenceFact
@@ -234,12 +235,14 @@ def infer_bounds(fact: ResidenceFact, data: ProjectData) -> InferenceResult:
         for event in data.events:
             if event.type not in _BIRTH_TYPES:
                 continue
-            if event.date is None or not _is_present(event.date.value):
+            # Only an exact date gives a bound; qualified and unparsed are skipped.
+            birth_iso = exact_value(event.date)
+            if birth_iso is None:
                 continue
             # Check if this person participates in the birth event
             for p in event.participants:
                 if p.person_id == fact.person_id:
-                    birth_dates.append((event.date.value.strip(), event.id))
+                    birth_dates.append((birth_iso, event.id))
                     break
 
         if birth_dates:
@@ -261,11 +264,12 @@ def infer_bounds(fact: ResidenceFact, data: ProjectData) -> InferenceResult:
         for event in data.events:
             if event.type not in _DEATH_TYPES:
                 continue
-            if event.date is None or not _is_present(event.date.value):
+            death_iso = exact_value(event.date)
+            if death_iso is None:
                 continue
             for p in event.participants:
                 if p.person_id == fact.person_id:
-                    death_dates.append((event.date.value.strip(), event.id))
+                    death_dates.append((death_iso, event.id))
                     break
 
         if death_dates:

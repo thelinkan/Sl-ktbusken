@@ -170,6 +170,7 @@ class TestPlaceDeletionRefusedWithResidences:
         with patch.object(PlaceEditor, "__init__", lambda self, *a, **kw: None):
             editor = PlaceEditor.__new__(PlaceEditor)
             editor._project_data = project
+            editor._project_service = None
             editor._editing_place = place
 
             mock_item = MagicMock()

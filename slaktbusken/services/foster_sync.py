@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
+from slaktbusken.model.date_semantics import sort_key
 from slaktbusken.model.event import Event, Participant
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.id_generator import IDGenerator
@@ -500,14 +501,16 @@ def parent_sets_in_order(
         ):
             sets.append((family, start_event))
 
-    def _sort_key(item: tuple[Family, Event]) -> tuple[int, str, int]:
+    def _sort_key(item: tuple[Family, Event]) -> tuple:
         _, start_event = item
         position = event_position.get(start_event.id, len(project.events))
-        if start_event.date is not None and start_event.date.value:
-            # Dated sets first, ordered by their date value.
-            return (0, start_event.date.value, position)
+        date = start_event.date
+        if date is not None and (date.value or date.original_text):
+            # Dated sets first, ordered by date_semantics.sort_key (unknown
+            # dates such as unparsed ones after the known ones).
+            return (0, sort_key(date), position)
         # Undated sets last, preserving project order via position.
-        return (1, "", position)
+        return (1, (0, 0, 0, 0), position)
 
     return [family for family, _ in sorted(sets, key=_sort_key)]
 

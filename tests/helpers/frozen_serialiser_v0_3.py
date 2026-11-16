@@ -62,8 +62,27 @@ def _serialize_dataclass(obj: Any) -> dict[str, Any]:
             continue
         if value == "" and _has_default_empty_string(f):
             continue
+        # Fields added in 0.5 did not exist in 0.3: never written at default.
+        new_defaults = _NEW_IN_0_5.get(type(obj).__name__, {})
+        if f.name in new_defaults and value == new_defaults[f.name]:
+            continue
         result[f.name] = _serialize_value(value)
     return result
+
+
+# Fields introduced after 0.3 (by class name) and their defaults. The frozen
+# 0.3 output omits them while they hold the default, so a project that does not
+# use them serialises as 0.3 did.
+_NEW_IN_0_5: dict[str, dict[str, Any]] = {
+    "DateValue": {
+        "qualifier": "exact",
+        "value_to": None,
+        "calendar": "gregorian",
+        "original_text": None,
+    },
+    "Event": {"source_refs": [], "origin": None},
+    "ResidenceFact": {"origins": []},
+}
 
 
 def _serialize_value(value: Any) -> Any:

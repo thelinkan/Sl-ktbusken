@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 if TYPE_CHECKING:
     from slaktbusken.services.photo_service import PhotoService
+    from slaktbusken.services.project_service import ProjectService
 
 from slaktbusken.data.country_presets import available_presets, get_preset
 from slaktbusken.model.place import (
@@ -364,6 +365,7 @@ class PlaceEditor(EditorRegistryParticipant, QWidget):
         parent: QWidget | None = None,
         photo_service: "Optional[PhotoService]" = None,
         registry: EditorRegistry | None = None,
+        project_service: "Optional[ProjectService]" = None,
     ) -> None:
         """Initialise the place editor.
 
@@ -372,9 +374,12 @@ class PlaceEditor(EditorRegistryParticipant, QWidget):
             place: Optional existing Place to select initially for editing.
             parent: Optional parent widget.
             photo_service: Optional PhotoService for photo management operations.
+            project_service: Optional ProjectService used to delete places and
+                record the change.
         """
         super().__init__(parent)
         self._join_registry(registry, "Platsredigerare")
+        self._project_service = project_service
 
         self._project_data = project_data
         self._place = place
@@ -1790,9 +1795,12 @@ class PlaceEditor(EditorRegistryParticipant, QWidget):
                 return
 
         # Remove from project data
-        self._project_data.places = [
-            p for p in self._project_data.places if p.id != place_id
-        ]
+        if self._project_service is not None:
+            self._project_service.delete_place(place_id)
+        else:
+            self._project_data.places = [
+                p for p in self._project_data.places if p.id != place_id
+            ]
 
         self._editing_place = None
         self._clear_form()
@@ -2024,6 +2032,10 @@ class PlaceEditor(EditorRegistryParticipant, QWidget):
 
         # Add to project data
         self._project_data.media.append(new_media)
+        # The photo is added immediately, without a later "Spara", so the
+        # project is marked changed here (Requirement 18.1).
+        if self._project_service is not None:
+            self._project_service.mark_changed("Plats-foto tillagt")
 
         # Refresh the photo section and emit signal
         if self._photo_section is not None:

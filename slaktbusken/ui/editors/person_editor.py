@@ -12,6 +12,7 @@ from slaktbusken.ui.editors.registry_participation import EditorRegistryParticip
 
 import logging
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -1861,16 +1862,7 @@ class PersonEditor(EditorRegistryParticipant, QWidget):
             # Preserve the place_id — the editor doesn't have a place selector yet,
             # so keep the original or allow the user to type it.
             if not updated.place_id and fact.place_id:
-                updated = ResidenceFact(
-                    id=updated.id,
-                    person_id=updated.person_id,
-                    place_id=fact.place_id,
-                    start=updated.start,
-                    end=updated.end,
-                    role_in_household=updated.role_in_household,
-                    observations=updated.observations,
-                    notes=updated.notes,
-                )
+                updated = replace(updated, place_id=fact.place_id)
             # Replace in project
             for i, r in enumerate(self._project_data.residences):
                 if r.id == residence_id:

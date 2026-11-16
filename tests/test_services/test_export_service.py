@@ -189,7 +189,10 @@ class TestExportServiceIntegration:
         project_path.mkdir()
 
         # Import
-        import_result = import_service.run(project_data, gedcom_path, project_path)
+        from slaktbusken.services.project_service import ProjectService
+        ps = ProjectService()
+        ps._project_data = project_data
+        import_result = import_service.run(project_data, gedcom_path, project_path, ps)
         assert import_result.persons_added == 2
 
         # Export

@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from slaktbusken.model.date_semantics import exact_value, validate_date_value
 from slaktbusken.model.date_span import is_valid_iso, strictly_earlier
 from slaktbusken.model.dna import (
     DnaCluster,
@@ -37,6 +38,7 @@ from slaktbusken.model.research_case import (
     case_entity_links,
     is_valid_calendar_date,
 )
+from slaktbusken.model.record_origin import RecordOrigin
 from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import Repository, Source
 
@@ -352,6 +354,44 @@ def validate_family(
 # ---------------------------------------------------------------------------
 
 
+def _validate_date_value_fields(date) -> list[str]:
+    """Structural and real-day checks of a DateValue (Requirements 14.1-14.5, 15.1).
+
+    Delegates to Date_Semantics, which checks every day against the leap-year
+    rules of the date's own calendar.
+    """
+    return validate_date_value(date)
+
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def validate_record_origin(
+    origin: RecordOrigin, *, residence: bool = False
+) -> list[str]:
+    """Validate a RecordOrigin (Requirements 19.1, 19.2, 22.1, 22.2).
+
+    With ``residence=True`` the origin must be an INDI ``RESI`` record. Equal
+    origins on several residences of one owner are valid and not reported here.
+    """
+    errors: list[str] = []
+    if origin.owner_kind not in ("INDI", "FAM"):
+        errors.append(
+            f"Ursprungets ägartyp '{origin.owner_kind}' är ogiltig; måste vara INDI eller FAM."
+        )
+    if residence:
+        if origin.owner_kind != "INDI":
+            errors.append("Ett boendes ursprung måste ha ägartypen INDI.")
+        if origin.tag_key != "RESI":
+            errors.append("Ett boendes ursprung måste ha taggen RESI.")
+    if not isinstance(origin.record_hash, str) or not _HEX64_RE.match(origin.record_hash):
+        errors.append("Ursprungets posthash måste vara 64 hexadecimala tecken.")
+    if not isinstance(origin.index, int) or origin.index < 0:
+        errors.append("Ursprungets index får inte vara negativt.")
+    if not isinstance(origin.instance, int) or origin.instance < 0:
+        errors.append("Ursprungets instans får inte vara negativ.")
+    return errors
+
+
 def validate_event(event: Event) -> list[str]:
     """Validate an Event instance."""
     errors: list[str] = []
@@ -364,16 +404,10 @@ def validate_event(event: Event) -> list[str]:
 
     # Date validation
     if event.date is not None:
-        if event.date.value and not _ISO_DATE_RE.match(event.date.value):
-            errors.append(
-                f"Datumvärde '{event.date.value}' är inte ett giltigt ISO 8601-datum "
-                f"(förväntat ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD)."
-            )
-        if event.date.precision not in _VALID_DATE_PRECISIONS:
-            errors.append(
-                f"Datumprecision '{event.date.precision}' är ogiltig; "
-                f"måste vara en av {sorted(_VALID_DATE_PRECISIONS)}."
-            )
+        errors.extend(_validate_date_value_fields(event.date))
+
+    if event.origin is not None:
+        errors.extend(validate_record_origin(event.origin))
 
     # Custom event type validation
     if event.type in _CUSTOM_EVENT_TYPES:
@@ -571,16 +605,18 @@ def placement_end_findings(events: list[Event]) -> list[EventFinding]:
             key = _placement_pairing_key(
                 event, start_spec.child_role, start_spec.parent_role
             )
-            if key is None or event.date is None or not event.date.value:
+            start_iso = exact_value(event.date)
+            if key is None or start_iso is None:
                 continue
             existing = start_dates.get(key)
-            if existing is None or strictly_earlier(event.date.value, existing):
-                start_dates[key] = event.date.value
+            if existing is None or strictly_earlier(start_iso, existing):
+                start_dates[key] = start_iso
 
         for event in events:
             if event.type != end_spec_type:
                 continue
-            if event.date is None or not event.date.value:
+            end_iso = exact_value(event.date)
+            if end_iso is None:
                 continue
             key = _placement_pairing_key(
                 event, start_spec.child_role, start_spec.parent_role
@@ -590,7 +626,7 @@ def placement_end_findings(events: list[Event]) -> list[EventFinding]:
             start_date = start_dates.get(key)
             if start_date is None:
                 continue
-            if strictly_earlier(event.date.value, start_date):
+            if strictly_earlier(end_iso, start_date):
                 findings.append(
                     EventFinding(
                         event.id, "warning", _MSG_PLACEMENT_END_BEFORE_START
@@ -1432,6 +1468,11 @@ def validate_residence(
 
     for observation in residence.observations:
         _validate_observation(observation, valid_source_ids, errors)
+
+    # --- Origins (Requirements 22.1, 22.2) --------------------------------
+    # Equal origins on several residences of one owner are valid data.
+    for origin in residence.origins:
+        errors.extend(validate_record_origin(origin, residence=True))
 
     return errors
 

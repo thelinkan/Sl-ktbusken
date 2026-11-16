@@ -3,6 +3,7 @@
 Mandatory group c (failed merges); required, never skipped.
 """
 
+import gzip
 from pathlib import Path
 
 import pytest
@@ -352,7 +353,10 @@ def test_clean_state_merge_commits_plan_applied_to_saved_state(tmp_path: Path) -
     outcome = MergeEngine(svc, _registry_with(*editors)).execute(plan)
     assert outcome.success, outcome.message
     assert [p.id for p in svc.data.persons] == ["person_1"]
-    assert svc.project_path.read_bytes() == FilePersistence.encode(svc.data)
+    # Decompressed: the gzip header carries a timestamp that can tick over.
+    assert gzip.decompress(svc.project_path.read_bytes()) == gzip.decompress(
+        FilePersistence.encode(svc.data)
+    )
     assert svc.is_saved_state()
     assert not svc.is_dirty
     assert editors[0].saves == editors[0].discards == editors[0].resolutions == 0

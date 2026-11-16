@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.model.date_semantics import format_date_sv
 from slaktbusken.model.event import Event
 from slaktbusken.services.delete_service import DeletionConsequences
 
@@ -59,7 +60,7 @@ def _format_event_line(event: Event) -> str:
     Shows type and date value, or 'inget datum' when no date is set.
     """
     event_type = _translate_event_type(event)
-    date_str = event.date.value if event.date else "inget datum"
+    date_str = (format_date_sv(event.date) if event.date else "") or "inget datum"
     return f"  • {event_type} ({date_str})"
 
 

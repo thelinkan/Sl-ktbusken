@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.model.date_semantics import display_year
 from slaktbusken.services.lineage_computer import LineageComputer
 from slaktbusken.ui.widgets.person_box import PersonBoxItem
 from slaktbusken.ui.widgets.research_marker import begin_diagram_render
@@ -310,16 +311,8 @@ class DiagramPanel(QWidget):
         Returns:
             Ett par (födelseår, dödsår) där vardera kan vara None.
         """
-        import re
-
         if self._project_data is None or self._active_person_id is None:
             return (None, None)
-
-        def _extract_year(date_value: Optional[str]) -> Optional[str]:
-            if not date_value:
-                return None
-            match = re.search(r"\d{4}", date_value)
-            return match.group(0) if match else None
 
         birth_year: Optional[str] = None
         death_year: Optional[str] = None
@@ -329,9 +322,9 @@ class DiagramPanel(QWidget):
             ):
                 continue
             if event.type == "birth" and event.date and birth_year is None:
-                birth_year = _extract_year(event.date.value)
+                birth_year = display_year(event.date)
             elif event.type == "death" and event.date and death_year is None:
-                death_year = _extract_year(event.date.value)
+                death_year = display_year(event.date)
         return (birth_year, death_year)
 
     def _print_heading(self) -> Optional[str]:

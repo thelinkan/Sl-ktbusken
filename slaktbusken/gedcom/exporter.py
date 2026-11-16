@@ -1,4 +1,4 @@
-"""GEDCOM file exporter — produces GEDCOM 5.5.1 compliant output.
+﻿"""GEDCOM file exporter — produces GEDCOM 5.5.1 compliant output.
 
 Exports App_JSON ProjectData to a GEDCOM 5.5.1 file with deterministic IDs,
 place hierarchy resolution, and source citation handling. Data elements
@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import Optional
 
 from slaktbusken.gedcom.translation.citation_translation import build_citation_text
+from slaktbusken.gedcom.dates import export_gedcom_date
+from slaktbusken.model.date_semantics import effective_qualifier
 from slaktbusken.model.event import DateValue, Event
+from slaktbusken.model.event_citations import CitationContext, event_citations
 from slaktbusken.model.family import Family
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
@@ -24,6 +27,7 @@ from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.source import Source
 
+_ISO_VALUE_RE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -128,6 +132,7 @@ class GEDCOMExporter:
         self._resi_has_sour: bool = False
         self._flytt_from_place_loss: bool = False
         self._placement_end_note_loss: bool = False
+        self._date_warnings: list[str] = []
 
     def export(self, data: ProjectData, output_path: Path) -> ExportResult:
         """Export ProjectData to a GEDCOM 5.5.1 file.
@@ -147,6 +152,7 @@ class GEDCOMExporter:
         self._resi_has_sour = False
         self._flytt_from_place_loss = False
         self._placement_end_note_loss = False
+        self._date_warnings = []
 
         # Build residence-by-person index
         residences_by_person: dict[str, list[ResidenceFact]] = {}
@@ -193,6 +199,11 @@ class GEDCOMExporter:
                 "Flyttens ursprungsplats exporteras som anteckning"
                 " – GEDCOM 5.5.1 tillåter bara en PLAC per händelse."
             )
+
+        # Stale original text of dates (Requirement 11.6)
+        for date_warning in self._date_warnings:
+            if date_warning not in warnings:
+                warnings.append(date_warning)
 
         # Export log entry for placement-end NOTE fallback (Requirement 11.2e)
         if self._placement_end_note_loss:
@@ -655,6 +666,18 @@ class GEDCOMExporter:
                 lines.append(f"2 NOTE Från: {from_place_str}")
                 self._flytt_from_place_loss = True
 
+        # Citations of the event, its date and its place (Requirement 12.5).
+        # The from-place citations have no GEDCOM home and stay out.
+        for cit in event_citations(event):
+            if cit.context == CitationContext.FROM_PLACE:
+                continue
+            source = self._sources.get(cit.ref.source_id)
+            if source:
+                lines.append(f"2 SOUR {self._to_gedcom_id(source.id)}")
+                citation = build_citation_text(source)
+                if citation:
+                    lines.append(f"3 TEXT {citation}")
+
         return lines
 
     # ------------------------------------------------------------------
@@ -799,23 +822,29 @@ class GEDCOMExporter:
             self._format_date(end_event.date) if end_event.date else ""
         )
 
-        # An end exists but its date is unformattable (e.g. a non-standard or
-        # approximate form _format_date returns "" for) while a raw value is
-        # present: fall back to a labelled NOTE and record the structure loss.
-        if (
-            not end_formatted
-            and end_event.date is not None
-            and end_event.date.value
-            and end_event.date.value.strip()
-        ):
+        # FROM/TO only take single exact dates. A qualified, ranged or
+        # unparsed endpoint cannot be a period endpoint, so the start is
+        # written as an ordinary DATE and a dated end becomes a labelled NOTE
+        # (recording the structure loss).
+        start_ok = (
+            not start_formatted or self._is_period_endpoint(start_event.date)
+        )
+        end_ok = not end_formatted or self._is_period_endpoint(end_event.date)
+        end_raw = (
+            end_event.date.value.strip()
+            if end_event.date is not None and end_event.date.value
+            else ""
+        )
+        if (end_formatted or end_raw) and not (start_ok and end_ok and end_formatted):
             lines: list[str] = []
             if start_formatted:
                 lines.append(f"2 DATE {start_formatted}")
-            lines.append(
-                f"2 NOTE Avslutades: {end_event.date.value.strip()}"
-            )
+            lines.append(f"2 NOTE Avslutades: {end_formatted or end_raw}")
             self._placement_end_note_loss = True
             return lines
+        if not start_ok:
+            # Start is qualified/ranged and there is no dated end.
+            return [f"2 DATE {start_formatted}"]
 
         # Period encoding from the formattable endpoints.
         if start_formatted and end_formatted:
@@ -1067,28 +1096,18 @@ class GEDCOMExporter:
                     lines.append(f"4 LATI {lat_prefix}{abs(place_obj.latitude)}")
                     lines.append(f"4 LONG {lon_prefix}{abs(place_obj.longitude)}")
 
-        # Source citations on date
-        if event.date and event.date.source_refs:
-            for sref in event.date.source_refs:
-                source = self._sources.get(sref.source_id)
-                if source:
-                    source_gedcom_id = self._to_gedcom_id(source.id)
-                    lines.append(f"2 SOUR {source_gedcom_id}")
-                    citation = build_citation_text(source)
-                    if citation:
-                        lines.append(f"3 TEXT {citation}")
-
-        # Source citations on place
-        if event.place and event.place.source_refs:
-            for sref in event.place.source_refs:
-                source = self._sources.get(sref.source_id)
-                if source:
-                    source_gedcom_id = self._to_gedcom_id(source.id)
-                    lines.append(f"2 SOUR {source_gedcom_id}")
-                    citation = build_citation_text(source)
-                    if citation:
-                        lines.append(f"3 TEXT {citation}")
-
+        # Source citations: event-level (directly under the event record),
+        # then date and place citations as before.
+        for cit in event_citations(event):
+            if cit.context == CitationContext.FROM_PLACE:
+                continue
+            source = self._sources.get(cit.ref.source_id)
+            if source:
+                source_gedcom_id = self._to_gedcom_id(source.id)
+                lines.append(f"2 SOUR {source_gedcom_id}")
+                citation = build_citation_text(source)
+                if citation:
+                    lines.append(f"3 TEXT {citation}")
         return lines
 
     # ------------------------------------------------------------------
@@ -1096,60 +1115,31 @@ class GEDCOMExporter:
     # ------------------------------------------------------------------
 
     def _format_date(self, date: DateValue) -> str:
-        """Format a DateValue into GEDCOM date format.
+        """Format a DateValue into GEDCOM date text via ``export_gedcom_date``.
 
-        Converts ISO 8601 date strings to GEDCOM date format:
-            - "1900-01-15" → "15 JAN 1900"
-            - "1900-01" → "JAN 1900"
-            - "1900" → "1900"
-            - precision "approximate" → prefix with "ABT"
-
-        Args:
-            date: The DateValue to format.
+        Qualifiers, ranges, the Julian escape (before each endpoint), verbatim
+        consistent original text and verbatim unparsed text are handled by
+        :func:`slaktbusken.gedcom.dates.export_gedcom_date`. Swedish warnings
+        for stale original text are collected for the export log.
 
         Returns:
-            Formatted GEDCOM date string, or empty string if invalid.
+            GEDCOM date text, or an empty string when there is nothing to write.
         """
-        if not date.value:
+        if effective_qualifier(date) != "unparsed" and not _ISO_VALUE_RE.match(
+            (date.value or "").strip()
+        ):
+            # Structured value is not an ISO date: nothing GEDCOM can express.
             return ""
+        text, warnings = export_gedcom_date(date)
+        for warning in warnings:
+            if warning not in self._date_warnings:
+                self._date_warnings.append(warning)
+        return text.strip()
 
-        value = date.value.strip()
-        result = ""
-
-        # Try YYYY-MM-DD
-        full_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", value)
-        if full_match:
-            year = full_match.group(1)
-            month = full_match.group(2)
-            day = int(full_match.group(3))
-            month_name = _ISO_MONTH_TO_GEDCOM.get(month)
-            if month_name:
-                result = f"{day} {month_name} {year}"
-
-        # Try YYYY-MM
-        if not result:
-            month_match = re.match(r"^(\d{4})-(\d{2})$", value)
-            if month_match:
-                year = month_match.group(1)
-                month = month_match.group(2)
-                month_name = _ISO_MONTH_TO_GEDCOM.get(month)
-                if month_name:
-                    result = f"{month_name} {year}"
-
-        # Try YYYY
-        if not result:
-            year_match = re.match(r"^(\d{4})$", value)
-            if year_match:
-                result = value
-
-        if not result:
-            return ""
-
-        # Apply approximate prefix
-        if date.precision == "approximate":
-            result = f"ABT {result}"
-
-        return result
+    @staticmethod
+    def _is_period_endpoint(date: Optional[DateValue]) -> bool:
+        """True when *date* is a single exact date usable after FROM/TO."""
+        return date is not None and effective_qualifier(date) == "exact"
 
     # ------------------------------------------------------------------
     # Omission tracking (subtask 12.5)

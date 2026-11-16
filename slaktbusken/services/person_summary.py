@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from slaktbusken.model.date_semantics import format_date_sv
 from slaktbusken.model.event import DateValue
 from slaktbusken.model.project import ProjectData
 from slaktbusken.services.checks.date_utils import parse_date_value
@@ -64,7 +65,11 @@ def _year_of(date: DateValue | None) -> str:
     if date is None or not date.value:
         return ""
     parsed = parse_date_value(date)
-    return str(parsed.year) if parsed else ""
+    # A year is shown for exact dates and for legacy "about" (0.4 approximate);
+    # before/after/ranges/unparsed never show as a plain year.
+    if parsed is None or parsed.precision not in ("exact", "about"):
+        return ""
+    return str(parsed.year)
 
 
 class PersonSummaryIndex:
@@ -174,7 +179,7 @@ class PersonSummaryIndex:
 def _date_text(event) -> str:
     if event is None or event.date is None:
         return ""
-    return event.date.value or ""
+    return format_date_sv(event.date)
 
 
 def _place_text(event, place_names: dict[str, str]) -> str:

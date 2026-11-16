@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.model.date_semantics import format_date_sv
 from slaktbusken.services.photo_tagging_service import PhotoTaggingService
 from slaktbusken.ui.widgets.person_list_widget import PersonListWidget
 
@@ -294,7 +295,7 @@ class EditPhotoDialog(QDialog):
             if event.id == event_id:
                 label = get_event_type_label(event.type)
                 if event.date:
-                    label = f"{label} ({event.date.value})"
+                    label = f"{label} ({format_date_sv(event.date)})"
                 # Add participant names
                 names = self._get_participant_names(event)
                 if names:

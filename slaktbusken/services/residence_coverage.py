@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from slaktbusken.model.date_semantics import exact_value
 from slaktbusken.model.date_span import OpenSpan, year_of
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import (
@@ -458,7 +459,7 @@ def _get_birth_death_years(
         if event.date is None:
             continue
 
-        event_year = year_of(event.date.value)
+        event_year = year_of(exact_value(event.date))
         if event_year is None:
             continue
 

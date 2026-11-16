@@ -44,6 +44,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.model.event_citations import event_cites_source
+from slaktbusken.services.edit_session import register_created_file_in_active_session
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.source import ArkivReferens, RepositoryRef, Source, StructuredReference
@@ -111,6 +113,7 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
     """
 
     save_requested = Signal()
+    media_added = Signal()
     cancel_requested = Signal()
     # Carries the id of the source whose persons the Personlista should show.
     filter_persons_requested = Signal(str)
@@ -631,7 +634,7 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
 
         source_id = current.data(Qt.ItemDataRole.UserRole)
 
-        # Check for referencing events (source_refs in date or place)
+        # Check for referencing events (any citation context)
         referencing_events = self._find_referencing_events(source_id)
         if referencing_events:
             event_lines: list[str] = []
@@ -668,9 +671,9 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
         self._clear_status()
 
     def _find_referencing_events(self, source_id: str) -> list:
-        """Find all events that reference a given source via source_refs.
+        """Find all events that cite a given source in any context.
 
-        Checks both date.source_refs and place.source_refs on each event.
+        Uses the event citation helper (event, date, place, from-place).
 
         Args:
             source_id: The source ID to search for.
@@ -678,22 +681,11 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
         Returns:
             List of Event objects referencing this source.
         """
-        referencing = []
-        for event in self._project_data.events:
-            found = False
-            if event.date and event.date.source_refs:
-                for sr in event.date.source_refs:
-                    if sr.source_id == source_id:
-                        found = True
-                        break
-            if not found and event.place and event.place.source_refs:
-                for sr in event.place.source_refs:
-                    if sr.source_id == source_id:
-                        found = True
-                        break
-            if found:
-                referencing.append(event)
-        return referencing
+        return [
+            event
+            for event in self._project_data.events
+            if event_cites_source(event, source_id)
+        ]
 
     # ------------------------------------------------------------------
     # Private: load source data
@@ -943,6 +935,9 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
                 f"Kunde inte kopiera filen: {e}",
             )
             return
+        # The copy is new (the name was made unique); an Avbryt in the person
+        # editor session deletes it again.
+        register_created_file_in_active_session(target_path)
 
         # Compute relative path from media directory root (media/subfolder/filename)
         relative_path = f"media/{subfolder}/{target_name}"
@@ -968,6 +963,9 @@ class SourceEditor(EditorRegistryParticipant, QWidget):
         list_item.setData(Qt.ItemDataRole.UserRole, media_id)
         self._ui.media_list.addItem(list_item)
         self._clear_status()
+        # The media record is already in the project data; standalone owners
+        # mark the project changed (an edit session covers it by rollback).
+        self.media_added.emit()
 
     def _on_remove_media(self) -> None:
         """Remove the currently selected media item from the list."""

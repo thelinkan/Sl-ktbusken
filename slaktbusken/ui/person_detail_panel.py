@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from html import escape as _html_escape
 
+from slaktbusken.model.date_semantics import format_date_sv, sort_key
 from slaktbusken.services.research_index import ResearchIndex
 from slaktbusken.ui.swedish_locale import get_parentage_type_label, get_research_status_label
 
@@ -324,7 +325,7 @@ class PersonDetailPanel(QWidget):
             self._content_layout.addWidget(events_header)
 
             # Sort events by date
-            events.sort(key=lambda e: e.date.value if e.date else "")
+            events.sort(key=lambda e: (1, sort_key(e.date)) if e.date else (0, (0, 0, 0, 0)))
 
             for event in events:
                 event_widget = self._build_event_widget(event)
@@ -477,7 +478,9 @@ class PersonDetailPanel(QWidget):
         parts = [f"<b>{type_label}</b>"]
 
         if event.date:
-            parts.append(event.date.value)
+            date_text = format_date_sv(event.date)
+            if date_text:
+                parts.append(date_text)
 
         if event.place:
             place = next((p for p in data.places if p.id == event.place.place_id), None)

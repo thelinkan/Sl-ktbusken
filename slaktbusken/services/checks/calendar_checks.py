@@ -10,6 +10,7 @@ from pathlib import Path
 
 from slaktbusken.model.event import Event
 from slaktbusken.model.family import Family
+from slaktbusken.model.date_semantics import exact_value
 from slaktbusken.model.person import Person
 from slaktbusken.persistence.settings_io import PersonCheckConfig
 from slaktbusken.services.checks.date_utils import (
@@ -56,6 +57,10 @@ def check_valid_swedish_calendar(
         # Only check events where this person is a participant
         is_participant = any(p.person_id == person.id for p in event.participants)
         if not is_participant:
+            continue
+
+        # The 1753 check applies only to exact Gregorian-labelled dates.
+        if exact_value(event.date) is None:
             continue
 
         parsed = parse_date_value(event.date)

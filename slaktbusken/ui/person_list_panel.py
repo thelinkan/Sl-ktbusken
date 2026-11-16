@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from slaktbusken.app import Application
 
+from slaktbusken.model.date_semantics import display_year, format_date_sv
 from slaktbusken.model.event import Event
 from slaktbusken.model.family import Family
 from slaktbusken.model.name_parser import parse_given_name
@@ -256,13 +257,13 @@ def get_person_birth_death_years(
                 if event.type == "birth" and not has_birth_event:
                     has_birth_event = True
                     if event.date is not None:
-                        birth_year = extract_year(event.date.value)
+                        birth_year = display_year(event.date) or ""
                     if not birth_year:
                         birth_year = "?"
                 elif event.type == "death" and not has_death_event:
                     has_death_event = True
                     if event.date is not None:
-                        death_year = extract_year(event.date.value)
+                        death_year = display_year(event.date) or ""
                     if not death_year:
                         death_year = "?"
                 break
@@ -296,14 +297,14 @@ def _get_person_birth_death_details(
             if participant.person_id == person.id:
                 if event.type == "birth" and not birth_date:
                     if event.date is not None:
-                        birth_date = event.date.value
+                        birth_date = format_date_sv(event.date)
                     if event.place is not None:
                         place = place_by_id.get(event.place.place_id)
                         if place is not None:
                             birth_place = place.name
                 elif event.type == "death" and not death_date:
                     if event.date is not None:
-                        death_date = event.date.value
+                        death_date = format_date_sv(event.date)
                     if event.place is not None:
                         place = place_by_id.get(event.place.place_id)
                         if place is not None:
@@ -343,7 +344,7 @@ def get_person_marriage_year(
         for event_id in family.event_ids:
             event = event_by_id.get(event_id)
             if event and event.type == "marriage" and event.date:
-                year = extract_year(event.date.value)
+                year = display_year(event.date) or ""
                 if year:
                     return year
 
@@ -352,7 +353,7 @@ def get_person_marriage_year(
         if event.type == "marriage" and event.date:
             for participant in event.participants:
                 if participant.person_id == person.id:
-                    year = extract_year(event.date.value)
+                    year = display_year(event.date) or ""
                     if year:
                         return year
     return ""

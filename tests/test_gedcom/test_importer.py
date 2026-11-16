@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
+from slaktbusken.gedcom.dates import parse_gedcom_date as _parse_gedcom_date
 from slaktbusken.gedcom.importer import (
     GEDCOMImporter,
     ImportResult,
-    parse_gedcom_date,
     _extract_gedcom_person,
     _extract_gedcom_family,
     _extract_gedcom_source,
@@ -186,6 +186,11 @@ def translation_dir(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def parse_gedcom_date(text: str):
+    parsed = _parse_gedcom_date(text)
+    return parsed.value if parsed is not None else None
+
+
 class TestParseGedcomDate:
     """Tests for GEDCOM date parsing."""
 
@@ -211,24 +216,27 @@ class TestParseGedcomDate:
         assert result.precision == "year"
 
     def test_approximate_date(self) -> None:
-        """ABT prefix produces approximate precision."""
+        """ABT prefix produces the qualifier about."""
         result = parse_gedcom_date("ABT 1900")
         assert result is not None
         assert result.value == "1900"
+        assert result.qualifier == "about"
         assert result.precision == "approximate"
 
     def test_before_date(self) -> None:
-        """BEF prefix produces approximate precision."""
+        """BEF prefix produces the qualifier before (not about)."""
         result = parse_gedcom_date("BEF 15 MAR 1900")
         assert result is not None
         assert result.value == "1900-03-15"
+        assert result.qualifier == "before"
         assert result.precision == "approximate"
 
     def test_after_date(self) -> None:
-        """AFT prefix produces approximate precision."""
+        """AFT prefix produces the qualifier after."""
         result = parse_gedcom_date("AFT JAN 1900")
         assert result is not None
         assert result.value == "1900-01"
+        assert result.qualifier == "after"
         assert result.precision == "approximate"
 
     def test_empty_date_returns_none(self) -> None:
@@ -496,10 +504,11 @@ class TestGEDCOMImporterSources:
         assert len(birth_events) == 1
         birth = birth_events[0]
 
-        # Source ref should be attached to the date
+        # Source ref is event-level, not attached to the date
         assert birth.date is not None
-        assert len(birth.date.source_refs) == 1
-        assert birth.date.source_refs[0].source_id == empty_project.sources[0].id
+        assert birth.date.source_refs == []
+        assert len(birth.source_refs) == 1
+        assert birth.source_refs[0].source_id == empty_project.sources[0].id
 
 
 # ---------------------------------------------------------------------------

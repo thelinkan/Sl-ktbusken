@@ -1180,6 +1180,32 @@ def test_reference_rule_merge_history_archived_candidates(merged):
         assert (archived.person_1_id, archived.person_2_id) == originals[archived.id]
 
 
+def _rr_row(key):
+    return next(l for l in _p29_pri.PERSON_REFERENCE_INVENTORY if l.key == key)
+
+
+def test_reference_rule_event_origin(merged):
+    """H: the provenance of an imported event is never rewritten."""
+    row = _rr_row("event.origin")
+    assert (row.owner_class, row.field_path, row.rule, row.handler) == (
+        "RecordOrigin", "owner_id", "H", None)
+    before = {e.id: e.origin for e in merged.before_data.events}
+    for event in merged.after.events:
+        if event.id in before:
+            assert event.origin == before[event.id]
+
+
+def test_reference_rule_residence_origins(merged):
+    """H: the provenance of an imported residence is never rewritten."""
+    row = _rr_row("residence.origins")
+    assert (row.owner_class, row.field_path, row.rule, row.handler) == (
+        "RecordOrigin", "origins[].owner_id", "H", None)
+    before = {r.id: r.origins for r in merged.before_data.residences}
+    for residence in merged.after.residences:
+        if residence.id in before:
+            assert residence.origins == before[residence.id]
+
+
 # --- translation ----------------------------------------------------------------
 
 

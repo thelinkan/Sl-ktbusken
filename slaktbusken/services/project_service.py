@@ -9,9 +9,10 @@ additions are validated before being appended to the in-memory data.
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
+import dataclasses
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from slaktbusken.model.dna import (
     DnaCluster,
@@ -63,8 +64,27 @@ from slaktbusken.persistence.translation_io import (
     TranslationData,
     write_all as write_translations,
 )
+from slaktbusken.services.edit_session import (
+    MSG_IMPORT_RUNNING,
+    MSG_IMPORT_SAVE_UNFINISHED,
+    MSG_MERGE,
+    MSG_NO_PROJECT,
+    MSG_SNAPSHOT_FAILED,
+    EditSession,
+    EditSessionBusy,
+    EditSessionRefused,
+    UnsavedEditorsBlock,
+)
+from slaktbusken.services.editor_registry import EditorRegistry
 from slaktbusken.services.commit.fs_ops import CommitFs, RealFs
+from slaktbusken.services.commit.journal import sha256_hex
 from slaktbusken.services.commit.preflight import journal_path_for
+from slaktbusken.services.commit.translation_commit import (
+    ImportSaveUnfinished,
+    SaveFailed,
+    TranslationCommit,
+    recover_translation_intent,
+)
 from slaktbusken.services.commit.recovery import (
     RecoveryOutcome,
     RecoveryRefusedError,
@@ -89,6 +109,20 @@ from slaktbusken.services.foster_sync import (
 from slaktbusken.services.standard_providers import initialize_standard_providers
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PendingTranslation:
+    """Translation data staged by an import and not yet written to disk.
+
+    Attributes:
+        data: The Staged_Translation (all mappings as the import left them).
+        base: Translation_Base: SHA-256 of each translation file as the import
+            read it (or ``"absent"``), keyed by ``translation/<name>.json``.
+    """
+
+    data: TranslationData
+    base: dict[str, str] = field(default_factory=dict)
 
 #: Stand-in id used while validating research data that has not been issued an id yet.
 _PENDING_ID = "\x00pending"
@@ -181,6 +215,19 @@ class ProjectService:
         self._content_revision: int = 0
         self._clean_content_revision: int = 0
         self._merge_in_progress: bool = False
+        #: Active edit session whose changes are deferred.
+        self._active_session: Optional[EditSession] = None
+        #: Whether a GEDCOM import is running (Session_Start_Condition d).
+        self._import_in_progress: bool = False
+        #: Import_Save_Unfinished (condition c2): the project file was replaced but
+        #: the translation files were not finished; cleared by open and close.
+        self._import_save_unfinished: bool = False
+        #: Disk_Digest: SHA-256 of the project file bytes as last read or written.
+        self._disk_digest: Optional[str] = None
+        #: Translation data staged by an import, written at the next save.
+        self._pending_translation: Optional[PendingTranslation] = None
+        #: Registry consulted by ``begin_edit_session`` (condition b).
+        self._editor_registry: Optional[EditorRegistry] = None
         self._merge_listeners: list[Callable[[], None]] = []
         # Observers of research changes. They belong to the service, not to a
         # project, so they survive opening and closing projects.
@@ -275,6 +322,143 @@ class ProjectService:
         if value:
             self._record_change()
 
+    def mark_changed(self, reason: str = "") -> None:
+        """Mark the project as changed: set the dirty flag, count the change and
+        notify merge listeners once.
+
+        This is the public way to record a change. The ``_dirty`` setter is for
+        internal use by this service only.
+
+        While an edit session is active the call is recorded in the session and
+        applied as one call at commit, so counters and listeners stay untouched.
+
+        Args:
+            reason: Short description of the change, used for logging.
+        """
+        session = self._active_session
+        if session is not None:
+            session.mark_changed(reason)
+            return
+        logger.debug("Projekt ändrat: %s", reason or "(ingen orsak angiven)")
+        self._dirty = True
+
+    # ------------------------------------------------------------------
+    # Edit sessions
+    # ------------------------------------------------------------------
+
+    def set_editor_registry(self, registry: Optional[EditorRegistry]) -> None:
+        """Set the registry whose unsaved editors block ``begin_edit_session``."""
+        self._editor_registry = registry
+
+    def unsaved_editor_titles(self) -> list[str]:
+        """Swedish titles of the registered editors that hold unsaved changes."""
+        reg = self._editor_registry
+        if reg is None:
+            return []
+        return [e.editor_title for e in reg.unsaved_editors()]
+
+    @property
+    def import_in_progress(self) -> bool:
+        """Whether a GEDCOM import is running."""
+        return self._import_in_progress
+
+    @property
+    def pending_translation(self) -> Optional[PendingTranslation]:
+        """Staged translation data (with its base) waiting for the next save."""
+        return self._pending_translation
+
+    def adopt_working_copy(
+        self,
+        work: ProjectData,
+        pending: Optional[PendingTranslation],
+        reason: str,
+    ) -> None:
+        """Adopt an import's working copy into the existing project instance.
+
+        Every field of *work* is assigned onto the existing ``ProjectData``
+        object (same object, new entity objects). *pending*, when given,
+        becomes the Pending_Translation; a Pending_Translation that already
+        exists keeps its base. The project is then marked changed once.
+
+        Args:
+            work: The working copy the import produced.
+            pending: Staged translation, or ``None`` when it did not change.
+            reason: Short description for the change log.
+        """
+        target = self.data
+        for f in dataclasses.fields(ProjectData):
+            setattr(target, f.name, getattr(work, f.name))
+        if pending is not None:
+            existing = self._pending_translation
+            base = existing.base if existing is not None else pending.base
+            self._pending_translation = PendingTranslation(pending.data, dict(base))
+        self.mark_changed(reason)
+
+    def set_import_in_progress(self, running: bool) -> None:
+        """Mark whether a GEDCOM import runs; edit sessions are refused meanwhile."""
+        self._import_in_progress = bool(running)
+
+    @property
+    def import_save_unfinished(self) -> bool:
+        """Whether an interrupted import save waits for the next open."""
+        return self._import_save_unfinished
+
+    @property
+    def disk_digest(self) -> Optional[str]:
+        """SHA-256 of the project file bytes as last read (open) or written (save)."""
+        return self._disk_digest
+
+    @property
+    def active_edit_session(self) -> Optional[EditSession]:
+        """The active edit session, or ``None``."""
+        return self._active_session
+
+    def begin_edit_session(
+        self, owner_title: str, registry: Optional[EditorRegistry] = None
+    ) -> EditSession:
+        """Take a full snapshot and start deferring ``mark_changed`` calls.
+
+        Checks the Session_Start_Conditions in order (a), (b), (c), (c2), (d),
+        (e), (f).
+
+        Args:
+            owner_title: Swedish title of the editor that owns the session.
+            registry: Editor registry to check; defaults to the one set with
+                ``set_editor_registry``.
+
+        Raises:
+            EditSessionBusy: Another session is active.
+            UnsavedEditorsBlock: Registered editors hold unsaved changes.
+            EditSessionRefused: Any other condition holds.
+        """
+        if self._active_session is not None:
+            raise EditSessionBusy()
+        reg = registry if registry is not None else self._editor_registry
+        if reg is not None:
+            titles = [e.editor_title for e in reg.unsaved_editors()]
+            if titles:
+                raise UnsavedEditorsBlock(titles)
+        if self._merge_in_progress or self.is_merge_journal_pending():
+            raise EditSessionRefused(MSG_MERGE)
+        if self._import_save_unfinished:
+            raise EditSessionRefused(MSG_IMPORT_SAVE_UNFINISHED)
+        if self._import_in_progress:
+            raise EditSessionRefused(MSG_IMPORT_RUNNING)
+        if self._project_data is None:
+            raise EditSessionRefused(MSG_NO_PROJECT)
+        try:
+            session = EditSession(self, owner_title)
+        except Exception as exc:  # noqa: BLE001 - any copy failure refuses the start
+            logger.exception("Ögonblicksbilden kunde inte skapas.")
+            raise EditSessionRefused(MSG_SNAPSHOT_FAILED) from exc
+        self._active_session = session
+        return session
+
+    def _release_edit_session(self, session: EditSession) -> None:
+        """Called by a session when it commits or rolls back."""
+        if self._active_session is session:
+            self._active_session = None
+
     @property
     def revision(self) -> int:
         """Number of completed change notifications (in-memory only)."""
@@ -316,7 +500,7 @@ class ProjectService:
         path = self._project_path
         if path is None:
             return False
-        if Path(path) in self._refused_projects:
+        if self._import_save_unfinished or Path(path) in self._refused_projects:
             return True
         fs = self._commit_fs if self._commit_fs is not None else RealFs()
         try:
@@ -346,6 +530,9 @@ class ProjectService:
         self._dirty_value = False
         self._record_change(content=True, notify=False)
         self._clean_content_revision = self._content_revision
+        if self._project_path is not None:
+            # The merge commit replaced the project file: track the new bytes.
+            self._disk_digest = self._read_disk_digest(self._project_path)
         self.notify_merge_changed()
 
     # ------------------------------------------------------------------
@@ -416,7 +603,7 @@ class ProjectService:
         )
         project_data = ProjectData(
             format="släktbuske-file",
-            version="0.4",
+            version="0.5",
             project=metadata,
         )
 
@@ -426,6 +613,7 @@ class ProjectService:
         # Save the .json.gz data file.
         data_file = project_folder / f"{name}.json.gz"
         FilePersistence.save(project_data, data_file)
+        self._disk_digest = self._read_disk_digest(data_file)
 
         # Carry forward current settings to the new project (so user
         # preferences persist across project switches). Fall back to
@@ -455,6 +643,7 @@ class ProjectService:
         self._project_data = project_data
         self._project_path = data_file
         self._settings = settings
+        self._pending_translation = None
         self._dirty_value = False
         self._clean_content_revision = self._content_revision
 
@@ -490,16 +679,32 @@ class ProjectService:
         if path.parent.exists():
             try:
                 outcome = recover_if_needed(path, self._commit_fs)
+                # An interrupted import save is resolved after the merge
+                # recovery and before the project is loaded.
+                import_outcome = recover_translation_intent(path, self._commit_fs)
+                if import_outcome is not None:
+                    outcome = (
+                        import_outcome
+                        if outcome is None
+                        else RecoveryOutcome(
+                            import_outcome.kind,
+                            f"{outcome.message}\n{import_outcome.message}",
+                        )
+                    )
             except RecoveryRefusedError:
                 self._refused_projects.add(path)
                 raise
         self._refused_projects.discard(path)
         self._last_recovery_message = outcome.message if outcome is not None else ""
 
-        project_data = FilePersistence.load(path)
+        project_data, digest = FilePersistence.load_with_digest(path)
+        self._disk_digest = digest
 
         self._project_data = project_data
         self._project_path = path
+        self._active_session = None
+        self._import_save_unfinished = False
+        self._pending_translation = None
         self._dirty_value = False
         self._clean_content_revision = self._content_revision
 
@@ -539,14 +744,68 @@ class ProjectService:
                 "En sammanslagning pågår. Projektet kan inte sparas just nu."
             )
 
+        if self._import_save_unfinished:
+            raise MergeNotFinishedError(MSG_IMPORT_SAVE_UNFINISHED)
+
         if self.is_merge_journal_pending():
             raise MergeNotFinishedError(MERGE_UNFINISHED_MESSAGE)
 
-        FilePersistence.save(self._project_data, self._project_path)
+        project_bytes = FilePersistence.encode(self._project_data)  # encode once
+        pending = self._pending_translation
+        if pending is None:
+            FilePersistence.write_bytes(project_bytes, self._project_path)
+            self._disk_digest = sha256_hex(project_bytes)
+        else:
+            self._save_with_translation(project_bytes, pending)
+        self._mark_saved()
+        logger.info("Projekt sparat: %s", self._project_path)
+
+    def _save_with_translation(
+        self, project_bytes: bytes, pending: PendingTranslation
+    ) -> None:
+        """Save the project and the staged translation files (Requirement 20).
+
+        Raises ``SaveConflict`` and ``SaveFailed`` (nothing replaced; the
+        project stays dirty and the pending translation is kept) or
+        ``ImportSaveUnfinished`` (the project is saved; the translation files
+        are finished at the next open).
+        """
+        path = self._project_path
+        assert path is not None
+        expected = self._disk_digest
+        if expected is None:
+            # No digest was recorded (should not happen): use the file as it is now.
+            expected = self._read_disk_digest(path) or "absent"
+        commit = TranslationCommit(path, self._commit_fs)
+        try:
+            self._disk_digest = commit.commit(project_bytes, pending, expected)
+        except ImportSaveUnfinished:
+            self._disk_digest = sha256_hex(project_bytes)
+            self._pending_translation = None
+            self._import_save_unfinished = True
+            self._mark_saved()
+            raise
+        except SaveFailed as exc:
+            if exc.unresolved:
+                self._import_save_unfinished = True
+            raise
+        self._pending_translation = None
+
+    def _mark_saved(self) -> None:
+        """Clear the dirty state after a save and record the save."""
         self._dirty_value = False
         self._clean_content_revision = self._content_revision
         self._record_change(content=False)
-        logger.info("Projekt sparat: %s", self._project_path)
+
+    @staticmethod
+    def _read_disk_digest(path: Path) -> Optional[str]:
+        """SHA-256 of the file bytes, ``"absent"`` when missing, ``None`` when unreadable."""
+        try:
+            return sha256_hex(Path(path).read_bytes())
+        except FileNotFoundError:
+            return "absent"
+        except OSError:
+            return None
 
     def close_project(self) -> None:
         """Close the current project.
@@ -557,6 +816,10 @@ class ProjectService:
         self._project_data = None
         self._project_path = None
         self._settings = None
+        self._active_session = None
+        self._import_save_unfinished = False
+        self._pending_translation = None
+        self._disk_digest = None
         self._dirty_value = False
         self._clean_content_revision = self._content_revision
         logger.info("Projekt stängt.")
@@ -704,6 +967,50 @@ class ProjectService:
         data.places.append(place)
         self._dirty = True
         return place
+
+    def delete_place(self, place_id: str) -> None:
+        """Remove a place by id and mark the project changed once.
+
+        The caller decides whether a referenced place may be deleted (the
+        Place_Editor keeps its refusal and confirmation dialogs). An unknown id
+        changes nothing and does not mark the project changed.
+
+        Args:
+            place_id: The id of the place to remove.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+        """
+        data = self.data
+        remaining = [p for p in data.places if p.id != place_id]
+        if len(remaining) == len(data.places):
+            return
+        data.places = remaining
+        self.mark_changed("Plats borttagen")
+
+    def add_places(self, places: Sequence[Place]) -> int:
+        """Append several places and mark the project changed once.
+
+        Used by "Skapa platser" in the place translation editor. Nothing is
+        marked changed when *places* is empty. Places are not validated here,
+        matching the raw appends this method replaces.
+
+        Args:
+            places: The places to add.
+
+        Returns:
+            The number of places added.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+        """
+        data = self.data
+        new_places = list(places)
+        if not new_places:
+            return 0
+        data.places.extend(new_places)
+        self.mark_changed("Platser skapade")
+        return len(new_places)
 
     def add_source(self, source: Source) -> Source:
         """Validate and add a source to the project.

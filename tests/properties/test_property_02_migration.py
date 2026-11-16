@@ -45,7 +45,8 @@ def documents_03(draw):
 @given(documents_03())
 def test_property_02_migration_additive_and_idempotent(doc):
     original = copy.deepcopy(doc)
-    once = MigrationManager.migrate(copy.deepcopy(doc), "0.3")
+    _, step_0_3 = MigrationManager._migrations["0.3"]
+    once = step_0_3(copy.deepcopy(doc))
 
     # Version fields set; missing collections added empty; existing kept.
     assert once["version"] == "0.4"

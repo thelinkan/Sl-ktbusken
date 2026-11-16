@@ -16,7 +16,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterable, Optional, Sequence
 
+from slaktbusken.model.date_semantics import effective_qualifier, format_date_sv
 from slaktbusken.model.event import DateValue, Event
+from slaktbusken.model.event_citations import event_citations
 from slaktbusken.model.merge_candidate import MergeCandidate
 from slaktbusken.model.person import Person
 from slaktbusken.model.project import ProjectData
@@ -424,28 +426,36 @@ class _Item:
     sources: tuple[str, ...] = ()
 
 
-def _date_sources(date: Optional[DateValue]) -> tuple[str, ...]:
-    if date is None:
-        return ()
-    return tuple(ref.source_id for ref in date.source_refs)
-
-
 def _date_place_item(
     date: Optional[DateValue],
     place_id: Optional[str],
     place_names: dict[str, str],
-    place_refs: Sequence = (),
+    sources: tuple[str, ...] = (),
 ) -> Optional[_Item]:
-    date_value = _display(date.value) if date else ""
-    precision = _norm(date.precision) if date and date_value else ""
+    date_value = _display(format_date_sv(date)) if date else ""
+    # Qualifier, calendar and end value are separate comparison items, so a
+    # "before 1850" never equals an exact 1850 and an unparsed text compares
+    # by its original text.
+    if date and date_value:
+        precision = _norm(date.precision) if date.value else ""
+        qualifier = effective_qualifier(date)
+        date_key = (
+            _norm(date.value),
+            _norm(date.value_to),
+            precision,
+            qualifier,
+            _norm(date.calendar),
+            _norm(date.original_text) if qualifier == "unparsed" else "",
+        )
+    else:
+        date_key = ("", "", "", "", "", "")
     place_text = ""
     if place_id:
         place_text = _display(place_names.get(place_id, place_id))
     if not date_value and not place_text:
         return None
     text = " ".join(part for part in (date_value, place_text) if part)
-    sources = _date_sources(date) + tuple(r.source_id for r in place_refs)
-    return _Item(("dp", _norm(date_value), precision, _norm(place_text)), text, sources)
+    return _Item(("dp", date_key, _norm(place_text)), text, sources)
 
 
 def _text_items(value: Optional[str]) -> list[_Item]:
@@ -488,7 +498,7 @@ def _event_items(events: Sequence[Event], place_names: dict[str, str]) -> list[_
             event.date,
             event.place.place_id if event.place else None,
             place_names,
-            event.place.source_refs if event.place else (),
+            tuple(c.ref.source_id for c in event_citations(event)),
         )
         if item is not None:
             items.append(item)

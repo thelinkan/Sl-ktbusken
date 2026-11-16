@@ -50,6 +50,7 @@ class SourceTranslationEditor(EditorRegistryParticipant, QWidget):
         project_path: Path,
         parent: QWidget | None = None,
         registry: EditorRegistry | None = None,
+        project_service: object | None = None,
     ) -> None:
         """Initialise the source translation editor.
 
@@ -62,6 +63,7 @@ class SourceTranslationEditor(EditorRegistryParticipant, QWidget):
         super().__init__(parent)
         self._join_registry(registry, "Källöversättningsredigerare")
 
+        self._project_service = project_service
         self._translation_service = translation_service
         self._project_data = project_data
         self._project_path = project_path
@@ -326,6 +328,15 @@ class SourceTranslationEditor(EditorRegistryParticipant, QWidget):
         displays a Swedish-language error message and retains unsaved
         changes in the editor.
         """
+        if self._project_service is not None:
+            from slaktbusken.ui.merge.recovery_dialogs import translation_edit_refusal
+
+            refusal = translation_edit_refusal(self._project_service)
+            if refusal:
+                self._update_status(refusal)
+                QMessageBox.warning(self, "Sparfel", refusal)
+                return
+
         if self._translation_data is None:
             self._update_status("Inga data att spara.")
             return

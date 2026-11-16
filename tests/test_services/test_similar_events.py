@@ -237,14 +237,13 @@ def test_day_distance_boundaries_are_365_and_366():
     assert date(1851, 3, 13) - date(1850, 3, 12) == timedelta(days=366)
 
 
-def test_approximate_precision_compares_by_iso_value():
+def test_approximate_precision_never_counts_as_date_match():
+    """A non-exact (legacy 'about') date is never read as an exact date match."""
     e1 = _ev("a", "birth", "1850-03-12", None, ("p1",), precision="approximate")
     e2 = _ev("b", "birth", "1850-03-12", None, ("p2",), precision="approximate")
-    _check(e1, e2, True)
-    e3 = _ev("c", "birth", "1850-03-20", None, ("p2",), precision="approximate")
-    _check(e1, e3, True)
-    e4 = _ev("d", "birth", "1852-03-20", None, ("p2",), precision="approximate")
-    _check(e1, e4, False)
+    _check(e1, e2, False)
+    e3 = _ev("c", "birth", "1850-03-12", None, ("p2",))
+    _check(e1, e3, False)
 
 
 @pytest.mark.parametrize("bad", _MALFORMED + ["", "ca 1850", "1850-13", "1850-03-12T00"])

@@ -8,6 +8,7 @@ early version checking before full deserialization.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import os
 import tempfile
@@ -17,7 +18,7 @@ from typing import Any
 from slaktbusken.model.project import ProjectData
 
 # Current format version supported by this application.
-CURRENT_VERSION = "0.4"
+CURRENT_VERSION = "0.5"
 
 
 class CorruptedFileError(Exception):
@@ -60,8 +61,19 @@ class FilePersistence:
             data: The ProjectData instance to persist.
             path: Target file path (should end with .json.gz).
         """
-        compressed = FilePersistence.encode(data)
+        FilePersistence.write_bytes(FilePersistence.encode(data), path)
 
+    @staticmethod
+    def write_bytes(compressed: bytes, path: Path) -> None:
+        """Atomically write already encoded project bytes to ``path``.
+
+        Writes a temp file in the same directory and replaces the target with
+        ``os.replace``. The temp file is removed on any failure.
+
+        Args:
+            compressed: The exact bytes to write (from ``encode``).
+            path: Target file path.
+        """
         # Write to a temp file in the same directory for atomic replace.
         target_dir = path.parent
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -106,10 +118,27 @@ class FilePersistence:
                 what this application supports.
             FileNotFoundError: If the file does not exist.
         """
-        from slaktbusken.persistence.serialization import deserialize
+        return FilePersistence._load_raw(_read_and_decompress(path), path)
 
-        # Step 1: Read and decompress.
-        raw_bytes = _read_and_decompress(path)
+    @staticmethod
+    def load_with_digest(path: Path) -> tuple[ProjectData, str]:
+        """Load a project file and return the data with the SHA-256 of the bytes read.
+
+        The file is read once; the digest is of exactly the bytes that were
+        decoded, so it is the digest of the file on disk (Disk_Digest).
+
+        Raises:
+            Same errors as ``load``.
+        """
+        compressed = _read_compressed(path)
+        digest = hashlib.sha256(compressed).hexdigest()
+        raw_bytes = _decompress(compressed, path)
+        return FilePersistence._load_raw(raw_bytes, path), digest
+
+    @staticmethod
+    def _load_raw(raw_bytes: bytes, path: Path) -> ProjectData:
+        """Steps 2-6 of ``load`` on already decompressed bytes."""
+        from slaktbusken.persistence.serialization import deserialize
 
         # Step 2: Extract version without full parse.
         raw_dict = _parse_json(raw_bytes, path)
@@ -142,12 +171,25 @@ def _read_and_decompress(path: Path) -> bytes:
         CorruptedFileError: If the file has an invalid gzip header or
             cannot be decompressed.
     """
+    return _decompress(_read_compressed(path), path)
+
+
+def _read_compressed(path: Path) -> bytes:
+    """Read the raw (still compressed) bytes of a project file."""
     if not path.exists():
         raise FileNotFoundError(f"Filen hittades inte: {path}")
-
     try:
         with open(path, "rb") as f:
-            compressed = f.read()
+            return f.read()
+    except OSError as e:
+        raise CorruptedFileError(
+            f"Filen kunde inte läsas på grund av ett filsystemfel: {e}"
+        )
+
+
+def _decompress(compressed: bytes, path: Path) -> bytes:
+    """Decompress project file bytes; raise ``CorruptedFileError`` on failure."""
+    try:
         return gzip.decompress(compressed)
     except gzip.BadGzipFile:
         raise CorruptedFileError(

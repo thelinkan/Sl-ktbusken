@@ -8,12 +8,19 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton, QWidget
 
+from slaktbusken.services.edit_session import MSG_IMPORT_SAVE_UNFINISHED
+
 logger = logging.getLogger(__name__)
 
 REFUSAL_TITLE = "Projektet kunde inte öppnas"
 MERGE_TITLE = "Slå samman personer"
 SHOW_HISTORY_TEXT = "Visa sammanslagningshistorik"
 CLOSE_TEXT = "Stäng"
+INTERRUPTED_SAVE_TITLE = "Avbruten sparning"
+IMPORT_SAVE_TITLE = "Spara projekt"
+MSG_PENDING_TRANSLATION = (
+    "Spara projektet innan du redigerar översättningarna. En import väntar på att sparas."
+)
 
 
 def log_recovery_refusal(refusal: object) -> None:
@@ -54,10 +61,25 @@ def show_recovery_refusal(parent: Optional[QWidget], message: str) -> None:
     build_refusal_box(parent, message).exec()
 
 
-def show_recovery_outcome(parent: Optional[QWidget], message: str) -> None:
+def show_recovery_outcome(
+    parent: Optional[QWidget], message: str, title: str = MERGE_TITLE
+) -> None:
     """Inform the user that a recovery finished (for example "Sammanslagningen slutfördes.")."""
     if message:
-        QMessageBox.information(parent, MERGE_TITLE, message)
+        QMessageBox.information(parent, title, message)
+
+
+def translation_edit_refusal(project_service: object) -> str:
+    """Swedish refusal for opening or saving a translation editor, or "" when allowed.
+
+    Refused while a Pending_Translation exists (Requirement 20.18) and while an
+    import save is unfinished (Requirement 20.20).
+    """
+    if getattr(project_service, "import_save_unfinished", False):
+        return MSG_IMPORT_SAVE_UNFINISHED
+    if getattr(project_service, "pending_translation", None) is not None:
+        return MSG_PENDING_TRANSLATION
+    return ""
 
 
 def ask_show_history(parent: Optional[QWidget], text: str) -> bool:

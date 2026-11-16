@@ -439,6 +439,6 @@ class DeleteService:
         data = self._project_service.data
         had_research = not find_research_dependencies(data, "person", person_id).is_empty
         execute_person_deletion(person_id, data)
-        self._project_service._dirty = True
+        self._project_service.mark_changed()
         if had_research:
             self._project_service.notify_research_changed()

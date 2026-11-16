@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from slaktbusken.model.event import Event
+from slaktbusken.model.event_citations import event_cites_source
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.residence import ResidenceFact
@@ -97,19 +98,7 @@ def build_usage_groups(
     person_events: dict[str, list[Event]] = {}
 
     for event in events:
-        references_source = False
-
-        if event.date is not None:
-            for ref in event.date.source_refs:
-                if ref.source_id == source_id:
-                    references_source = True
-                    break
-
-        if not references_source and event.place is not None:
-            for ref in event.place.source_refs:
-                if ref.source_id == source_id:
-                    references_source = True
-                    break
+        references_source = event_cites_source(event, source_id)
 
         if references_source:
             for participant in event.participants:
@@ -249,14 +238,4 @@ class UsageDetailDialog(QDialog):
 
     def _event_references_source(self, event: Event) -> bool:
         """Check if an event references this dialog's source."""
-        if event.date is not None:
-            for ref in event.date.source_refs:
-                if ref.source_id == self._source.id:
-                    return True
-
-        if event.place is not None:
-            for ref in event.place.source_refs:
-                if ref.source_id == self._source.id:
-                    return True
-
-        return False
+        return event_cites_source(event, self._source.id)

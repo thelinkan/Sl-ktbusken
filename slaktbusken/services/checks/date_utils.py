@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from slaktbusken.model.date_semantics import effective_qualifier
 from slaktbusken.model.event import DateValue
 
 
@@ -27,15 +28,21 @@ class ParsedDate:
     year: int
     month: int | None = None  # 1-12
     day: int | None = None  # 1-31
-    precision: str = "exact"  # "exact", "about", "before", "after"
+    # Effective qualifier: "exact", "about", "estimated", "before", "after", ...
+    precision: str = "exact"
 
 
 def parse_date_value(dv: DateValue) -> ParsedDate | None:
     """Parse a DateValue into a ParsedDate, or None if unparseable.
 
-    Handles formats: "YYYY", "YYYY-MM", "YYYY-MM-DD".
+    Handles formats: "YYYY", "YYYY-MM", "YYYY-MM-DD". Unparsed dates and
+    dates without a value give ``None``. ``precision`` is the effective
+    qualifier, so only ``"exact"`` dates are exact.
     """
     if not dv or not dv.value:
+        return None
+    qualifier = effective_qualifier(dv)
+    if qualifier == "unparsed":
         return None
 
     m = _DATE_RE.match(dv.value.strip())
@@ -56,7 +63,7 @@ def parse_date_value(dv: DateValue) -> ParsedDate | None:
         year=year,
         month=month,
         day=day,
-        precision=dv.precision,
+        precision=qualifier,
     )
 
 
@@ -70,6 +77,8 @@ def age_in_years(birth: ParsedDate, event: ParsedDate) -> int | None:
     the birthday has not yet occurred (conservative estimate).
     """
     if birth is None or event is None:
+        return None
+    if birth.precision != "exact" or event.precision != "exact":
         return None
 
     # Both must have at least year
@@ -94,10 +103,12 @@ def age_in_years(birth: ParsedDate, event: ParsedDate) -> int | None:
 def days_between(d1: ParsedDate, d2: ParsedDate) -> int | None:
     """Compute the number of days between two dates.
 
-    Returns None if either date lacks a day component.
+    Returns None unless both dates are exact and have a day component.
     Returns a positive value if d2 is after d1, negative if before.
     """
     if d1 is None or d2 is None:
+        return None
+    if d1.precision != "exact" or d2.precision != "exact":
         return None
     if d1.day is None or d2.day is None:
         return None

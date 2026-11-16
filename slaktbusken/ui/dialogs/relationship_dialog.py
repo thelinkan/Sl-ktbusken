@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from slaktbusken.model.project import ProjectData
 
+from slaktbusken.model.date_semantics import display_year
 from slaktbusken.model.name_parser import parse_given_name
 from slaktbusken.model.person import Person
 from slaktbusken.relationship.calculator import RelationshipCalculator, RelationshipPath
@@ -1270,7 +1271,7 @@ class RelationshipDialog(QDialog):
             for participant in event.participants:
                 if participant.person_id == person_id:
                     # Extract year from date value (format: YYYY-MM-DD or YYYY-MM or YYYY)
-                    year = event.date.value.split("-")[0] if event.date.value else ""
+                    year = display_year(event.date) or ""
                     if event.type == "birth" and year:
                         birth_year = year
                     elif event.type == "death" and year:

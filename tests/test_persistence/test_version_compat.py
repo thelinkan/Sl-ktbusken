@@ -187,11 +187,11 @@ def test_golden_load_migrate_save_matches(name, tmp_path):
     data = FilePersistence.load(project_file)
     FilePersistence.save(data, project_file)
 
-    assert_equal_except_version_fields(golden_text, project_file.read_bytes())
+    assert_equal_except_version_fields(golden_text, project_file.read_bytes(), new_version="0.5")
 
 
 @pytest.mark.parametrize("name", GOLDEN_NAMES)
 def test_golden_matches_project_built_in_code(name):
     golden_text = (FIXTURE_DIR / name).read_text(encoding="utf-8")
     built = _SCRIPT.FIXTURES[name]()
-    assert_equal_except_version_fields(golden_text, serialize(built))
+    assert_equal_except_version_fields(golden_text, serialize(built), new_version="0.5")

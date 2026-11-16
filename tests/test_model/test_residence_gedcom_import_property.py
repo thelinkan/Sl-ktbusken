@@ -137,6 +137,21 @@ def _gedcom_date_to_iso(raw: str) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
+def _is_reversed(first_raw: str, last_raw: str) -> bool:
+    """Whether a range ends wholly before it starts.
+
+    Such a range is not interpretable since the date parser was replaced
+    (reversed ranges become unparsed dates).
+    """
+    first_iso, _ = _gedcom_date_to_iso(first_raw)
+    last_iso, _ = _gedcom_date_to_iso(last_raw)
+    first_start = first_iso + "-01-01"[len(first_iso) - 4:]
+    last_end = last_iso + "-12-31"[len(last_iso) - 4:] if len(last_iso) == 4 else (
+        last_iso + "-31" if len(last_iso) == 7 else last_iso
+    )
+    return last_end < first_start
+
+
 def _build_gedcom(
     *,
     resi_date: Optional[str] = None,
@@ -204,6 +219,7 @@ class TestGedcomImportDateMapping:
 
         **Validates: Requirements 12.7**
         """
+        assume(not _is_reversed(from_date, to_date))
         with tempfile.TemporaryDirectory() as tmp_dir:
             date_line = f"FROM {from_date} TO {to_date}"
             gedcom_text = _build_gedcom(resi_date=date_line, resi_plac=place)
@@ -234,6 +250,7 @@ class TestGedcomImportDateMapping:
 
         **Validates: Requirements 12.8**
         """
+        assume(not _is_reversed(bet_date, and_date))
         with tempfile.TemporaryDirectory() as tmp_dir:
             date_line = f"BET {bet_date} AND {and_date}"
             gedcom_text = _build_gedcom(resi_date=date_line, resi_plac=place)

@@ -106,7 +106,7 @@ class MigrationManager:
             migrated_data = MigrationManager.migrate(old_data, "0.1")
     """
 
-    CURRENT_VERSION: str = "0.4"
+    CURRENT_VERSION: str = "0.5"
 
     # Registry: maps source version → (target version, migration function)
     _migrations: dict[str, tuple[str, Callable[[dict], dict]]] = {}
@@ -276,4 +276,16 @@ def _migrate_0_3_to_0_4(data: dict) -> dict:
             data[key] = []
     data["format_version"] = "0.4"
     data["version"] = "0.4"
+    return data
+
+
+@MigrationManager.register("0.4", "0.5")
+def _migrate_0_4_to_0_5(data: dict) -> dict:
+    """Bump the version keys to 0.5.
+
+    All fields introduced in 0.5 are optional, so only the version keys change.
+    The migration is idempotent and corrects no data.
+    """
+    data["format_version"] = "0.5"
+    data["version"] = "0.5"
     return data

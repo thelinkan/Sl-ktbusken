@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 
+from slaktbusken.model.date_semantics import format_date_sv
+from slaktbusken.model.event_citations import event_citations
 from slaktbusken.model.project import ProjectData
 from slaktbusken.reports.content import (
     EmptyStateBlock,
@@ -151,7 +153,7 @@ def _collect_source_usage(data: ProjectData) -> dict[str, list[dict]]:
         if event.type in ("custom_individual_event", "custom_family_event") and event.custom_type_name:
             event_type_label = event.custom_type_name
 
-        date_str = event.date.value if event.date else ""
+        date_str = format_date_sv(event.date) if event.date else ""
         place_str = ""
         if event.place:
             place = places_by_id.get(event.place.place_id)
@@ -171,46 +173,31 @@ def _collect_source_usage(data: ProjectData) -> dict[str, list[dict]]:
                 surname = person.names[0].surname or ""
             participant_names.append((p.person_id, name, given, surname))
 
-        # Collect source refs from date
-        if event.date:
-            for sr in event.date.source_refs:
-                if sr.source_id not in usage:
-                    usage[sr.source_id] = []
-                for person_id, person_name, given, surname in participant_names:
-                    entry: dict = {
-                        "person_id": person_id,
-                        "person_name": person_name,
-                        "person_given": given,
-                        "person_surname": surname,
-                        "event_type": event_type_label,
-                        "date": date_str,
-                        "place": place_str,
-                    }
-                    if sr.aspects:
-                        entry["aspects"] = sr.aspects
+        # Collect citations from every context (event, date, place, from-place)
+        for citation in event_citations(event):
+            sr = citation.ref
+            if sr.source_id not in usage:
+                usage[sr.source_id] = []
+            for person_id, person_name, given, surname in participant_names:
+                entry: dict = {
+                    "person_id": person_id,
+                    "person_name": person_name,
+                    "person_given": given,
+                    "person_surname": surname,
+                    "event_type": event_type_label,
+                    "date": date_str,
+                    "place": place_str,
+                    "context": citation.context.value,
+                }
+                if sr.aspects:
+                    entry["aspects"] = sr.aspects
+                if sr.quality:
+                    entry["quality"] = sr.quality
+                if sr.note:
+                    entry["note"] = sr.note
+                # One entry per distinct (context, quality, note, aspects)
+                if entry not in usage[sr.source_id]:
                     usage[sr.source_id].append(entry)
-
-        # Collect source refs from place
-        if event.place:
-            for sr in event.place.source_refs:
-                if sr.source_id not in usage:
-                    usage[sr.source_id] = []
-                for person_id, person_name, given, surname in participant_names:
-                    entry = {
-                        "person_id": person_id,
-                        "person_name": person_name,
-                        "person_given": given,
-                        "person_surname": surname,
-                        "event_type": event_type_label,
-                        "date": date_str,
-                        "place": place_str,
-                    }
-                    if sr.aspects:
-                        entry["aspects"] = sr.aspects
-                    # Avoid duplicates if same source is on both date and place
-                    if entry not in usage[sr.source_id]:
-                        usage[sr.source_id].append(entry)
-
     # Collect source usage from residence observations (Requirement 11.9)
     for fact in data.residences:
         person = persons_by_id.get(fact.person_id)

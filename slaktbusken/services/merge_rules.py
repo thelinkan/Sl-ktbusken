@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from typing import Optional, Sequence
 
 from slaktbusken.model import date_span
+from slaktbusken.model.date_semantics import exact_value
 from slaktbusken.model.event import Event, Participant
 from slaktbusken.model.family import ParentChildLink
 from slaktbusken.model.media import Annotation, LinkedEntity
@@ -282,10 +283,10 @@ def _events_same_type(event_1: Event, event_2: Event) -> bool:
 
 
 def _date_value(event: Event) -> Optional[str]:
-    if event.date is None:
-        return None
-    value = event.date.value
-    if date_span.precision_of(value) is None:
+    # Only exact Gregorian-labelled dates count; qualified, ranged, Julian and
+    # unparsed dates never match.
+    value = exact_value(event.date)
+    if value is None or date_span.precision_of(value) is None:
         return None
     return value.strip()
 

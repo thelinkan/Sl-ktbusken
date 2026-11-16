@@ -20,6 +20,7 @@ from slaktbusken.model.dna import (
     DnaTriangulation,
 )
 from slaktbusken.model.event import Event
+from slaktbusken.model.event_citations import context_label_sv, event_citations
 from slaktbusken.model.family import Family
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
@@ -300,23 +301,20 @@ class ValidationService:
                     "Event", event.id,
                     f"place.place_id '{event.place.place_id}' refererar inte till en giltig plats."
                 ))
-            # Source refs within place
-            for sr_idx, sr in enumerate(event.place.source_refs):
-                if sr.source_id not in id_sets.source_ids:
-                    errors.append(ValidationError(
-                        "Event", event.id,
-                        f"place.source_refs[{sr_idx}] source_id '{sr.source_id}' refererar inte till en giltig källa."
-                    ))
 
-        # Date source refs
-        if event.date is not None:
-            for sr_idx, sr in enumerate(event.date.source_refs):
-                if sr.source_id not in id_sets.source_ids:
-                    errors.append(ValidationError(
-                        "Event", event.id,
-                        f"date.source_refs[{sr_idx}] source_id '{sr.source_id}' refererar inte till en giltig källa."
-                    ))
-
+        # Citations in every context (event, date, place, from_place)
+        positions: dict[str, int] = {}
+        for citation in event_citations(event):
+            context = citation.context.value
+            sr_idx = positions.get(context, 0)
+            positions[context] = sr_idx + 1
+            if citation.ref.source_id not in id_sets.source_ids:
+                errors.append(ValidationError(
+                    "Event", event.id,
+                    f"{context}.source_refs[{sr_idx}] source_id "
+                    f"'{citation.ref.source_id}' refererar inte till en giltig källa "
+                    f"({context_label_sv(citation.context)})."
+                ))
         # media_ids references
         for media_id in event.media_ids:
             if media_id not in id_sets.media_ids:

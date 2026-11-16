@@ -26,6 +26,7 @@ from typing import Optional, Sequence
 
 from slaktbusken.model.date_span import DaySpan, OpenSpan, expand_iso
 from slaktbusken.model.event import SourceRef
+from slaktbusken.model.record_origin import RecordOrigin
 
 
 # An Observation year is a bare four-digit year (ÅÅÅÅ).
@@ -74,6 +75,9 @@ class ResidenceFact:
     role_in_household: str = ""         # free text, max 100 chars after trim
     observations: list[Observation] = field(default_factory=list)
     notes: str = ""                     # max 5000 chars
+    # GEDCOM records this residence was imported from; empty for user-made
+    # and legacy residences. Equal origins may sit on several residences.
+    origins: list[RecordOrigin] = field(default_factory=list)
 
 
 class EndpointKind(Enum):

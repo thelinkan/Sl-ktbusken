@@ -17,6 +17,7 @@ from slaktbusken.services.editor_registry import EditorRegistry
 from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
 
 import copy
+from dataclasses import replace
 import logging
 from typing import Optional, Sequence
 
@@ -75,8 +76,13 @@ from slaktbusken.services.residence_validation import (
     ResidenceFinding,
     residence_findings,
 )
+from slaktbusken.model.date_semantics import (
+    effective_qualifier,
+    exact_value,
+    format_date_sv,
+    sort_key as date_sort_key,
+)
 from slaktbusken.ui.swedish_locale import (
-    format_date,
     format_observation_span,
     get_event_type_label,
 )
@@ -108,15 +114,34 @@ _MSG_WRONG_SIDE = (
 )
 
 
+def _copyable_event_value(dv: Optional[DateValue]) -> Optional[str]:
+    """ISO value an event date may copy into residence bounds, else ``None``.
+
+    Only an exact date or a legacy/explicit ``about`` date (Endpoint precision
+    'approximate') qualifies, and only in the Gregorian calendar. Before/after,
+    ranges, estimated, calculated, interpreted, unparsed and Julian dates never
+    feed a bound, so a qualified date cannot pose as an exact day.
+    """
+    if dv is None or dv.calendar != "gregorian":
+        return None
+    if effective_qualifier(dv) == "exact":
+        return exact_value(dv)
+    if effective_qualifier(dv) == "about" and dv.value:
+        # exact_value() only accepts exact dates; reuse its ISO check.
+        probe = DateValue(value=dv.value, precision="day", qualifier="exact")
+        return exact_value(probe)
+    return None
+
+
 def _sort_events_for_selector(events: list[Event]) -> list[Event]:
     """Sort events: dated by date ascending, undated last.
 
     Within undated events the original order is preserved.
     """
 
-    def _sort_key(event: Event) -> tuple[int, str]:
+    def _sort_key(event: Event) -> tuple:
         if event.date and event.date.value:
-            return (0, event.date.value)
+            return (0, date_sort_key(event.date))
         return (1, "")
 
     return sorted(events, key=_sort_key)
@@ -130,7 +155,7 @@ def _build_event_label(event: Event) -> str:
     """
     label = get_event_type_label(event.type)
     if event.date and event.date.value:
-        formatted = format_date(event.date.value)
+        formatted = format_date_sv(event.date)
         return f"{label} ({formatted})"
     return label
 
@@ -1006,16 +1031,7 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
                 updated = attach_observations(existing_fact, new_observations)
                 # Apply role if the existing fact has no role set.
                 if role and not updated.role_in_household:
-                    updated = ResidenceFact(
-                        id=updated.id,
-                        person_id=updated.person_id,
-                        place_id=updated.place_id,
-                        start=updated.start,
-                        end=updated.end,
-                        role_in_household=role,
-                        observations=updated.observations,
-                        notes=updated.notes,
-                    )
+                    updated = replace(updated, role_in_household=role)
                 self._replace_fact_in_project(updated)
             else:
                 # Create a new Residence_Fact.
@@ -1285,16 +1301,18 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
 
         if side == "start":
             self._start_event_id = event_id
-            if event and event.date and event.date.value:
-                self._start_earliest_edit.setText(event.date.value)
-                self._start_latest_edit.setText(event.date.value)
+            exact = _copyable_event_value(event.date) if event else None
+            if event and exact:
+                self._start_earliest_edit.setText(exact)
+                self._start_latest_edit.setText(exact)
                 self._start_precision = event.date.precision
             # If undated, only event_id is set; bounds unchanged.
         else:
             self._end_event_id = event_id
-            if event and event.date and event.date.value:
-                self._end_earliest_edit.setText(event.date.value)
-                self._end_latest_edit.setText(event.date.value)
+            exact = _copyable_event_value(event.date) if event else None
+            if event and exact:
+                self._end_earliest_edit.setText(exact)
+                self._end_latest_edit.setText(exact)
                 self._end_precision = event.date.precision
             # If undated, only event_id is set; bounds unchanged.
 
@@ -1345,7 +1363,8 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
         messages: list[str] = []
 
         # Requirement 3.7: date mismatch check
-        if event.date and event.date.value:
+        event_date_val = _copyable_event_value(event.date)
+        if event_date_val:
             if side == "start":
                 ep_earliest = self._start_earliest_edit.text().strip()
                 ep_latest = self._start_latest_edit.text().strip()
@@ -1353,7 +1372,6 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
                 ep_earliest = self._end_earliest_edit.text().strip()
                 ep_latest = self._end_latest_edit.text().strip()
 
-            event_date_val = event.date.value
             # Mismatch if event date differs from either bound
             if ep_earliest != event_date_val or ep_latest != event_date_val:
                 messages.append(_MSG_DATE_MISMATCH)
@@ -1434,17 +1452,27 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
         )
         # Read place_id from the place combo
         place_id = self._place_combo.currentData() or ""
+        if self._residence is not None:
+            # Editing an existing fact keeps its origins (Requirement 22.22).
+            return replace(
+                self._residence,
+                person_id=self._person_id or "",
+                place_id=place_id,
+                start=start,
+                end=end,
+                role_in_household=self.get_role_in_household(),
+                observations=list(self._residence.observations),
+                origins=copy.deepcopy(self._residence.origins),
+            )
         return ResidenceFact(
-            id=self._residence.id if self._residence else "",
+            id="",
             person_id=self._person_id or "",
             place_id=place_id,
             start=start,
             end=end,
             role_in_household=self.get_role_in_household(),
-            observations=(
-                list(self._residence.observations) if self._residence else []
-            ),
-            notes=self._residence.notes if self._residence else "",
+            observations=[],
+            notes="",
         )
 
     def save_with_warnings(self) -> bool:
@@ -1694,23 +1722,19 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
             event_id=flytt_id,
             note=earlier_staging.end.note,
         )
-        if flytt_date and flytt_date.value:
+        flytt_exact = exact_value(flytt_date)
+        if flytt_exact:
             new_earlier_end = Endpoint(
-                earliest=flytt_date.value,
-                latest=flytt_date.value,
+                earliest=flytt_exact,
+                latest=flytt_exact,
                 precision=flytt_date.precision,
                 event_id=flytt_id,
                 note=earlier_staging.end.note,
             )
-        updated_earlier = ResidenceFact(
-            id=earlier_staging.id,
-            person_id=earlier_staging.person_id,
-            place_id=earlier_staging.place_id,
-            start=earlier_staging.start,
+        updated_earlier = replace(
+            earlier_staging,
             end=new_earlier_end,
-            role_in_household=earlier_staging.role_in_household,
             observations=list(earlier_staging.observations),
-            notes=earlier_staging.notes,
         )
 
         # Later fact: start endpoint linked to the flytt.
@@ -1724,23 +1748,19 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
             event_id=flytt_id,
             note=later_staging.start.note,
         )
-        if flytt_date and flytt_date.value:
+        flytt_exact = exact_value(flytt_date)
+        if flytt_exact:
             new_later_start = Endpoint(
-                earliest=flytt_date.value,
-                latest=flytt_date.value,
+                earliest=flytt_exact,
+                latest=flytt_exact,
                 precision=flytt_date.precision,
                 event_id=flytt_id,
                 note=later_staging.start.note,
             )
-        updated_later = ResidenceFact(
-            id=later_staging.id,
-            person_id=later_staging.person_id,
-            place_id=later_staging.place_id,
+        updated_later = replace(
+            later_staging,
             start=new_later_start,
-            end=later_staging.end,
-            role_in_household=later_staging.role_in_household,
             observations=list(later_staging.observations),
-            notes=later_staging.notes,
         )
 
         # Swap both into the project atomically.
@@ -2085,16 +2105,7 @@ class ResidenceEditor(EditorRegistryParticipant, QWidget):
         ]
 
         # Create an updated fact
-        updated = ResidenceFact(
-            id=self._residence.id,
-            person_id=self._residence.person_id,
-            place_id=self._residence.place_id,
-            start=self._residence.start,
-            end=self._residence.end,
-            role_in_household=self._residence.role_in_household,
-            observations=new_observations,
-            notes=self._residence.notes,
-        )
+        updated = replace(self._residence, observations=new_observations)
         self._commit_fact(updated)
         self._residence = updated
         self._load_residence()

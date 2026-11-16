@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from slaktbusken.model.record_origin import RecordOrigin
+
 
 @dataclass
 class SourceRef:
@@ -23,6 +25,10 @@ class DateValue:
     value: str
     precision: str
     source_refs: list[SourceRef] = field(default_factory=list)
+    qualifier: str = "exact"
+    value_to: Optional[str] = None      # range end for between / from_to
+    calendar: str = "gregorian"         # as written, never converted
+    original_text: Optional[str] = None
 
 
 @dataclass
@@ -56,3 +62,6 @@ class Event:
     # Flytt origin; ``place`` is the destination of the move. Both are optional:
     # an absent value means that side of the move is unknown.
     from_place: Optional[PlaceRef] = None
+    # Event-level citations and the GEDCOM record the event was imported from.
+    source_refs: list[SourceRef] = field(default_factory=list)
+    origin: Optional[RecordOrigin] = None

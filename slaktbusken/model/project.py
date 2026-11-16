@@ -48,7 +48,7 @@ class ProjectData:
     """The root container holding all project entities."""
 
     format: str = "släktbuske-file"
-    version: str = "0.4"
+    version: str = "0.5"
     project: ProjectMetadata = field(default_factory=lambda: ProjectMetadata(title=""))
     persons: list[Person] = field(default_factory=list)
     families: list[Family] = field(default_factory=list)

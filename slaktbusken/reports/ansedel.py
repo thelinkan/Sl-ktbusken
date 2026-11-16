@@ -11,6 +11,7 @@ import unicodedata
 from pathlib import Path
 from typing import Optional
 
+from slaktbusken.model.event_citations import cited_source_ids
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.reports.content import (
@@ -717,15 +718,7 @@ def _add_sources_section(
         if not person_in_event:
             continue
 
-        # Sources from event date
-        if event.date:
-            for sr in event.date.source_refs:
-                source_ids.add(sr.source_id)
-
-        # Sources from event place
-        if event.place:
-            for sr in event.place.source_refs:
-                source_ids.add(sr.source_id)
+        source_ids |= cited_source_ids(event)
 
     if not source_ids:
         report.blocks.append(

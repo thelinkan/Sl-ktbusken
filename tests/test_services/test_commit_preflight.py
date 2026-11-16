@@ -11,6 +11,7 @@ it carries ``windows_only`` and the single permitted ``skipif`` condition.
 from __future__ import annotations
 
 import functools
+import gzip
 import os
 import stat
 import sys
@@ -62,7 +63,8 @@ def _plan(svc: ProjectService):
 
 def _state(svc: ProjectService) -> tuple:
     return (
-        FilePersistence.encode(svc.data),
+        # Decompressed: the gzip header carries a timestamp that can tick over.
+        gzip.decompress(FilePersistence.encode(svc.data)),
         svc.revision,
         svc.content_revision,
         svc.is_saved_state(),

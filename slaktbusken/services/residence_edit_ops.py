@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
@@ -26,6 +26,8 @@ from slaktbusken.model.residence import (
     observation_span_years,
     possible_span,
 )
+from slaktbusken.model.date_semantics import exact_value
+from slaktbusken.model.record_origin import origin_key
 from slaktbusken.model.date_span import expand_iso, year_of
 from slaktbusken.services.residence_coverage import CoverageGap
 
@@ -142,15 +144,12 @@ def attach_observations(
         note=fact.end.note,
     )
 
-    return ResidenceFact(
-        id=fact.id,
-        person_id=fact.person_id,
-        place_id=fact.place_id,
+    return replace(
+        fact,
         start=new_start,
         end=new_end,
-        role_in_household=fact.role_in_household,
         observations=combined_obs,
-        notes=fact.notes,
+        origins=copy.deepcopy(fact.origins),
     )
 
 
@@ -180,10 +179,8 @@ def use_as_exact_start(fact: ResidenceFact, obs: Observation) -> ResidenceFact:
         note=fact.start.note,
     )
 
-    return ResidenceFact(
-        id=fact.id,
-        person_id=fact.person_id,
-        place_id=fact.place_id,
+    return replace(
+        fact,
         start=new_start,
         end=Endpoint(
             earliest=fact.end.earliest,
@@ -192,9 +189,8 @@ def use_as_exact_start(fact: ResidenceFact, obs: Observation) -> ResidenceFact:
             event_id=fact.end.event_id,
             note=fact.end.note,
         ),
-        role_in_household=fact.role_in_household,
         observations=list(fact.observations),
-        notes=fact.notes,
+        origins=copy.deepcopy(fact.origins),
     )
 
 
@@ -224,10 +220,8 @@ def use_as_exact_end(fact: ResidenceFact, obs: Observation) -> ResidenceFact:
         note=fact.end.note,
     )
 
-    return ResidenceFact(
-        id=fact.id,
-        person_id=fact.person_id,
-        place_id=fact.place_id,
+    return replace(
+        fact,
         start=Endpoint(
             earliest=fact.start.earliest,
             latest=fact.start.latest,
@@ -236,9 +230,8 @@ def use_as_exact_end(fact: ResidenceFact, obs: Observation) -> ResidenceFact:
             note=fact.start.note,
         ),
         end=new_end,
-        role_in_household=fact.role_in_household,
         observations=list(fact.observations),
-        notes=fact.notes,
+        origins=copy.deepcopy(fact.origins),
     )
 
 
@@ -313,15 +306,12 @@ def remove_observation(fact: ResidenceFact, index: int) -> ResidenceFact:
         note=fact.end.note,
     )
 
-    return ResidenceFact(
-        id=fact.id,
-        person_id=fact.person_id,
-        place_id=fact.place_id,
+    return replace(
+        fact,
         start=new_start,
         end=new_end,
-        role_in_household=fact.role_in_household,
         observations=survivors,
-        notes=fact.notes,
+        origins=copy.deepcopy(fact.origins),
     )
 
 
@@ -432,6 +422,7 @@ def split_at_gap(
         role_in_household=fact.role_in_household,
         observations=before_gap,
         notes=fact.notes,
+        origins=copy.deepcopy(fact.origins),
     )
 
     # Build the second fact: keeps original end, new start with start.latest
@@ -458,6 +449,7 @@ def split_at_gap(
         role_in_household=fact.role_in_household,
         observations=after_gap,
         notes=fact.notes,
+        origins=copy.deepcopy(fact.origins),
     )
 
     return (first_fact, second_fact)
@@ -590,12 +582,30 @@ def merge(
         role_in_household=merged_role,
         observations=combined_obs,
         notes=merged_notes,
+        origins=_merged_origins(earlier, later),
     )
 
     # --- Compute >10-year separation warning (17.10) ---
     warning = _separation_warning(earlier, later)
 
     return (merged_fact, warning)
+
+
+def _merged_origins(earlier: ResidenceFact, later: ResidenceFact) -> list:
+    """Origins of *earlier*, then those of *later* with a new Origin_Key.
+
+    Equal Origin_Keys are kept once, so merging two split halves leaves the
+    origin once while residences from different records keep both origins.
+    No origin field is changed (Requirement 22.22).
+    """
+    merged = copy.deepcopy(earlier.origins)
+    seen = {origin_key(o) for o in merged}
+    for origin in later.origins:
+        key = origin_key(origin)
+        if key not in seen:
+            seen.add(key)
+            merged.append(copy.deepcopy(origin))
+    return merged
 
 
 def _separating_years(
@@ -739,7 +749,7 @@ def is_merge_suppressed(
         # Check that the event has a date falling inside the separating years.
         if event.date is None:
             continue
-        event_year = year_of(event.date.value)
+        event_year = year_of(exact_value(event.date))
         if event_year is not None and event_year in sep_years:
             return True
 

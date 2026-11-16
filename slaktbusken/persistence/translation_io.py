@@ -299,6 +299,36 @@ def read_all(translation_dir: Path) -> TranslationData:
 # ---------------------------------------------------------------------------
 
 
+def dumps_sources(mappings: list[SourceMapping]) -> bytes:
+    """Serialize ``sources.json`` content to UTF-8 bytes (pure, no I/O)."""
+    data = {
+        "mappings": [
+            {
+                "gedcom_id": m.gedcom_id,
+                "app_id": m.app_id,
+                "title": m.title,
+            }
+            for m in mappings
+        ]
+    }
+    return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def dumps_places(mappings: list[PlaceMapping]) -> bytes:
+    """Serialize ``places.json`` content to UTF-8 bytes (pure, no I/O)."""
+    data = {
+        "mappings": [
+            {
+                "gedcom_place": m.gedcom_place,
+                "app_id": m.app_id,
+                "name": m.name,
+            }
+            for m in mappings
+        ]
+    }
+    return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
 def write_sources(mappings: list[SourceMapping], path: Path) -> None:
     """Write source translation mappings to a JSON file.
 
@@ -312,17 +342,7 @@ def write_sources(mappings: list[SourceMapping], path: Path) -> None:
     Raises:
         TranslationIOError: If the file cannot be written.
     """
-    data = {
-        "mappings": [
-            {
-                "gedcom_id": m.gedcom_id,
-                "app_id": m.app_id,
-                "title": m.title,
-            }
-            for m in mappings
-        ]
-    }
-    _write_json(data, path)
+    _write_bytes(dumps_sources(mappings), path)
 
 
 def write_places(mappings: list[PlaceMapping], path: Path) -> None:
@@ -338,17 +358,7 @@ def write_places(mappings: list[PlaceMapping], path: Path) -> None:
     Raises:
         TranslationIOError: If the file cannot be written.
     """
-    data = {
-        "mappings": [
-            {
-                "gedcom_place": m.gedcom_place,
-                "app_id": m.app_id,
-                "name": m.name,
-            }
-            for m in mappings
-        ]
-    }
-    _write_json(data, path)
+    _write_bytes(dumps_places(mappings), path)
 
 
 def dumps_persons(
@@ -478,6 +488,23 @@ def _read_json(path: Path) -> dict | None:
     except OSError as exc:
         raise TranslationIOError(
             f"Kan inte läsa översättningsfil: {path.name} ({exc})",
+            path=path,
+            cause=exc,
+        ) from exc
+
+
+def _write_bytes(content: bytes, path: Path) -> None:
+    """Write already serialised bytes to ``path`` (creates parent directories).
+
+    Raises:
+        TranslationIOError: If the file cannot be written.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    except OSError as exc:
+        raise TranslationIOError(
+            f"Kan inte skriva översättningsfil: {path.name} ({exc})",
             path=path,
             cause=exc,
         ) from exc

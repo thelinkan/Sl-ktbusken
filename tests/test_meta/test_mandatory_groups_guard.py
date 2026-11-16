@@ -55,6 +55,10 @@ _FORBIDDEN_ROOTS = frozenset({"pytest", "mark", "unittest"})
 _PROPERTY_TAG = "# Feature: person-comparison-and-merge, Property {n}:"
 
 
+DATASKYDD_PREFIX = "tests/test_dataskydd/"
+DATASKYDD_MIN_EXAMPLES = 10
+
+
 def _group_modules() -> list[str]:
     seen: list[str] = []
     for group in MANDATORY_GROUPS:
@@ -118,8 +122,8 @@ def has_mandatory_pytestmark(source: str) -> bool:
     return False
 
 
-def weak_settings(source: str) -> list[str]:
-    """``settings(max_examples=N<100)`` and ``derandomize=True``."""
+def weak_settings(source: str, min_examples: int = 100) -> list[str]:
+    """``settings(max_examples=N<min_examples)`` and ``derandomize=True``."""
     found: list[str] = []
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.Call):
@@ -133,7 +137,7 @@ def weak_settings(source: str) -> list[str]:
                 kw.arg == "max_examples"
                 and isinstance(kw.value, ast.Constant)
                 and isinstance(kw.value.value, int)
-                and kw.value.value < 100
+                and kw.value.value < min_examples
             ):
                 found.append(f"max_examples={kw.value.value} (rad {node.lineno})")
             if (
@@ -214,7 +218,10 @@ def test_every_mandatory_module_has_pytestmark() -> None:
 def test_hypothesis_settings_not_weakened() -> None:
     problems: list[str] = []
     for module in _existing(scanned_modules()):
-        problems += [f"{module}: {hit}" for hit in weak_settings(_read(module))]
+        # data-integrity-0-3-0 design ("Libraries and configuration"): expensive
+        # Dataskydd properties may use a smaller stated example count (at least 10).
+        minimum = DATASKYDD_MIN_EXAMPLES if module.startswith(DATASKYDD_PREFIX) else 100
+        problems += [f"{module}: {hit}" for hit in weak_settings(_read(module), minimum)]
     assert not problems, "Försvagade Hypothesis-inställningar:\n" + "\n".join(problems)
 
 

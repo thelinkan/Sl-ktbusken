@@ -12,8 +12,15 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox, QVBoxLayout
 
 from slaktbusken.relationship.calculator import RelationshipCalculator
+from slaktbusken.services.commit.translation_commit import (
+    ImportSaveUnfinished,
+    SaveConflict,
+    SaveFailed,
+)
 from slaktbusken.services.delete_service import DeleteService
+from slaktbusken.services.edit_session import MSG_IMPORT_SAVE_UNFINISHED
 from slaktbusken.services.export_service import ExportService
+from slaktbusken.services.import_service import ImportError as ImportServiceError
 from slaktbusken.services.import_service import ImportService
 from slaktbusken.services.project_service import MergeInProgressError, ProjectService
 from slaktbusken.services.report_service import ReportService
@@ -65,6 +72,122 @@ def apply_connection_override(
         return False
     overrides[person_id] = value
     return True
+
+
+MSG_SESSION_ACTION_REFUSED = (
+    'Spara eller avbryt redigeringen i "{title}" innan du {action}.'
+)
+
+
+def _refuse_during_edit_session(project_service, parent, action: str) -> bool:
+    """Show the Requirement 1.8 refusal when an edit session is active.
+
+    Returns:
+        True when the action must not proceed.
+    """
+    session = project_service.active_edit_session
+    if session is None:
+        return False
+    QMessageBox.warning(
+        parent,
+        "Redigering pågår",
+        MSG_SESSION_ACTION_REFUSED.format(title=session.owner_title, action=action),
+    )
+    return True
+
+
+def _begin_person_session(project_service, parent):
+    """Start the Edit_Session of a person editor, or show why it cannot.
+
+    Returns:
+        The session, or ``None`` after showing the Swedish refusal message
+        (the person editor then does not open).
+    """
+    from slaktbusken.services.edit_session import (
+        EditSessionBusy,
+        EditSessionRefused,
+        UnsavedEditorsBlock,
+    )
+
+    try:
+        return project_service.begin_edit_session("Personredigerare")
+    except (UnsavedEditorsBlock, EditSessionBusy, EditSessionRefused) as exc:
+        QMessageBox.warning(parent, "Kan inte öppna personredigeraren", str(exc))
+        return None
+
+
+def _rollback_session_quietly(session) -> None:
+    """Roll back after an error or an editor result without data.
+
+    If rollback is refused because the project changed outside the session, the
+    changes are kept (committed) rather than lost.
+    """
+    from slaktbusken.services.edit_session import EditSessionConflict
+
+    if session is None or session._closed:
+        return
+    try:
+        session.rollback()
+    except EditSessionConflict:
+        session.commit()
+
+def _construct_editor_in_session(session, factory, **kwargs):
+    """Build a PersonEditor; roll the session back if construction raises."""
+    try:
+        return factory(**kwargs)
+    except BaseException:
+        _rollback_session_quietly(session)
+        raise
+
+
+class _SessionDialog(QDialog):
+    """Dialog around a PersonEditor that owns an Edit_Session.
+
+    Every way of leaving without saving (Avbryt, Esc, the close button) ends in
+    ``reject``, which rolls the session back. If the project changed outside
+    the session the rollback is refused and the user chooses between "Spara"
+    and "Behåll redigeraren öppen" (Requirement 1.11).
+    """
+
+    def __init__(self, parent, session) -> None:
+        super().__init__(parent)
+        self._session = session
+        self._editor = None
+
+    def attach_editor(self, editor) -> None:
+        """Remember the person editor used by the "Spara" choice."""
+        self._editor = editor
+
+    def reject(self) -> None:  # noqa: D401 - Qt override
+        """Roll the session back, then close; keep the dialog on a conflict."""
+        from slaktbusken.services.edit_session import EditSessionConflict
+
+        session = self._session
+        if session is not None and not session._closed:
+            try:
+                session.rollback()
+            except EditSessionConflict as exc:
+                if self._ask_conflict(str(exc)) == "save" and self._editor is not None:
+                    self._editor._on_save()  # accepts the dialog when valid
+                return
+        super().reject()
+
+    def _ask_conflict(self, text: str) -> str:
+        """Ask "Spara" or "Behåll redigeraren öppen"; returns 'save' or 'keep'."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Kan inte avbryta")
+        box.setText(
+            "Projektet har ändrats utanför redigeringen. Avbrytning kan inte "
+            "ångra ändringarna säkert. Spara eller håll redigeraren öppen."
+        )
+        save_btn = box.addButton("Spara", QMessageBox.ButtonRole.AcceptRole)
+        keep_btn = box.addButton(
+            "Behåll redigeraren öppen", QMessageBox.ButtonRole.RejectRole
+        )
+        box.setDefaultButton(keep_btn)
+        box.exec()
+        return "save" if box.clickedButton() is save_btn else "keep"
 
 
 class Application:
@@ -334,8 +457,12 @@ class Application:
             logger.warning("Person med ID '%s' hittades inte.", person_id)
             return
 
+        session = _begin_person_session(self.project_service, self.main_window)
+        if session is None:
+            return
+
         # Create dialog wrapper
-        dialog = QDialog(self.main_window)
+        dialog = _SessionDialog(self.main_window, session)
         # Build display name for the title
         if person.names:
             first_name = person.names[0]
@@ -348,7 +475,9 @@ class Application:
         layout = QVBoxLayout(dialog)
 
         # Create editor widget
-        editor = PersonEditor(
+        editor = _construct_editor_in_session(
+            session,
+            PersonEditor,
             project_data=self.project_service.data,
             person=person,
             parent=dialog,
@@ -356,6 +485,8 @@ class Application:
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             project_service=self.project_service,
         )
+        session.owner_title = editor.editor_title
+        dialog.attach_editor(editor)
         layout.addWidget(editor)
 
         # Connect editor signals to dialog accept/reject
@@ -363,31 +494,45 @@ class Application:
         editor.cancel_requested.connect(dialog.reject)
 
         # Show modal dialog
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            saved = editor.saved_person
-            if saved is not None:
-                self.main_window.show_progress("Uppdaterar...")
-                QApplication.processEvents()
-                try:
-                    # Replace the person in project data
-                    persons = self.project_service.data.persons
-                    for i, existing in enumerate(persons):
-                        if existing.id == saved.id:
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        except BaseException:
+            _rollback_session_quietly(session)
+            raise
+        if not accepted:
+            _rollback_session_quietly(session)  # no-op after reject()
+            return
+        saved = editor.saved_person
+        if saved is None:
+            _rollback_session_quietly(session)
+            return
+        self.main_window.show_progress("Uppdaterar...")
+        QApplication.processEvents()
+        try:
+            try:
+                # Replace the person in project data. An unchanged person keeps
+                # its identity so that saving without edits changes nothing.
+                persons = self.project_service.data.persons
+                for i, existing in enumerate(persons):
+                    if existing.id == saved.id:
+                        if existing != saved:
                             persons[i] = saved
-                            break
+                        break
+            except BaseException:
+                _rollback_session_quietly(session)
+                raise
+            # The commit marks the project changed once, if anything changed.
+            session.commit()
+            self._update_status()
 
-                    # Mark project as dirty and refresh UI without resetting active person
-                    self.project_service._dirty = True
-                    self._update_status()
-
-                    # Refresh person list and re-render diagram preserving active person
-                    self.main_window.person_list_panel.refresh()
-                    panel = self.main_window.diagram_panel
-                    panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
-                    panel.set_project_data(self.project_service.data)
-                    panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
-                finally:
-                    self.main_window.hide_progress()
+            # Refresh person list and re-render diagram preserving active person
+            self.main_window.person_list_panel.refresh()
+            panel = self.main_window.diagram_panel
+            panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
+            panel.set_project_data(self.project_service.data)
+            panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
+        finally:
+            self.main_window.hide_progress()
 
     def add_standalone_person(self) -> None:
         """Create a new person with no family affiliations.
@@ -424,13 +569,19 @@ class Application:
             names=[Name(type="birth", given="", surname="")],
         )
 
+        session = _begin_person_session(self.project_service, self.main_window)
+        if session is None:
+            return
+
         # Open editor
-        dialog = QDialog(self.main_window)
+        dialog = _SessionDialog(self.main_window, session)
         dialog.setWindowTitle("Lägg till person")
         dialog.setMinimumSize(600, 700)
         layout = QVBoxLayout(dialog)
 
-        editor = PersonEditor(
+        editor = _construct_editor_in_session(
+            session,
+            PersonEditor,
             project_data=data,
             person=new_person,
             parent=dialog,
@@ -438,25 +589,34 @@ class Application:
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             project_service=self.project_service,
         )
+        session.owner_title = editor.editor_title
+        dialog.attach_editor(editor)
         layout.addWidget(editor)
         editor.save_requested.connect(dialog.accept)
         editor.cancel_requested.connect(dialog.reject)
 
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        except BaseException:
+            _rollback_session_quietly(session)
+            raise
         saved = editor.saved_person
-        if saved is None:
+        if not accepted or saved is None:
+            _rollback_session_quietly(session)  # no-op after reject()
             return
 
         self.main_window.show_progress("Uppdaterar...")
         QApplication.processEvents()
         try:
-            # Add person to project (no family affiliations)
-            data.persons.append(saved)
+            try:
+                # Add person to project (no family affiliations)
+                data.persons.append(saved)
+            except BaseException:
+                _rollback_session_quietly(session)
+                raise
 
-            # Mark dirty and refresh
-            self.project_service._dirty = True
+            # The commit marks the project changed once.
+            session.commit()
             self._update_status()
             self.main_window.person_list_panel.refresh()
 
@@ -533,7 +693,7 @@ class Application:
 
         # Mirror how the service marks direct data mutations dirty so the
         # override is persisted on the next save (Requirement 5.5).
-        self.project_service._dirty = True
+        self.project_service.mark_changed()
         self._update_status()
 
         # Lightest redraw: the panel re-renders from the same ProjectData
@@ -620,6 +780,9 @@ class Application:
         Args:
             person_id: The ID of the person to delete.
         """
+        if _refuse_during_edit_session(self.project_service, self.main_window, "tar bort personer"):
+            return
+
         # Check if the person can be deleted
         allowed, error_message = self.delete_service.can_delete(person_id)
         if not allowed:
@@ -816,6 +979,30 @@ class Application:
         dialog.exec()
 
     def handle_placeholder_click(self, role: str, family_id: str, target_person_id: str = "") -> None:
+        """Add a new relative through the person editor inside one Edit_Session.
+
+        The session starts before the editor opens. Cancel rolls everything back
+        (including nested creations); on accept the new person and the family
+        links are added inside the session and the commit marks the change once.
+        See ``_add_relative_in_session`` for the parameters.
+        """
+        if self.project_service.data is None:
+            return
+        session = _begin_person_session(self.project_service, self.main_window)
+        if session is None:
+            return
+        try:
+            self._add_relative_in_session(role, family_id, target_person_id, session)
+        except BaseException:
+            _rollback_session_quietly(session)
+            raise
+        # Every normal path commits or rolls back itself; this is a safety net
+        # for early returns so that a session never stays active.
+        _rollback_session_quietly(session)
+
+    def _add_relative_in_session(
+        self, role: str, family_id: str, target_person_id: str, session
+    ) -> None:
         """Handle click on a placeholder box to add a new person.
 
         Creates a new person via the person editor, then links them
@@ -869,12 +1056,14 @@ class Application:
         )
 
         # Open editor for the new person
-        dialog = QDialog(self.main_window)
+        dialog = _SessionDialog(self.main_window, session)
         dialog.setWindowTitle("Lägg till person")
         dialog.setMinimumSize(600, 700)
         layout = QVBoxLayout(dialog)
 
-        editor = PersonEditor(
+        editor = _construct_editor_in_session(
+            session,
+            PersonEditor,
             project_data=data,
             person=new_person,
             parent=dialog,
@@ -882,6 +1071,8 @@ class Application:
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             project_service=self.project_service,
         )
+        session.owner_title = editor.editor_title
+        dialog.attach_editor(editor)
         layout.addWidget(editor)
         editor.save_requested.connect(dialog.accept)
         editor.cancel_requested.connect(dialog.reject)
@@ -892,13 +1083,14 @@ class Application:
         active_id = target_person_id if target_person_id else self.main_window.diagram_panel.active_person_id
 
         if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
+            return  # reject() rolled the session back
 
         saved = editor.saved_person
         if saved is None:
+            _rollback_session_quietly(session)
             return
 
-        # Add the new person to project data
+        # Add the new person to project data (inside the session)
         data.persons.append(saved)
 
         # Link to appropriate family
@@ -1005,11 +1197,11 @@ class Application:
                 )
                 data.families.append(new_family)
 
-        # Mark dirty and refresh UI
+        # Commit the session (marks the project changed once) and refresh UI
+        session.commit()
         self.main_window.show_progress("Uppdaterar...")
         QApplication.processEvents()
         try:
-            self.project_service._dirty = True
             self._update_status()
             self.main_window.person_list_panel.refresh()
             panel = self.main_window.diagram_panel
@@ -1106,6 +1298,14 @@ class Application:
             self.main_window.statusBar().showMessage("Projekt sparat", 5000)
         except MergeInProgressError as e:
             QMessageBox.warning(self.main_window, "Spara projekt", str(e))
+        except (SaveConflict, SaveFailed) as e:
+            # Nothing was replaced: the project stays open and dirty.
+            QMessageBox.warning(self.main_window, "Spara projekt", e.message)
+            self._update_status()
+        except ImportSaveUnfinished as e:
+            # The project file is saved; the translation files finish at next open.
+            QMessageBox.warning(self.main_window, "Spara projekt", e.message)
+            self._update_status()
         except Exception as e:
             QMessageBox.critical(
                 self.main_window,
@@ -1117,6 +1317,11 @@ class Application:
 
     def import_gedcom(self) -> None:
         """Import a GEDCOM file into the current project."""
+        if self.project_service.import_save_unfinished:
+            QMessageBox.warning(self.main_window, "Importera GEDCOM", MSG_IMPORT_SAVE_UNFINISHED)
+            return
+        if _refuse_during_edit_session(self.project_service, self.main_window, "importerar"):
+            return
         path, _ = QFileDialog.getOpenFileName(
             self.main_window,
             "Importera GEDCOM",
@@ -1135,7 +1340,7 @@ class Application:
                 return
 
             result = self.import_service.run(
-                project_data, Path(path), project_path.parent
+                project_data, Path(path), project_path.parent, self.project_service
             )
             summary = self.import_service.format_result(result)
             self._update_status()
@@ -1167,6 +1372,8 @@ class Application:
                 "Fel",
                 str(e),
             )
+        except ImportServiceError as e:
+            QMessageBox.critical(self.main_window, "Importfel", e.message)
         except Exception as e:
             QMessageBox.critical(
                 self.main_window,
@@ -1451,8 +1658,10 @@ class Application:
         editor.cancel_requested.connect(dialog.reject)
 
         # Mark project dirty on save
-        editor.save_requested.connect(lambda: setattr(self.project_service, '_dirty', True))
+        editor.save_requested.connect(self.project_service.mark_changed)
         editor.save_requested.connect(self._update_status)
+        # Media added before Spara is already in the project data.
+        editor.media_added.connect(self.project_service.mark_changed)
 
         self._exec_source_editor_dialog(dialog, editor)
 
@@ -1506,6 +1715,7 @@ class Application:
             parent=dialog,
             registry=getattr(self, "editor_registry", None),
             photo_service=photo_service,
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
 
@@ -1513,13 +1723,25 @@ class Application:
         editor.cancel_requested.connect(dialog.reject)
 
         # Mark project dirty when a place is saved
-        editor.save_requested.connect(lambda: setattr(self.project_service, '_dirty', True))
+        editor.save_requested.connect(self.project_service.mark_changed)
         editor.save_requested.connect(self._update_status)
 
         # Connect person open signal to open person editor
         editor.person_open_requested.connect(self.open_person_editor)
 
         dialog.exec()
+        # Deleting a place marks the project changed without a save signal.
+        self._update_status()
+
+    def _refuse_translation_editor(self, title: str) -> bool:
+        """Refuse a translation editor while an import waits to be saved or is unfinished."""
+        from slaktbusken.ui.merge.recovery_dialogs import translation_edit_refusal
+
+        message = translation_edit_refusal(self.project_service)
+        if message:
+            QMessageBox.warning(self.main_window, title, message)
+            return True
+        return False
 
     def show_place_translation_editor(self) -> None:
         """Open the place translation editor dialog.
@@ -1531,6 +1753,9 @@ class Application:
         from slaktbusken.ui.editors.place_translation_editor import (
             PlaceTranslationEditor,
         )
+
+        if self._refuse_translation_editor("Platsöversättningar"):
+            return
 
         project_data = self.project_service.data
         project_path = self.project_service.project_path
@@ -1548,6 +1773,7 @@ class Application:
             project_path=project_path.parent,
             parent=dialog,
             registry=getattr(self, "editor_registry", None),
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
 
@@ -1561,7 +1787,7 @@ class Application:
 
         # If the editor saved changes, mark project dirty
         if editor.is_dirty:
-            self.project_service._dirty = True
+            self.project_service.mark_changed()
             self._update_status()
 
     def show_source_translation_editor(self) -> None:
@@ -1574,6 +1800,9 @@ class Application:
         from slaktbusken.ui.editors.source_translation_editor import (
             SourceTranslationEditor,
         )
+
+        if self._refuse_translation_editor("Källöversättningar"):
+            return
 
         project_data = self.project_service.data
         project_path = self.project_service.project_path
@@ -1591,6 +1820,7 @@ class Application:
             project_path=project_path.parent,
             parent=dialog,
             registry=getattr(self, "editor_registry", None),
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
 
@@ -1604,7 +1834,7 @@ class Application:
 
         # If the editor saved changes, mark project dirty
         if editor.is_dirty:
-            self.project_service._dirty = True
+            self.project_service.mark_changed()
             self._update_status()
 
     def show_dna_editor(self) -> None:
@@ -1634,7 +1864,7 @@ class Application:
         dialog.exec()
 
         # Mark project dirty if any DNA data was modified
-        self.project_service._dirty = True
+        self.project_service.mark_changed()
         self._update_status()
 
     # ------------------------------------------------------------------
@@ -1725,6 +1955,7 @@ class Application:
         from slaktbusken.ui.merge.merge_signals import MergeSignals
 
         self.editor_registry = EditorRegistry()
+        self.project_service.set_editor_registry(self.editor_registry)
         self._merge_signals = MergeSignals()
         self.project_service.add_merge_listener(self._merge_signals.changed.emit)
         self._candidate_register = None
@@ -1762,6 +1993,10 @@ class Application:
         )
 
         if self.project_service.project_path is None:
+            return
+        if _refuse_during_edit_session(
+            self.project_service, self.main_window, "slår ihop personer"
+        ):
             return
         parent = self._comparison_window or self.main_window
         was_saved = self.project_service.is_saved_state()
@@ -1820,7 +2055,17 @@ class Application:
         """Tell the user about a recovery that ran while opening the project."""
         from slaktbusken.ui.merge.recovery_dialogs import show_recovery_outcome
 
-        show_recovery_outcome(self.main_window, self.project_service.last_recovery_message)
+        from slaktbusken.services.commit.translation_commit import (
+            MSG_RECOVERY_COMPLETED,
+            MSG_RECOVERY_ROLLED_BACK,
+        )
+        from slaktbusken.ui.merge.recovery_dialogs import INTERRUPTED_SAVE_TITLE
+
+        message = self.project_service.last_recovery_message
+        if message in (MSG_RECOVERY_COMPLETED, MSG_RECOVERY_ROLLED_BACK):
+            show_recovery_outcome(self.main_window, message, INTERRUPTED_SAVE_TITLE)
+        else:
+            show_recovery_outcome(self.main_window, message)
 
     @property
     def merge_changed(self):
@@ -2161,13 +2406,15 @@ class Application:
         saved: list[bool] = []
         if hasattr(editor, "save_requested"):
             editor.save_requested.connect(lambda: saved.append(True))
+        if hasattr(editor, "media_added"):
+            editor.media_added.connect(lambda: saved.append(True))
         if entity_type == "source":
             self._exec_source_editor_dialog(dialog, editor)
         else:
             dialog.exec()
         # The editors change project data in place, so a save marks it changed.
         if saved or entity_type == "media":
-            self.project_service._dirty = True
+            self.project_service.mark_changed()
             self._update_status()
 
     def show_provider_editor(self) -> None:
@@ -2198,7 +2445,7 @@ class Application:
         dialog.exec()
 
         # ProviderEditor modifies project_data in-place, mark dirty
-        self.project_service._dirty = True
+        self.project_service.mark_changed()
         self._update_status()
 
     def confirm_close(self) -> bool:
@@ -2278,7 +2525,7 @@ class Application:
             selected_id = dialog.selected_person_id
             if selected_id:
                 project_data.project.main_person_id = selected_id
-                self.project_service._dirty = True
+                self.project_service.mark_changed()
                 self._update_status()
                 self._update_diagram_panel()
 

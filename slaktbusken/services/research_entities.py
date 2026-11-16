@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from slaktbusken.model.date_semantics import format_date_sv
 from slaktbusken.model.project import ProjectData
 from slaktbusken.ui.swedish_locale import get_event_type_label
 
@@ -49,8 +50,8 @@ def _family_label(data: ProjectData, family) -> str:
 
 def _event_label(data: ProjectData, event) -> str:
     parts = [get_event_type_label(event.type)]
-    if event.date is not None and event.date.value:
-        parts.append(event.date.value)
+    if event.date is not None and format_date_sv(event.date):
+        parts.append(format_date_sv(event.date))
     persons = {p.id: p for p in data.persons}
     for participant in event.participants[:1]:
         if participant.person_id in persons:

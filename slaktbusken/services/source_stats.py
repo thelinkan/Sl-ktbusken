@@ -6,16 +6,12 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from slaktbusken.model.event import Event
+from slaktbusken.model.event_citations import event_citations, event_cites_source
 from slaktbusken.model.residence import ResidenceFact
 
 
 def _cited_ids_event(event: Event) -> list[str]:
-    ids: list[str] = []
-    if event.date is not None:
-        ids.extend(ref.source_id for ref in event.date.source_refs)
-    if event.place is not None:
-        ids.extend(ref.source_id for ref in event.place.source_refs)
-    return ids
+    return [c.ref.source_id for c in event_citations(event)]
 
 
 def _distinct_sources(
@@ -35,9 +31,9 @@ def _distinct_sources(
 def event_cited_sources(
     event: Event, titles: Mapping[str, str] | None = None
 ) -> list[tuple[str, str]]:
-    """Distinct ``(source_id, title)`` cited by an event's date or place refs.
+    """Distinct ``(source_id, title)`` cited by an event in any context.
 
-    Date refs come first, then place refs, in order of first appearance. The
+    Order is event, date, place, from-place, by first appearance. The
     title falls back to the id when unknown or empty.
     """
     return _distinct_sources(_cited_ids_event(event), titles)
@@ -111,19 +107,7 @@ def compute_usage_stats(
     person_ids: set[str] = set()
 
     for event in events:
-        references_source = False
-
-        if event.date is not None:
-            for ref in event.date.source_refs:
-                if ref.source_id == source_id:
-                    references_source = True
-                    break
-
-        if not references_source and event.place is not None:
-            for ref in event.place.source_refs:
-                if ref.source_id == source_id:
-                    references_source = True
-                    break
+        references_source = event_cites_source(event, source_id)
 
         if references_source:
             event_count += 1

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from slaktbusken.model.date_semantics import format_date_sv
 from slaktbusken.model.event import Event
 from slaktbusken.model.person import Person
 from slaktbusken.services import merge_rules as rules
@@ -70,7 +71,7 @@ def _event_label(event: Event) -> str:
 
 
 def _event_text(event: Event) -> str:
-    date = event.date.value if event.date is not None else ""
+    date = format_date_sv(event.date) if event.date is not None else ""
     return f"{_event_label(event)} {date}".strip()
 
 

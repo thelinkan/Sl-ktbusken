@@ -1,4 +1,4 @@
-﻿"""Tests for saving, loading and migrating research data.
+"""Tests for saving, loading and migrating research data.
 
 Covers the round trip of cases, hypotheses, comments and actions; tolerant loading
 of projects that predate the feature; corrupt research sections; the 0.2 to 0.3
@@ -140,7 +140,7 @@ class TestRoundTrip:
 
     def test_the_file_is_stamped_with_the_current_version(self) -> None:
         raw = json.loads(serialize(_project()))
-        assert raw["version"] == CURRENT_VERSION == "0.4"
+        assert raw["version"] == CURRENT_VERSION == "0.5"
 
     def test_comments_and_source_references_keep_their_order(self) -> None:
         loaded = _roundtrip(_full_project())
@@ -394,7 +394,10 @@ class TestMigration:
         return raw
 
     def _migrate(self, raw: dict) -> dict:
-        return MigrationManager.migrate(raw, "0.2")
+        # Stop at 0.4: this class tests the 0.2 to 0.4 steps, not later ones.
+        for source in ("0.2", "0.3"):
+            raw = MigrationManager._migrations[source][1](raw)
+        return raw
 
     def test_the_three_empty_collections_are_added(self) -> None:
         """**Validates: Requirements 29.4**"""
@@ -424,7 +427,7 @@ class TestMigration:
     def test_applying_it_twice_changes_nothing(self) -> None:
         once = self._migrate(self._raw())
         snapshot = copy.deepcopy(once)
-        again = MigrationManager.migrate(once, "0.3")
+        again = MigrationManager._migrations["0.3"][1](once)
         assert again == snapshot
 
     def test_running_the_step_again_on_migrated_data_is_a_no_op(self) -> None:
@@ -445,10 +448,10 @@ class TestMigration:
 
     def test_a_0_3_file_needs_migration_and_a_0_4_file_does_not(self) -> None:
         assert MigrationManager.needs_migration("0.3") is True
-        assert MigrationManager.needs_migration("0.4") is False
+        assert MigrationManager.needs_migration("0.5") is False
 
     def test_the_two_version_constants_agree(self) -> None:
-        assert MigrationManager.CURRENT_VERSION == CURRENT_VERSION == ProjectData().version == "0.4"
+        assert MigrationManager.CURRENT_VERSION == CURRENT_VERSION == ProjectData().version == "0.5"
 
     def test_a_loaded_0_2_project_keeps_all_its_data(self, tmp_path: Path) -> None:
         raw = self._raw()
@@ -462,7 +465,7 @@ class TestMigration:
         assert loaded.persons[0].id == "person_1"
         assert loaded.persons[0].names[0].surname == "Andersdotter"
         assert loaded.project.title == "T"
-        assert loaded.version == "0.4"
+        assert loaded.version == "0.5"
         assert loaded.research_cases == []
 
 
@@ -474,7 +477,7 @@ class TestNewerVersionIsRefused:
         """
         path = tmp_path / "future.json.gz"
         _write_raw(
-            {"format": "släktbuske-file", "version": "0.5", "format_version": "0.5",
+            {"format": "släktbuske-file", "version": "0.6", "format_version": "0.6",
              "project": {"title": "T"}, "research_cases": [{"id": "case_1"}]},
             path,
         )

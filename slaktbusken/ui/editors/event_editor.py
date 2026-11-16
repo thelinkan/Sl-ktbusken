@@ -13,6 +13,7 @@ from slaktbusken.ui.editors.registry_participation import EditorRegistryParticip
 
 import logging
 import uuid
+from html import escape as _escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
@@ -41,12 +43,21 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from slaktbusken.services.photo_service import PhotoService
 
+from slaktbusken.model.date_semantics import (
+    display_year,
+    effective_qualifier,
+    format_date_sv,
+)
 from slaktbusken.model.event import (
     DateValue,
     Event,
     Participant,
-    PlaceRef,
     SourceRef,
+)
+from slaktbusken.model.event_citations import (
+    CitationContext,
+    context_label_sv,
+    event_citations,
 )
 from slaktbusken.model.media import LinkedEntity, MediaItem
 from slaktbusken.model.project import ProjectData
@@ -56,12 +67,60 @@ from slaktbusken.services.source_aspects import (
     ASPECT_LABELS,
     get_aspects_for_event_type,
 )
+from slaktbusken.ui.editors.event_assembler import (
+    CHOICE_LABELS_SV,
+    DEFAULT_CHOICE,
+    CitationChoice,
+    CitationRow,
+    DateFormState,
+    EventFormState,
+    PromptNeed,
+    assemble_event,
+    prompts_needed,
+    prompt_text_sv,
+    validate_date_form,
+)
 from slaktbusken.ui.generated.ui_event_editor import Ui_EventEditor
 from slaktbusken.ui.research_gateway import ResearchSection
 from slaktbusken.services.safe_io import is_safe_media_extension, resolve_within
-from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS, DATE_PRECISION_LABELS
+from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS
 
 logger = logging.getLogger(__name__)
+
+# Qualifier choices of the date section: (Swedish label, qualifier key).
+DATE_QUALIFIER_CHOICES: list[tuple[str, str]] = [
+    ("Exakt", "exact"),
+    ("Ungefär", "about"),
+    ("Uppskattat", "estimated"),
+    ("Beräknat", "calculated"),
+    ("Före", "before"),
+    ("Efter", "after"),
+    ("Mellan", "between"),
+    ("Från\u2013till", "from_to"),
+    ("Från", "from"),
+    ("Till", "to"),
+]
+_RANGE_QUALIFIER_KEYS = ("between", "from_to")
+
+DATE_CALENDAR_CHOICES: list[tuple[str, str]] = [
+    ("Gregorianskt", "gregorian"),
+    ("Julianskt", "julian"),
+]
+
+UNPARSED_DATE_TITLE_SV = "Tolkades inte vid import"
+UNPARSED_DATE_EXPLANATION_SV = (
+    'Det ursprungliga datumet i GEDCOM-filen kunde inte tolkas och sparas som '
+    'text: "{text}". Det bevaras oförändrat tills du anger ett nytt datum.'
+)
+
+# Citation contexts offered in the "Gäller" column, in display order.
+_CONTEXT_ORDER = (
+    CitationContext.EVENT,
+    CitationContext.DATE,
+    CitationContext.PLACE,
+    CitationContext.FROM_PLACE,
+)
+_CONTEXT_COLUMN = 3
 
 # Individual event types
 INDIVIDUAL_EVENT_TYPES: list[str] = [
@@ -280,6 +339,9 @@ class EventEditor(EditorRegistryParticipant, QWidget):
         # so a stale suggestion can be replaced when the placement type changes
         # without clobbering a role the user typed.
         self._offered_parent_role: Optional[str] = None
+        # True while the loaded event has an unparsed date that the form shows
+        # read-only; an empty date field then means "keep it".
+        self._loaded_unparsed: bool = False
 
         # Set up UI inside a scroll area so content is accessible even in
         # smaller windows (edit mode shows all sections simultaneously).
@@ -300,6 +362,8 @@ class EventEditor(EditorRegistryParticipant, QWidget):
         outer_layout.addWidget(scroll_area)
 
         self._setup_tables()
+        self._setup_date_section()
+        self._setup_from_place_section()
         self._populate_combos()
         self._setup_reference_paste()
         self._setup_new_place_button()
@@ -372,6 +436,79 @@ class EventEditor(EditorRegistryParticipant, QWidget):
         header = table.horizontalHeader()
         header.resizeSection(0, 300)
         header.resizeSection(1, 80)
+        # "Gäller": which part of the event the citation supports.
+        table.setColumnCount(_CONTEXT_COLUMN + 1)
+        table.setHorizontalHeaderItem(_CONTEXT_COLUMN, QTableWidgetItem("Gäller"))
+        header.resizeSection(2, 160)
+
+    def _setup_date_section(self) -> None:
+        """Add the qualifier, range-end, calendar and unparsed-date widgets.
+
+        The old precision combo is superseded by the qualifier: its
+        "approximate" choice is the qualifier "Ungefär" (``about``). The combo
+        stays in the generated UI but is hidden and no longer read.
+        """
+        self._ui.date_precision_label.setVisible(False)
+        self._ui.date_precision_combo.setVisible(False)
+
+        layout = self._ui.date_group_layout
+        group = self._ui.date_group
+
+        self._date_qualifier_combo = QComboBox(group)
+        for label, key in DATE_QUALIFIER_CHOICES:
+            self._date_qualifier_combo.addItem(label, key)
+        self._date_qualifier_combo.setToolTip("Hur säkert datumet är")
+
+        self._date_to_label = QLabel("till:", group)
+        self._date_to_input = QLineEdit(group)
+        self._date_to_input.setMaxLength(10)
+        self._date_to_input.setPlaceholderText("ÅÅÅÅ-MM-DD")
+
+        self._date_calendar_combo = QComboBox(group)
+        for label, key in DATE_CALENDAR_CHOICES:
+            self._date_calendar_combo.addItem(label, key)
+        self._date_calendar_combo.setToolTip("Kalender som datumet är skrivet i")
+
+        layout.addWidget(self._date_qualifier_combo)
+        layout.addWidget(self._date_to_label)
+        layout.addWidget(self._date_to_input)
+        layout.addWidget(self._date_calendar_combo)
+        self._date_qualifier_combo.currentIndexChanged.connect(
+            self._update_date_range_enabled
+        )
+        self._update_date_range_enabled()
+
+        # Read-only notice for a date that the import could not interpret.
+        self._unparsed_notice = QLabel(self._ui.date_group.parentWidget())
+        self._unparsed_notice.setWordWrap(True)
+        self._unparsed_notice.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._unparsed_notice.setVisible(False)
+        main_layout = self._ui.main_layout
+        main_layout.insertWidget(
+            main_layout.indexOf(self._ui.date_group) + 1, self._unparsed_notice
+        )
+
+    def _update_date_range_enabled(self) -> None:
+        """Enable the range-end field only for "Mellan" and "Från–till"."""
+        is_range = self._date_qualifier_combo.currentData() in _RANGE_QUALIFIER_KEYS
+        self._date_to_label.setEnabled(is_range)
+        self._date_to_input.setEnabled(is_range)
+
+    def _setup_from_place_section(self) -> None:
+        """Add the "Från plats" selector, shown only for ``flytt`` events."""
+        self._from_place_group = QGroupBox("Från plats")
+        layout = QHBoxLayout(self._from_place_group)
+        label = QLabel("Från plats:", self._from_place_group)
+        self._from_place_combo = QComboBox(self._from_place_group)
+        layout.addWidget(label)
+        layout.addWidget(self._from_place_combo)
+        main_layout = self._ui.main_layout
+        main_layout.insertWidget(
+            main_layout.indexOf(self._ui.place_group) + 1, self._from_place_group
+        )
+        self._from_place_group.setVisible(False)
 
     def _setup_reference_paste(self) -> None:
         """Add a paste-reference row below the source combo for matching by reference text.
@@ -551,24 +688,8 @@ class EventEditor(EditorRegistryParticipant, QWidget):
         self._refresh_participant_person_combo()
 
         # Place combo (full hierarchy, sorted alphabetically, searchable)
-        self._ui.place_combo.clear()
-        self._ui.place_combo.setEditable(True)
-        self._ui.place_combo.setInsertPolicy(self._ui.place_combo.InsertPolicy.NoInsert)
-        self._ui.place_combo.addItem("(ingen plats)", "")
-        places_with_display: list[tuple[str, str]] = []
-        for place in self._project_data.places:
-            display = self._format_place_hierarchy(place)
-            places_with_display.append((display, place.id))
-        places_with_display.sort(key=lambda x: x[0].lower())
-        place_names: list[str] = []
-        for display, place_id in places_with_display:
-            self._ui.place_combo.addItem(display, place_id)
-            place_names.append(display)
-        # Substring completer for searching
-        place_completer = QCompleter(place_names, self._ui.place_combo)
-        place_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        place_completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        self._ui.place_combo.setCompleter(place_completer)
+        self._fill_place_combo(self._ui.place_combo)
+        self._fill_place_combo(self._from_place_combo)
 
         # Source combo (searchable, sorted alphabetically by title)
         self._ui.source_combo.clear()
@@ -603,10 +724,39 @@ class EventEditor(EditorRegistryParticipant, QWidget):
         self._ui.source_quality_combo.addItem("Sekundär", "secondary")
         self._ui.source_quality_combo.addItem("Tertiär", "tertiary")
 
-        # Date precision combo (Swedish labels, English keys as data)
-        self._ui.date_precision_combo.clear()
-        for key, label in DATE_PRECISION_LABELS.items():
-            self._ui.date_precision_combo.addItem(label, key)
+    def _fill_place_combo(self, combo: QComboBox) -> None:
+        """Fill ``combo`` with "(ingen plats)" and every place, searchable."""
+        combo.clear()
+        combo.setEditable(True)
+        combo.setInsertPolicy(combo.InsertPolicy.NoInsert)
+        combo.addItem("(ingen plats)", "")
+        places_with_display: list[tuple[str, str]] = []
+        for place in self._project_data.places:
+            display = self._format_place_hierarchy(place)
+            places_with_display.append((display, place.id))
+        places_with_display.sort(key=lambda x: x[0].lower())
+        place_names: list[str] = []
+        for display, place_id in places_with_display:
+            combo.addItem(display, place_id)
+            place_names.append(display)
+        # Substring completer for searching
+        place_completer = QCompleter(place_names, combo)
+        place_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        place_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        combo.setCompleter(place_completer)
+
+    @staticmethod
+    def _select_place(combo: QComboBox, place_id: str) -> None:
+        """Select ``place_id`` in ``combo``; add a stand-in for a missing place.
+
+        A dangling place id must not be dropped by opening and saving, so it
+        gets its own entry instead of falling back to "(ingen plats)".
+        """
+        index = combo.findData(place_id)
+        if index < 0:
+            combo.addItem(f"(okänd plats: {place_id})", place_id)
+            index = combo.findData(place_id)
+        combo.setCurrentIndex(index)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
@@ -666,6 +816,10 @@ class EventEditor(EditorRegistryParticipant, QWidget):
         is_death = current_type == "death"
         self._ui.cause_of_death_label.setVisible(is_death)
         self._ui.cause_of_death_input.setVisible(is_death)
+
+        # "Från plats" selector: only while the type is flytt. Hiding it never
+        # touches the stored from_place (the form state keeps its value).
+        self._from_place_group.setVisible(current_type == "flytt")
 
         # Photo and Annan media sections: visible for all event types
         self._event_media_group.setVisible(True)
@@ -884,24 +1038,19 @@ class EventEditor(EditorRegistryParticipant, QWidget):
             self._add_participant_row(participant)
 
         # Date
-        if self._event.date:
-            self._ui.date_value_input.setText(self._event.date.value)
-            precision_index = self._ui.date_precision_combo.findData(
-                self._event.date.precision
-            )
-            if precision_index >= 0:
-                self._ui.date_precision_combo.setCurrentIndex(precision_index)
+        self._load_date(self._event.date)
 
-        # Place
+        # Place and from-place
         if self._event.place:
-            place_index = self._ui.place_combo.findData(self._event.place.place_id)
-            if place_index >= 0:
-                self._ui.place_combo.setCurrentIndex(place_index)
+            self._select_place(self._ui.place_combo, self._event.place.place_id)
+        if self._event.from_place:
+            self._select_place(
+                self._from_place_combo, self._event.from_place.place_id
+            )
 
-        # Source refs (on the event level)
-        if self._event.date and self._event.date.source_refs:
-            for source_ref in self._event.date.source_refs:
-                self._add_source_row(source_ref)
+        # Source refs of the event, its date, its place and its from-place
+        for citation in event_citations(self._event):
+            self._add_source_row(citation.ref, citation.context)
 
         # Media
         for media_id in self._event.media_ids:
@@ -910,6 +1059,43 @@ class EventEditor(EditorRegistryParticipant, QWidget):
         # Load event media (photos and non-photo media) for all event types
         self._refresh_photo_section()
         self._load_event_media()
+
+    def _load_date(self, date: Optional[DateValue]) -> None:
+        """Show ``date`` in the date widgets as ``DateFormState.from_date`` sees it."""
+        self._loaded_unparsed = False
+        self._unparsed_notice.setVisible(False)
+        if date is None:
+            return
+        state = DateFormState.from_date(date)
+        self._ui.date_value_input.setToolTip(format_date_sv(date))
+
+        if effective_qualifier(date) == "unparsed":
+            # Read-only: the original text and an explanation; a new date typed
+            # into the field replaces it, an empty field keeps it.
+            self._loaded_unparsed = True
+            text = UNPARSED_DATE_EXPLANATION_SV.format(
+                text=(date.original_text or "").strip()
+            )
+            self._unparsed_notice.setText(f"<b>{UNPARSED_DATE_TITLE_SV}</b><br>{_escape(text)}")
+            self._unparsed_notice.setVisible(True)
+            self._ui.date_value_input.setPlaceholderText(
+                "Ange ett nytt datum för att ersätta det"
+            )
+            return
+
+        self._ui.date_value_input.setText(state.text)
+        index = self._date_qualifier_combo.findData(state.qualifier)
+        if index < 0 and state.qualifier == "interpreted":
+            # Not offered for new dates, but a loaded one must stay shown as is.
+            self._date_qualifier_combo.addItem("Tolkat", "interpreted")
+            index = self._date_qualifier_combo.findData("interpreted")
+        if index >= 0:
+            self._date_qualifier_combo.setCurrentIndex(index)
+        self._date_to_input.setText(state.value_to or "")
+        calendar_index = self._date_calendar_combo.findData(state.calendar)
+        if calendar_index >= 0:
+            self._date_calendar_combo.setCurrentIndex(calendar_index)
+        self._update_date_range_enabled()
 
     # ------------------------------------------------------------------
     # Private: participants management
@@ -978,11 +1164,16 @@ class EventEditor(EditorRegistryParticipant, QWidget):
     # Private: source references management
     # ------------------------------------------------------------------
 
-    def _add_source_row(self, source_ref: SourceRef) -> None:
+    def _add_source_row(
+        self,
+        source_ref: SourceRef,
+        context: CitationContext = CitationContext.EVENT,
+    ) -> None:
         """Append a source reference row to the table.
 
         Args:
             source_ref: The SourceRef to display.
+            context: What the citation applies to (the "Gäller" column).
         """
         table = self._ui.sources_table
         row = table.rowCount()
@@ -1007,6 +1198,21 @@ class EventEditor(EditorRegistryParticipant, QWidget):
         table.setItem(row, 1, quality_item)
         table.setItem(row, 2, note_item)
 
+        context_combo = QComboBox()
+        for option in _CONTEXT_ORDER:
+            context_combo.addItem(context_label_sv(option), option.value)
+        context_combo.setCurrentIndex(
+            context_combo.findData(CitationContext(context).value)
+        )
+        table.setCellWidget(row, _CONTEXT_COLUMN, context_combo)
+
+    def _row_context(self, row: int) -> CitationContext:
+        """The citation context chosen in the "Gäller" combo of ``row``."""
+        combo = self._ui.sources_table.cellWidget(row, _CONTEXT_COLUMN)
+        if combo is None:
+            return CitationContext.EVENT
+        return CitationContext(combo.currentData())
+
     def _on_add_source(self) -> None:
         """Add a new source reference from the edit fields."""
         source_id = self._ui.source_combo.currentData()
@@ -1018,7 +1224,7 @@ class EventEditor(EditorRegistryParticipant, QWidget):
             return
 
         source_ref = SourceRef(source_id=source_id, quality=quality, note=note)
-        self._add_source_row(source_ref)
+        self._add_source_row(source_ref, CitationContext.EVENT)
         self._ui.source_combo.setCurrentIndex(0)
         self._ui.source_quality_combo.setCurrentIndex(0)
         self._ui.source_note_input.clear()
@@ -1329,6 +1535,7 @@ class EventEditor(EditorRegistryParticipant, QWidget):
             # Add to combo and select it
             display = self._format_place_hierarchy(saved_place)
             self._ui.place_combo.addItem(display, saved_place.id)
+            self._from_place_combo.addItem(display, saved_place.id)
             idx = self._ui.place_combo.findData(saved_place.id)
             if idx >= 0:
                 self._ui.place_combo.setCurrentIndex(idx)
@@ -2034,22 +2241,20 @@ class EventEditor(EditorRegistryParticipant, QWidget):
             self._update_status("Minst en deltagare krävs.")
             return
 
-        # Date
-        date: Optional[DateValue] = None
-        date_value = self._ui.date_value_input.text().strip()
-        if date_value:
-            precision = self._ui.date_precision_combo.currentData()
-            # Collect source refs from the sources table as date source refs
-            source_refs = self._collect_source_refs()
-            date = DateValue(
-                value=date_value, precision=precision, source_refs=source_refs
-            )
+        # Date (a changed date must be real in the chosen calendar)
+        form_date = self._current_date_form()
+        loaded_date = DateFormState.from_date(
+            self._event.date if self._event is not None else None
+        )
+        if not form_date.same_as(loaded_date):
+            date_errors = validate_date_form(form_date)
+            if date_errors:
+                self._update_status(" ".join(date_errors))
+                return
 
-        # Place
-        place: Optional[PlaceRef] = None
-        place_id = self._ui.place_combo.currentData()
-        if place_id:
-            place = PlaceRef(place_id=place_id)
+        # Place and from-place
+        place_id = self._ui.place_combo.currentData() or None
+        from_place_id = self._from_place_combo.currentData() or None
 
         # Media IDs
         media_ids: list[str] = []
@@ -2076,22 +2281,37 @@ class EventEditor(EditorRegistryParticipant, QWidget):
                 if i < len(self._photo_section._photo_ids):
                     photo_media_ids.append(self._photo_section._photo_ids[i])
 
-        # Determine event ID
-        event_id = self._event.id if self._event else str(uuid.uuid4())
-
         # Merge regular media_ids with event media_ids and photo_ids
         all_media_ids = media_ids + event_media_ids + photo_media_ids
 
-        self._saved_event = Event(
-            id=event_id,
+        form = EventFormState(
             type=event_type,
-            participants=participants,
-            date=date,
-            place=place,
-            media_ids=all_media_ids,
             custom_type_name=custom_type_name,
             cause_of_death=cause_of_death,
+            date=form_date,
+            place_id=place_id,
+            from_place_id=from_place_id,
+            citation_rows=self._collect_citation_rows(),
+            participants=participants,
+            media_ids=all_media_ids,
         )
+
+        # Ask every needed question first; nothing changes until all are
+        # answered, and "Avbryt" in any of them aborts the whole save.
+        choices: dict[CitationContext, CitationChoice] = {}
+        for need in prompts_needed(self._event, form):
+            choice = self._ask_citation_choice(need)
+            if choice == CitationChoice.CANCEL:
+                return
+            choices[need.context] = choice
+
+        try:
+            assembled = assemble_event(self._event, form, choices)
+        except ValueError as exc:
+            self._update_status(str(exc))
+            return
+        event_id = assembled.id
+        self._saved_event = assembled
 
         # One-click fix for an orphan placement end event (Requirement 2A.5).
         # When saving a Placement_End_Event that pairs to no existing
@@ -2147,6 +2367,70 @@ class EventEditor(EditorRegistryParticipant, QWidget):
                 SourceRef(source_id=source_id, quality=quality, note=note, aspects=aspects)
             )
         return source_refs
+
+    def _collect_citation_rows(self) -> list[CitationRow]:
+        """Rows of the Källor table with the context chosen in "Gäller"."""
+        refs = self._collect_source_refs()
+        return [
+            CitationRow(context=self._row_context(row), ref=ref)
+            for row, ref in enumerate(refs)
+        ]
+
+    def _current_date_form(self) -> DateFormState:
+        """The date fields as the form shows them.
+
+        An unparsed date loaded from the file stays as loaded while the date
+        field is empty; typing a date replaces it.
+        """
+        text = self._ui.date_value_input.text().strip()
+        if self._loaded_unparsed and not text and self._event is not None:
+            return DateFormState.from_date(self._event.date)
+        qualifier = self._date_qualifier_combo.currentData() or "exact"
+        value_to = None
+        if qualifier in _RANGE_QUALIFIER_KEYS:
+            value_to = self._date_to_input.text().strip() or None
+        return DateFormState(
+            text=text,
+            qualifier=qualifier,
+            value_to=value_to,
+            calendar=self._date_calendar_combo.currentData() or "gregorian",
+        )
+
+    def _build_citation_prompt(
+        self, need: PromptNeed
+    ) -> tuple[QMessageBox, dict[QPushButton, CitationChoice]]:
+        """Build the question for ``need`` with Swedish texts.
+
+        "Flytta till händelsen" is the default button; "Avbryt" is also what
+        Esc and the window close button answer.
+        """
+        message, informative = prompt_text_sv(need)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Källhänvisningar")
+        box.setText(message)
+        if informative:
+            box.setInformativeText(informative)
+        buttons: dict[QPushButton, CitationChoice] = {}
+        for choice in need.allowed:
+            role = (
+                QMessageBox.ButtonRole.RejectRole
+                if choice == CitationChoice.CANCEL
+                else QMessageBox.ButtonRole.ActionRole
+            )
+            button = box.addButton(CHOICE_LABELS_SV[choice], role)
+            buttons[button] = choice
+            if choice == DEFAULT_CHOICE:
+                box.setDefaultButton(button)
+            if choice == CitationChoice.CANCEL:
+                box.setEscapeButton(button)
+        return box, buttons
+
+    def _ask_citation_choice(self, need: PromptNeed) -> CitationChoice:
+        """Show the prompt for ``need`` and return the answer."""
+        box, buttons = self._build_citation_prompt(need)
+        box.exec()
+        return buttons.get(box.clickedButton(), CitationChoice.CANCEL)
 
     def _get_person_display(self, person_id: str) -> str:
         """Get a human-readable display string for a person.
@@ -2222,11 +2506,9 @@ class EventEditor(EditorRegistryParticipant, QWidget):
                 continue
             if not any(p.person_id == person_id for p in event.participants):
                 continue
-            value = event.date.value if event.date and event.date.value else ""
-            year = value[:4]
-            if len(year) == 4 and year.isdigit():
-                return year
-            return ""
+            # Only exact (and legacy "about") dates give a plain year; before,
+            # after, ranges, estimates and unparsed dates never do.
+            return display_year(event.date) or ""
         return ""
 
     def _get_source_display(self, source_id: str) -> str:
