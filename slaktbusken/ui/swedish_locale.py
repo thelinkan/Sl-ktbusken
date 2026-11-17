@@ -110,6 +110,7 @@ RELATIONSHIP_LABELS: dict[str, str] = {
     "husband": "Make",
     "wife": "Maka",
     "partner": "Partner",
+    "make/maka": "Make/maka",
     "son": "Son",
     "daughter": "Dotter",
     "brother": "Bror",
@@ -133,6 +134,7 @@ PARTNER_ROLE_LABELS: dict[str, str] = {
     "husband": "Make",
     "wife": "Maka",
     "partner": "Partner",
+    "make/maka": "Make/maka",
 }
 
 # Parentage type labels (föräldratyper)

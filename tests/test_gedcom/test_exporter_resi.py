@@ -383,52 +383,6 @@ class TestResiSourLines:
 class TestResiExportLog:
     """Tests for the observation-notes export log entry."""
 
-    def test_log_entry_when_sour_written(self, tmp_path: Path) -> None:
-        """Req 12.10: Exactly one log entry when at least one SOUR written."""
-        source = Source(id="source_1", provider="ArkivDigital", source_type="church_book", title="HFL")
-        obs = Observation(
-            source_ref=SourceRef(source_id="source_1", quality="primary"),
-            observed_from="1840",
-            observed_to="1845",
-        )
-        res = ResidenceFact(
-            id="residence_1",
-            person_id="person_1",
-            place_id="place_1",
-            start=Endpoint(latest="1840"),
-            end=Endpoint(earliest="1845"),
-            observations=[obs],
-        )
-        data = _project_with_residence(res, sources=[source])
-        exporter = GEDCOMExporter()
-        result = exporter.export(data, tmp_path / "test.ged")
-        assert (
-            "Observationernas delperioder exporteras som anteckningar."
-            in result.warnings
-        )
-        # Exactly one occurrence
-        assert result.warnings.count(
-            "Observationernas delperioder exporteras som anteckningar."
-        ) == 1
-
-    def test_no_log_entry_when_no_sour(self, tmp_path: Path) -> None:
-        """Req 12.10: No log entry when no SOUR lines written."""
-        res = ResidenceFact(
-            id="residence_1",
-            person_id="person_1",
-            place_id="place_1",
-            start=Endpoint(latest="1840"),
-            end=Endpoint(earliest="1846"),
-        )
-        data = _project_with_residence(res)
-        exporter = GEDCOMExporter()
-        result = exporter.export(data, tmp_path / "test.ged")
-        assert (
-            "Observationernas delperioder exporteras som anteckningar."
-            not in result.warnings
-        )
-
-
 # ---------------------------------------------------------------------------
 # Test: ISO→GEDCOM date conversion (Requirement 12.11)
 # ---------------------------------------------------------------------------

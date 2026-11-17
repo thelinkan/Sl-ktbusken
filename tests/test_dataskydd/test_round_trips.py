@@ -272,6 +272,16 @@ def _event_title_multiset(data: ProjectData, event: Event, skip_from_place: bool
     return _titles(data, refs)
 
 
+def _citations_per_context(data: ProjectData, event: Event) -> dict:
+    titles = {s.id: s.title for s in data.sources}
+    result: dict[str, list[tuple]] = {}
+    for c in event_citations(event):
+        result.setdefault(c.context.value, []).append(
+            (titles[c.ref.source_id], c.ref.quality, c.ref.note, tuple(c.ref.aspects))
+        )
+    return result
+
+
 def _key(event: Event) -> tuple:
     d = event.date
     return (event.type, (d.value or d.original_text) if d else None)
@@ -378,10 +388,10 @@ def test_export_import_keeps_dates_citations_and_texts(
         assert got.type == original.type
         # Dates: qualifier, both endpoints, calendar, precision and original text.
         assert _dates_equal_ignoring_refs(got.date, original.date), original.id
-        assert got.date.source_refs == []  # citations return as event-level
-        # Citations as a multiset of source titles per event (from_place excluded).
-        assert _event_title_multiset(target.data, got, False) == _event_title_multiset(
-            source_project.data, original, True
+        # Citations per context (event, date, place, from_place), with source title,
+        # quality, note and aspects (Requirement 6).
+        assert _citations_per_context(target.data, got) == _citations_per_context(
+            source_project.data, original
         ), original.id
         # Place.
         original_chain = _place_chain(source_project.data, original.place.place_id) if original.place else []
@@ -411,14 +421,27 @@ def test_export_import_flytt_documented_limits(
     target, path, export = _import_into_new(source_project, tmp_path)
     text = path.read_text(encoding="utf-8")
     assert "2 NOTE Från: Ljusdal, Gävleborgs län" in text
-    assert any("ursprungsplats" in w for w in export.warnings)
+    assert not any("ursprungsplats" in w for w in export.warnings)
     flytt = [e for e in target.data.events if e.type == "flytt"]
     assert len(flytt) == 1
-    assert flytt[0].from_place is None
+    original = next(e for e in source_project.data.events if e.type == "flytt")
+    assert _place_chain(target.data, flytt[0].from_place.place_id) == _place_chain(
+        source_project.data, original.from_place.place_id
+    )
     assert _place_chain(target.data, flytt[0].place.place_id) == ["Gävle", "Gävleborgs län"]
     assert _dates_equal_ignoring_refs(flytt[0].date, _dv("1860-05-01"))
-    for fact in target.data.residences:
-        assert fact.start.event_id is None and fact.end.event_id is None
+    # Endpoint links travel as _SLK_EREF: the link equals the original event
+    # after mapping (the imported event has the same type and date).
+    def _linked(data, fact):
+        def one(event_id):
+            event = next((e for e in data.events if e.id == event_id), None)
+            return None if event is None else _key(event)
+        return (one(fact.start.event_id), one(fact.end.event_id))
+
+    got_links = Counter(_linked(target.data, f) for f in target.data.residences)
+    want_links = Counter(_linked(source_project.data, f) for f in source_project.data.residences)
+    assert got_links == want_links
+    assert got_links[(None, _key(original))] == 1
 
 
 def test_export_import_keeps_residences(source_project: Session, tmp_path: Path) -> None:

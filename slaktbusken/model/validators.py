@@ -49,7 +49,14 @@ from slaktbusken.model.source import Repository, Source
 
 _VALID_SEX = {"M", "F", "X", "U"}
 
-_VALID_PARTNER_ROLES = {"father", "mother", "husband", "wife", "partner"}
+_VALID_PARTNER_ROLES = {
+    "father",
+    "mother",
+    "husband",
+    "wife",
+    "partner",
+    "make/maka",
+}
 
 _VALID_PARENTAGE_TYPES = {
     "biological",
@@ -408,6 +415,8 @@ def validate_event(event: Event) -> list[str]:
 
     if event.origin is not None:
         errors.extend(validate_record_origin(event.origin))
+    for extra in event.extra_origins:
+        errors.extend(validate_record_origin(extra))
 
     # Custom event type validation
     if event.type in _CUSTOM_EVENT_TYPES:

@@ -231,8 +231,8 @@ class TestFlyttFromPlaceNote:
 
         assert not any(l.startswith("2 NOTE") for l in flytt)
 
-    def test_structure_loss_in_export_log(self, tmp_path: Path) -> None:
-        """When from_place is exported as NOTE, the export log records the loss."""
+    def test_no_structure_loss_warning_with_slk_fromplac(self, tmp_path: Path) -> None:
+        """_SLK_FROMPLAC carries the origin, so there is no loss warning."""
         event = Event(
             id="event_1",
             type="flytt",
@@ -245,10 +245,7 @@ class TestFlyttFromPlaceNote:
         exporter = GEDCOMExporter()
         result = exporter.export(data, tmp_path / "test.ged")
 
-        assert any(
-            "ursprungsplats" in w and "anteckning" in w
-            for w in result.warnings
-        )
+        assert not any("ursprungsplats" in w for w in result.warnings)
 
     def test_no_structure_loss_without_from_place(self, tmp_path: Path) -> None:
         """When from_place is absent, no structure loss warning is produced."""
@@ -304,7 +301,8 @@ class TestFlyttFromPlaceNote:
         lines = _export_lines(data, tmp_path)
         flytt = _flytt_lines(lines)
 
-        assert flytt == ["1 EVEN", "2 TYPE Flytt", "2 DATE 1870"]
+        assert flytt[:3] == ["1 EVEN", "2 TYPE Flytt", "2 DATE 1870"]
+        assert flytt[3:] == ["2 _SLK_EID event_1", "2 _SLK_ROLE primary"]
 
     def test_flytt_no_date_no_place_no_from_place(self, tmp_path: Path) -> None:
         """A bare Flytt produces only 1 EVEN / 2 TYPE Flytt."""
@@ -317,4 +315,5 @@ class TestFlyttFromPlaceNote:
         lines = _export_lines(data, tmp_path)
         flytt = _flytt_lines(lines)
 
-        assert flytt == ["1 EVEN", "2 TYPE Flytt"]
+        assert flytt[:2] == ["1 EVEN", "2 TYPE Flytt"]
+        assert flytt[2:] == ["2 _SLK_EID event_1", "2 _SLK_ROLE primary"]

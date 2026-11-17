@@ -1,4 +1,4 @@
-"""Record identity matcher for GEDCOM events and residences.
+﻿"""Record identity matcher for GEDCOM events and residences.
 
 Pure module: no Qt, no file I/O, no mutation of the objects it is given.
 
@@ -51,6 +51,8 @@ _EXCLUDED_TAGS = frozenset({"CHAN", "_UPD", "_CRE", "_UID"})
 _POINTER_RE = re.compile(r"^@[^@\s]+@$")
 _POINTER_TOKEN = "@PTR@"
 _WS_RE = re.compile(r"\s+")
+_PROFILES = frozenset({"legacy", "slk1"})
+_SLK1_SOUR_DROPPED = frozenset({"QUAY", "PAGE", "DATA", "OBJE"})
 
 
 def _canonical_value(tag: str, value: Optional[str], source_ids: Mapping[str, str]) -> str:
@@ -62,25 +64,61 @@ def _canonical_value(tag: str, value: Optional[str], source_ids: Mapping[str, st
     return text
 
 
+def _skip_child_slk1(parent_tag: str, child: GedcomLine) -> bool:
+    """Nodes that Hash_Profile ``slk1`` removes before hashing."""
+    tag = child.tag.upper()
+    if tag.startswith("_SLK_"):
+        return True
+    if tag == "CAUS":
+        # Older exporters never wrote the cause; skipping it keeps the hash of
+        # an event stable when a later export adds ``CAUS``.
+        return True
+    if parent_tag == "SOUR":
+        if tag in _SLK1_SOUR_DROPPED:
+            return True
+        if tag == "NOTE":
+            raw = child.raw_value if child.raw_value is not None else child.value
+            text = _WS_RE.sub(" ", raw or "").strip()
+            return not text.startswith("Observation:")
+    return False
+
+
 def _canonical_lines(
-    node: GedcomLine, depth: int, source_ids: Mapping[str, str], out: list[str]
+    node: GedcomLine,
+    depth: int,
+    source_ids: Mapping[str, str],
+    out: list[str],
+    profile: str = "legacy",
 ) -> None:
     tag = node.tag.upper()
-    value = _canonical_value(tag, node.value, source_ids)
+    # raw_value is the value as written in the file (``@@`` not unescaped), so
+    # that the parser's unescape does not change stored hashes.
+    raw = node.raw_value if node.raw_value is not None else node.value
+    value = _canonical_value(tag, raw, source_ids)
     out.append(f"{depth} {tag} {value}".rstrip())
     kept = [c for c in node.children if c.tag.upper() not in _EXCLUDED_TAGS]
+    if profile == "slk1":
+        kept = [c for c in kept if not _skip_child_slk1(tag, c)]
     # sorted() is stable: siblings with equal tag keep their file order.
     for child in sorted(kept, key=lambda c: c.tag.upper()):
-        _canonical_lines(child, depth + 1, source_ids, out)
+        _canonical_lines(child, depth + 1, source_ids, out, profile)
 
 
-def record_hash(record: GedcomLine, source_ids: Mapping[str, str]) -> str:
+def record_hash(
+    record: GedcomLine, source_ids: Mapping[str, str], profile: str = "legacy"
+) -> str:
     """SHA-256 (hex) of the canonical form of an event or ``RESI`` record.
 
     The record itself is written at depth 1 (``1 RESI``), whatever its level.
+    ``profile`` is the Hash_Profile: ``"legacy"`` (the original canonical form)
+    or ``"slk1"`` (files with the ``_SLK_VERS`` marker; additionally drops
+    ``_SLK_`` nodes, ``CAUS`` children and the ``QUAY``, ``PAGE``, ``DATA``, ``OBJE`` and
+    non-``Observation:`` ``NOTE`` children of ``SOUR`` lines).
     """
+    if profile not in _PROFILES:
+        raise ValueError(f"unknown hash profile: {profile!r}")
     lines: list[str] = []
-    _canonical_lines(record, 1, source_ids, lines)
+    _canonical_lines(record, 1, source_ids, lines, profile)
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
@@ -113,11 +151,16 @@ def event_fingerprint(event: Event) -> str:
     )
 
 
-def residence_fingerprint(fact: ResidenceFact) -> str:
-    """Content fingerprint of a residence. ``Endpoint.precision`` is excluded."""
+def residence_fingerprint(fact: ResidenceFact, ignore_links: bool = False) -> str:
+    """Content fingerprint of a residence. ``Endpoint.precision`` is excluded.
+
+    With ``ignore_links`` the endpoint event links (``Endpoint.event_id``) are
+    left out, as they resolve only after the families exist.
+    """
 
     def endpoint(ep) -> list:
-        return [ep.earliest or "", ep.latest or "", ep.event_id or "", ep.note or ""]
+        link = "" if ignore_links else (ep.event_id or "")
+        return [ep.earliest or "", ep.latest or "", link, ep.note or ""]
 
     return _digest(
         [

@@ -65,3 +65,7 @@ class Event:
     # Event-level citations and the GEDCOM record the event was imported from.
     source_refs: list[SourceRef] = field(default_factory=list)
     origin: Optional[RecordOrigin] = None
+    # Further GEDCOM records of other INDI owners that contributed to this
+    # event (an Individual_Fallback event built from several INDI records).
+    # ``origin`` stays the first contributing record; empty for all other events.
+    extra_origins: list[RecordOrigin] = field(default_factory=list)

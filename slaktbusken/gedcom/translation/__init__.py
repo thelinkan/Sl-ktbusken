@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+from typing import Optional
 
+from slaktbusken.gedcom.slk_tags import SourceExtras
 from slaktbusken.gedcom.translation.citation_translation import build_citation_text
 from slaktbusken.gedcom.translation.models import (
     DiffCategory,
@@ -31,6 +33,7 @@ from slaktbusken.gedcom.translation.person_mapping import (
 from slaktbusken.gedcom.translation.place_translation import (
     find_matching_place,
     map_place_to_hierarchy,
+    map_place_to_hierarchy_with_leaf,
     parse_place_string,
 )
 from slaktbusken.gedcom.translation.source_translation import (
@@ -199,26 +202,16 @@ class TranslationManager:
         existing_ids = {p.id for p in existing_places}
         id_generator = IDGenerator(existing_ids)
 
-        new_places = map_place_to_hierarchy(
+        new_places, leaf_id = map_place_to_hierarchy_with_leaf(
             gedcom_place=gedcom_place,
             existing_places=existing_places,
             place_mappings=translation_data.places,
             id_generator=id_generator,
         )
 
-        # The most-specific place is the last one created (ordered from
-        # least specific to most specific)
-        most_specific_id: str | None = None
-        if new_places:
-            most_specific_id = new_places[-1].id
-        else:
-            # All levels matched existing places; find the most-specific one
-            # by re-checking the hierarchy
-            matched_id = find_matching_place(
-                gedcom_place, existing_places, translation_data.places
-            )
-            most_specific_id = matched_id
-
+        # The leaf is the most-specific level, whether it was created now or
+        # already existed (e.g. as the parent of a previously imported place).
+        most_specific_id: str | None = leaf_id
         return most_specific_id, new_places
 
     # ------------------------------------------------------------------
@@ -231,6 +224,7 @@ class TranslationManager:
         existing_sources: list[Source],
         leverantorer: list[Leverantor] | None = None,
         kalltyper: list[Kalltyp] | None = None,
+        extras: Optional[SourceExtras] = None,
     ) -> Source:
         """Map a GEDCOM source to an App_JSON Source entity.
 
@@ -256,6 +250,7 @@ class TranslationManager:
             source_mappings=translation_data.sources,
             leverantorer=leverantorer,
             kalltyper=kalltyper,
+            extras=extras,
         )
 
     # ------------------------------------------------------------------

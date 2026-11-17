@@ -1195,6 +1195,17 @@ def test_reference_rule_event_origin(merged):
             assert event.origin == before[event.id]
 
 
+def test_reference_rule_event_extra_origins(merged):
+    """H: the provenance of further INDI records of an event is never rewritten."""
+    row = _rr_row("event.extra_origins")
+    assert (row.owner_class, row.field_path, row.rule, row.handler) == (
+        "RecordOrigin", "extra_origins[].owner_id", "H", None)
+    before = {e.id: e.extra_origins for e in merged.before_data.events}
+    for event in merged.after.events:
+        if event.id in before:
+            assert event.extra_origins == before[event.id]
+
+
 def test_reference_rule_residence_origins(merged):
     """H: the provenance of an imported residence is never rewritten."""
     row = _rr_row("residence.origins")

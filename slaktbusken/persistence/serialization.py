@@ -341,6 +341,7 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (Place, "region_levels"): RegionLevel,
     (ResidenceFact, "observations"): Observation,
     (ResidenceFact, "origins"): RecordOrigin,
+    (Event, "extra_origins"): RecordOrigin,
     (MergeCandidate, "comments"): MergeCandidateComment,
     (MergeHistoryEntry, "archived_candidates"): ArchivedCandidate,
     (ArchivedCandidate, "comments"): MergeCandidateComment,

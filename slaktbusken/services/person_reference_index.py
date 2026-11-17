@@ -149,6 +149,8 @@ PERSON_REFERENCE_INVENTORY: tuple[ReferenceLocation, ...] = (
          "Original ids as archived."),
     _loc("event.origin", "RecordOrigin", "owner_id", "H", "n/a",
          "Provenance of an imported event; never rewritten."),
+    _loc("event.extra_origins", "RecordOrigin", "extra_origins[].owner_id", "H", "n/a",
+         "Provenance of the further INDI records of a merged Individual_Fallback event; never rewritten."),
     _loc("residence.origins", "RecordOrigin", "origins[].owner_id", "H", "n/a",
          "Provenance of an imported residence; never rewritten."),
     _loc("translation.person_mappings", _TRANSLATION, "person_mappings[].app_id", "special", "n/a",

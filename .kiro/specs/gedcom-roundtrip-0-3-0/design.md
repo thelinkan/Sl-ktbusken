@@ -13,7 +13,7 @@ Two cross-cutting rules keep this safe:
 - **Record identity stays stable.** New nodes change the SHA-256 that `record_hash` computes for event and RESI records. A new Hash_Profile `slk1`, selected by the HEAD marker `_SLK_VERS`, removes exactly the nodes that this spec adds. Files without the marker keep the current rules (Requirement 12, section "Record hash and cross-version identity").
 - **The importer never aborts on tags it does not know.** Unknown `_SLK_` tags are ignored and uninterpretable values of known tags give a warning and the standard fallback (Requirement 11, section "Error Handling").
 
-No code is written by this spec. No dataclass in `slaktbusken/model/` changes and project format 0.5 stays. Package 2 (person filtering) is not touched.
+No code is written by this spec. The only model change is the approved optional field `Event.extra_origins` (see "Data Models"); project format 0.5 stays. Package 2 (person filtering) is not touched.
 
 ### Verified facts and root causes
 
@@ -72,22 +72,22 @@ def escape_text(text: str) -> str: ...      # leading "@" -> "@@" (5.5.1)
 
 ### C2. Exporter: persons (`_write_person`, 320)
 
-- `1 NAME <given> /<surname>/` followed by `2 TYPE <value>` with the mapping of Requirement 3 (`birth`, `married`, `aka`, `adopted`, `other`) and, when `Name.event_id` is set, `2 _SLK_EREF <token>` (a direct child of NAME).
+- `1 NAME <given> /<surname>/` followed by `2 TYPE <value>` with the mapping of Requirement 3 (`birth`, `married`, `aka`, `adopted`, `other`) and, through the Event_Link_Module only (C13), `2 _SLK_EREF <token>` directly under `1 NAME` (level 2; level 3 under a level-1 NAME is invalid GEDCOM; under `2 _SLK_START`/`2 _SLK_END` it is level 3) when `Name.event_id` is set.
 - `1 SEX M|F|U`; for `X`: `1 SEX U` with `2 _SLK_SEX X`.
 - `1 TITL`, `1 OCCU`, `1 NOTE` (CONT/CONC) when the values are not empty.
 - Order inside INDI: NAME…, SEX, TITL, OCCU, NOTE, FAMC/FAMS, events, RESI. The order of existing lines does not change.
 
 ### C3. Exporter: families (`_write_family`, 974)
 
-Slot rule `_assign_slots(partners, persons)`:
+Slot rule `_assign_slots(partners, persons) -> SlotAssignment` (the slot is a Partner_Placeholder; see "Partner representation in GEDCOM"):
 
-1. Both partners have sex `M`/`F` and the sexes differ: `M` is HUSB, `F` is WIFE (role and order ignored).
-2. Exactly one partner has sex `M` or `F`: that partner takes the matching slot; the other partner takes the free slot.
-3. Otherwise (same sex, `U`, `X`): list order, HUSB then WIFE.
-4. One partner: HUSB if sex `M` or unknown, WIFE if sex `F`.
-5. Never two lines of the same slot (also fixes the existing guard comment at 983-996).
+1. Two partners, both sexes known (`M`/`F`) and different: `M` is HUSB, `F` is WIFE (role and order ignored).
+2. Two partners, otherwise (same sex, or one or both `U`/`X`): partner list order, HUSB then WIFE. A single known sex never reorders the pair.
+3. One partner: the slot of a known sex `M` (HUSB) or `F` (WIFE), else HUSB. No second partner exists, so no order is lost.
+4. Never two lines of the same slot (replaces the existing role-based slotting at 1000-1017).
+5. `SlotAssignment` also lists the Placeholder_Conflicts (partner of sex `M` in WIFE, `F` in HUSB, `X` in either). For each conflicting family the exporter adds one Swedish warning, for example "Familj F12 (Anna Berg, Eva Berg): Eva Berg (kvinna) står som HUSB. HUSB/WIFE är en teknisk platshållare, inte ett påstående om kön eller roll. Rätt roller och ordning finns i _SLK_PARTNER.", and after the last such warning one closing line that programs which do not read `_SLK_PARTNER` show the slots as husband and wife.
 
-Then `1 _SLK_PARTNER <xref>` with `2 _SLK_ROLE <role>` per partner in list order, `1 CHIL` as before.
+Then `1 _SLK_PARTNER <xref>` with `2 _SLK_ROLE <role>` per partner in list order, `1 CHIL` as before. `_SLK_PARTNER` is written for every family with at least one partner, so the roles and order are tied to the individuals, not to the slots.
 
 Family events: `_family_events_for(family, data)` returns the events listed in `family.event_ids` that are family-type and not yet written, then orphan events whose participant person-id set equals the partner person-id set of this family and for which this family is the only match. A set `self._written_family_events` guarantees "exactly once". Orphan events with zero or several matching families go to the Individual_Fallback (C4) and into the Export_Log. Participants are written as `2 _SLK_PART <xref>` with `3 _SLK_ROLE <role>` for every participant that has an INDI record. Types: `marriage` MARR, `divorce` DIV, `engagement` ENGA, `divorce_filed` DIVF, `custom_family_event` `EVEN` with `2 TYPE <custom_type_name>`.
 
@@ -95,9 +95,12 @@ Parentage: `_write_family_links` (400) keeps `PEDI` unchanged (output for existi
 
 ### C4. Exporter: events (`_write_person` event loop 353-390, `_write_event_detail` 1067)
 
+- Cause (Requirement 8.10): `_write_event_detail` writes `Event.cause` as the standard `2 CAUS` (through `text_lines`) for death events and every other event type that carries a cause. The importer already reads `CAUS`. The `slk1` profile skips `CAUS` (C11), so a file with and a file without `CAUS` hash equally; old exports never contained `CAUS` from this exporter. Catalog entry K56 changes from `deferred` to `fixed`.
 - Tag selection: `_EVENT_TYPE_TO_TAG` gains `confirmation CONF`, `will WILL`, `blessing BLES`, `first_communion FCOM`. `custom_individual_event` and unknown types become `1 EVEN` with `2 TYPE` and, for unknown types, `2 _SLK_EVTYPE <type>`.
 - `2 _SLK_EID <event id>` on every exported event structure (all contexts), `2 _SLK_ROLE <role>` when the participant role is not `subject` and the event is not a placement event (`_is_placement_child`, 861, keeps its own rule).
-- Individual_Fallback for orphan family events: `1 EVEN`, `2 TYPE <Swedish label>`, `2 _SLK_EVTYPE <type>`, `2 _SLK_EID <token>`, `2 _SLK_ROLE`, date, place and citations as for any event, on the INDI of every participant.
+- Individual_Fallback for orphan family events: `1 EVEN`, `2 TYPE <Swedish label>`, `2 _SLK_EVTYPE <type>`, `2 _SLK_EID <token>`, `2 _SLK_ROLE`, date, place and citations as for any event, on the INDI of every participant. The token is the event id, so every participant of one event carries the same token, and different marriages always carry different tokens, even with equal date and place.
+- **Fallback import rule (decision 4).** The importer groups `1 EVEN` structures that have `_SLK_EVTYPE` of a family type by `(file, token)` and by nothing else. Structures without a token, and tokens that occur on one INDI only, become single-participant events. A token that occurs twice on one INDI uses the first structure and warns. Date, place, type and participant set are never used to join or to separate.
+- **Origin rule for a merged event.** `Event.origin` holds the first contributing record and `Event.extra_origins` holds one RecordOrigin for each other contributing record (user decision, see "Data Models"). The matcher pool has one entry per origin of the owner (`origin` and every `extra_origins` entry), so a second import creates nothing. The merged Event receives one RecordOrigin per contributing INDI record `(file, INDI xref, slk1 hash of that INDI's EVEN structure)`, all in one Origin_Group (the group mechanism of `data-integrity-0-3-0` for objects built from several records). On re-import each INDI record's structure matches its stored origin through `match_records`, so the group is found as a whole and no event, participant or origin is created. If only some of the origins match (a participant was added to the file), the matched origins keep the existing Event, and the unmatched record adds its participant to that Event and one origin to the group, never a second Event.
 - Flytt (`_write_flytt_event`, 632): keeps `2 NOTE Från:`; adds `2 _SLK_FROMPLAC <hierarchy>`; the `FROM_PLACE` citations are no longer skipped (671-672).
 
 ### C5. Exporter: citations (shared `_write_citation`)
@@ -119,7 +122,19 @@ Output below `<level> SOUR <xref>`:
 | `_SLK_ASP <aspect>` | one per aspect, in order |
 | `TEXT <build_citation_text(source)>` | events, kept unchanged (OQ-6) |
 
-`QUAY` mapping and reason (OQ-3): 5.5.1 defines QUAY 3 as direct and primary evidence, 2 as secondary evidence (recorded some time after the event), 1 as questionable reliability, 0 as unreliable or estimated. `primary`, `secondary` map exactly. `tertiary` (compilations and derived data) is closest to 1. QUAY 0 is never written, and is read as `tertiary`. The mapping is a bijection on the three values the app uses, so `_SLK_QUAL` is needed only for other text.
+#### Citation quality: QUAY versus Source_Quality
+
+GEDCOM 5.5.1 defines `QUAY` as the submitter's certainty assessment of the evidence: 3 direct and primary evidence, 2 secondary evidence, 1 questionable reliability, 0 unreliable or estimated. Source_Quality classifies the kind of source (original, derived, compiled). The two overlap but are not the same scale. The mapping is therefore a compatibility convention (decision 3):
+
+| Source_Quality | Written | Read |
+|---|---|---|
+| `primary` | `QUAY 3` | 3 gives `primary` |
+| `secondary` | `QUAY 2` | 2 gives `secondary` |
+| `tertiary` | `QUAY 1` | 1 and 0 give `tertiary` |
+| any other non-empty text | `_SLK_QUAL <text>`, no QUAY | `_SLK_QUAL` |
+| absent | nothing | `secondary` |
+
+`QUAY 0` is never written. The importer reads `_SLK_QUAL` first, so a Släktbusken file never depends on the QUAY scale. The three-value mapping is a bijection, which makes the Släktbusken-to-Släktbusken round trip lossless; `_SLK_QUAL` is written exactly when QUAY could not hold the value. A foreign file that sets QUAY 0 or 1 becomes `tertiary` and is exported as QUAY 1: this is a documented, accepted difference for foreign files (not a Round_Trip of Släktbusken data).
 
 ### C6. Exporter: residences (`_write_residence`, 538)
 
@@ -151,7 +166,9 @@ Existing lines are kept byte for byte (DATE, PLAC, the three NOTE prose lines, t
 
 ### C7. Exporter: sources and repositories (`_write_source`, 1038)
 
-`1 TITL`, `1 TEXT` stay. New: `1 _SLK_STYPE`, `1 _SLK_PROV`, `1 _SLK_LEV`, `1 _SLK_KTYP`, `1 _SLK_SREF` with `2 _SLK_FLD <key> <json>`; `0 @Rn@ REPO` (`1 NAME`, `1 ADDR`, `1 PHON`, `1 EMAIL`, `1 WWW`, `1 NOTE`) and `1 REPO @Rn@` / `2 CALN <call_number>` per RepositoryRef. Repository ids use the numeric suffix like `_to_gedcom_id` (227) with prefix `R`.
+`1 TITL`, `1 TEXT` stay. New: `1 _SLK_STYPE`, `1 _SLK_PROV`, `1 _SLK_LEV`, `1 _SLK_KTYP`, `1 _SLK_SREF` with `2 _SLK_FLD <key> <json>`.
+
+Repositories use standard structures first (decision 10). `0 @Rn@ REPO` with `1 NAME`, `1 ADDR`, `1 PHON` / `1 EMAIL` / `1 WWW` (one per list entry), `1 NOTE`; extra `1 _SLK_RTYPE` (`Repository.type`) and `1 _SLK_XID` (one per external id). Used repositories come first in order of first use, then unreferenced repositories in project order; the importer imports top-level REPO records even when no SOUR refers to them (Requirement 9.7). Per RepositoryRef under SOUR: `1 REPO @Rn@`, `2 CALN <call_number>`, `3 MEDI <media_type>` (standard), `2 NOTE <notes>`, and the extras `2 _SLK_RSTYPE`, `2 _SLK_RIMG`, `2 _SLK_RPAGE`, `2 _SLK_RMEDNAME`. Repository ids use the numeric suffix like `_to_gedcom_id` (227) with prefix `R`. Import finds a Repository by (name, type, address) or creates one, so two SOUR records pointing at one REPO share it, and a second import adds nothing. Media (`OBJE`) stays deferred. Source fields without a representation (`provider_ref`, `short_note`, `free_note`, `arkivreferens`, `arkivreferenser`, `media_ids`) are catalogued as `deferred` or `app_only`.
 
 ### C8. Exporter: head, log, omissions
 
@@ -183,13 +200,18 @@ The unknown-tag rule lives here: any child whose tag starts with `_SLK_` and is 
 | `_indi_event_spec` (2329), `_fam_event_spec` (2369) | `EVEN` with `_SLK_EVTYPE`. |
 | `_process_one_family` (3035), `_create_family` (3066), `_update_family` (3145) | partners from `read_partners` when it matches HUSB/WIFE, else husband/wife; update keeps roles for an equal partner set; links from `read_plinks`. |
 | `_process_family_events` (2581), `_create_family_event` (3578) | participants from `_SLK_PART`. |
-| `_derive_residence` (2886), `_incoming_residence_fingerprint` (2696) | endpoints from `read_endpoint`, observations with period/quality/note, role and notes; optional legacy prose parse (OQ-9); fingerprint for the legacy claim leaves out `event_id`. |
-| `_import_file` (1279) | read HEAD, choose Hash_Profile, init token map, call `_resolve_event_links` after `_finalize_placement_events`. |
-| `_process_sources` (1625), `map_gedcom_source` (source_translation 161) | `_SLK_STYPE`, `_SLK_PROV`, `_SLK_LEV`/`_SLK_KTYP`, `_SLK_SREF`, `REPO`. |
+| `_derive_residence` (2886), `_incoming_residence_fingerprint` (2696) | endpoints from `read_endpoint`, observations with period/quality/note, role and notes; fingerprint for the legacy claim leaves out `event_id`. For files without the SLK_Marker only, `read_legacy_prose` (in `slk_tags.py`) parses the exact formats below (decision 9). |
+| `_finalize_placement_events` (importer.py), `foster_sync._reconcile_derived_family` | **Placement sync fix (task 5.4).** The placement event is recorded on the child's FAMC family only when that family is placement-derived. When the FAMC family is an imported regular family, the importer creates or reuses a separate placement-derived family for the placement, so `_reconcile_derived_family` never drops biological siblings, resets partner roles or order from `_SLK_PARTNER`, or loses a parentless donor link of an imported family. Foster round-trip behaviour (PEDI foster, `EVEN TYPE Fosterhem` with FAMC, paired end events) stays as before. |
+| `_import_file` (1279) | read HEAD, choose Hash_Profile, init token map; the Event_Link_Module hook (C13) runs after `_finalize_placement_events`. |
+| `_process_sources` (1625), `map_gedcom_source` (source_translation 161) | `_SLK_STYPE`, `_SLK_PROV`, `_SLK_LEV`/`_SLK_KTYP`, `_SLK_SREF`, `REPO` records and refs with the repository tags of the registry. |
+
+**Import counters (Requirement 12.9).** `ImportResult.families_added` counts only families that do not exist in the project before the import. A derived foster family that the importer rebuilds and folds back into an existing family is not counted, so the re-import of the `MergeTest.json` export reports 0.
+
+**Legacy prose (decision 9).** `read_legacy_prose(resi: GedcomLine) -> LegacyResidence` accepts exactly these line forms and nothing else: `NOTE Tidigast början: <ISO date>`, `NOTE Senast slut: <ISO date>`, `NOTE Roll: <text>` under RESI, and `NOTE Observation: YYYY` or `Observation: YYYY-YYYY` under a `SOUR` of the RESI. Prefixes match case-sensitively at the start of the line; dates and years are validated (ISO calendar date, four-digit years, start not after end). A line with an invalid value stays ordinary note text and gives a warning. It runs only when HEAD has no `_SLK_VERS`. No other free text is interpreted.
 
 ### C11. Record hash (`record_identity.py`)
 
-`record_hash(record, source_ids, profile="legacy")` gains the `profile` parameter. For `slk1` the canonical walk (`_canonical_lines`, 65) skips: every node whose tag starts with `_SLK_`; below any `SOUR` line the children `QUAY`, `PAGE`, `DATA`, `OBJE` and every `NOTE` whose value does not start with `Observation:`. The callers `_match_owner_events` (2397) and `_match_person_residences` (2641) pass `self._hash_profile`. `residence_fingerprint` (116) gets `ignore_links: bool` for the legacy claim.
+`record_hash(record, source_ids, profile="legacy")` gains the `profile` parameter. For `slk1` the canonical walk (`_canonical_lines`, 65) skips: every node whose tag starts with `_SLK_`; every `CAUS` child of an event record (Requirement 8.10); below any `SOUR` line the children `QUAY`, `PAGE`, `DATA`, `OBJE` and every `NOTE` whose value does not start with `Observation:`. The callers `_match_owner_events` (2397) and `_match_person_residences` (2641) pass `self._hash_profile`. `residence_fingerprint` (116) gets `ignore_links: bool` for the legacy claim.
 
 ### C12. Verification harness (tests only, `tests/test_gedcom_roundtrip/`)
 
@@ -198,43 +220,129 @@ The unknown-tag rule lives here: any child whose tag starts with `_SLK_` and is 
 - `comparison.py`: `compare(a, b) -> list[Difference]`.
 - `scripts/gedcom_roundtrip_report.py`: runs the Fixture_Set, prints Markdown with counts per class and status.
 
+### C13. Event_Link_Module (new `slaktbusken/gedcom/event_links.py`; implemented last)
+
+Decision 5 puts `Name.event_id` and `Endpoint.event_id` into 0.3.0 but isolates them so they can be dropped without touching the core fixes:
+
+```python
+def export_name_link(name: Name, tokens: EventTokens) -> list[str]: ...      # line `2 _SLK_EREF <token>`
+def export_endpoint_link(endpoint: Endpoint, tokens: EventTokens) -> list[str]: ...
+def resolve_event_links(data: ProjectData, pending: PendingLinks, token_map: dict[str, str], log: ImportLog) -> None: ...
+```
+
+- The exporter calls `export_name_link` and `export_endpoint_link` from one hook each (inside the NAME and endpoint writers). The importer collects `_SLK_EREF` values into `PendingLinks` through one hook and calls `resolve_event_links` once, after `_finalize_placement_events`.
+- No other function reads or writes `_SLK_EREF`, `Name.event_id` or `Endpoint.event_id`. The core writers and readers skip the tag as an unknown child.
+- All tests are in `tests/test_gedcom_roundtrip/test_event_links.py` (Property 10). Removing the module and that test file leaves every other test green (Requirement 16 criterion 5).
+- `residence_fingerprint(ignore_links=True)` stays in the core, because legacy matching must work without the module.
+
 ## Tag Registry
 
-Every `_SLK_` tag is lower-risk by design: it carries data that the standard fallback column already represents in a poorer form. "Parent" names the parent tag. "Value" names the type of the line value.
+The prefix `_SLK_` is approved (decision 1). Every `_SLK_` tag carries data that its fallback column already represents in a poorer form, so an ordinary GEDCOM reader that ignores all extensions still gets a useful file. The table is the specification of `SLK_TAG_REGISTRY` in `slk_tags.py`.
 
-| Tag | Parent | Value | Meaning | Standard fallback |
-|---|---|---|---|---|
-| `_SLK_VERS` | HEAD | `1` | Extension version; selects Hash_Profile `slk1` | `HEAD.SOUR Släktbusken` |
-| `_SLK_EID` | event structure (INDI event, FAM event, EVEN) | token text | Names one Event within the file | none |
-| `_SLK_EVTYPE` | EVEN | event type text | Släktbusken event type | `TYPE` text |
-| `_SLK_ROLE` | INDI event, `_SLK_PART`, `_SLK_PARTNER` | role text | Participant or partner role | none |
-| `_SLK_PART` | FAM event | `@Ix@` | Participant of the event | `HUSB`, `WIFE` |
-| `_SLK_PARTNER` | FAM | `@Ix@` | Partner list entry (order, role) | `HUSB`, `WIFE` |
-| `_SLK_SEX` | SEX | `X` | Sex `X` | `SEX U` |
-| `_SLK_PLINK` | FAMC | `@Ix@` or empty | Parent-child link; child `TYPE` holds the parentage type | `PEDI` |
-| `_SLK_QUAL` | SOUR citation | text | Quality other than primary, secondary, tertiary | `QUAY` |
-| `_SLK_CTX` | SOUR citation of an event | `date`, `place`, `from_place` | Citation context | event-level `SOUR` |
-| `_SLK_ASP` | SOUR citation | text | One aspect of the citation (repeatable, ordered) | none |
-| `_SLK_FROMPLAC` | EVEN (Flytt) | place hierarchy text | `from_place` | `NOTE Från:` |
-| `_SLK_START`, `_SLK_END` | RESI | none | Residence endpoint container | `DATE FROM … TO …` |
-| `_SLK_EARLIEST`, `_SLK_LATEST` | `_SLK_START`, `_SLK_END` | ISO date | Endpoint bounds | `DATE`, `NOTE Tidigast början:`, `NOTE Senast slut:` |
-| `_SLK_PREC` | `_SLK_START`, `_SLK_END` | `day`, `month`, `year`, `approximate` | Endpoint precision | `ABT` in `DATE` |
-| `_SLK_EREF` | `_SLK_START`, `_SLK_END`, NAME | token text | Link to the Event named by a `_SLK_EID` | none |
-| `_SLK_NOTE` | `_SLK_START`, `_SLK_END`, SOUR citation of a RESI | text | Endpoint note; observation citation note | none |
-| `_SLK_HHROLE` | RESI | text | `role_in_household` | `NOTE Roll:` |
-| `_SLK_RNOTES` | RESI | text | `ResidenceFact.notes` | `NOTE` |
-| `_SLK_OBSFROM`, `_SLK_OBSTO` | SOUR under RESI | `YYYY` | Observation period | `NOTE Observation:` |
-| `_SLK_STYPE` | SOUR record | source type | `Source.source_type` | keyword detection |
-| `_SLK_PROV` | SOUR record | text | `Source.provider` | `AUTH` |
-| `_SLK_LEV`, `_SLK_KTYP` | SOUR record | name text | Leverantör and Källtyp by name | none |
-| `_SLK_SREF` | SOUR record | none | Container of structured reference fields | `TEXT` |
-| `_SLK_FLD` | `_SLK_SREF` | `<key> <json>` | One field; JSON keeps `"12"`, `12`, `null` apart | `TEXT` |
+Rules for all rows:
 
-Standard tags used with 5.5.1 meaning: `NAME.TYPE` (aka, birth, immigrant, maiden, married, user-defined), `QUAY`, `PAGE`, `NOTE`, `TITL`, `OCCU`, `REPO`, `CALN`, `SEX U`, `DIVF`, `CONF`, `WILL`, `BLES`, `FCOM`. Both `TYPE` under `_SLK_PLINK` and `TYPE` under NAME are read by the same tolerant reader.
+- "Structure" gives the parent tag, the children and the cardinality per parent (`0:1` optional once, `0:n` repeatable, `1:1` required once).
+- **Bad value rule.** A value that the reader cannot interpret gives one `WarningEntry` (Recoverable_Input_Problem), the standard fallback of the row is used, and the import continues. A tag that occurs below a parent that the registry does not list is ignored without a warning. An unknown `_SLK_` tag and its children are ignored with one info line.
+- Where the Cardinality is `0:1` and the tag occurs twice, the first occurrence is used and a warning is added.
+- Rows 6.x of requirements say which tags the exporter writes when.
+
+| Tag | Purpose | Structure | Supported values | Importer behaviour (including bad values) | Standard fallback |
+|---|---|---|---|---|---|
+| `_SLK_VERS` | Marks a file as written to this registry; selects Hash_Profile `slk1` | HEAD; no children; `0:1` | `1` | Absent: profile `legacy`. Any other value: profile `legacy`, one warning (no `slk1` rules are guessed) | `HEAD.SOUR` names Släktbusken |
+| `_SLK_EID` | Names one Event inside the file so that other structures and the fallback can refer to it | event structure (INDI event, FAM event, `EVEN`); none; `0:1` | non-empty text without spaces | Empty: ignored, event is single. Twice on one INDI with equal token: first used, warning | none |
+| `_SLK_EVTYPE` | Släktbusken event type of an `EVEN` | `EVEN`; none; `0:1` | event type text | Known type: that type. Unknown type: `custom_individual_event` with the `TYPE` text, warning | `EVEN.TYPE` text |
+| `_SLK_ROLE` | Participant role of an INDI event, event participant or partner | INDI event, `_SLK_PART`, `_SLK_PARTNER`; none; `0:1` | role text | Empty or absent: `subject` (INDI event), `spouse` (FAM event participant), `husband`/`wife` by slot (partner, only if no `_SLK_PARTNER` is usable) | none |
+| `_SLK_PART` | Participant of a family event | FAM event; child `_SLK_ROLE`; `0:n` | `@Ix@` of an INDI in the file | Pointer to no INDI: entry skipped, warning. No usable entry: participants and role `spouse` as before | `HUSB`, `WIFE` of the FAM |
+| `_SLK_PARTNER` | Partner list entry: order and role, tied to the individual | FAM; child `_SLK_ROLE`; `0:n` | `@Ix@` of an INDI in the file | Used only if the entries name exactly the persons of HUSB and WIFE; else all entries ignored, warning, partners from HUSB/WIFE with roles `husband`, `wife`. Never changes `Person.sex` | `HUSB`, `WIFE` (placeholders) |
+| `_SLK_SEX` | Sex `X` | `SEX`; none; `0:1` | `X` | Other value: ignored, warning, sex from `SEX` | `SEX U` |
+| `_SLK_PLINK` | Parent-child link with its own parentage type | `FAMC` (child side); child `TYPE`; `0:n` | `@Ix@` of a parent, or empty for a link without parent | Pointer to no INDI: link without parent, warning. Unknown `TYPE`: `PEDI` of the `FAMC` is used, warning | `PEDI` |
+| `_SLK_QUAL` | Citation quality that QUAY cannot hold | citation `SOUR`; none; `0:1` | non-empty text | Read before `QUAY`. Empty: ignored, `QUAY` used | `QUAY` |
+| `_SLK_CTX` | Context of a citation of an event | citation `SOUR` of an event; none; `0:1` | `date`, `place`, `from_place` | Other value: context `event`, warning. Context whose carrier (date, place, from_place) is absent: event level, no warning | event-level `SOUR` |
+| `_SLK_ASP` | One aspect of a citation | citation `SOUR`; none; `0:n`, order kept | text | Empty: skipped | none |
+| `_SLK_FROMPLAC` | `from_place` of a flytt event | `EVEN` of a flytt; none; `0:1` | place hierarchy text | Empty: no `from_place` | `NOTE Från:` |
+| `_SLK_START`, `_SLK_END` | Container of one residence endpoint | `RESI`; `_SLK_EARLIEST`, `_SLK_LATEST`, `_SLK_PREC`, `_SLK_EREF`, `_SLK_NOTE`; `0:1` each | none | Present: the endpoint is built from the children, `DATE` and prose are ignored for it. All children bad: endpoint from `DATE`, warning | `DATE FROM … TO …` |
+| `_SLK_EARLIEST`, `_SLK_LATEST` | Endpoint bounds | `_SLK_START`/`_SLK_END`; none; `0:1` each | ISO date `YYYY`, `YYYY-MM` or `YYYY-MM-DD` | Invalid date: that bound unset, warning | `DATE`, prose `NOTE` |
+| `_SLK_PREC` | Endpoint precision | `_SLK_START`/`_SLK_END`; none; `0:1` | `day`, `month`, `year`, `approximate` | Other value: precision derived from the date, warning | `ABT` in `DATE` |
+| `_SLK_EREF` | Link of a Name or an endpoint to an Event (Event_Link_Module) | `NAME`, `_SLK_START`, `_SLK_END`; none; `0:1` | an Event_Token of the file | Token without event: link empty, warning. Module removed: ignored | none |
+| `_SLK_NOTE` | Endpoint note or note of an observation citation | `_SLK_START`/`_SLK_END`, citation `SOUR` of a RESI; none; `0:1` | text (CONT/CONC) | Empty: ignored | none |
+| `_SLK_HHROLE` | `ResidenceFact.role_in_household` | `RESI`; none; `0:1` | text | Empty: unset | `NOTE Roll:` |
+| `_SLK_RNOTES` | `ResidenceFact.notes` | `RESI`; none; `0:1` | text | Empty: unset | `NOTE` |
+| `_SLK_OBSFROM`, `_SLK_OBSTO` | Observation period | `SOUR` under `RESI`; none; `0:1` each | `YYYY` | Invalid year or start after end: period from `NOTE Observation:`, else unset, warning | `NOTE Observation:` |
+| `_SLK_STYPE` | `Source.source_type` | SOUR record; none; `0:1` | a known source type | Unknown value: keyword detection of `detect_source_type`, warning | keyword detection |
+| `_SLK_PROV` | `Source.provider` | SOUR record; none; `0:1` | text | Empty: provider as before | `AUTH` |
+| `_SLK_LEV`, `_SLK_KTYP` | Leverantör and Källtyp by name | SOUR record; none; `0:1` each | name text | No such name in the project: ids stay empty, no warning | none |
+| `_SLK_SREF` | Container of structured reference fields | SOUR record; `_SLK_FLD`; `0:1` | none | Empty or all fields bad: reference text parsed as before | `TEXT` |
+| `_SLK_FLD` | One structured reference field | `_SLK_SREF`; none; `0:n` | `<key> <json>` where json is a string, an integer or `null` | Bad JSON or unknown key: field skipped, warning | `TEXT` |
+| `_SLK_RTYPE` | `Repository.type` | REPO record; none; `0:1` | text | Empty: type empty | none |
+| `_SLK_XID` | One entry of `Repository.external_ids` | REPO record; none; `0:n` | text | Empty: skipped | none |
+| `_SLK_RSTYPE` | `RepositoryRef.source_type` | `1 REPO` of a SOUR; none; `0:1` | text | Empty: unset | none |
+| `_SLK_RIMG`, `_SLK_RPAGE` | `RepositoryRef.image_number`, `page_number` | `1 REPO` of a SOUR; none; `0:1` each | non-negative integer | Not an integer: unset, warning | none |
+| `_SLK_RMEDNAME` | `RepositoryRef.media_name` | `1 REPO` of a SOUR; none; `0:1` | text | Empty: unset | `CALN.MEDI` holds the media type only |
+
+Standard tags used with their 5.5.1 meaning: `NAME.TYPE` (aka, birth, immigrant, maiden, married, user-defined), `QUAY`, `PAGE`, `NOTE`, `TITL`, `OCCU`, `REPO`, `CALN`, `MEDI`, `ADDR`, `PHON`, `EMAIL`, `WWW`, `SEX U`, `DIVF`, `CONF`, `WILL`, `BLES`, `FCOM`. `TYPE` under `_SLK_PLINK` and under NAME are read by the same tolerant reader.
+
+## Partner representation in GEDCOM
+
+**Question (decision 2).** Is there a more faithful GEDCOM 5.5.1-compatible representation of partners than HUSB/WIFE slots chosen by the exporter?
+
+**Findings.**
+
+- GEDCOM 5.5.1 allows at most one `HUSB` and at most one `WIFE` per FAM record. The 5.5.1 text describes the pair as husband and wife. Other programs read the two slots as the two parents.
+- GEDCOM 7 keeps `HUSB` `{0:1}` and `WIFE` `{0:1}`, says the FAM record may be used "regardless of the gender of the partners", and states that sex, gender, titles and roles of partners should not be inferred from the slot (source: [FamilySearch GEDCOM 7 specification](https://gedcom.io/specifications/FamilySearchGEDCOMv7.html)). It allows displays to use the slots as layout hints, and says the FAM structure will be revised later.
+- GEDCOM 5.5.5 (unofficial re-issue): this session could not fetch the primary text. A reader project ([genea-app README](https://github.com/genea-app/genea-app/blob/main/README.md)) describes same-sex families as being stored in the HUSB and WIFE records and states that GEDCOM has no gender-neutral partner record. Treat the claim that 5.5.5 reads the slots as partner 1 and partner 2 as unverified.
+- Two `HUSB` or two `WIFE` lines violate the cardinality of 5.5.1 and 7. No specification says which line a reader keeps, and this research found no documentation of what the common programs do. Two `HUSB` lines would therefore risk a lost partner or a rejected file, and the design does not use them.
+- `ASSO`/`RELA` on an INDI links two persons without a FAM. 5.5.1 defines `RELA` as the role of the person that `ASSO` points to. [Geneawiki](https://fr.geneawiki.com/wiki/Informatique_-_saisie_des_couples) recommends this for same-sex couples. A FAM without HUSB/WIFE has no parent link between the persons and the children in the other program, because only the FAM record links parents and children. Gramps reports ASSO as recognised but not supported on import, and drops its subordinate lines ([Gramps forum](https://gramps.discourse.group/t/difficulty-migrating-witness-data-from-heredis-to-gramps-via-gedcom/7974)).
+- Family events (`MARR`, `DIV`) and the children belong to the FAM record, so a partnership needs a FAM with its partners.
+
+**Result.** No 5.5.1-valid representation exists that is both faithful to the roles and readable by other programs as a family. The chosen representation is the documented compromise of Requirement 4:
+
+1. The FAM keeps `HUSB` and `WIFE` as **Partner_Placeholders**, so that parents, children and events stay linked in every program.
+2. `_SLK_PARTNER` with `_SLK_ROLE` records the original partner order and roles, tied to the individuals by pointer.
+3. Placeholder rule: when both sexes are known and differ, the slot follows sex; otherwise partner list order. The slot is a structural placeholder, never a fact about sex or role.
+4. No list order or slot is ever turned into a sex or a role by Släktbusken. The exporter warns in Swedish for every family whose placeholder contradicts a known sex (Requirement 4 criterion 14).
+
+**Sex-inference finding.** `grep` of `slaktbusken/gedcom/importer.py` shows that `Person.sex` is set only in `_extract_gedcom_person` (728-732) from the `SEX` line (default `U`, invalid values `U`) and copied in `_create_person` (2141, 2219) and `_update_person` (2231). `_extract_gedcom_family` (784-826) reads HUSB and WIFE only as pointers. The family code (3047-3224) uses HUSB/WIFE only to assign the roles `husband` and `wife`, and the only comparison of sex is the match test at 2033, which reads `gp.sex`. **No code path infers sex from HUSB or WIFE.** The roles `husband` and `wife` assigned from the slots of a file without `_SLK_PARTNER` are role labels, not sex; Requirement 4 criteria 12, 13 and 18 pin this by tests. The only weakness found is the role assignment for foreign files (3084-3091, 3175-3179, 3220-3224), which this spec leaves as the standard reading of the slots.
+
+**Third-party compatibility limitations.**
+
+| Case | What another program shows |
+|---|---|
+| Same-sex family, or unknown sex | A husband and a wife (or two parents) in the slot order; the shown role may contradict the person's sex |
+| Gender-neutral roles ("make/maka", "partner") | Husband and wife |
+| Partner order not equal to slot order | Order of the slots |
+| Programs that drop unknown tags on save | `_SLK_PARTNER` is lost after one save; the placeholder slots remain |
+| Programs that validate sex against the slot | May warn about a conflict; the exporter's warning already names these families |
+| Individual_Fallback events (orphan marriages) | `EVEN` structures on each person, not a marriage of the couple |
+| Citation context, aspects, quality kind | Event-level citations with `QUAY`; quality appears as a certainty value |
+| Residence endpoints, observations | `RESI` with `DATE FROM … TO …` and Swedish `NOTE` lines |
+| Event links, repository extras, structured reference fields | Not shown |
+
+## Decisions
+
+All open questions of the first draft are resolved. The OQ numbers stay for traceability.
+
+| # | Decision | Effect |
+|---|---|---|
+| OQ-1 | `_SLK_` prefix approved with the full Tag_Registry (five columns) | Tag Registry above, `SLK_TAG_REGISTRY` in code |
+| OQ-2 | Conditional approval: HUSB/WIFE placeholders only as a documented compromise with safeguards (a) to (g) | "Partner representation in GEDCOM", Requirement 4 criteria 1 to 18, task 5 |
+| OQ-3 | QUAY 3, 2, 1; 0 read as tertiary; `_SLK_QUAL` whenever QUAY is not lossless; QUAY versus Source_Quality documented | C5, Requirement 6 criteria 1, 6, 13 to 16 |
+| OQ-4 | Individual_Fallback with token-only reconstruction; origin rule for merged events | C4, Requirement 1 criteria 8 to 14 |
+| OQ-5 | Event links in 0.3.0, implemented last, isolated in `event_links.py` | C13, Requirement 16, task 11 |
+| OQ-6 | Keep `3 TEXT` and the Swedish NOTE lines; add structured metadata without changing re-import identity | Hash_Profile `slk1`, Requirement 12 |
+| OQ-7 | Replace the two loss-pinning assertions by equality assertions | Testing Strategy, Requirement 15 criterion 5 |
+| OQ-8 | New mandatory group "GEDCOM-rundresa"; Dataskydd stays mandatory | Requirement 15, task 14 |
+| OQ-9 | Parse only the known legacy Swedish formats with exact prefixes and validated values, only for files without the SLK_Marker | C10, Requirement 7 criteria 7 to 7b |
+| OQ-10 | `MergeTest.json` is a demo file with fictive persons; the fixtures may be committed | Fixture_Set under `tests/fixtures/gedcom_roundtrip/` |
+| OQ-11 | Repositories, providers and source types now, with standard SOUR/REPO/CALN where possible | C7, Requirement 9 |
+| OQ-12 | Merge individual events by `_SLK_EID` token only | C4, Requirement 1 criteria 8 to 14 |
+
+**Implementation priority** (the hash profile and the test harness stay first): 1. missing events and family roles; 2. names, notes, titles; 3. citation context, quality, aspects; 4. residence observations and source metadata; 5. repository interoperability (media stays deferred); 6. event links last.
 
 ## Data Models
 
-No model dataclass changes, no new project field, no format change. The only new structures are in code and tests:
+**Accepted schema addition (user decision, added by task 6.2).** `Event.extra_origins: list[RecordOrigin]`, optional, default empty. A shared event rebuilt from several INDI records of one file (the Individual_Fallback joined by `_SLK_EID`) keeps one RecordOrigin per contributing record: `origin` is the first record, the others are in `extra_origins`. The field is omitted from the project JSON when empty, so the format stays 0.5 and old files are unchanged. It is registered in the person reference inventory as `event.extra_origins` (rule H) with a rule test, and `validators.py` validates it. Requirement 13.3 names this as the single exception. No other dataclass changes, no other project field, no format change.
+
+The other new structures are in code and tests:
 
 ```python
 @dataclass(frozen=True)
@@ -284,14 +392,14 @@ Size: S under one day, M one to three days, L more. Risk: data risk for existing
 | Sex-based HUSB/WIFE, `_SLK_PARTNER`, roles kept on update | Implement now | M | M | K10 (A), K11, K12 (B/C) |
 | Parentage per parent `_SLK_PLINK` | Implement now | S | M | K14 (A/C), K15 (B) |
 | Missing event types, participant roles, `_SLK_EID`, `_SLK_EVTYPE` | Implement now | M | M | K27 (A), K28 (C) |
-| Multi-participant individual events merged by token | Implement now, verify on fixture first (OQ-12) | S | M | K29 (A/B) |
+| Multi-participant individual events merged by token only | Implement now (decision 4) | S | M | K29 (A/B) |
 | Citation block: QUAY, context, note, aspects, import quality | Implement now | M | M | K16, K17, K18, K20 (A/B/C) |
 | `from_place` via `_SLK_FROMPLAC` | Implement now | S | L | K21 (C) |
 | Residence structured endpoints, observations, role, notes | Implement now | M | M | K22, K23, K24, K26 (B/C) |
-| Event links `Name.event_id`, `Endpoint.event_id` via tokens (OQ-5) | Implement now, last; may be dropped | M | M | K9, K25 (C) |
-| Repositories (`REPO`, `CALN`), provider, source type, structured reference, Leverantör by name | Implement now (OQ-11) | M | L | K31, K32, K33, K34 (A/B) |
+| Event links `Name.event_id`, `Endpoint.event_id` via tokens (decision 5) | Implement now, last, isolated in `event_links.py` (C13); can be dropped | M | M | K9, K25 (C) |
+| Repositories (`REPO`, `CALN`, `MEDI`, extras), provider, source type, structured reference, Leverantör by name | Implement now (decision 10) | M | L | K31, K32, K33, K34 (A/B) |
 | Export log: media, place types, fallback, DNA etc. | Implement now | S | L | K30, K35, K37 (log) |
-| Legacy prose parse of old RESI NOTE lines (OQ-9) | Implement now if approved | S | M | K22, K24 (B) |
+| Legacy prose parse of old RESI NOTE lines, exact formats, no-marker files only (decision 9) | Implement now | S | M | K22, K24 (B) |
 | Verification harness, catalog, report script, mandatory group | Implement now | M | L | all |
 | `3 TEXT` under citations moved to a standard place | Defer (needs hash migration, OQ-6) | M | H | K19 (A) |
 | Media: `OBJE`, portraits, links, file packaging | Defer to 0.4.0 (needs a zip or folder export format) | L | M | K30 (A, C) |
@@ -313,29 +421,30 @@ Class: A missing from the GEDCOM output; B present in the GEDCOM but lost or cha
 | K6 | NAME written without TYPE | A | fixed |
 | K7 | Name type chosen by position on import | B | fixed |
 | K8 | Update import resets existing name types | B | fixed |
-| K9 | `Name.event_id` | C | fixed (OQ-5) |
+| K9 | `Name.event_id` | C | fixed (decision 5) |
 | K10 | HUSB/WIFE by list order | A | fixed |
 | K11 | Partner roles collapse to husband and wife | B, C | fixed |
 | K12 | Update import overwrites partner roles | B | fixed |
 | K13 | Sex `X` written without SEX; `U` comes back as `U` (no loss) | A, C | fixed |
+| K43 | HUSB/WIFE placeholder shown by other programs as husband and wife; `_SLK_PARTNER` ignored by them | C | deferred (third-party limitation, documented) |
 | K14 | Parentage `legal`, `step`, `unknown_donor`, `donation` not written | A, C | fixed |
 | K15 | One PEDI applied to both parents | B | fixed |
 | K16 | Date and place citations flattened to event level | C | fixed |
 | K17 | Citation quality not written; `QUAY` ignored; import sets `secondary` | A, B | fixed |
 | K18 | Citation note and aspects not written | A, C | fixed |
-| K19 | `3 TEXT` under a citation holds source text | A | deferred (OQ-6) |
+| K19 | `3 TEXT` under a citation holds source text | A | deferred (decision 6) |
 | K20 | `from_place` citations skipped | C | fixed |
 | K21 | `from_place` not restored | C | fixed |
 | K22 | Observation periods (prose written, ignored by importer) | B, C | fixed |
 | K23 | Observation quality | A, B | fixed |
 | K24 | `start.earliest`, `end.latest`, exact endpoints (prose ignored) | B, C | fixed |
-| K25 | `Endpoint.event_id` | C | fixed (OQ-5) |
+| K25 | `Endpoint.event_id` | C | fixed (decision 5) |
 | K26 | Residence role and notes (prose written, ignored) | B | fixed |
 | K27 | Event types without export tag | A | fixed |
 | K28 | Participant roles become `subject` | C | fixed |
-| K29 | Individual event with several participants written once per person, imported as separate events | A, B | fixed (OQ-12) |
+| K29 | Individual event with several participants written once per person, imported as separate events | A, B | fixed (decision 4) |
 | K30 | Media, portraits, media links | A, C | deferred |
-| K31 | Repositories and call numbers | A, B | fixed (OQ-11) |
+| K31 | Repositories and call numbers | A, B | fixed (decision 10) |
 | K32 | Provider, `leverantor_id`, `kalltyp_id` | A, C | fixed |
 | K33 | `source_type` invented by keywords | A, B | fixed |
 | K34 | Structured reference value types, `page` null | B | fixed |
@@ -372,17 +481,17 @@ Redundancy was removed as follows. Criteria 3.1 to 3.4 form one name-type round 
 
 **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.6**
 
-### Property 4: Husband and wife slots follow sex and never repeat
+### Property 4: Placeholder slots follow the placeholder rule and never repeat
 
-*For any* family with one or two partners of any sex and role, the FAM record has at most one HUSB and at most one WIFE, a partner pair of sexes `M` and `F` has the `M` partner as HUSB, and every partner is written in one slot.
+*For any* family with one or two partners of any sex and role, the FAM record has at most one HUSB and at most one WIFE, every partner is written in exactly one slot, a pair of known and different sexes `M` and `F` has the `M` partner as HUSB, any other pair is in partner list order, and the Export_Log has one family warning for exactly each family with a Placeholder_Conflict.
 
-**Validates: Requirements 4.1, 4.2, 4.3**
+**Validates: Requirements 4.1, 4.2, 4.3, 4.14**
 
-### Property 5: Partners, roles, order and sex round-trip
+### Property 5: Partners, roles, order and sex round-trip, and sex is never inferred
 
-*For any* family with partners of any role text and order, and any person sex in `M`, `F`, `U`, `X`, the imported family has the same partners in the same order with the same roles, and the imported persons have the same sex.
+*For any* family with partners of any role text (including `make`, `maka`, `partner`), any order and any combination of sexes `M`, `F`, `U`, `X` (same-sex and unknown-sex included), the imported family has the same partners in the same order with the same roles, every imported person has the sex of the original (unknown stays `U`, explicit sex is never changed by the HUSB or WIFE slot), and importing the same file without `_SLK_PARTNER` leaves every sex unchanged.
 
-**Validates: Requirements 4.4, 4.5, 4.8, 4.9**
+**Validates: Requirements 4.4, 4.5, 4.8, 4.9, 4.11, 4.12, 4.13, 4.17, 4.18**
 
 ### Property 6: Parentage links round-trip
 
@@ -450,6 +559,18 @@ Redundancy was removed as follows. Criteria 3.1 to 3.4 form one name-type round 
 
 **Validates: Requirements 14.1, 14.3, 14.4, 14.6**
 
+### Property 17: Event tokens join and nothing else joins
+
+*For any* project with family-type events written as Individual_Fallback, including separate marriages that share date and place, importing creates one Event per token with the participants of that token, never merges events with different tokens, and importing the same file a second time creates no Event, participant or origin.
+
+**Validates: Requirements 1.8, 1.9, 1.10, 1.12, 1.13**
+
+### Property 18: Legacy prose is read only in exact formats
+
+*For any* RESI record of a file without the SLK_Marker, NOTE lines in a Legacy_Prose_Format with valid values are read into the structured fields, and NOTE lines with another prefix, a changed case or an invalid value leave the structured fields unchanged and the text as note text.
+
+**Validates: Requirements 7.7**
+
 ## Error Handling
 
 | Situation | Behaviour |
@@ -482,9 +603,10 @@ PBT is applicable: the export and import are deterministic functions of in-memor
 | `test_text_roundtrip.py` | Property 2 |
 | `test_persons_roundtrip.py` | Properties 3 and 5 (sex), notes, titles, name update |
 | `test_families_roundtrip.py` | Properties 1, 4, 5, 6 |
-| `test_events_roundtrip.py` | Properties 7 and 10 |
+| `test_events_roundtrip.py` | Properties 7 and 17 |
+| `test_event_links.py` | Property 10 (Event_Link_Module only) |
 | `test_citations_roundtrip.py` | Property 8 |
-| `test_residences_roundtrip.py` | Property 9 |
+| `test_residences_roundtrip.py` | Properties 9 and 18 |
 | `test_sources_roundtrip.py` | Property 11 |
 | `test_slk_tags.py` | One regression test per registry tag (`test_slk_tag_<name>`), Property 14, Property 15 |
 | `test_hash_profile.py` | Property 12, golden vectors for `slk1` |
@@ -494,14 +616,19 @@ PBT is applicable: the export and import are deterministic functions of in-memor
 
 **Fixture-based tests.** `MergeTest.json` is the original. `exporttest.ged` is the old export (a frozen old-exporter output, used for the backward-compatibility and cross-version tests). `exporttest.json` is the project that the old importer made from it; it is the baseline for "same result as before, apart from catalogued improvements". The mandatory tests do not depend on the fixtures alone: the synthetic builder reproduces the same shape, so the Roundtrip_Group is meaningful when the files change. A missing fixture fails (no skip, because skips are not allowed in mandatory groups).
 
-**Mandatory group (OQ-8).** Recommendation: a new group `gedcom_roundtrip`, title "GEDCOM-rundresa", registered in `tests/mandatory_groups.py` beside `data_protection`, with all modules above as `modules` and one required test per property plus one per registry tag. Reasons: the Dataskydd group is bound to requirement 23 of the previous spec and has 25 modules; a separate group gives a separate runner line and failure attribution; the 100-example guard in `tests/reduced_example_counts.py` and `tests/test_meta/test_mandatory_groups_guard.py` is extended to the new directory. Alternative: add the modules to `_DP_MODULES`, which inherits the guard at once but mixes two requirement sets. The existing Dataskydd modules `test_round_trips.py`, `test_reimport.py`, `test_residence_reimport.py`, `test_origin_groups.py` stay in their group and must stay green.
+**Mandatory group (decision 8).** Approved: a new group `gedcom_roundtrip`, title "GEDCOM-rundresa", registered in `tests/mandatory_groups.py` beside `data_protection`, with all modules above as `modules` and one required test per property plus one per registry tag. Reasons: the Dataskydd group is bound to requirement 23 of the previous spec and has 25 modules; a separate group gives a separate runner line and failure attribution; the 100-example guard in `tests/reduced_example_counts.py` and `tests/test_meta/test_mandatory_groups_guard.py` is extended to the new directory. Alternative: add the modules to `_DP_MODULES`, which inherits the guard at once but mixes two requirement sets. The existing Dataskydd modules `test_round_trips.py`, `test_reimport.py`, `test_residence_reimport.py`, `test_origin_groups.py` stay in their group and must stay green.
+
+
+**Partner tests (Requirement 4 criterion 16).** `test_families_roundtrip.py` and `test_persons_roundtrip.py` hold example tests and Properties 4 and 5 for: M+F; M+M; F+F; U partner; X partner; roles make/maka; role partner for both; one partner; reversed list order. Each asserts roles, order and sex restored exactly, at most one line per slot, and a warning exactly when a Placeholder_Conflict exists. A separate test pins that the importer never sets sex from HUSB or WIFE (a file with a `SEX M` person in WIFE and no `_SLK_PARTNER` keeps `M`; a person without SEX in HUSB stays `U`).
+
+**Final checkpoint report.** Before any commit the final checkpoint runs the Dataskydd and GEDCOM-rundresa groups and the relevant regression tests, and reports the third-party limitations (table in "Partner representation in GEDCOM") and the remaining Round_Trip differences (catalog entries `deferred` and `app_only`).
 
 **Existing tests that pin documented limits and must be changed deliberately (Requirement 15.5).**
 
 | Test | Assertion | Change |
 |---|---|---|
 | `tests/test_dataskydd/test_round_trips.py::test_export_import_keeps_dates_citations_and_texts` (line 381) | `got.date.source_refs == []` ("citations return as event-level") | Replace by the equality of the citations per context |
-| `test_round_trips.py::test_export_import_flytt_documented_limits` (407-421) | `flytt[0].from_place is None`; residence `event_id is None` | Replace by `from_place` equal and links equal |
+| `test_round_trips.py::test_export_import_flytt_documented_limits` (407-421) | `flytt[0].from_place is None`; residence `event_id is None` | Replace by `from_place` equal; the residence-link equality moves to `test_event_links.py` (event links are last and isolated) |
 | `tests/test_gedcom/test_exporter_resi.py`, `tests/test_model/test_residence_gedcom_export_property.py` | NOTE prose lines | Unchanged, because the prose lines stay |
 | `tests/test_gedcom/test_exporter.py`, `test_exporter_famc_pedi.py`, `test_exporter_placement_events.py` | HUSB/WIFE for roles husband/wife, PEDI, placement structures | Expected to stay green (sex `U` or matching roles); any change is reported before it is made |
 
@@ -511,22 +638,7 @@ PBT is applicable: the export and import are deterministic functions of in-memor
 
 ## Open Questions
 
-Decisions that need approval before implementation. The recommendation is built into the requirements.
-
-| # | Question | Recommendation |
-|---|---|---|
-| OQ-1 | Tag prefix and names. | Prefix `_SLK_` and the Tag Registry as written. |
-| OQ-2 | Same-sex, unknown-sex and gender-neutral partners: which HUSB/WIFE strategy? | Sex decides when it can; otherwise partner list order, HUSB then WIFE; exact roles and order in `_SLK_PARTNER`. Alternatives: two HUSB lines (invalid 5.5.1), or sorting by name (hides the original order). |
-| OQ-3 | QUAY mapping. | primary 3, secondary 2, tertiary 1; read 0 as tertiary; `_SLK_QUAL` for other text. |
-| OQ-4 | Orphan family events with no unique family: Individual_Fallback or log only? | Individual_Fallback plus log. A synthetic FAM record is rejected because the import would create a family that the project never had. |
-| OQ-5 | `Name.event_id` and `Endpoint.event_id` through `_SLK_EID` and `_SLK_EREF`, or defer? | Implement last; the rest of the spec does not depend on it. |
-| OQ-6 | Keep `3 TEXT` under citations and the Swedish NOTE prose for hash stability, or move to standard places with a hash migration? | Keep for 0.3.0 and revisit in 0.4.0 with a migration. |
-| OQ-7 | Change the pinned-limitation assertions listed in "Testing Strategy"? | Yes, as strengthening replacements. |
-| OQ-8 | New mandatory group or the Dataskydd group? | New group "GEDCOM-rundresa". |
-| OQ-9 | Parse the old Swedish RESI NOTE lines (`Tidigast början:`, `Senast slut:`, `Roll:`) from old Släktbusken files? | Yes, only for files whose HEAD names Släktbusken and has no marker. |
-| OQ-10 | The Fixture_Set is committed. Does it contain real personal data? | Confirm that `MergeTest.json` holds only test persons; otherwise anonymise before commit. |
-| OQ-11 | Repositories, provider and source type now or later? | Now (small, standard `REPO`). |
-| OQ-12 | Merge individual events that several INDI records share by `_SLK_EID`? | Check the fixture for individual events with more than one participant first; implement if present. |
+None. OQ-1 to OQ-12 are resolved (section "Decisions").
 
 ## Known limitations
 
@@ -535,3 +647,13 @@ Decisions that need approval before implementation. The recommendation is built 
 - Media, place types and other place attributes are not exported (K30, K35, K36, K40).
 - Programs that drop unknown tags on save lose the `_SLK_` data; the standard fallback keeps the poorer form.
 - Individual_Fallback events appear as `EVEN` structures in other programs.
+- HUSB/WIFE are placeholders; other programs show the slots as husband and wife (table "Partner representation in GEDCOM").
+- QUAY is a certainty scale and Source_Quality a source classification; foreign QUAY 0 and 1 both become `tertiary`.
+- K54: a family with partial or missing parent-child links comes back with biological links for every partner, because biological links are not written (finding of task 5.3). This is a documented limitation and is not part of task 5.4.
+- K52: a legacy (origin-less) residence whose endpoint links an event is not claimed on re-import, because Dataskydd Property 26 treats the link as content.
+- K53: a foster-only imported family without events is replaced by a derived family (new id, same roles). Links without a placement event get a derived placement event.
+- Place types and media are not exported (deferred); the export log warns (Requirement 10.2, 10.3).
+- K55: `3 TEXT` and the Swedish NOTE lines stay in the file to keep record hashes stable.
+- Old-exporter xrefs: for ids without a numeric suffix the old exporter wrote `@X<abs(hash(id)) % 99999>@`, which varied per Python run. The new exporter numbers them deterministically. Importing an old file with such xrefs into a project that holds a new export of the same data creates duplicates of those records (MergeTest: 2 families and 2 marriages). This is a known limitation against Requirements 12.4 and 12.5. No matcher is added, because the old xrefs were never stable. It is cataloged as K57 (deferred, class B, Requirement 12.10).
+- `Event.extra_origins` is the one approved exception to "no schema change" (Requirement 13.3, section "Data Models").
+- Media (`OBJE`) is deferred; `Source.provider_ref`, `short_note`, `free_note`, `arkivreferens` and `arkivreferenser` are not exported.

@@ -30,7 +30,23 @@ from typing import Callable, Iterator, Optional, Sequence
 from slaktbusken.gedcom.dates import parse_gedcom_date
 from slaktbusken.gedcom.errors import ImportAborted
 from slaktbusken.model.date_semantics import validate_date_value
+from slaktbusken.gedcom import event_links
 from slaktbusken.gedcom.parser import GedcomLine, GedcomParseError, parse_gedcom
+from slaktbusken.gedcom.slk_tags import (
+    EventTagData,
+    SlkProblem,
+    read_citation,
+    read_endpoint,
+    read_legacy_prose,
+    read_residence_texts,
+    read_source_fields,
+    read_event_participants,
+    read_event_tags,
+    read_name_type,
+    read_partners,
+    read_plinks,
+    read_repository,
+)
 from slaktbusken.gedcom.translation import TranslationManager
 from slaktbusken.gedcom.translation.models import (
     DiffCategory,
@@ -359,6 +375,12 @@ class _EventSpec:
     participants: list[tuple[str, str]]
     custom_type_name: Optional[str] = None
     placement: bool = False
+    # Participant role of an INDI event (``_SLK_ROLE``; "subject" by default).
+    role: str = "subject"
+    # Event_Token of the structure (``_SLK_EID``), or None.
+    token: Optional[str] = None
+    # ``_SLK_FROMPLAC`` text of a flytt, or None.
+    from_place: Optional[str] = None
 
 
 class _EventIndex:
@@ -390,12 +412,33 @@ class _EventIndex:
         self.note_origin(event)
 
     def note_origin(self, event: Event) -> None:
-        origin = event.origin
-        if origin is None:
-            return
-        bucket = self.by_origin_owner.setdefault((origin.owner_kind, origin.owner_id), [])
+        for origin in _event_origins(event):
+            bucket = self.by_origin_owner.setdefault(
+                (origin.owner_kind, origin.owner_id), []
+            )
+            if not any(e is event for e in bucket):
+                bucket.append(event)
+
+    def note_participant(self, event: Event, person_id: str) -> None:
+        bucket = self.by_participant.setdefault(person_id, [])
         if not any(e is event for e in bucket):
             bucket.append(event)
+
+    def remove(self, event: Event) -> None:
+        """Forget *event* (it was folded into another event)."""
+        self._seen.discard(id(event))
+        if self.by_id.get(event.id) is event:
+            del self.by_id[event.id]
+        for table in (self.by_participant, self.by_origin_owner):
+            for bucket in table.values():
+                bucket[:] = [e for e in bucket if e is not event]
+
+
+def _event_origins(event: Event) -> list[RecordOrigin]:
+    """All origins of *event*: ``origin`` first, then ``extra_origins``."""
+    origins = [event.origin] if event.origin is not None else []
+    origins.extend(event.extra_origins)
+    return origins
 
 
 class _ResidenceIndex:
@@ -704,10 +747,12 @@ def _extract_gedcom_person(record: GedcomLine) -> GedcomPerson:
     given_name = ""
     surname = ""
     additional_names: list[tuple[str, str]] = []
+    name_types: list[Optional[str]] = []
 
     # Parse NAME tags
     name_records = _get_children(record, "NAME")
     for i, name_rec in enumerate(name_records):
+        name_types.append(read_name_type(name_rec))
         name_val = name_rec.value or ""
         parsed_given, parsed_surname = _parse_gedcom_name(name_val)
 
@@ -730,6 +775,12 @@ def _extract_gedcom_person(record: GedcomLine) -> GedcomPerson:
     sex = sex_val.strip().upper() if sex_val else "U"
     if sex not in ("M", "F", "X", "U"):
         sex = "U"
+    # Sex X is written as ``SEX U`` with ``2 _SLK_SEX X`` (Requirement 4.8).
+    sex_rec = _get_child(record, "SEX")
+    if sex_rec is not None:
+        slk_sex = _get_child_value(sex_rec, "_SLK_SEX")
+        if slk_sex and slk_sex.strip().upper() == "X":
+            sex = "X"
 
     # Birth
     birth_date: Optional[str] = None
@@ -776,7 +827,59 @@ def _extract_gedcom_person(record: GedcomLine) -> GedcomPerson:
         notes=notes,
         source_citations=source_citations,
         line_number=record.line_number,
+        name_types=name_types,
     )
+
+
+def _build_names(
+    gp: GedcomPerson, existing: Optional[Sequence[Name]] = None
+) -> list[Name]:
+    """Build the Name list of a person from an extracted INDI record.
+
+    Requirement 3: a NAME with a TYPE gets the mapped type. When at least one
+    NAME of the record has a TYPE, a NAME without TYPE becomes ``other`` and no
+    type is inferred from the position. When no NAME has a TYPE, the existing
+    name of the same given name and surname keeps its type (update only);
+    otherwise the positional rule applies (first ``birth``, later ``other``).
+    """
+    entries: list[tuple[str, str, Optional[str], bool]] = []
+    types = list(gp.name_types)
+    if gp.given_name or gp.surname:
+        entries.append(
+            (gp.given_name, gp.surname, types[0] if types else None, True)
+        )
+    for i, (given, surname) in enumerate(gp.additional_names, start=1):
+        entries.append(
+            (given, surname, types[i] if i < len(types) else None, False)
+        )
+
+    any_type = any(t for t in types)
+    available = list(existing or [])
+    names: list[Name] = []
+    for given, surname, name_type, is_primary in entries:
+        event_id: Optional[str] = None
+        if any_type:
+            resolved = name_type or "other"
+        else:
+            match = next(
+                (
+                    n for n in available
+                    if (n.given or "") == given and (n.surname or "") == surname
+                ),
+                None,
+            )
+            if match is not None:
+                available.remove(match)
+                resolved = match.type
+                event_id = match.event_id
+            else:
+                resolved = "birth" if is_primary else "other"
+        names.append(
+            Name(type=resolved, given=given, surname=surname, event_id=event_id)
+        )
+    if not names:
+        names.append(Name(type="birth", given="", surname=""))
+    return names
 
 
 def _extract_gedcom_family(record: GedcomLine) -> GedcomFamily:
@@ -1049,11 +1152,35 @@ def _reconcile_imported_placement_families(project: ProjectData) -> None:
             surviving.append(family)
             continue
 
+        removed_links = [
+            link for link in family.parent_child_links if link not in kept_links
+        ]
+        moved_children = {link.child_id for link in removed_links}
+        moved_parents = {
+            link.parent_id for link in removed_links if link.parent_id is not None
+        }
+
+        # The derived family of a moved child carries the partner roles and
+        # order the file stated for the same parents (the derived family
+        # itself only knows sex-based roles).
+        for derived in derived_families:
+            if not moved_children.intersection(derived.children):
+                continue
+            if {p.person_id for p in derived.partners} != {
+                p.person_id for p in family.partners
+            } or len(derived.partners) != len(family.partners):
+                continue
+            derived.partners = [
+                FamilyPartner(person_id=p.person_id, role=p.role)
+                for p in family.partners
+            ]
+
         family.parent_child_links = kept_links
 
-        # A child/parent that no longer appears in any remaining link of this
-        # family is pruned so the exporter will not emit a stray FAMC/FAMS for a
-        # relationship that now lives solely on the derived family.
+        # Only a child/parent that took part in a relocated link and has no
+        # remaining link here is pruned, so the exporter does not emit a stray
+        # FAMC/FAMS for a relationship that now lives solely on the derived
+        # family. Children, partners and events the file stated stay.
         remaining_children = {link.child_id for link in kept_links}
         remaining_parents = {
             link.parent_id for link in kept_links if link.parent_id is not None
@@ -1061,16 +1188,23 @@ def _reconcile_imported_placement_families(project: ProjectData) -> None:
         family.children = [
             child_id
             for child_id in family.children
-            if child_id in remaining_children
+            if child_id in remaining_children or child_id not in moved_children
         ]
-        family.partners = [
-            partner
-            for partner in family.partners
-            if partner.person_id in remaining_parents
-        ]
+        if not family.event_ids:
+            family.partners = [
+                partner
+                for partner in family.partners
+                if partner.person_id in remaining_parents
+                or partner.person_id not in moved_parents
+            ]
 
-        # Drop a family emptied of all links and children; it holds no data.
-        if not family.parent_child_links and not family.children:
+        # Drop a family emptied of all links, children and events; it holds no
+        # data of its own.
+        if (
+            not family.parent_child_links
+            and not family.children
+            and not family.event_ids
+        ):
             continue
         surviving.append(family)
 
@@ -1145,13 +1279,28 @@ class GEDCOMImporter:
 
         # Mapping from GEDCOM xref → App_JSON ID (built during import)
         self._source_xref_map: dict[str, str] = {}
+        # Hash_Profile of the file being imported ("legacy" or "slk1").
+        self._hash_profile: str = "legacy"
+        # True when HEAD has ``_SLK_VERS`` with any value (SLK_Marker).
+        self._has_slk_marker: bool = False
+        # Event_Token (``_SLK_EID``) → event id, for the file being imported.
+        # Filled with every event created or matched that carries a token.
+        self._event_token_map: dict[str, str] = {}
+        # ``_SLK_EREF`` links found in the file, resolved after the events.
+        self._event_link_requests: list[event_links.LinkRequest] = []
+        # Ids of the events this run created (a fold may remove one of them).
+        self._run_created_event_ids: set[str] = set()
         self._person_xref_map: dict[str, str] = {}
         self._family_xref_map: dict[str, str] = {}
+        # REPO xref → Repository id, for the file being imported.
+        self._repo_xref_map: dict[str, str] = {}
 
         # FAMC/PEDI pedigree lookup keyed by (child xref, family xref) →
         # lowercased PEDI value. Populated from INDI records before families
         # are processed so family-link creation can set parentage_type.
         self._famc_pedigree: dict[tuple[str, str], str] = {}
+        # FAMC lines by (child xref, family xref), for _SLK_PLINK entries.
+        self._famc_nodes: dict[tuple[str, str], GedcomLine] = {}
 
         # Imported placement START events (ADOP → "adoption",
         # EVEN/TYPE Fosterhem → "foster_home") awaiting finalisation after the
@@ -1309,6 +1458,12 @@ class GEDCOMImporter:
         # Store filename for structured warnings
         self._gedcom_filename = gedcom_path.name
         self._event_index = None
+        self._event_token_map = {}
+        self._event_link_requests = []
+        self._run_created_event_ids = set()
+        # ``families_added`` counts families that did not exist before this
+        # import (Requirement 12.9), see the end of the import.
+        families_before = {f.id for f in self._project_data.families}
 
         # Parse into tree
         parse_result = parse_gedcom(text)
@@ -1329,10 +1484,35 @@ class GEDCOMImporter:
         indi_records: list[GedcomLine] = []
         fam_records: list[GedcomLine] = []
         sour_records: list[GedcomLine] = []
+        repo_records: list[GedcomLine] = []
 
         # Track last-seen INDI context for unsupported tag warnings
         _last_indi_xref: Optional[str] = None
         _last_indi_name: Optional[str] = None
+
+        # SLK_Marker: HEAD ``_SLK_VERS 1`` selects Hash_Profile slk1. A missing
+        # marker or any other value keeps ``legacy`` (other values warn once).
+        self._hash_profile = "legacy"
+        self._has_slk_marker = False
+        for record in parse_result.records:
+            if record.tag.upper() != "HEAD":
+                continue
+            for child in record.children:
+                if child.tag.upper() != "_SLK_VERS":
+                    continue
+                self._has_slk_marker = True
+                vers = (child.value or "").strip()
+                if vers == "1":
+                    self._hash_profile = "slk1"
+                else:
+                    self._warnings.append(WarningEntry(
+                        gedcom_file=self._gedcom_filename,
+                        raw_value=f"_SLK_VERS {vers}".strip(),
+                        reason=f"okänt värde för _SLK_VERS '{vers}'",
+                        action_taken="Äldre hashprofil användes",
+                    ))
+                break
+            break
 
         for record in parse_result.records:
             tag = record.tag.upper()
@@ -1344,6 +1524,8 @@ class GEDCOMImporter:
                 fam_records.append(record)
             elif tag == "SOUR":
                 sour_records.append(record)
+            elif tag == "REPO":
+                repo_records.append(record)
             elif tag not in _SUPPORTED_LEVEL0_TAGS:
                 # Use the record's own xref if available, otherwise
                 # fall back to the last-seen INDI record's xref as context
@@ -1363,7 +1545,7 @@ class GEDCOMImporter:
 
         # Step 1: Process sources
         self._ctx_phase = "källor"
-        self._process_sources(sour_records, translation_data)
+        self._process_sources(sour_records, translation_data, repo_records)
 
         # Step 2: Process persons (pass fam_records for fingerprint matching)
         self._ctx_phase = "personer"
@@ -1387,6 +1569,9 @@ class GEDCOMImporter:
         # backing placement event (Requirements 11.7, 11.7a).
         self._finalize_placement_events()
 
+        # Step 3b2: Set Name.event_id / Endpoint.event_id from _SLK_EREF.
+        self._resolve_event_links()
+
         # Step 3c: Back-fill a placement event for every imported foster/
         # adoptive link not already backed by an imported (or just-finalised)
         # placement event, so the post-import sync preserves it rather than
@@ -1394,7 +1579,11 @@ class GEDCOMImporter:
         # helper is used by the on-load migration (task 3.2) so importer and
         # migration cannot diverge. Running the Parentage_Sync_Service itself is
         # task 10.4; the back-fill establishes the precondition it relies on.
-        backfill_orphan_placement_events(self._project_data)
+        # ``attach_to_family=False``: an imported family is never recorded as
+        # placement-derived, so the sync builds a separate derived family.
+        backfill_orphan_placement_events(
+            self._project_data, attach_to_family=False
+        )
 
         # Step 3d: Run the Parentage_Sync_Service so the imported foster/
         # adoptive links agree with the imported and back-filled placement
@@ -1418,6 +1607,15 @@ class GEDCOMImporter:
         # links (Requirement 11.9 "giving precedence to Placement_Events").
         sync_parentage_links(self._project_data)
         _reconcile_imported_placement_families(self._project_data)
+
+        # A family created during the import can be folded away again by the
+        # reconciliation (an imported foster FAM), and a missing family with a
+        # known translation is recreated under its old id. Neither is a new
+        # family. Count what is in the project now and was not before; this
+        # includes a derived foster family that stays separate.
+        self._families_added = sum(
+            1 for f in self._project_data.families if f.id not in families_before
+        )
 
         # Summary notices for the event identity matcher (Requirements 10.7,
         # 19.7): events whose GEDCOM record is no longer in the file stay
@@ -1626,6 +1824,7 @@ class GEDCOMImporter:
         self,
         sour_records: list[GedcomLine],
         translation_data: TranslationData,
+        repo_records: Sequence[GedcomLine] = (),
     ) -> None:
         """Process all SOUR records from the GEDCOM file.
 
@@ -1639,21 +1838,30 @@ class GEDCOMImporter:
             sour_records: Level-0 SOUR GedcomLine records.
             translation_data: Translation data to update with new mappings.
         """
+        self._process_repository_records(repo_records)
         for record in sour_records:
             self._ctx_xref = record.xref_id
             self._ctx_label = _get_child_value(record, "TITL") or "SOUR"
             gedcom_source = _extract_gedcom_source(record)
+
+            problems: list[SlkProblem] = []
+            extras = read_source_fields(record, problems)
+            self._report_slk_problems(problems, record.xref_id, "Standardvärde användes")
 
             # Use translation manager to map (handles existing matching)
             source = self._translation_mgr.map_source(
                 gedcom_source, self._project_data.sources,
                 leverantorer=self._project_data.leverantorer,
                 kalltyper=self._project_data.kalltyper,
+                extras=extras,
             )
 
             # Check if this is a new source (not already in project)
             existing_source_ids = {s.id for s in self._project_data.sources}
             is_new = source.id not in existing_source_ids
+
+            # Level-1 REPO references (Requirement 9.9, 9.10)
+            self._attach_repository_refs(record, source)
 
             # ArkivDigital detection
             if detect_arkiv_digital(gedcom_source):
@@ -1682,6 +1890,109 @@ class GEDCOMImporter:
                 )
         self._ctx_xref = self._ctx_label = None
 
+    def _process_repository_records(self, repo_records: Sequence[GedcomLine]) -> None:
+        """Import every level-0 REPO record: find a Repository or create one.
+
+        Records no SOUR points at are imported too. Matching uses name, type
+        and address, so a second import creates nothing. Files without
+        SLK_Marker use only the standard tags.
+        """
+        self._repo_xref_map = {}
+        for record in repo_records:
+            name = (_get_child_value(record, "NAME") or "").strip()
+            if not name:
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    record_xref=record.xref_id or None,
+                    raw_value="REPO",
+                    reason="REPO-post utan NAME",
+                    action_taken="Ignorerades",
+                ))
+                continue
+            rtype = ""
+            xids: list[str] = []
+            if self._has_slk_marker:
+                problems: list[SlkProblem] = []
+                data = read_repository(record, problems)
+                self._report_slk_problems(
+                    problems, record.xref_id, "Standardvärde användes"
+                )
+                rtype = getattr(data, "type", "") or ""
+                xids = list(getattr(data, "external_ids", []) or [])
+            if not rtype and name == "ArkivDigital":
+                rtype = "digital_archive"
+            address = (_get_child_value(record, "ADDR") or "").strip() or None
+
+            repo = self._find_repository(name, rtype, address)
+            if repo is None:
+                repo = Repository(
+                    id=self._id_gen.generate("repository"),
+                    name=name,
+                    # The model requires a non-empty type; "archive" is the
+                    # neutral default when the file gives none.
+                    type=rtype or "archive",
+                    address=address,
+                    phone=[c.value.strip() for c in _get_children(record, "PHON") if c.value and c.value.strip()],
+                    email=[c.value.strip() for c in _get_children(record, "EMAIL") if c.value and c.value.strip()],
+                    web=[c.value.strip() for c in _get_children(record, "WWW") if c.value and c.value.strip()],
+                    notes="\n".join(c.value for c in _get_children(record, "NOTE") if c.value),
+                    external_ids=xids,
+                )
+                self._project_data.repositories.append(repo)
+            if record.xref_id:
+                self._repo_xref_map[record.xref_id] = repo.id
+
+    def _find_repository(
+        self, name: str, rtype: str, address: Optional[str]
+    ) -> Optional[Repository]:
+        """Find a Repository by name, type (empty matches any) and address."""
+        for repo in self._project_data.repositories:
+            if (repo.name or "").strip() != name:
+                continue
+            if rtype and repo.type != rtype:
+                continue
+            if ((repo.address or "").strip() or None) != address:
+                continue
+            return repo
+        return None
+
+    def _attach_repository_refs(self, record: GedcomLine, source: Source) -> None:
+        """Add a RepositoryRef for each ``1 REPO @Rn@`` of a SOUR record."""
+        for repo_line in _get_children(record, "REPO"):
+            repo_id = self._repo_xref_map.get((repo_line.value or "").strip())
+            if repo_id is None:
+                self._warnings.append(WarningEntry(
+                    gedcom_file=self._gedcom_filename,
+                    record_xref=record.xref_id or None,
+                    raw_value=f"REPO {repo_line.value or ''}".strip(),
+                    reason="REPO-hänvisningen pekar inte på en REPO-post",
+                    action_taken="Ignorerades",
+                ))
+                continue
+            caln = _get_child(repo_line, "CALN")
+            ref = RepositoryRef(
+                repository_id=repo_id,
+                call_number=((caln.value if caln else "") or "").strip(),
+                media_type=(
+                    ((_get_child_value(caln, "MEDI") or "").strip()) if caln else ""
+                ),
+                notes="\n".join(
+                    c.value for c in _get_children(repo_line, "NOTE") if c.value
+                ),
+            )
+            if self._has_slk_marker:
+                problems: list[SlkProblem] = []
+                extra = read_repository(repo_line, problems)
+                self._report_slk_problems(
+                    problems, record.xref_id, "Värdet ignorerades"
+                )
+                ref.source_type = extra.source_type
+                ref.image_number = extra.image_number
+                ref.page_number = extra.page_number
+                ref.media_name = extra.media_name
+            if ref not in source.repository_refs:
+                source.repository_refs.append(ref)
+
     def _attach_arkiv_digital_repository(self, source: Source) -> None:
         """Find or create an ArkivDigital Repository and attach it to a Source.
 
@@ -1693,6 +2004,14 @@ class GEDCOMImporter:
             source: The Source to attach the repository reference to.
         """
         # Find existing ArkivDigital repository
+        # A source that already points at an ArkivDigital repository (from a
+        # REPO record of the file) needs nothing more: one repository, one ref.
+        by_id = {r.id: r for r in self._project_data.repositories}
+        for ref in source.repository_refs:
+            held = by_id.get(ref.repository_id)
+            if held is not None and held.name == "ArkivDigital":
+                return
+
         arkiv_repo: Optional[Repository] = None
         for repo in self._project_data.repositories:
             if repo.name == "ArkivDigital" and repo.type == "digital_archive":
@@ -2125,16 +2444,8 @@ class GEDCOMImporter:
         self._person_xref_map[gedcom_person.xref_id] = person_id
 
         # Build names list
-        names: list[Name] = []
-        if gedcom_person.given_name or gedcom_person.surname:
-            names.append(
-                Name(type="birth", given=gedcom_person.given_name, surname=gedcom_person.surname)
-            )
-        for given, surname in gedcom_person.additional_names:
-            names.append(Name(type="other", given=given, surname=surname))
-
-        if not names:
-            names.append(Name(type="birth", given="", surname=""))
+        names = _build_names(gedcom_person)
+        self._collect_name_links(names, gedcom_person, record)
 
         person = Person(
             id=person_id,
@@ -2204,15 +2515,8 @@ class GEDCOMImporter:
         if existing_person is None:
             # Person was deleted since last import — treat as new
             # but keep the same ID for consistency
-            names: list[Name] = []
-            if gedcom_person.given_name or gedcom_person.surname:
-                names.append(
-                    Name(type="birth", given=gedcom_person.given_name, surname=gedcom_person.surname)
-                )
-            for given, surname in gedcom_person.additional_names:
-                names.append(Name(type="other", given=given, surname=surname))
-            if not names:
-                names.append(Name(type="birth", given="", surname=""))
+            names = _build_names(gedcom_person)
+            self._collect_name_links(names, gedcom_person, record)
 
             person = Person(
                 id=person_id,
@@ -2229,16 +2533,10 @@ class GEDCOMImporter:
 
         # Update existing person fields
         existing_person.sex = gedcom_person.sex
-        names = []
-        if gedcom_person.given_name or gedcom_person.surname:
-            names.append(
-                Name(type="birth", given=gedcom_person.given_name, surname=gedcom_person.surname)
-            )
-        for given, surname in gedcom_person.additional_names:
-            names.append(Name(type="other", given=given, surname=surname))
-        if not names:
-            names.append(Name(type="birth", given="", surname=""))
-        existing_person.names = names
+        existing_person.names = _build_names(
+            gedcom_person, existing_person.names
+        )
+        self._collect_name_links(existing_person.names, gedcom_person, record)
         existing_person.notes = gedcom_person.notes
         existing_person.title = gedcom_person.title
         existing_person.occupation = gedcom_person.occupation
@@ -2264,10 +2562,28 @@ class GEDCOMImporter:
             record: The INDI GedcomLine record with event children.
         """
         specs: list[_EventSpec] = []
+        seen_tokens: set[str] = set()
         for child in record.children:
             spec = self._indi_event_spec(child, person_id)
-            if spec is not None:
-                specs.append(spec)
+            if spec is None:
+                continue
+            if spec.token:
+                if spec.token in seen_tokens:
+                    # Requirement 1.11: the first structure is used.
+                    self._warnings.append(WarningEntry(
+                        gedcom_file=self._gedcom_filename,
+                        record_xref=record.xref_id or None,
+                        raw_value=f"_SLK_EID {spec.token}",
+                        reason=(
+                            f"Samma _SLK_EID '{spec.token}' förekommer i flera "
+                            "händelser på samma person. Den första händelsen "
+                            "används och de övriga ignorerades."
+                        ),
+                        action_taken="Händelsen ignorerades",
+                    ))
+                    continue
+                seen_tokens.add(spec.token)
+            specs.append(spec)
         owner_xref = record.xref_id or ""
         results = self._match_owner_events("INDI", person_id, owner_xref, specs)
         result_for = {id(s.record): (s, r) for s, r in zip(specs, results)}
@@ -2289,6 +2605,8 @@ class GEDCOMImporter:
             if pair is None:
                 continue
             spec, res = pair
+            if self._join_event_by_token(spec, res, person_id, owner_xref):
+                continue
             event_id = self._apply_event_result(
                 res,
                 spec,
@@ -2300,11 +2618,13 @@ class GEDCOMImporter:
                     event_type=s.event_type,
                     event_record=s.record,
                     participant_id=person_id,
-                    participant_role="subject",
+                    participant_role=s.role,
                     custom_type_name=s.custom_type_name,
                     origin=origin,
+                    from_place=s.from_place,
                 ),
             )
+            self._register_event_token(spec, res, event_id)
             if event_id is not None and spec.placement:
                 # ADOP and EVEN/TYPE Fosterhem are placement START events,
                 # finalised once the families exist (Requirements 11.7, 11.7a).
@@ -2331,6 +2651,36 @@ class GEDCOMImporter:
     ) -> Optional["_EventSpec"]:
         """Classify an INDI child record as an event, or return None."""
         tag = child.tag.upper()
+        if tag != "ADOP" and tag not in _INDI_EVENT_TAGS and tag != "EVEN":
+            return None
+        tags = self._event_tag_data(child, self._xref_for_person_id(person_id))
+        spec = self._indi_event_spec_base(child, tag, tags, person_id)
+        # Placement events derive their roles on import; _SLK_ROLE is ignored.
+        role = "subject" if spec.placement else (tags.role or "subject")
+        spec.role = role
+        spec.participants = [(person_id, role)]
+        spec.token = tags.token
+        if spec.event_type == "flytt":
+            spec.from_place = tags.from_place
+        return spec
+
+    def _event_tag_data(
+        self, record: GedcomLine, owner_xref: Optional[str]
+    ) -> EventTagData:
+        """Read the ``_SLK_`` event tags of *record*; problems become warnings."""
+        problems: list[SlkProblem] = []
+        data = read_event_tags(record, problems)
+        self._report_slk_problems(problems, owner_xref, "Taggen ignorerades")
+        return data
+
+    def _indi_event_spec_base(
+        self,
+        child: GedcomLine,
+        tag: str,
+        tags: EventTagData,
+        person_id: str,
+    ) -> "_EventSpec":
+        """The type, tag key and custom name of an INDI event record."""
         participants = [(person_id, "subject")]
         if tag == "ADOP":
             return _EventSpec(
@@ -2347,47 +2697,79 @@ class GEDCOMImporter:
                 tag_key=_event_tag_key(tag, None),
                 participants=participants,
             )
-        if tag == "EVEN":
-            custom_type_name = _get_child_value(child, "TYPE")
-            normalized = custom_type_name.strip().lower() if custom_type_name else ""
-            tag_key = _event_tag_key(tag, custom_type_name)
-            if normalized == "flytt":
-                return _EventSpec(child, "flytt", tag_key, participants)
-            if normalized == "fosterhem":
+        custom_type_name = _get_child_value(child, "TYPE")
+        normalized = custom_type_name.strip().lower() if custom_type_name else ""
+        tag_key = _event_tag_key(tag, custom_type_name)
+        if tags.evtype:
+            if tags.evtype_known:
+                event_type = tags.evtype
                 return _EventSpec(
-                    child, "foster_home", tag_key, participants, placement=True
+                    child,
+                    event_type,
+                    tag_key,
+                    participants,
+                    custom_type_name=(
+                        custom_type_name if event_type.startswith("custom_") else None
+                    ),
+                    placement=event_type == "foster_home",
                 )
+            owner = self._xref_for_person_id(person_id)
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=owner,
+                raw_value=f"_SLK_EVTYPE {tags.evtype}",
+                reason=(
+                    f'Okänd händelsetyp "{tags.evtype}" i _SLK_EVTYPE. '
+                    "Händelsen skapades som en egen händelse."
+                ),
+                action_taken="Skapades som egen händelse",
+            ))
             return _EventSpec(
                 child,
                 "custom_individual_event",
                 tag_key,
                 participants,
-                custom_type_name=custom_type_name,
+                custom_type_name=custom_type_name or tags.evtype,
             )
-        return None
+        if normalized == "flytt":
+            return _EventSpec(child, "flytt", tag_key, participants)
+        if normalized == "fosterhem":
+            return _EventSpec(
+                child, "foster_home", tag_key, participants, placement=True
+            )
+        return _EventSpec(
+            child,
+            "custom_individual_event",
+            tag_key,
+            participants,
+            custom_type_name=custom_type_name,
+        )
 
     def _fam_event_spec(
         self, child: GedcomLine, participants: list[tuple[str, str]]
     ) -> Optional["_EventSpec"]:
         """Classify a FAM child record as an event, or return None."""
         tag = child.tag.upper()
+        spec: Optional[_EventSpec] = None
         if tag in _FAM_EVENT_TAGS:
-            return _EventSpec(
+            spec = _EventSpec(
                 record=child,
                 event_type=_FAM_EVENT_TAGS[tag],
                 tag_key=_event_tag_key(tag, None),
                 participants=participants,
             )
-        if tag == "EVEN":
+        elif tag == "EVEN":
             custom_type_name = _get_child_value(child, "TYPE")
-            return _EventSpec(
+            spec = _EventSpec(
                 record=child,
                 event_type="custom_family_event",
                 tag_key=_event_tag_key(tag, custom_type_name),
                 participants=participants,
                 custom_type_name=custom_type_name,
             )
-        return None
+        if spec is not None:
+            spec.token = self._event_tag_data(child, None).token
+        return spec
 
     def _get_event_index(self) -> "_EventIndex":
         if self._event_index is None:
@@ -2418,10 +2800,13 @@ class GEDCOMImporter:
             legacy_event_ids: For ``FAM``, the ids in ``Family.event_ids``.
         """
         index = self._get_event_index()
+        # One pool entry per origin that names this owner: an event merged from
+        # several INDI records has one origin per record (Origin_Group rule).
         pool = [
-            PoolEntry(e, e.origin)
+            PoolEntry(e, o)
             for e in index.by_origin_owner.get((owner_kind, owner_id), [])
-            if e.origin is not None
+            for o in _event_origins(e)
+            if (o.owner_kind, o.owner_id) == (owner_kind, owner_id)
         ]
         if owner_kind == "INDI":
             related = index.by_participant.get(owner_id, [])
@@ -2433,7 +2818,11 @@ class GEDCOMImporter:
             if e.origin is None:
                 legacy.append(e)
             elif e.origin.owner_kind == owner_kind and e.origin.owner_id != owner_id:
-                foreign.append(e)
+                if not any(
+                    (o.owner_kind, o.owner_id) == (owner_kind, owner_id)
+                    for o in e.extra_origins
+                ):
+                    foreign.append(e)
 
         counters: dict[str, int] = {}
         incoming: list[IncomingRecord] = []
@@ -2449,7 +2838,9 @@ class GEDCOMImporter:
                     owner_xref=owner_xref,
                     tag_key=spec.tag_key,
                     index=n,
-                    record_hash=record_hash(spec.record, self._source_xref_map),
+                    record_hash=record_hash(
+                        spec.record, self._source_xref_map, self._hash_profile
+                    ),
                     uid=uid,
                     fingerprint=lambda s=spec: self._incoming_event_fingerprint(s),
                 )
@@ -2467,9 +2858,7 @@ class GEDCOMImporter:
         """Content fingerprint of the event the importer would create."""
         date_str = _get_child_value(spec.record, "DATE")
         parsed = parse_gedcom_date(date_str or "")
-        cause: Optional[str] = None
-        if spec.event_type == "death":
-            cause = _get_child_value(spec.record, "CAUS") or None
+        cause: Optional[str] = _get_child_value(spec.record, "CAUS") or None
         event = Event(
             id="",
             type=spec.event_type,
@@ -2578,6 +2967,115 @@ class GEDCOMImporter:
             ))
         return event_id
 
+    # ------------------------------------------------------------------
+    # Event_Token join (Requirements 1.8 to 1.14, 8.9)
+    # ------------------------------------------------------------------
+
+    def _join_event_by_token(
+        self,
+        spec: "_EventSpec",
+        res: MatchResult,
+        person_id: str,
+        owner_xref: str,
+    ) -> bool:
+        """Add an INDI structure to the event of its token; True when joined.
+
+        Joins only by equal Event_Token within this file, never by date,
+        place, type or participants. Only a record that the matcher found
+        no event for (``NEW`` or ``NEW_AMBIGUOUS``) joins: the participant is
+        added to the event the token stands for, and one RecordOrigin of this
+        INDI record is added to that event, so a second import of the file
+        matches every contributing record and creates nothing. Returns False
+        when the record must be handled as usual.
+        """
+        if not spec.token or spec.placement:
+            return False
+        if res.outcome not in (Outcome.NEW, Outcome.NEW_AMBIGUOUS):
+            return False
+        event_id = self._event_token_map.get(spec.token)
+        event = self._get_event_index().by_id.get(event_id) if event_id else None
+        if event is None:
+            return False
+        if not any(p.person_id == person_id for p in event.participants):
+            event.participants.append(Participant(person_id=person_id, role=spec.role))
+        rec = res.incoming
+        origin = RecordOrigin(
+            owner_kind="INDI",
+            owner_id=person_id,
+            owner_xref=owner_xref,
+            tag_key=rec.tag_key,
+            index=rec.index,
+            record_hash=rec.record_hash,
+            uid=rec.uid,
+            instance=res.instance or 0,
+        )
+        # Every event in the token map was created here or matched through
+        # its origin, so it has a first ``origin``; this record adds one more.
+        event.extra_origins.append(origin)
+        index = self._get_event_index()
+        index.note_origin(event)
+        index.note_participant(event, person_id)
+        return True
+
+    def _register_event_token(
+        self, spec: "_EventSpec", res: MatchResult, new_event_id: Optional[str]
+    ) -> None:
+        """Remember the event of *spec* for its token (Requirement 8.9).
+
+        The event is the one just created, or the existing event the record
+        stands for. When a matched existing event arrives after the token
+        already stands for an event created earlier in this run (the file
+        lists the INDI of a new participant first), the new event is folded
+        into the matched one so that no token ends up with two events.
+        """
+        if not spec.token:
+            return
+        target: Optional[str] = new_event_id
+        if target is None and res.outcome in (
+            Outcome.UNCHANGED, Outcome.CHANGED_UID, Outcome.LEGACY_CLAIMED
+        ):
+            members = [m for m in res.members if isinstance(m, Event)]
+            target = members[0].id if members else None
+        if target is None:
+            return
+        current = self._event_token_map.get(spec.token)
+        if current is None:
+            self._event_token_map[spec.token] = target
+            return
+        if (
+            current != target
+            and new_event_id is None
+            and current in self._run_created_event_ids
+            and not spec.placement
+        ):
+            self._fold_event(current, target)
+
+    def _fold_event(self, source_id: str, target_id: str) -> None:
+        """Move participants and origins of a run-created event into *target_id*."""
+        index = self._get_event_index()
+        source = index.by_id.get(source_id)
+        target = index.by_id.get(target_id)
+        if source is None or target is None or source is target:
+            return
+        for participant in source.participants:
+            if not any(p.person_id == participant.person_id for p in target.participants):
+                target.participants.append(participant)
+                index.note_participant(target, participant.person_id)
+        # The target is a matched event, so it has its own ``origin``; the
+        # origins of the folded event become further origins of the target.
+        target.extra_origins.extend(_event_origins(source))
+        index.note_origin(target)
+        for position, listed in enumerate(self._project_data.events):
+            if listed is source:
+                self._project_data.events.pop(position)
+                break
+        index.remove(source)
+        self._run_created_event_ids.discard(source_id)
+        self._events_added -= 1
+        for token, event_id in list(self._event_token_map.items()):
+            if event_id == source_id:
+                self._event_token_map[token] = target_id
+
     def _process_family_events(
         self,
         gedcom_family: GedcomFamily,
@@ -2603,6 +3101,9 @@ class GEDCOMImporter:
         for child_node in record.children:
             spec = self._fam_event_spec(child_node, participant_ids)
             if spec is not None:
+                spec.participants = self._slk_event_participants(
+                    child_node, participant_ids, record.xref_id
+                )
                 specs.append(spec)
         owner_xref = record.xref_id or gedcom_family.xref_id or ""
         results = self._match_owner_events(
@@ -2625,6 +3126,7 @@ class GEDCOMImporter:
                     origin=origin,
                 ),
             )
+            self._register_event_token(spec, res, event_id)
             if event_id:
                 new_ids.append(event_id)
         return new_ids
@@ -2684,7 +3186,9 @@ class GEDCOMImporter:
                     owner_xref=owner_xref,
                     tag_key="RESI",
                     index=n,
-                    record_hash=record_hash(child, self._source_xref_map),
+                    record_hash=record_hash(
+                        child, self._source_xref_map, self._hash_profile
+                    ),
                     uid=uid,
                     fingerprint=lambda c=child: self._incoming_residence_fingerprint(
                         person_id, c
@@ -2699,7 +3203,8 @@ class GEDCOMImporter:
         """Content fingerprint of the residence the importer would create."""
         place_id = self._lookup_residence_place_id(resi_record, apply_coordinates=False)[0]
         return residence_fingerprint(
-            self._derive_residence(resi_record, person_id, place_id)
+            self._derive_residence(resi_record, person_id, place_id),
+            ignore_links=True,
         )
 
     def _describe_residence(self, fact: ResidenceFact) -> str:
@@ -2763,9 +3268,14 @@ class GEDCOMImporter:
             return
 
         place_id = self._resolve_residence_place(resi_record, person_id)
-        residence = self._derive_residence(resi_record, person_id, place_id)
+        problems: list[SlkProblem] = []
+        residence = self._derive_residence(resi_record, person_id, place_id, problems)
+        self._report_slk_problems(problems, owner_xref, "Värdet ignorerades")
         self._warn_residence_date(resi_record)
         residence_id = self._add_residence(residence, origin)
+        event_links.collect_endpoint_links(
+            self._event_link_requests, residence, resi_record, owner_xref
+        )
         if outcome is Outcome.NEW_AMBIGUOUS:
             shown = [self._describe_residence(c) for c in res.candidates[:5]]
             listing = ", ".join(shown)
@@ -2884,7 +3394,11 @@ class GEDCOMImporter:
             ))
 
     def _derive_residence(
-        self, resi_record: GedcomLine, person_id: str, place_id: str
+        self,
+        resi_record: GedcomLine,
+        person_id: str,
+        place_id: str,
+        problems: Optional[list[SlkProblem]] = None,
     ) -> ResidenceFact:
         """Build the residence a RESI record stands for (pure, empty id).
 
@@ -2892,6 +3406,8 @@ class GEDCOMImporter:
         BET x AND y gives start.earliest/latest; a plain date gives
         start.latest = end.earliest; anything else leaves both unknown.
         """
+        # Pure: problems are only collected when the caller passes a list
+        # (the fingerprint path calls this without one).
         date_result = _parse_resi_date(_get_child_value(resi_record, "DATE"))
         start = Endpoint(
             earliest=date_result.start_earliest,
@@ -2903,14 +3419,70 @@ class GEDCOMImporter:
             latest=date_result.end_latest,
             precision=date_result.end_precision,
         )
+        # Requirement 7.5: a usable _SLK_START/_SLK_END replaces the whole
+        # endpoint built from DATE.
+        slk_start = read_endpoint(_get_child(resi_record, "_SLK_START"), problems)
+        if slk_start is not None:
+            start = Endpoint(
+                earliest=slk_start.earliest,
+                latest=slk_start.latest,
+                precision=slk_start.precision,
+                note=slk_start.note,
+            )
+        slk_end = read_endpoint(_get_child(resi_record, "_SLK_END"), problems)
+        if slk_end is not None:
+            end = Endpoint(
+                earliest=slk_end.earliest,
+                latest=slk_end.latest,
+                precision=slk_end.precision,
+                note=slk_end.note,
+            )
+
+        role, notes = read_residence_texts(resi_record, problems)
+
+        # Requirement 7.7: legacy prose, only for files without SLK_Marker.
+        legacy = None
+        if not self._has_slk_marker:
+            legacy = read_legacy_prose(resi_record, problems)
+            if slk_start is None and legacy.start_earliest:
+                start.earliest = legacy.start_earliest
+            if slk_end is None and legacy.end_latest:
+                end.latest = legacy.end_latest
+            if not role and legacy.role_in_household:
+                role = legacy.role_in_household
+
         observations: list[Observation] = []
         for sour_child in _get_children(resi_record, "SOUR"):
             if sour_child.value:
                 source_id = self._source_xref_map.get(sour_child.value)
                 if source_id:
+                    cit = read_citation(sour_child, problems)
+                    observed_from, observed_to = cit.observed_from, cit.observed_to
+                    if legacy is not None and not (observed_from or observed_to):
+                        # Read this SOUR alone so the period cannot attach to
+                        # another citation of the same source.
+                        own = read_legacy_prose(
+                            GedcomLine(
+                                level=resi_record.level, tag=resi_record.tag,
+                                value=None, xref_id=None,
+                                line_number=resi_record.line_number,
+                                children=[sour_child],
+                            ),
+                        )
+                        if own.observations:
+                            observed_from = own.observations[0].observed_from
+                            observed_to = own.observations[0].observed_to
                     observations.append(
                         Observation(
-                            source_ref=SourceRef(source_id=source_id, quality="secondary"),
+                            source_ref=SourceRef(
+                                source_id=source_id,
+                                quality=cit.quality,
+                                note=cit.note,
+                                aspects=list(cit.aspects),
+                            ),
+                            observed_from=observed_from,
+                            observed_to=observed_to,
+                            page_note=cit.page,
                         )
                     )
         return ResidenceFact(
@@ -2919,7 +3491,9 @@ class GEDCOMImporter:
             place_id=place_id,
             start=start,
             end=end,
+            role_in_household=role,
             observations=observations,
+            notes=notes,
         )
 
     def _add_residence(self, residence: ResidenceFact, origin: RecordOrigin) -> str:
@@ -2982,6 +3556,9 @@ class GEDCOMImporter:
                 continue
             for family_xref, pedi in _extract_famc_pedigree(record).items():
                 self._famc_pedigree[(child_xref, family_xref)] = pedi
+            for famc in _get_children(record, "FAMC"):
+                if famc.value:
+                    self._famc_nodes.setdefault((child_xref, famc.value), famc)
 
     def _parentage_type_for(
         self, child_xref: str, family_xref: str
@@ -3063,6 +3640,199 @@ class GEDCOMImporter:
         else:
             self._create_family(gedcom_family, record, translation_data)
 
+    def _collect_name_links(
+        self, names: list[Name], gp: GedcomPerson, record: GedcomLine
+    ) -> None:
+        """Queue the ``_SLK_EREF`` of each NAME of an INDI record."""
+        tokens = [
+            event_links.read_eref(n) for n in _get_children(record, "NAME")
+        ]
+        # _build_names skips an empty primary name; its entries then start
+        # at the second NAME.
+        offset = 0 if (gp.given_name or gp.surname) else 1
+        event_links.collect_name_links(
+            self._event_link_requests, names, tokens, offset, gp.xref_id
+        )
+
+    def _resolve_event_links(self) -> None:
+        """Set ``event_id`` of names and endpoints from the token map."""
+        requests = self._event_link_requests
+        self._event_link_requests = []
+
+        def warn(request: event_links.LinkRequest) -> None:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=request.xref or None,
+                raw_value=f"_SLK_EREF {request.token}",
+                reason=(
+                    f"_SLK_EREF '{request.token}' pekar på en händelse som "
+                    "inte finns i filen"
+                    + (f" (rad {request.line_number})" if request.line_number else "")
+                    + ". Länken till händelsen ignorerades."
+                ),
+                action_taken="Värdet ignorerades",
+            ))
+
+        event_links.resolve_event_links(
+            requests,
+            self._event_token_map,
+            {e.id for e in self._project_data.events},
+            warn,
+        )
+
+    def _report_slk_problems(
+        self,
+        problems: list[SlkProblem],
+        record_xref: Optional[str],
+        action: str,
+    ) -> None:
+        """Turn Recoverable_Input_Problems of the tolerant readers into warnings."""
+        for problem in problems:
+            self._warnings.append(WarningEntry(
+                gedcom_file=self._gedcom_filename,
+                record_xref=record_xref or None,
+                raw_value=problem.tag or None,
+                reason=(
+                    f"{problem.message} (rad {problem.line_number})"
+                    if problem.line_number
+                    else problem.message
+                ),
+                action_taken=action,
+            ))
+
+    def _build_partners(
+        self, gedcom_family: GedcomFamily, record: GedcomLine
+    ) -> tuple[list[FamilyPartner], bool]:
+        """Build the partner list of a FAM record.
+
+        Returns ``(partners, from_slk)``. When ``_SLK_PARTNER`` names exactly
+        the persons of HUSB and WIFE the partners get its order and roles
+        (``from_slk`` is true); otherwise HUSB and WIFE give the roles
+        ``husband`` and ``wife`` as before. Nothing here reads or sets
+        ``Person.sex``.
+        """
+        problems: list[SlkProblem] = []
+        slk = read_partners(record, None, problems)
+        self._report_slk_problems(
+            problems, gedcom_family.xref_id, "_SLK_PARTNER ignorerades"
+        )
+        partners: list[FamilyPartner] = []
+        if slk is not None:
+            seen: set[str] = set()
+            for xref, role in slk:
+                person_id = self._person_xref_map.get(xref)
+                if person_id and person_id not in seen:
+                    seen.add(person_id)
+                    partners.append(FamilyPartner(person_id=person_id, role=role))
+            return partners, True
+
+        if gedcom_family.husb_xref:
+            husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
+            if husb_id:
+                partners.append(FamilyPartner(person_id=husb_id, role="husband"))
+        if gedcom_family.wife_xref:
+            wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
+            if wife_id:
+                partners.append(FamilyPartner(person_id=wife_id, role="wife"))
+        return partners, False
+
+    def _build_parent_child_links(
+        self, gedcom_family: GedcomFamily, partners: list[FamilyPartner]
+    ) -> list[ParentChildLink]:
+        """Build the ParentChildLinks of a family.
+
+        The parentage type of a child comes from ``FAMC``/``PEDI`` and applies
+        to both parents (PEDI qualifies the child's membership). Entries of
+        ``_SLK_PLINK`` under the child's ``FAMC`` set the type per parent and
+        replace the PEDI type for the parents they cover.
+        """
+        links: list[ParentChildLink] = []
+        partner_ids = [p.person_id for p in partners]
+        for child_xref in gedcom_family.child_xrefs:
+            child_id = self._person_xref_map.get(child_xref)
+            if not child_id:
+                continue
+            pedi_type = self._parentage_type_for(child_xref, gedcom_family.xref_id)
+            famc = self._famc_nodes.get((child_xref, gedcom_family.xref_id))
+            problems: list[SlkProblem] = []
+            plinks = read_plinks(famc, self._person_xref_map.keys(), problems) if famc is not None else []
+            if not plinks:
+                self._report_slk_problems(
+                    problems, child_xref, "PEDI användes"
+                )
+                for partner in partners:
+                    links.append(ParentChildLink(
+                        child_id=child_id,
+                        parent_id=partner.person_id,
+                        parentage_type=pedi_type,
+                    ))
+                continue
+
+            by_parent: dict[str, str] = {}
+            parentless: list[ParentChildLink] = []
+            for plink in plinks:
+                link_type = plink.parentage_type or pedi_type
+                parent_id = (
+                    self._person_xref_map.get(plink.parent_xref)
+                    if plink.parent_xref
+                    else None
+                )
+                if parent_id is None:
+                    if link_type == "unknown_donor":
+                        parentless.append(ParentChildLink(
+                            child_id=child_id,
+                            parent_id=None,
+                            parentage_type=link_type,
+                        ))
+                    else:
+                        problems.append(SlkProblem(
+                            "plink_no_parent",
+                            "_SLK_PLINK utan förälder har typen "
+                            f"'{link_type}'; länken hoppades över.",
+                            "_SLK_PLINK",
+                        ))
+                elif parent_id not in partner_ids or parent_id in by_parent:
+                    problems.append(SlkProblem(
+                        "plink_not_partner",
+                        "_SLK_PLINK pekar på en person som inte är (ensam) "
+                        "partner i familjen; länken hoppades över.",
+                        "_SLK_PLINK",
+                    ))
+                else:
+                    by_parent[parent_id] = link_type
+            self._report_slk_problems(problems, child_xref, "PEDI användes")
+            for parent_id in partner_ids:
+                links.append(ParentChildLink(
+                    child_id=child_id,
+                    parent_id=parent_id,
+                    parentage_type=by_parent.get(parent_id, pedi_type),
+                ))
+            links.extend(parentless)
+        return links
+
+    def _slk_event_participants(
+        self,
+        event_record: GedcomLine,
+        default: list[tuple[str, str]],
+        family_xref: Optional[str],
+    ) -> list[tuple[str, str]]:
+        """Participants of a family event: ``_SLK_PART`` entries, else *default*."""
+        problems: list[SlkProblem] = []
+        entries = read_event_participants(
+            event_record, self._person_xref_map.keys(), problems
+        )
+        self._report_slk_problems(
+            problems, family_xref, "Deltagare hoppades över"
+        )
+        if entries is None:
+            return default
+        participants: list[tuple[str, str]] = []
+        for xref, role in entries:
+            person_id = self._person_xref_map.get(xref)
+            if person_id:
+                participants.append((person_id, role))
+        return participants or default
+
     def _create_family(
         self,
         gedcom_family: GedcomFamily,
@@ -3079,16 +3849,8 @@ class GEDCOMImporter:
         family_id = self._id_gen.generate("family")
         self._family_xref_map[gedcom_family.xref_id] = family_id
 
-        # Build partners list
-        partners: list[FamilyPartner] = []
-        if gedcom_family.husb_xref:
-            husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
-            if husb_id:
-                partners.append(FamilyPartner(person_id=husb_id, role="husband"))
-        if gedcom_family.wife_xref:
-            wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
-            if wife_id:
-                partners.append(FamilyPartner(person_id=wife_id, role="wife"))
+        # Build partners list (_SLK_PARTNER restores roles and order)
+        partners, _slk_partners = self._build_partners(gedcom_family, record)
 
         # Build children list
         children: list[str] = []
@@ -3107,22 +3869,9 @@ class GEDCOMImporter:
         # FAMC/PEDI pedigree for THIS family and applies to both parent
         # links of the child in the family (PEDI qualifies the child's
         # membership in the family, not a single parent).
-        parent_child_links: list[ParentChildLink] = []
-        for child_xref in gedcom_family.child_xrefs:
-            child_id = self._person_xref_map.get(child_xref)
-            if not child_id:
-                continue
-            parentage_type = self._parentage_type_for(
-                child_xref, gedcom_family.xref_id
-            )
-            for partner in partners:
-                parent_child_links.append(
-                    ParentChildLink(
-                        child_id=child_id,
-                        parent_id=partner.person_id,
-                        parentage_type=parentage_type,
-                    )
-                )
+        parent_child_links = self._build_parent_child_links(
+            gedcom_family, partners
+        )
 
         family = Family(
             id=family_id,
@@ -3168,15 +3917,7 @@ class GEDCOMImporter:
         if existing_family is None:
             # Family was deleted — recreate with same ID
             # Build partners and children, then create
-            partners: list[FamilyPartner] = []
-            if gedcom_family.husb_xref:
-                husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
-                if husb_id:
-                    partners.append(FamilyPartner(person_id=husb_id, role="husband"))
-            if gedcom_family.wife_xref:
-                wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
-                if wife_id:
-                    partners.append(FamilyPartner(person_id=wife_id, role="wife"))
+            partners, _slk_partners = self._build_partners(gedcom_family, record)
 
             children_list: list[str] = []
             for child_xref in gedcom_family.child_xrefs:
@@ -3184,22 +3925,9 @@ class GEDCOMImporter:
                 if child_id:
                     children_list.append(child_id)
 
-            parent_child_links: list[ParentChildLink] = []
-            for child_xref in gedcom_family.child_xrefs:
-                child_id = self._person_xref_map.get(child_xref)
-                if not child_id:
-                    continue
-                parentage_type = self._parentage_type_for(
-                    child_xref, gedcom_family.xref_id
-                )
-                for partner in partners:
-                    parent_child_links.append(
-                        ParentChildLink(
-                            child_id=child_id,
-                            parent_id=partner.person_id,
-                            parentage_type=parentage_type,
-                        )
-                    )
+            parent_child_links = self._build_parent_child_links(
+                gedcom_family, partners
+            )
 
             family = Family(
                 id=family_id,
@@ -3213,15 +3941,13 @@ class GEDCOMImporter:
             return
 
         # Update existing family
-        partners = []
-        if gedcom_family.husb_xref:
-            husb_id = self._person_xref_map.get(gedcom_family.husb_xref)
-            if husb_id:
-                partners.append(FamilyPartner(person_id=husb_id, role="husband"))
-        if gedcom_family.wife_xref:
-            wife_id = self._person_xref_map.get(gedcom_family.wife_xref)
-            if wife_id:
-                partners.append(FamilyPartner(person_id=wife_id, role="wife"))
+        partners, from_slk = self._build_partners(gedcom_family, record)
+        # Requirement 4.10: an equal partner set keeps the existing roles and
+        # order, unless _SLK_PARTNER restores them (Requirement 4.11).
+        if not from_slk and {p.person_id for p in partners} == {
+            p.person_id for p in existing_family.partners
+        } and len(partners) == len(existing_family.partners):
+            partners = existing_family.partners
 
         children_list = []
         for child_xref in gedcom_family.child_xrefs:
@@ -3229,22 +3955,9 @@ class GEDCOMImporter:
             if child_id:
                 children_list.append(child_id)
 
-        parent_child_links = []
-        for child_xref in gedcom_family.child_xrefs:
-            child_id = self._person_xref_map.get(child_xref)
-            if not child_id:
-                continue
-            parentage_type = self._parentage_type_for(
-                child_xref, gedcom_family.xref_id
-            )
-            for partner in partners:
-                parent_child_links.append(
-                    ParentChildLink(
-                        child_id=child_id,
-                        parent_id=partner.person_id,
-                        parentage_type=parentage_type,
-                    )
-                )
+        parent_child_links = self._build_parent_child_links(
+            gedcom_family, partners
+        )
 
         existing_family.partners = partners
         existing_family.children = children_list
@@ -3499,6 +4212,60 @@ class GEDCOMImporter:
             ))
         return date_value
 
+    def _read_event_citations(
+        self, event_record: GedcomLine
+    ) -> list[tuple[str, SourceRef]]:
+        """Read the SOUR citations of an event as ``(context, SourceRef)``.
+
+        Quality comes from ``_SLK_QUAL`` before ``QUAY``; the context from
+        ``_SLK_CTX`` (``event`` when absent or invalid).
+        """
+        result: list[tuple[str, SourceRef]] = []
+        for sour_child in _get_children(event_record, "SOUR"):
+            if not sour_child.value:
+                continue
+            source_id = self._source_xref_map.get(sour_child.value)
+            if not source_id:
+                continue
+            problems: list[SlkProblem] = []
+            cit = read_citation(sour_child, problems)
+            self._report_slk_problems(problems, None, "Standardvärde användes")
+            result.append((
+                cit.context,
+                SourceRef(
+                    source_id=source_id,
+                    quality=cit.quality,
+                    note=cit.note,
+                    aspects=list(cit.aspects),
+                ),
+            ))
+        return result
+
+    @staticmethod
+    def _place_citations(
+        citations: list[tuple[str, SourceRef]],
+        event_refs: list[SourceRef],
+        date_value: Optional[DateValue],
+        place_ref: Optional[PlaceRef],
+        from_place_ref: Optional[PlaceRef] = None,
+    ) -> None:
+        """Put each citation in its carrier; event level when it is absent."""
+        carriers = {
+            "date": date_value,
+            "place": place_ref,
+            "from_place": from_place_ref,
+        }
+        # Only assigned, never read: citations are new, carriers start empty.
+        grouped: dict[str, list[SourceRef]] = {k: [] for k in carriers}
+        for context, ref in citations:
+            if carriers.get(context) is None:
+                event_refs.append(ref)
+            else:
+                grouped[context].append(ref)
+        for context, carrier in carriers.items():
+            if carrier is not None and grouped[context]:
+                carrier.source_refs = grouped[context]
+
     def _create_event(
         self,
         event_type: str,
@@ -3507,6 +4274,7 @@ class GEDCOMImporter:
         participant_role: str,
         custom_type_name: Optional[str] = None,
         origin: Optional[RecordOrigin] = None,
+        from_place: Optional[str] = None,
     ) -> Optional[str]:
         """Create an event from a GEDCOM event sub-record.
 
@@ -3521,6 +4289,7 @@ class GEDCOMImporter:
             participant_role: The role of the participant.
             custom_type_name: Optional custom type name for custom events.
             origin: The Event_Origin to store on the new event.
+            from_place: ``_SLK_FROMPLAC`` text of a flytt; resolved like PLAC.
 
         Returns:
             The new event ID.
@@ -3540,23 +4309,23 @@ class GEDCOMImporter:
         place_ref = self._event_place_ref(event_record)
 
         # Parse source citations on the event
+        citations = self._read_event_citations(event_record)
         source_refs: list[SourceRef] = []
-        for sour_child in _get_children(event_record, "SOUR"):
-            if sour_child.value:
-                source_id = self._source_xref_map.get(sour_child.value)
-                if source_id:
-                    source_refs.append(
-                        SourceRef(source_id=source_id, quality="secondary")
-                    )
 
-        # Cause of death for DEAT events
-        cause_of_death: Optional[str] = None
-        if event_type == "death":
-            cause_val = _get_child_value(event_record, "CAUS")
-            if cause_val:
-                cause_of_death = cause_val
+        # Cause (CAUS) of an event; most often the cause of death.
+        cause_of_death: Optional[str] = _get_child_value(event_record, "CAUS") or None
 
         participants = [Participant(person_id=participant_id, role=participant_role)]
+
+        from_place_ref: Optional[PlaceRef] = None
+        if from_place:
+            from_place_id = self._resolve_place(from_place)
+            if from_place_id:
+                from_place_ref = PlaceRef(place_id=from_place_id)
+
+        self._place_citations(
+            citations, source_refs, date_value, place_ref, from_place_ref
+        )
 
         event = Event(
             id=event_id,
@@ -3566,12 +4335,14 @@ class GEDCOMImporter:
             place=place_ref,
             cause_of_death=cause_of_death,
             custom_type_name=custom_type_name,
+            from_place=from_place_ref,
             source_refs=source_refs,
             origin=origin,
         )
         self._project_data.events.append(event)
         if self._event_index is not None:
             self._event_index.add(event)
+        self._run_created_event_ids.add(event_id)
         self._events_added += 1
         return event_id
 
@@ -3614,13 +4385,10 @@ class GEDCOMImporter:
 
         # Source citations
         source_refs: list[SourceRef] = []
-        for sour_child in _get_children(event_record, "SOUR"):
-            if sour_child.value:
-                source_id = self._source_xref_map.get(sour_child.value)
-                if source_id:
-                    source_refs.append(
-                        SourceRef(source_id=source_id, quality="secondary")
-                    )
+        self._place_citations(
+            self._read_event_citations(event_record),
+            source_refs, date_value, place_ref,
+        )
 
         event_participants = [
             Participant(person_id=pid, role=role) for pid, role in participants
@@ -3632,6 +4400,7 @@ class GEDCOMImporter:
             participants=event_participants,
             date=date_value,
             place=place_ref,
+            cause_of_death=_get_child_value(event_record, "CAUS") or None,
             custom_type_name=custom_type_name,
             source_refs=source_refs,
             origin=origin,
@@ -3639,6 +4408,7 @@ class GEDCOMImporter:
         self._project_data.events.append(event)
         if self._event_index is not None:
             self._event_index.add(event)
+        self._run_created_event_ids.add(event_id)
         self._events_added += 1
         return event_id
 

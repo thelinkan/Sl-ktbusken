@@ -253,7 +253,8 @@ def test_dp_property_6_consumers_agree_on_cited_sources(events: list[Event]) -> 
                 reported.add(match.group(1))
     assert reported == expected
 
-    # GEDCOM export: every context except from-place is written as SOUR.
+    # GEDCOM export: every context, from-place included, is written as SOUR
+    # (the context travels in _SLK_CTX).
     exporter = GEDCOMExporter()
     exporter._sources = {
         s: Source(id=s, title=s, provider="", source_type="") for s in _ALL_IDS
@@ -263,10 +264,7 @@ def test_dp_property_6_consumers_agree_on_cited_sources(events: list[Event]) -> 
     for event in events:
         lines = exporter._write_event_detail("BIRT", event)
         exported.update(ln[len("2 SOUR "):] for ln in lines if ln.startswith("2 SOUR "))
-        exportable |= {
-            c.ref.source_id for c in event_citations(event)
-            if c.context != CitationContext.FROM_PLACE
-        }
+        exportable |= {c.ref.source_id for c in event_citations(event)}
     assert exported == {exporter._to_gedcom_id(s) for s in exportable}
 
     # Comparison: every item carries the event's cited ids.

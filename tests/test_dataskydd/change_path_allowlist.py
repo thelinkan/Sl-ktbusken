@@ -36,6 +36,11 @@ CHANGE_PATH_ALLOWLIST: tuple[tuple[str, str, str], ...] = (
     ),
     (
         'gedcom/importer.py',
+        '_process_repository_records',
+        'Appends a Repository for a REPO record that no existing name, type and address matches (task 11.5); import runs on a working copy and is registered in the change-path registry as gedcom_import.',
+    ),
+    (
+        'gedcom/importer.py',
         '_attach_arkiv_digital_repository',
         'Import runs on a working copy, task 11.2 rebuilds the import path; the import is registered in the change-path registry as gedcom_import (task 11.5).',
     ),
@@ -83,6 +88,11 @@ CHANGE_PATH_ALLOWLIST: tuple[tuple[str, str, str], ...] = (
         'gedcom/importer.py',
         '_create_family_event',
         'Import runs on a working copy, task 11.2 rebuilds the import path; the import is registered in the change-path registry as gedcom_import (task 11.5).',
+    ),
+    (
+        'gedcom/importer.py',
+        '_fold_event',
+        'Removes an event that this import run created itself, after folding its participants and origins into the matched event of the same _SLK_EID token (task 6.2); import runs on a working copy and is registered in the change-path registry as gedcom_import (task 11.5).',
     ),
     (
         'gedcom/importer.py',

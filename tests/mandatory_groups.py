@@ -24,6 +24,8 @@ class MandatoryGroup:
     modules: tuple[str, ...]  # test files that belong to the group
     properties: tuple[int, ...]  # design property numbers the group must cover
     required_tests: tuple[str, ...]  # "module::test_name" that must exist and be collected
+    # Spec name used in the property tags ``# Feature: <feature>, Property <n>:``.
+    feature: str = "person-comparison-and-merge"
 
 
 _SERVICES = "tests/test_services/"
@@ -479,6 +481,124 @@ _DP_REQUIRED = (
     ),
 )
 
+_RT = "tests/test_gedcom_roundtrip/"
+
+_RT_MODULES = tuple(
+    _RT + f"test_{name}.py"
+    for name in (
+        "citations_roundtrip",
+        "cross_version",
+        "event_links",
+        "events_roundtrip",
+        "export_log",
+        "families_roundtrip",
+        "fixture_roundtrip",
+        "fixture_set",
+        "hash_profile",
+        "persons_roundtrip",
+        "residences_roundtrip",
+        "slk_tags",
+        "sources_roundtrip",
+        "stable_view",
+        "synthetic",
+        "text_roundtrip",
+    )
+)
+
+# One entry per design property (1 to 18) of gedcom-roundtrip-0-3-0.
+_RT_PROPERTY_TESTS = (
+    *_req(_RT + "test_families_roundtrip.py",
+          "test_every_family_event_is_written_exactly_once",  # Property 1
+          "test_placeholder_slots_follow_the_rule",  # Property 4
+          "test_partners_roles_order_and_sex_roundtrip",  # Property 5
+          "test_parentage_links_roundtrip"),  # Property 6
+    *_req(_RT + "test_text_roundtrip.py",
+          "test_free_text_roundtrips_and_lines_are_short"),  # Property 2
+    *_req(_RT + "test_persons_roundtrip.py",
+          "test_person_notes_title_and_occupation_roundtrip",  # Property 2
+          "test_name_types_and_order_roundtrip",  # Property 3
+          "test_sex_roundtrips_for_every_person"),  # Property 5
+    *_req(_RT + "test_events_roundtrip.py",
+          "test_events_roundtrip_with_roles_types_and_participants",  # Property 7
+          "test_event_tokens_join_and_nothing_else_joins"),  # Property 17
+    *_req(_RT + "test_citations_roundtrip.py",
+          "test_citations_roundtrip_with_context_quality_note_and_aspects"),  # Property 8
+    *_req(_RT + "test_residences_roundtrip.py",
+          "test_residences_roundtrip_with_all_structured_data",  # Property 9
+          "test_residence_reimport_is_idempotent",  # Property 9
+          "test_legacy_prose_is_read_only_in_exact_formats"),  # Property 18
+    *_req(_RT + "test_event_links.py",
+          "test_name_and_endpoint_event_links_survive_export_and_import"),  # Property 10
+    *_req(_RT + "test_sources_roundtrip.py",
+          "test_source_metadata_roundtrip",  # Property 11
+          "test_repository_roundtrip"),  # Property 11
+    *_req(_RT + "test_hash_profile.py",
+          "test_slk1_hash_ignores_added_nodes"),  # Property 12
+    *_req(_RT + "test_cross_version.py",
+          "test_reimports_across_versions_create_no_duplicates"),  # Property 13
+    *_req(_RT + "test_slk_tags.py",
+          "test_readers_never_raise_on_arbitrary_slk_lines",  # Property 14
+          "test_unknown_tags_do_not_change_known_data"),  # Property 14
+    *_req(_RT + "test_export_log.py",
+          "test_property_15_*"),  # Property 15
+    *_req(_RT + "test_fixture_roundtrip.py",
+          "test_round_trip_leaves_no_unclassified_difference"),  # Property 16
+)
+
+# One entry per tag of SLK_TAG_REGISTRY (slaktbusken/gedcom/slk_tags.py); the guard
+# checks that this list and the registry agree.
+_RT_SLK_TAG_TESTS = (
+    *_req(_RT + "test_fixture_roundtrip.py", "test_slk_tag_vers_*"),  # _SLK_VERS
+    *_req(
+        _RT + "test_events_roundtrip.py",
+        "test_slk_tag_eid",  # _SLK_EID
+        "test_slk_tag_evtype",  # _SLK_EVTYPE
+        "test_slk_tag_role",  # _SLK_ROLE
+        "test_slk_tag_fromplac",  # _SLK_FROMPLAC
+    ),
+    *_req(
+        _RT + "test_families_roundtrip.py",
+        "test_slk_tag_part",  # _SLK_PART
+        "test_slk_tag_partner",  # _SLK_PARTNER
+        "test_slk_tag_plink",  # _SLK_PLINK
+    ),
+    *_req(_RT + "test_persons_roundtrip.py", "test_slk_tag_sex_x"),  # _SLK_SEX
+    *_req(
+        _RT + "test_citations_roundtrip.py",
+        "test_slk_tag_qual",  # _SLK_QUAL
+        "test_slk_tag_ctx",  # _SLK_CTX
+        "test_slk_tag_asp",  # _SLK_ASP
+    ),
+    *_req(_RT + "test_event_links.py", "test_slk_tag_eref"),  # _SLK_EREF
+    *_req(
+        _RT + "test_residences_roundtrip.py",
+        "test_slk_tag_start_and_slk_tag_end",  # _SLK_START, _SLK_END
+        "test_slk_tag_earliest*",  # _SLK_EARLIEST
+        "test_slk_tag_latest*",  # _SLK_LATEST
+        "test_slk_tag_prec",  # _SLK_PREC
+        "test_slk_tag_note_of_an_endpoint",  # _SLK_NOTE
+        "test_slk_tag_hhrole",  # _SLK_HHROLE
+        "test_slk_tag_rnotes",  # _SLK_RNOTES
+        "test_slk_tag_obsfrom*",  # _SLK_OBSFROM
+        "test_slk_tag_*slk_tag_obsto",  # _SLK_OBSTO
+    ),
+    *_req(
+        _RT + "test_sources_roundtrip.py",
+        "test_slk_tag_stype",  # _SLK_STYPE
+        "test_slk_tag_prov",  # _SLK_PROV
+        "test_slk_tag_lev_*",  # _SLK_LEV
+        "test_slk_tag_*slk_tag_ktyp",  # _SLK_KTYP
+        "test_slk_tag_sref_*",  # _SLK_SREF
+        "test_slk_tag_*slk_tag_fld",  # _SLK_FLD
+        "test_slk_tag_rtype_*",  # _SLK_RTYPE
+        "test_slk_tag_*slk_tag_xid",  # _SLK_XID
+        "test_slk_tag_rstype",  # _SLK_RSTYPE
+        "test_slk_tag_rimg_*",  # _SLK_RIMG
+        "test_slk_tag_*slk_tag_rpage",  # _SLK_RPAGE
+        "test_slk_tag_rmedname",  # _SLK_RMEDNAME
+    ),
+)
+
 MANDATORY_GROUPS: tuple[MandatoryGroup, ...] = (
     MandatoryGroup(
         key="reference_preservation",
@@ -615,6 +735,15 @@ MANDATORY_GROUPS: tuple[MandatoryGroup, ...] = (
         modules=_DP_MODULES,
         properties=(),  # property tags of the other spec are not required (task 1.1)
         required_tests=_DP_REQUIRED,
+    ),
+    MandatoryGroup(
+        key="gedcom_roundtrip",
+        title_sv="GEDCOM-rundresa",
+        requirement="15",
+        modules=_RT_MODULES,
+        properties=tuple(range(1, 19)),
+        required_tests=(*_RT_PROPERTY_TESTS, *_RT_SLK_TAG_TESTS),
+        feature="gedcom-roundtrip-0-3-0",
     ),
 )
 

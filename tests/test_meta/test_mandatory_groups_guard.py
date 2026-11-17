@@ -62,7 +62,7 @@ FORBIDDEN_NAMES = frozenset(
     }
 )
 _FORBIDDEN_ROOTS = frozenset({"pytest", "mark", "unittest"})
-_PROPERTY_TAG = "# Feature: person-comparison-and-merge, Property {n}:"
+_PROPERTY_TAG = "# Feature: {feature}, Property {n}:"
 
 
 DATASKYDD_PREFIX = "tests/test_dataskydd/"
@@ -409,6 +409,48 @@ def _dataskydd_sources() -> dict[str, str]:
     }
 
 
+ROUNDTRIP_DIR = "tests/test_gedcom_roundtrip"
+
+
+def _roundtrip_sources() -> dict[str, str]:
+    return {
+        m: _read(m)
+        for m in sorted(
+            str(p.relative_to(ROOT).as_posix()) for p in (ROOT / ROUNDTRIP_DIR).glob("test_*.py")
+        )
+    }
+
+
+def test_gedcom_roundtrip_example_counts() -> None:
+    """The 100-example floor also covers tests/test_gedcom_roundtrip/ (Requirement 15)."""
+    sources = _roundtrip_sources()
+    assert sources, "inga moduler i tests/test_gedcom_roundtrip"
+    problems = example_count_problems(sources, {}, _conftest_profile())
+    assert not problems, "Hypothesis-antal i GEDCOM-rundresa:\n" + "\n".join(problems)
+
+
+def test_gedcom_roundtrip_group_covers_every_module_and_slk_tag() -> None:
+    group = next(g for g in MANDATORY_GROUPS if g.key == "gedcom_roundtrip")
+    on_disk = {m for m in _roundtrip_sources()}
+    assert on_disk == set(group.modules), (
+        "Moduler i tests/test_gedcom_roundtrip och gruppen skiljer sig åt: "
+        f"{sorted(on_disk ^ set(group.modules))}"
+    )
+    from slaktbusken.gedcom.slk_tags import SLK_TAG_REGISTRY
+
+    names = [e.partition("::")[2] for e in group.required_tests if "test_slk_tag_" in e]
+    problems = []
+    for tag in SLK_TAG_REGISTRY:
+        short = tag.removeprefix("_SLK_").lower()
+        prefix = f"test_slk_tag_{short}"
+        if not any(
+            n == prefix or n.startswith((prefix + "_", prefix + "*")) or n.endswith(f"slk_tag_{short}")
+            for n in names
+        ):
+            problems.append(f"{tag}: ingen obligatorisk test_slk_tag_*")
+    assert not problems, "\n".join(problems)
+
+
 def _conftest_profile() -> int:
     return profile_max_examples((ROOT / "tests" / "conftest.py").read_text(encoding="utf-8-sig"))
 
@@ -429,12 +471,9 @@ def test_every_mandatory_property_is_tagged() -> None:
     for group in MANDATORY_GROUPS:
         text = "\n".join(_read(m) for m in _existing(list(group.modules)))
         for number in group.properties:
-            pattern = re.escape(_PROPERTY_TAG.format(n=number))
-            if not re.search(pattern + r"(?!\d)", text):
-                problems.append(
-                    f"{group.key}: Property {number} saknar taggen "
-                    f"'{_PROPERTY_TAG.format(n=number)}'"
-                )
+            tag = _PROPERTY_TAG.format(feature=group.feature, n=number)
+            if not re.search(re.escape(tag) + r"(?!\d)", text):
+                problems.append(f"{group.key}: Property {number} saknar taggen '{tag}'")
     assert not problems, "\n".join(problems)
 
 

@@ -1,0 +1,4294 @@
+{
+  "format": "släktbuske-file",
+  "version": "0.5",
+  "format_version": "0.5",
+  "project": {
+    "title": "MergeTest",
+    "main_person_id": "person_9",
+    "created_by": "Släktbuske",
+    "language": "sv-SE"
+  },
+  "persons": [
+    {
+      "id": "person_1",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Stina",
+          "surname": "Jansson"
+        },
+        {
+          "type": "married",
+          "given": "Stina",
+          "surname": "Persson",
+          "event_id": "event_18"
+        }
+      ]
+    },
+    {
+      "id": "person_2",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Anders",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_3",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lina",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_4",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Rut",
+          "surname": "Karlsson"
+        },
+        {
+          "type": "married",
+          "given": "Rut",
+          "surname": "Persson"
+        }
+      ],
+      "profile_media_id": "06b7b867-f629-4911-b859-e12ebad2f7d0"
+    },
+    {
+      "id": "person_5",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Janne",
+          "surname": "Karlsson"
+        }
+      ],
+      "notes": "Janne Carlsson är en testperson."
+    },
+    {
+      "id": "person_6",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Janne",
+          "surname": "Karlsson"
+        }
+      ],
+      "profile_media_id": "1316393f-72e7-4734-84a3-9ddf89847d38"
+    },
+    {
+      "id": "person_7",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta Stina",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_8",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Ärla",
+          "surname": "Larsson"
+        }
+      ],
+      "profile_media_id": "57dd08e3-e4ac-496f-844a-7cb82b9c45e8"
+    },
+    {
+      "id": "person_9",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Anders",
+          "surname": "Persson"
+        }
+      ],
+      "profile_media_id": "6c9825b2-20b0-48ac-bfdf-ed92a8c97910"
+    },
+    {
+      "id": "person_10",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Bettan",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_11",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Gösta* Samuel",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_12",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Klara",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_13",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kurt",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_14",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lena",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_15",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Sune",
+          "surname": "Persson"
+        }
+      ],
+      "profile_media_id": "976f95d7-ef92-4874-a4af-7bc3d329a5c4",
+      "title": "Major"
+    },
+    {
+      "id": "person_16",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lotta",
+          "surname": "Pettersson"
+        }
+      ]
+    },
+    {
+      "id": "person_17",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Karl",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_18",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta",
+          "surname": "Larsdotter"
+        }
+      ]
+    },
+    {
+      "id": "person_19",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Jan",
+          "surname": "Karlsson"
+        }
+      ],
+      "notes": "Har inte hittat pappan ännu."
+    },
+    {
+      "id": "person_20",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta",
+          "surname": "Larsdotter"
+        }
+      ]
+    },
+    {
+      "id": "person_21",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Anna",
+          "surname": "Östlund"
+        }
+      ]
+    },
+    {
+      "id": "person_22",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Astrid",
+          "surname": "Eriksdotter"
+        }
+      ]
+    },
+    {
+      "id": "person_23",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lars",
+          "surname": "Olofsson"
+        }
+      ]
+    },
+    {
+      "id": "person_24",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Fia",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_25",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Alice",
+          "surname": "Näslund"
+        }
+      ]
+    },
+    {
+      "id": "person_26",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Jan",
+          "surname": "Jönsson"
+        },
+        {
+          "type": "birth",
+          "given": "Jan",
+          "surname": "Jonsson"
+        }
+      ]
+    },
+    {
+      "id": "person_27",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Stina",
+          "surname": "Berggren"
+        },
+        {
+          "type": "married",
+          "given": "Stina",
+          "surname": "Jönsson"
+        }
+      ]
+    },
+    {
+      "id": "person_28",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Karl",
+          "surname": "Jönsson"
+        }
+      ]
+    },
+    {
+      "id": "person_29",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Katarina",
+          "surname": "Jönsson"
+        }
+      ]
+    },
+    {
+      "id": "person_30",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Frida",
+          "surname": "Hedberg"
+        }
+      ]
+    },
+    {
+      "id": "person_31",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Folke",
+          "surname": "Hedberg"
+        }
+      ]
+    },
+    {
+      "id": "person_32",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Klara",
+          "surname": "Hammar"
+        },
+        {
+          "type": "married",
+          "given": "Klara",
+          "surname": "Hedberg"
+        }
+      ]
+    },
+    {
+      "id": "person_33",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Rut",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_34",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kurt",
+          "surname": "Näslund"
+        }
+      ]
+    },
+    {
+      "id": "person_35",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Astrid",
+          "surname": "Hedlund"
+        }
+      ]
+    },
+    {
+      "id": "person_36",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kent",
+          "surname": "Hedlund"
+        }
+      ]
+    },
+    {
+      "id": "person_37",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Eva",
+          "surname": "Karlsson"
+        },
+        {
+          "type": "married",
+          "given": "Eva",
+          "surname": "Hedlund"
+        }
+      ]
+    },
+    {
+      "id": "person_38",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta",
+          "surname": "Karlsdotter"
+        }
+      ]
+    },
+    {
+      "id": "person_39",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Gösta",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_40",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Gösta",
+          "surname": "Berggren"
+        }
+      ]
+    },
+    {
+      "id": "person_41",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Klara",
+          "surname": "Österman"
+        }
+      ]
+    },
+    {
+      "id": "person_43",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Folke",
+          "surname": "Larsson"
+        }
+      ]
+    },
+    {
+      "id": "person_44",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Berit",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_45",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Greta",
+          "surname": "Larsson"
+        }
+      ]
+    },
+    {
+      "id": "person_46",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Göte",
+          "surname": "Larsson"
+        }
+      ]
+    },
+    {
+      "id": "person_47",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Arne",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_48",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Siv",
+          "surname": "Jansson"
+        },
+        {
+          "type": "married",
+          "given": "Siv",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_49",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Per",
+          "surname": "Knutsson"
+        }
+      ]
+    },
+    {
+      "id": "person_50",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Oskar Frans",
+          "surname": "Knutsson"
+        }
+      ]
+    },
+    {
+      "id": "person_51",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Eva",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_52",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Arne",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_53",
+      "sex": "F",
+      "names": [
+        {
+          "type": "married",
+          "given": "Siv",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_54",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lars Ove",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_55",
+      "sex": "F",
+      "names": [
+        {
+          "type": "married",
+          "given": "Kristina",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_56",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kurt",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_57",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lisa",
+          "surname": "Lund"
+        }
+      ]
+    },
+    {
+      "id": "person_58",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Rutger",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_59",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kurt Sune",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_60",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Alf",
+          "surname": "Rutgersson"
+        }
+      ]
+    },
+    {
+      "id": "person_61",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Sune",
+          "surname": "Rutgersson"
+        }
+      ]
+    },
+    {
+      "id": "person_62",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Beata",
+          "surname": "Rutgersson"
+        }
+      ]
+    },
+    {
+      "id": "person_63",
+      "sex": "U",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Rutger",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_65",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Margareta",
+          "surname": "Lindholm"
+        }
+      ]
+    }
+  ],
+  "families": [
+    {
+      "id": "family_1",
+      "partners": [
+        {
+          "person_id": "person_9",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_1",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_10"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_10",
+          "parent_id": "person_9",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_10",
+          "parent_id": "person_1",
+          "parentage_type": "biological"
+        }
+      ],
+      "event_ids": [
+        "event_18"
+      ]
+    },
+    {
+      "id": "family_2",
+      "partners": [
+        {
+          "person_id": "person_15",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_4",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_9",
+        "person_13",
+        "person_14"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_9",
+          "parent_id": "person_15",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_9",
+          "parent_id": "person_4",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_13",
+          "parent_id": "person_15",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_13",
+          "parent_id": "person_4",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_14",
+          "parent_id": "person_15",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_14",
+          "parent_id": "person_4",
+          "parentage_type": "biological"
+        }
+      ],
+      "event_ids": [
+        "45cc300d-920f-484d-8f77-bd295d901045"
+      ]
+    },
+    {
+      "id": "family_3",
+      "partners": [
+        {
+          "person_id": "person_2",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_7",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_1"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_1",
+          "parent_id": "person_2",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_1",
+          "parent_id": "person_7",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_4",
+      "partners": [
+        {
+          "person_id": "person_13",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_16",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_12"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_12",
+          "parent_id": "person_13",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_12",
+          "parent_id": "person_16",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_5",
+      "partners": [
+        {
+          "person_id": "person_6",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_8",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_4"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_4",
+          "parent_id": "person_6",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_4",
+          "parent_id": "person_8",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_6",
+      "partners": [
+        {
+          "person_id": "person_5",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_3",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_6"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_6",
+          "parent_id": "person_5",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_6",
+          "parent_id": "person_3",
+          "parentage_type": "biological"
+        }
+      ],
+      "event_ids": [
+        "event_19"
+      ]
+    },
+    {
+      "id": "family_7",
+      "partners": [
+        {
+          "person_id": "person_11",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_65",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_15"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_15",
+          "parent_id": "person_11",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_15",
+          "parent_id": "person_65",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_8",
+      "partners": [
+        {
+          "person_id": "person_17",
+          "role": "father"
+        },
+        {
+          "person_id": "person_18",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_5"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_5",
+          "parent_id": "person_17",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_5",
+          "parent_id": "person_18",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_9",
+      "partners": [
+        {
+          "person_id": "person_20",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_19"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_19",
+          "parent_id": "person_20",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "744f9294-3b0b-4a8e-b994-39ea0954f484",
+      "partners": [
+        {
+          "person_id": "person_21",
+          "role": "make/maka"
+        },
+        {
+          "person_id": "person_19",
+          "role": "make/maka"
+        }
+      ],
+      "children": [
+        "person_24"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_24",
+          "parent_id": "person_21",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_24",
+          "parent_id": "person_19",
+          "parentage_type": "biological"
+        }
+      ],
+      "event_ids": [
+        "ec6a9544-ad10-4234-8aef-990fc2f03d5e"
+      ]
+    },
+    {
+      "id": "family_10",
+      "partners": [
+        {
+          "person_id": "person_19",
+          "role": "partner"
+        },
+        {
+          "person_id": "person_21",
+          "role": "partner"
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "family_11",
+      "partners": [
+        {
+          "person_id": "person_22",
+          "role": "mother"
+        },
+        {
+          "person_id": "person_23",
+          "role": "father"
+        }
+      ],
+      "children": [
+        "person_20"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_20",
+          "parent_id": "person_22",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_20",
+          "parent_id": "person_23",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_12",
+      "partners": [
+        {
+          "person_id": "person_27",
+          "role": "mother"
+        },
+        {
+          "person_id": "person_28",
+          "role": "father"
+        }
+      ],
+      "children": [
+        "person_26",
+        "person_29"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_26",
+          "parent_id": "person_27",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_26",
+          "parent_id": "person_28",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_29",
+          "parent_id": "person_27",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_29",
+          "parent_id": "person_28",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "ed8ef599-290f-4d25-b8d7-619e7bc0c438",
+      "partners": [
+        {
+          "person_id": "person_28",
+          "role": "make/maka"
+        },
+        {
+          "person_id": "person_27",
+          "role": "make/maka"
+        }
+      ],
+      "children": [],
+      "event_ids": [
+        "400bb031-7451-40e1-bae2-4c346556f57d"
+      ]
+    },
+    {
+      "id": "family_13",
+      "partners": [
+        {
+          "person_id": "person_31",
+          "role": "father"
+        },
+        {
+          "person_id": "person_32",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_30"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_30",
+          "parent_id": "person_31",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_30",
+          "parent_id": "person_32",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_14",
+      "partners": [
+        {
+          "person_id": "person_33",
+          "role": "mother"
+        },
+        {
+          "person_id": "person_34",
+          "role": "father"
+        }
+      ],
+      "children": [
+        "person_25"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_25",
+          "parent_id": "person_33",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_25",
+          "parent_id": "person_34",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_15",
+      "partners": [
+        {
+          "person_id": "person_36",
+          "role": "father"
+        },
+        {
+          "person_id": "person_37",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_35"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_35",
+          "parent_id": "person_36",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_35",
+          "parent_id": "person_37",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_16",
+      "partners": [
+        {
+          "person_id": "person_38",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_22"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_22",
+          "parent_id": "person_38",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_17",
+      "partners": [
+        {
+          "person_id": "person_39",
+          "role": "father"
+        }
+      ],
+      "children": [
+        "person_37"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_37",
+          "parent_id": "person_39",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_18",
+      "partners": [
+        {
+          "person_id": "person_40",
+          "role": "father"
+        },
+        {
+          "person_id": "person_41",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_27"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_27",
+          "parent_id": "person_40",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_27",
+          "parent_id": "person_41",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_19",
+      "partners": [
+        {
+          "person_id": "person_43",
+          "role": "father"
+        },
+        {
+          "person_id": "person_44",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_8",
+        "person_45",
+        "person_46"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_8",
+          "parent_id": "person_43",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_8",
+          "parent_id": "person_44",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_45",
+          "parent_id": "person_43",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_45",
+          "parent_id": "person_44",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_46",
+          "parent_id": "person_43",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_46",
+          "parent_id": "person_44",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_20",
+      "partners": [
+        {
+          "person_id": "person_47",
+          "role": "father"
+        },
+        {
+          "person_id": "person_48",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_33"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_33",
+          "parent_id": "person_47",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_33",
+          "parent_id": "person_48",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_21",
+      "partners": [
+        {
+          "person_id": "person_50",
+          "role": "father"
+        },
+        {
+          "person_id": "person_51",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_49"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_49",
+          "parent_id": "person_50",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_49",
+          "parent_id": "person_51",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_22",
+      "partners": [
+        {
+          "person_id": "person_52",
+          "role": "father"
+        },
+        {
+          "person_id": "person_53",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_51"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_51",
+          "parent_id": "person_52",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_51",
+          "parent_id": "person_53",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_23",
+      "partners": [
+        {
+          "person_id": "person_54",
+          "role": "father"
+        },
+        {
+          "person_id": "person_55",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_47"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_47",
+          "parent_id": "person_54",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_47",
+          "parent_id": "person_55",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_24",
+      "partners": [
+        {
+          "person_id": "person_56",
+          "role": "father"
+        },
+        {
+          "person_id": "person_57",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_53"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_53",
+          "parent_id": "person_56",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_53",
+          "parent_id": "person_57",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_25",
+      "partners": [
+        {
+          "person_id": "person_14",
+          "role": "partner"
+        },
+        {
+          "person_id": "person_58",
+          "role": "partner"
+        }
+      ],
+      "children": [
+        "person_59"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_59",
+          "parent_id": "person_14",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_59",
+          "parent_id": "person_58",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_26",
+      "partners": [
+        {
+          "person_id": "person_61",
+          "role": "father"
+        },
+        {
+          "person_id": "person_62",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_60"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_60",
+          "parent_id": "person_61",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_60",
+          "parent_id": "person_62",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_27",
+      "partners": [
+        {
+          "person_id": "person_63",
+          "role": "partner"
+        },
+        {
+          "person_id": "person_14",
+          "role": "partner"
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "family_28",
+      "partners": [
+        {
+          "person_id": "person_63",
+          "role": "partner"
+        },
+        {
+          "person_id": "person_14",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_60"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_60",
+          "parent_id": "person_63",
+          "parentage_type": "foster"
+        },
+        {
+          "child_id": "person_60",
+          "parent_id": "person_14",
+          "parentage_type": "foster"
+        }
+      ],
+      "event_ids": [
+        "9615f1d4-17af-405e-8739-d01541ee9362"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "event_1",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_1",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1978-05-06",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_4"
+      }
+    },
+    {
+      "id": "event_2",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_2",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1948-08-08",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      }
+    },
+    {
+      "id": "event_3",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_3",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1889-12-17",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_7"
+      }
+    },
+    {
+      "id": "event_4",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_4",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1955-05-04",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "490843f5-bac6-44c1-a5ae-c9d11e7c68e3"
+      }
+    },
+    {
+      "id": "event_5",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_5",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1888-11-14",
+        "precision": "day",
+        "source_refs": [
+          {
+            "source_id": "d9c9c7ad-0837-4a8d-b63e-7c5ccb0f2e01",
+            "quality": "primary",
+            "aspects": [
+              "date",
+              "place",
+              "parents"
+            ]
+          }
+        ]
+      },
+      "place": {
+        "place_id": "fc89a5a3-13e6-4b14-bc15-0f05b170cefd"
+      }
+    },
+    {
+      "id": "event_6",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_6",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1912-05-06",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      }
+    },
+    {
+      "id": "event_7",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_7",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1949-09-09",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_9"
+      }
+    },
+    {
+      "id": "event_8",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_8",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1912-08-05",
+        "precision": "day",
+        "source_refs": [
+          {
+            "source_id": "0a1d3014-2c7e-48d1-bb56-f2bcd7e38d1f",
+            "quality": "primary",
+            "aspects": [
+              "date"
+            ]
+          },
+          {
+            "source_id": "6d6aea4d-59ed-4e96-b51d-c823cdcc9045",
+            "quality": "primary",
+            "aspects": [
+              "date",
+              "place",
+              "parents"
+            ]
+          }
+        ]
+      },
+      "place": {
+        "place_id": "d1354b8c-9345-4048-9e50-210b97a5b5ff"
+      }
+    },
+    {
+      "id": "event_9",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_9",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1975-01-15",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_11"
+      }
+    },
+    {
+      "id": "event_10",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_10",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1998-08-09",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_13"
+      }
+    },
+    {
+      "id": "event_11",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_11",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1914-09-17",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "event_12",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_11",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1984-06-15",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_13"
+      }
+    },
+    {
+      "id": "event_13",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_12",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "2001-08-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_11"
+      }
+    },
+    {
+      "id": "event_14",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_13",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1976-11-23",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_11"
+      }
+    },
+    {
+      "id": "event_15",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_14",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1978-08-09",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      }
+    },
+    {
+      "id": "event_16",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_15",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1952-03-04",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_13"
+      }
+    },
+    {
+      "id": "event_17",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_16",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1977-06-05",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "event_18",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_9",
+          "role": "spouse"
+        },
+        {
+          "person_id": "person_1",
+          "role": "spouse"
+        }
+      ],
+      "date": {
+        "value": "1998-06-23",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_16"
+      }
+    },
+    {
+      "id": "event_19",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_5",
+          "role": "spouse"
+        },
+        {
+          "person_id": "person_3",
+          "role": "spouse"
+        }
+      ],
+      "date": {
+        "value": "1910-08-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_7"
+      }
+    },
+    {
+      "id": "e91f234e-a5de-46ce-8918-1c7f2ea51d5d",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_17",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1854-12-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "cfecb4c1-1b6a-4f74-8a90-9dbee4a2048f",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_18",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1855-11-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "2b9ca0c9-600c-4cab-af29-12ad5bc57a7f",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_19",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1888-11-14",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_11"
+      }
+    },
+    {
+      "id": "d0eaad1f-e40d-4cf4-a9ec-55895d33d9d7",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_19",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1956-03-03",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "e11e566f-6e99-44d2-ab55-f088724044eb",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_3",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1922-01-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "b129b832-c9e1-4a5c-bc8d-d48ef09ba2ce",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_20",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1855-11-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "b7c2a129-0bf4-4ec3-ac2f-4523b231328c",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_21",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1891-03-12",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "ec6a9544-ad10-4234-8aef-990fc2f03d5e",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_21",
+          "role": "make/maka"
+        },
+        {
+          "person_id": "person_19",
+          "role": "make/maka"
+        }
+      ],
+      "date": {
+        "value": "1926-04-11",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "6c6c2596-774a-4be9-afa9-d97fff48d29b",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_25",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "2002-05-22",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "c8aaacca-27f4-4734-a53a-b1457caec689",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_26",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1996-08-08",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "77deefc7-0f41-49d0-9a17-ace8e305dbdb"
+      }
+    },
+    {
+      "id": "adf3f92b-055c-431f-89ba-a518470929f6",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_27",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1971-01-05",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "dca73b6f-4dbc-4050-b289-16da882d8d3e"
+      }
+    },
+    {
+      "id": "172dfa58-fbfa-4604-b07c-9b573c911c60",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_28",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1968-09-01",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "298e52dd-2043-4fae-a9ed-cc6da562c512"
+      }
+    },
+    {
+      "id": "400bb031-7451-40e1-bae2-4c346556f57d",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_28",
+          "role": "make/maka"
+        },
+        {
+          "person_id": "person_27",
+          "role": "make/maka"
+        }
+      ],
+      "date": {
+        "value": "1991-05-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      }
+    },
+    {
+      "id": "b59a4e17-5eee-4362-adf6-8095cb56fb17",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_30",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1982-12-04",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "e3d07ab4-b796-4d15-a4c6-a2cf83c0bc22",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_31",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1954-01-17",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "2ff2deae-8c1f-47c3-aeaa-d3df10a139d2"
+      }
+    },
+    {
+      "id": "85a39450-9ca3-408d-a941-4164dd278572",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_32",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1960-11-18",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "156b1511-03b5-4e53-9e5a-6e3ebaf4643c",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_33",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1978-09-15",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "f9a09687-f5bf-4f2c-8260-81ebee8dbd73",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_34",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1977-11-19",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "490843f5-bac6-44c1-a5ae-c9d11e7c68e3"
+      }
+    },
+    {
+      "id": "ceac3a43-410a-404f-aea6-f7e0fee456e0",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_35",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1998-02-01",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "d44eea67-c20c-4ecc-9f10-be655ca2f450",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_36",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1969-12-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "e67e0902-6cf8-44e2-9c3f-3a3242ecaa14",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_22",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1812-05-06",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "490843f5-bac6-44c1-a5ae-c9d11e7c68e3"
+      }
+    },
+    {
+      "id": "45cc300d-920f-484d-8f77-bd295d901045",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_4",
+          "role": "make/maka"
+        },
+        {
+          "person_id": "person_15",
+          "role": "make/maka"
+        }
+      ],
+      "date": {
+        "value": "1974-12-09",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "f93c12c8-59f3-475c-b807-51b32b4bc650",
+      "type": "baptism",
+      "participants": [
+        {
+          "person_id": "person_4",
+          "role": "döpt"
+        }
+      ],
+      "date": {
+        "value": "1955-08-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "490843f5-bac6-44c1-a5ae-c9d11e7c68e3"
+      }
+    },
+    {
+      "id": "849dd2a6-7b5b-4db2-aa55-a3f413b8af80",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_37",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1971-03-11",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "b1779d2b-4b6f-4741-b9cf-fb4830865f89",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_39",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1947-11-11",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "1e84eb2e-5a87-4daa-98fd-dd00f550b675",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_40",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1942-01-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "d9c6bf90-4f2d-468b-bf4c-134bc30175ad",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_41",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1943-02-28",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "56e3ee34-4e32-4d62-983f-dd4c948fbc17",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_26",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1996-08-09",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "bbba4941-bc56-4615-9ff9-8fd59342e47d",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_29",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1998-09-05",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "77deefc7-0f41-49d0-9a17-ace8e305dbdb"
+      }
+    },
+    {
+      "id": "6eb99710-4a57-4776-8be4-eec0fcbf7af5",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_43",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1885-04-15",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_7"
+      }
+    },
+    {
+      "id": "f1eb9b35-2717-4fe3-add2-dca4be00a971",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_44",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1882-04-30",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "d1354b8c-9345-4048-9e50-210b97a5b5ff"
+      }
+    },
+    {
+      "id": "2478f46d-1957-48df-9165-37d8c0f417ba",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_45",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1914-06-28",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "d1354b8c-9345-4048-9e50-210b97a5b5ff"
+      }
+    },
+    {
+      "id": "4bd37b5c-1ca7-4b56-a182-a3213b755946",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_46",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1910-09-30",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "d1354b8c-9345-4048-9e50-210b97a5b5ff"
+      }
+    },
+    {
+      "id": "4b0a9620-4b6f-4486-ba68-275a3d027656",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_8",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1987-12-16",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "1a5e14c7-13b1-4bce-aed6-8df1608d99d3",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_45",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1993-08-15",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "c597e683-60ac-4257-86de-11942978608d",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_46",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "2002-08-28",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "a2e71d6b-4043-4107-8052-5d6678b561fc",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_6",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1994-11-15",
+        "precision": "day",
+        "source_refs": [
+          {
+            "source_id": "cb8eb2bd-1c23-49d8-82c5-b2879bd3e6c3",
+            "quality": "primary",
+            "aspects": [
+              "date"
+            ]
+          }
+        ]
+      },
+      "place": {
+        "place_id": "place_6"
+      }
+    },
+    {
+      "id": "cd60b140-6486-4876-b81d-abb2242cc358",
+      "type": "burial",
+      "participants": [
+        {
+          "person_id": "person_6",
+          "role": "begravd"
+        }
+      ],
+      "date": {
+        "value": "1994-12-02",
+        "precision": "day",
+        "source_refs": [
+          {
+            "source_id": "cb8eb2bd-1c23-49d8-82c5-b2879bd3e6c3",
+            "quality": "primary",
+            "aspects": [
+              "date",
+              "place"
+            ]
+          }
+        ]
+      },
+      "place": {
+        "place_id": "0ddc1bbb-9432-4234-b6a9-555ccef324c7"
+      }
+    },
+    {
+      "id": "4660966d-5e87-4b5b-8cd2-6ba66b7225b8",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_47",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1954-03-20",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "7ed0f512-eca3-4023-a013-9ed193f0093f",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_48",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1955-12-06",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "ce7b71fd-f6cf-439b-8690-80fcb451d3b3",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_49",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "2005-02-28",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "29b7ef07-15bb-4230-86dd-cc9e1d5e1c3f",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_50",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1977-12-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "da957530-dfca-458a-9a05-48565ed75f93",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_51",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1980-03-28",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "0c968d30-2aec-40fe-a43f-5e7e983e0106",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_52",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1954-03-20",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "86b53078-c05e-4bde-a8af-21909cde760c",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_53",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1955-12-06",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "bf3155f0-cd83-4414-8243-bc4c4af95d7c",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_53",
+          "role": "make/maka"
+        },
+        {
+          "person_id": "person_52",
+          "role": "make/maka"
+        }
+      ],
+      "date": {
+        "value": "1977-11-22",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "2e268da3-82a4-4e36-a16c-6b9d7d1fd901",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_54",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1918-03-31",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "5cc48c8e-0b24-48fd-9335-3573962b32e5",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_54",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1994-09-29",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "c8062fb4-23e2-4828-8e90-1bf37d2ad5b0",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_55",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1921-05-16",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "ffa63773-9972-4632-aa33-9823e3d600c3",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_55",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "2012-12-16",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "d2f22459-3cf9-4ec7-8625-2300b1cb7fc2",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_56",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1935-06-15",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "5480e70c-a0af-494b-9a48-e7af5c54faca",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_57",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1933-03-03",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "ec43b7ea-d3b9-40d4-89ca-3671b5aba459",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_38",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1789-06-06",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "490843f5-bac6-44c1-a5ae-c9d11e7c68e3"
+      }
+    },
+    {
+      "id": "f928228e-08c1-4d7e-ad54-049e8ca2f7e6",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_38",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1847-11-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "1ae77d7b-36aa-4d31-9980-d7e1c3d732ed",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_22",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1902-01-03",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "07e58721-e658-450a-948b-a0de799a791c",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_23",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1810-02-17",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "902671f3-ac7b-4ec7-82bd-3e655f8fd95b",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_23",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1901-11-06",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "8f02f20f-9f6e-4900-accc-7ca82f34e1af",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_20",
+          "role": "avliden"
+        }
+      ],
+      "date": {
+        "value": "1912-10-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "da395183-69bf-40a2-b933-eefeafec7ffd",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_58",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1975-02-13",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "07969301-b522-43fb-a8b3-5ee1687661d5",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_59",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1999-05-18",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "0f05f587-960a-4bea-b30d-be146835f6da",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_60",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "2002-03-12",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "a978a836-249c-4526-921b-3cc953891b54",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_61",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1980-02-27",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "0213cbd4-ee3d-4a7a-96df-55a74c09a440",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_62",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1984-09-19",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "78a3dac4-32bd-4501-8632-de4d51939dea",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_63",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1975-02-13",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "2754dc5a-8e5d-4345-a447-fe9d492f9ad6",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_14",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1978-08-09",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "9615f1d4-17af-405e-8739-d01541ee9362",
+      "type": "foster_home",
+      "participants": [
+        {
+          "person_id": "person_60",
+          "role": "fosterbarn"
+        },
+        {
+          "person_id": "person_63",
+          "role": "fosterförälder"
+        },
+        {
+          "person_id": "person_14",
+          "role": "fosterförälder"
+        }
+      ],
+      "date": {
+        "value": "2007-06-17",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "4bb8bda7-0b28-4b81-bc50-f00fcad053e7",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_24",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1924-05-06",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "60ca48c1-bfa0-4e6f-9f6a-da27d7de82c7",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_65",
+          "role": "född"
+        }
+      ],
+      "date": {
+        "value": "1916-02-09",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "d33248e1-1401-4803-9070-2309ed677f42",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_65",
+          "role": "avliden"
+        }
+      ]
+    }
+  ],
+  "residences": [
+    {
+      "id": "residence_1",
+      "person_id": "person_19",
+      "place_id": "place_11",
+      "start": {
+        "earliest": "1888-11-15",
+        "latest": "1888-11-15",
+        "precision": "day",
+        "event_id": "2b9ca0c9-600c-4cab-af29-12ad5bc57a7f"
+      },
+      "end": {
+        "earliest": "1926-04-11",
+        "latest": "1926-04-11",
+        "precision": "day",
+        "event_id": "ec6a9544-ad10-4234-8aef-990fc2f03d5e"
+      }
+    },
+    {
+      "id": "residence_2",
+      "person_id": "person_19",
+      "place_id": "place_13",
+      "start": {
+        "earliest": "1926-04-11",
+        "latest": "1926-04-11",
+        "precision": "day",
+        "event_id": "ec6a9544-ad10-4234-8aef-990fc2f03d5e"
+      },
+      "end": {}
+    },
+    {
+      "id": "residence_3",
+      "person_id": "person_8",
+      "place_id": "place_9",
+      "start": {
+        "earliest": "1912-08-05",
+        "latest": "1912-08-05",
+        "precision": "day",
+        "event_id": "event_8"
+      },
+      "end": {
+        "earliest": "1923"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "0a1d3014-2c7e-48d1-bb56-f2bcd7e38d1f",
+            "quality": "primary"
+          },
+          "observed_from": "1910",
+          "observed_to": "1923"
+        }
+      ]
+    },
+    {
+      "id": "residence_4",
+      "person_id": "person_43",
+      "place_id": "d1354b8c-9345-4048-9e50-210b97a5b5ff",
+      "start": {
+        "latest": "1910"
+      },
+      "end": {
+        "earliest": "1923"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "0a1d3014-2c7e-48d1-bb56-f2bcd7e38d1f",
+            "quality": "primary"
+          },
+          "observed_from": "1910",
+          "observed_to": "1923"
+        }
+      ]
+    },
+    {
+      "id": "residence_5",
+      "person_id": "person_44",
+      "place_id": "d1354b8c-9345-4048-9e50-210b97a5b5ff",
+      "start": {
+        "latest": "1910"
+      },
+      "end": {
+        "earliest": "1923"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "0a1d3014-2c7e-48d1-bb56-f2bcd7e38d1f",
+            "quality": "primary"
+          },
+          "observed_from": "1910",
+          "observed_to": "1923"
+        }
+      ]
+    },
+    {
+      "id": "residence_6",
+      "person_id": "person_45",
+      "place_id": "place_9",
+      "start": {
+        "earliest": "1914-06-28",
+        "latest": "1914-06-28",
+        "precision": "day",
+        "event_id": "2478f46d-1957-48df-9165-37d8c0f417ba"
+      },
+      "end": {
+        "earliest": "1923"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "0a1d3014-2c7e-48d1-bb56-f2bcd7e38d1f",
+            "quality": "primary"
+          },
+          "observed_from": "1910",
+          "observed_to": "1923"
+        }
+      ]
+    },
+    {
+      "id": "residence_7",
+      "person_id": "person_46",
+      "place_id": "d1354b8c-9345-4048-9e50-210b97a5b5ff",
+      "start": {
+        "earliest": "1910-09-30",
+        "latest": "1910-09-30",
+        "precision": "day",
+        "event_id": "4bd37b5c-1ca7-4b56-a182-a3213b755946"
+      },
+      "end": {
+        "earliest": "1923"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "0a1d3014-2c7e-48d1-bb56-f2bcd7e38d1f",
+            "quality": "primary"
+          },
+          "observed_from": "1910",
+          "observed_to": "1923"
+        }
+      ]
+    }
+  ],
+  "places": [
+    {
+      "id": "place_1",
+      "type": "continent",
+      "name": "Europa",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_2",
+      "type": "country",
+      "name": "Sverige",
+      "parent_place_id": "place_1",
+      "region_levels": [
+        {
+          "key": "lan",
+          "label": "Län",
+          "order": 1,
+          "custom_fields": [
+            {
+              "key": "code",
+              "label": "Länsbokstav"
+            }
+          ]
+        },
+        {
+          "key": "socken",
+          "label": "Socken",
+          "order": 2
+        }
+      ],
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_3",
+      "type": "lan",
+      "name": "Västerbottens län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "AC"
+      }
+    },
+    {
+      "id": "place_4",
+      "type": "socken",
+      "name": "Umeå",
+      "parent_place_id": "place_3",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_5",
+      "type": "lan",
+      "name": "Värmlands län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "S"
+      }
+    },
+    {
+      "id": "place_6",
+      "type": "socken",
+      "name": "Karlstad",
+      "parent_place_id": "place_5",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_7",
+      "type": "socken",
+      "name": "Ed",
+      "parent_place_id": "place_5",
+      "latitude": 59.291264,
+      "longitude": 13.072861,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_8",
+      "type": "lan",
+      "name": "Jämtlands län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "Z"
+      }
+    },
+    {
+      "id": "place_9",
+      "type": "socken",
+      "name": "Östersund",
+      "parent_place_id": "place_8",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_10",
+      "type": "lan",
+      "name": "Kopparbergs län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "W"
+      }
+    },
+    {
+      "id": "place_11",
+      "type": "socken",
+      "name": "Falun",
+      "parent_place_id": "place_10",
+      "latitude": 60.607778,
+      "longitude": 15.631111,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_12",
+      "type": "lan",
+      "name": "Gävleborgs län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "X"
+      }
+    },
+    {
+      "id": "place_13",
+      "type": "socken",
+      "name": "Gävle",
+      "parent_place_id": "place_12",
+      "latitude": 60.672778,
+      "longitude": 17.138056,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_15",
+      "type": "lan",
+      "name": "Uppsala län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "C"
+      }
+    },
+    {
+      "id": "place_16",
+      "type": "socken",
+      "name": "Enköping",
+      "parent_place_id": "place_15",
+      "latitude": 59.638692,
+      "longitude": 17.082631,
+      "custom_field_values": {}
+    },
+    {
+      "id": "dca73b6f-4dbc-4050-b289-16da882d8d3e",
+      "type": "socken",
+      "name": "Ljusdal",
+      "parent_place_id": "place_12",
+      "latitude": 61.828333,
+      "longitude": 16.0725,
+      "custom_field_values": {}
+    },
+    {
+      "id": "298e52dd-2043-4fae-a9ed-cc6da562c512",
+      "type": "socken",
+      "name": "Järvsö",
+      "parent_place_id": "place_12",
+      "latitude": 61.709442,
+      "longitude": 16.181331,
+      "custom_field_values": {}
+    },
+    {
+      "id": "2ff2deae-8c1f-47c3-aeaa-d3df10a139d2",
+      "type": "socken",
+      "name": "Ekshärad",
+      "parent_place_id": "place_5",
+      "latitude": 60.172567,
+      "longitude": 13.497564,
+      "custom_field_values": {}
+    },
+    {
+      "id": "d1354b8c-9345-4048-9e50-210b97a5b5ff",
+      "type": "socken",
+      "name": "Våmhus",
+      "parent_place_id": "place_10",
+      "latitude": 61.123694,
+      "longitude": 14.472556,
+      "custom_field_values": {}
+    },
+    {
+      "id": "490843f5-bac6-44c1-a5ae-c9d11e7c68e3",
+      "type": "socken",
+      "name": "Forsa",
+      "parent_place_id": "place_12",
+      "latitude": 61.73415,
+      "longitude": 16.939317,
+      "notes": "\t",
+      "custom_field_values": {}
+    },
+    {
+      "id": "77deefc7-0f41-49d0-9a17-ace8e305dbdb",
+      "type": "socken",
+      "name": "Norrbo",
+      "parent_place_id": "place_12",
+      "latitude": 61.853556,
+      "longitude": 16.639361,
+      "custom_field_values": {}
+    },
+    {
+      "id": "fc89a5a3-13e6-4b14-bc15-0f05b170cefd",
+      "type": "socken",
+      "name": "Lysvik",
+      "parent_place_id": "place_5",
+      "latitude": 60.014444,
+      "longitude": 13.132222,
+      "custom_field_values": {}
+    },
+    {
+      "id": "0ddc1bbb-9432-4234-b6a9-555ccef324c7",
+      "type": "church",
+      "name": "Västerstrandskyrkan",
+      "parent_place_id": "place_6",
+      "custom_field_values": {}
+    }
+  ],
+  "sources": [
+    {
+      "id": "0a1d3014-2c7e-48d1-bb56-f2bcd7e38d1f",
+      "provider": "Arkiv Digital",
+      "source_type": "church_book",
+      "title": "Våmhus AII:2c Sida: 272",
+      "reference_text": "Våmhus (W) AII:2c (1910-1923) Bild: 70 Sida: 272",
+      "structured_reference": {
+        "fields": {
+          "parish": "Våmhus",
+          "county_code": "W",
+          "series": "AII",
+          "volume": "2c",
+          "years": "1910-1923",
+          "image": "70",
+          "page": "272"
+        }
+      },
+      "media_ids": [
+        "06e45cc4-7e18-4ea7-bd1d-0f56ed922206"
+      ],
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "kalltyp_id": "054a16fc-896e-4e05-828b-d991fd96358d"
+    },
+    {
+      "id": "6d6aea4d-59ed-4e96-b51d-c823cdcc9045",
+      "provider": "Arkiv Digital",
+      "source_type": "church_book",
+      "title": "Våmhus C:3 Sida: 146",
+      "reference_text": "Våmhus (W) C:3 (1895-1917) Bild: 430 Sida: 146",
+      "structured_reference": {
+        "fields": {
+          "parish": "Våmhus",
+          "county_code": "W",
+          "series": "C",
+          "volume": "3",
+          "years": "1895-1917",
+          "image": "430",
+          "page": "146"
+        }
+      },
+      "media_ids": [
+        "2609675e-2b60-472a-a854-47236fb9c5a8"
+      ],
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "kalltyp_id": "771ef194-3899-4987-a540-b4fdc1ab398e"
+    },
+    {
+      "id": "d9c9c7ad-0837-4a8d-b63e-7c5ccb0f2e01",
+      "provider": "Arkiv Digital",
+      "source_type": "church_book",
+      "title": "Lysvik C:11 Bild: 55",
+      "reference_text": "Lysvik (S) C:11 (1885-1894) Bild: 55",
+      "structured_reference": {
+        "fields": {
+          "parish": "Lysvik",
+          "county_code": "S",
+          "series": "C",
+          "volume": "11",
+          "years": "1885-1894",
+          "image": "55"
+        }
+      },
+      "media_ids": [
+        "8c712e23-be04-4322-8aa9-71dbbaa28fea"
+      ],
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "kalltyp_id": "771ef194-3899-4987-a540-b4fdc1ab398e"
+    },
+    {
+      "id": "cb8eb2bd-1c23-49d8-82c5-b2879bd3e6c3",
+      "provider": "Övrigt",
+      "source_type": "other",
+      "title": "Dödsannons Janne Karsson d. 1994",
+      "structured_reference": {
+        "fields": {}
+      },
+      "media_ids": [
+        "5ed4b451-43e6-48e1-a590-60d49e951e33"
+      ],
+      "leverantor_id": "2f3ad310-c184-4fee-8711-3436fffb73ea",
+      "kalltyp_id": "37e8cc06-901b-41a2-9511-db7405c951eb"
+    }
+  ],
+  "media": [
+    {
+      "id": "6c9825b2-20b0-48ac-bfdf-ed92a8c97910",
+      "type": "photo",
+      "file": "media/photos/AndersPersson.png",
+      "title": "[Övrigt foto] Anders Persson",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_9"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_9"
+      ]
+    },
+    {
+      "id": "53e35169-5e4c-47c9-95a4-b424162b4c53",
+      "type": "logo",
+      "file": "media/logo/myheritage.png",
+      "title": "myheritage"
+    },
+    {
+      "id": "f06bf1c0-d1e8-45ca-9698-49059780a8ba",
+      "type": "logo",
+      "file": "media/logo/ancestry-logo.png",
+      "title": "ancestry-logo"
+    },
+    {
+      "id": "ad6a4d94-0381-4a4a-b0be-77cd3bab4809",
+      "type": "logo",
+      "file": "media/logo/ftdna.png",
+      "title": "ftdna"
+    },
+    {
+      "id": "96416b02-2a0f-44d8-92f3-9f32ee8a728c",
+      "type": "logo",
+      "file": "media/logo/23andme.png",
+      "title": "23andme"
+    },
+    {
+      "id": "976f95d7-ef92-4874-a4af-7bc3d329a5c4",
+      "type": "photo",
+      "file": "media/photos/SunePersson.png",
+      "title": "[Övrigt foto] Sune Persson",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_15"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_15"
+      ]
+    },
+    {
+      "id": "06b7b867-f629-4911-b859-e12ebad2f7d0",
+      "type": "photo",
+      "file": "media/photos/RutPersson.png",
+      "title": "[Övrigt foto] Rut Karlsson",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_4"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_4"
+      ]
+    },
+    {
+      "id": "6c2e0aee-1027-4fa0-8491-53642d4a3963",
+      "type": "photo",
+      "file": "media/photos/RutOchSuneBröllop.png",
+      "title": "[Bröllopsfoto] Rut och Sune Persson",
+      "linked_entities": [
+        {
+          "entity_type": "event",
+          "entity_id": "45cc300d-920f-484d-8f77-bd295d901045"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_4"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_15"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_4",
+        "person_15"
+      ]
+    },
+    {
+      "id": "33bb9aa3-dfd6-4279-81d6-234c8d3d1056",
+      "type": "photo",
+      "file": "media/photos/RutOchSuneFamiljefoto.png",
+      "title": "[Familjefoto] Rut och Sune - familjefoto",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_4"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_13"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_14"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_15"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_9"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_4",
+        "person_15",
+        "person_9",
+        "person_13",
+        "person_14"
+      ]
+    },
+    {
+      "id": "57dd08e3-e4ac-496f-844a-7cb82b9c45e8",
+      "type": "photo",
+      "file": "media/photos/ÄrlaKarlsson.png",
+      "title": "[Övrigt foto] Ärla Karlsson",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_8"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_8"
+      ]
+    },
+    {
+      "id": "1316393f-72e7-4734-84a3-9ddf89847d38",
+      "type": "photo",
+      "file": "media/photos/JanneKarlsson.png",
+      "title": "[Övrigt foto] Janne Karlsson",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_6"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_6"
+      ]
+    },
+    {
+      "id": "f2945fc8-3c1f-4fef-af48-a6dbb6733374",
+      "type": "photo",
+      "file": "media/photos/JanneKarlssonMilitär.png",
+      "title": "[Militärfoto] Janne Karlsson -lumpen",
+      "linked_entities": [
+        {
+          "entity_type": "person",
+          "entity_id": "person_6"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_6"
+      ]
+    },
+    {
+      "id": "91ab3f18-63b8-4fc7-88ed-50097ad73d27",
+      "type": "photo",
+      "file": "media/photos/RutKarlssonDop.png",
+      "title": "[Dopfoto] Rut Karlssons dop",
+      "linked_entities": [
+        {
+          "entity_type": "event",
+          "entity_id": "f93c12c8-59f3-475c-b807-51b32b4bc650"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_6"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_4"
+        },
+        {
+          "entity_type": "person",
+          "entity_id": "person_8"
+        }
+      ],
+      "mentioned_person_ids": [
+        "person_6",
+        "person_8",
+        "person_4"
+      ]
+    },
+    {
+      "id": "06e45cc4-7e18-4ea7-bd1d-0f56ed922206",
+      "type": "photo",
+      "file": "media/source-image/Våmhus AII2c 1910-1923 272.png",
+      "title": "Våmhus AII:2c Sida: 272"
+    },
+    {
+      "id": "2609675e-2b60-472a-a854-47236fb9c5a8",
+      "type": "photo",
+      "file": "media/source-image/Våmhus-W-C-3-1895-1917-Bild-430-Sida-146.png",
+      "title": "Våmhus C:3 Sida: 146"
+    },
+    {
+      "id": "8c712e23-be04-4322-8aa9-71dbbaa28fea",
+      "type": "photo",
+      "file": "media/source-image/Lysvik-S-C11-1885-1894-Bild-55.png",
+      "title": "Lysvik C:11 Bild: 55"
+    },
+    {
+      "id": "5ed4b451-43e6-48e1-a590-60d49e951e33",
+      "type": "photo",
+      "file": "media/source-image/Dödsannons_Janne_Karlsson_1912-1924.png",
+      "title": "Dödsannons Janne Karsson d. 1994"
+    }
+  ],
+  "repositories": [
+    {
+      "id": "repo_1",
+      "name": "ArkivDigital",
+      "type": "digital_archive",
+      "web": [
+        "https://www.arkivdigital.se"
+      ]
+    }
+  ],
+  "dna_companies": [
+    {
+      "id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "name": "My Herritage",
+      "logo_media_id": "53e35169-5e4c-47c9-95a4-b424162b4c53"
+    },
+    {
+      "id": "d350a2f6-1345-48fd-aa80-9ae473709193",
+      "name": "Ancestry",
+      "logo_media_id": "f06bf1c0-d1e8-45ca-9698-49059780a8ba"
+    },
+    {
+      "id": "a2beb045-371f-4f35-9207-a0f5584cec32",
+      "name": "FTDNA",
+      "logo_media_id": "ad6a4d94-0381-4a4a-b0be-77cd3bab4809"
+    },
+    {
+      "id": "3e9934b3-a974-4fd3-829b-d61ed9e5087b",
+      "name": "23 and me",
+      "logo_media_id": "96416b02-2a0f-44d8-92f3-9f32ee8a728c"
+    }
+  ],
+  "dna_profiles": [
+    {
+      "id": "fd273ff6-cb83-4ed4-92d3-c5c33969388a",
+      "person_id": "person_9",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "test_type": "autosomal",
+      "kit_name": "Mitt eget"
+    },
+    {
+      "id": "8cbe9b96-da12-4dd1-8670-5686ba661f7f",
+      "person_id": "person_15",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "test_type": "autosomal",
+      "kit_name": "Sune Persson"
+    },
+    {
+      "id": "f78f7bbc-5008-4627-b34c-10e010fd3b5b",
+      "person_id": "person_25",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "test_type": "autosomal",
+      "kit_name": "Allice"
+    },
+    {
+      "id": "9c5fb30a-ac93-4127-a75f-1e322d3bb7d1",
+      "person_id": "person_26",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "test_type": "autosomal",
+      "kit_name": "Jan Jönsson"
+    },
+    {
+      "id": "c4ac655b-2226-4942-a529-b29833398424",
+      "person_id": "person_32",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "test_type": "autosomal",
+      "kit_name": "Klara Hammar"
+    },
+    {
+      "id": "3c43e18a-2223-4689-8399-04fcebd39412",
+      "person_id": "person_35",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "test_type": "autosomal",
+      "kit_name": "Astrid Hedlund"
+    },
+    {
+      "id": "4373e1ff-25a7-4994-83ec-5ef37f24c630",
+      "person_id": "person_9",
+      "company_id": "d350a2f6-1345-48fd-aa80-9ae473709193",
+      "test_type": "autosomal",
+      "kit_name": "Mitt Ancestry"
+    },
+    {
+      "id": "5a3dc386-4076-4386-873b-ba851d09b06c",
+      "person_id": "person_26",
+      "company_id": "d350a2f6-1345-48fd-aa80-9ae473709193",
+      "test_type": "autosomal",
+      "kit_name": "Jan Jonsson"
+    },
+    {
+      "id": "5c8e8572-eb04-4737-a0c0-abac688cbcf5",
+      "person_id": "person_49",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "test_type": "autosomal",
+      "kit_name": "Per Knutsson"
+    }
+  ],
+  "dna_matches": [
+    {
+      "id": "e6a17951-919a-4115-aff9-16e5fe1a278f",
+      "profile1_id": "8cbe9b96-da12-4dd1-8670-5686ba661f7f",
+      "profile2_id": "fd273ff6-cb83-4ed4-92d3-c5c33969388a",
+      "shared_cm": 3275.0,
+      "shared_percentage": 50.0,
+      "segment_count": 22,
+      "largest_segment_cm": 525.0,
+      "match_source": "internal"
+    },
+    {
+      "id": "384eb84a-6fd7-4f7b-9e4b-24f664892ac1",
+      "profile1_id": "f78f7bbc-5008-4627-b34c-10e010fd3b5b",
+      "profile2_id": "fd273ff6-cb83-4ed4-92d3-c5c33969388a",
+      "shared_cm": 175.0,
+      "shared_percentage": 0.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0,
+      "match_source": "internal"
+    },
+    {
+      "id": "03f147bb-ef22-4757-bd81-c7cf2bb723bc",
+      "profile1_id": "f78f7bbc-5008-4627-b34c-10e010fd3b5b",
+      "profile2_id": "8cbe9b96-da12-4dd1-8670-5686ba661f7f",
+      "shared_cm": 268.0,
+      "shared_percentage": 0.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0,
+      "match_source": "internal"
+    },
+    {
+      "id": "57c327e0-2020-4675-99aa-f641cd513304",
+      "profile1_id": "9c5fb30a-ac93-4127-a75f-1e322d3bb7d1",
+      "profile2_id": "fd273ff6-cb83-4ed4-92d3-c5c33969388a",
+      "shared_cm": 185.0,
+      "shared_percentage": 0.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0,
+      "match_source": "internal"
+    },
+    {
+      "id": "7af7f763-e8d5-4dd7-b91e-2545f9fce3c1",
+      "profile1_id": "c4ac655b-2226-4942-a529-b29833398424",
+      "profile2_id": "fd273ff6-cb83-4ed4-92d3-c5c33969388a",
+      "shared_cm": 87.3,
+      "shared_percentage": 0.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0,
+      "match_source": "internal"
+    },
+    {
+      "id": "a04e7b27-a58b-43e6-b77e-408c547ddb05",
+      "profile1_id": "3c43e18a-2223-4689-8399-04fcebd39412",
+      "profile2_id": "fd273ff6-cb83-4ed4-92d3-c5c33969388a",
+      "shared_cm": 67.3,
+      "shared_percentage": 0.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0,
+      "match_source": "internal"
+    },
+    {
+      "id": "44169e13-7278-4a15-a9c2-3e95519fbf6d",
+      "profile1_id": "5a3dc386-4076-4386-873b-ba851d09b06c",
+      "profile2_id": "4373e1ff-25a7-4994-83ec-5ef37f24c630",
+      "shared_cm": 145.0,
+      "shared_percentage": 0.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0,
+      "match_source": "internal"
+    },
+    {
+      "id": "a0e1054a-a1eb-4a8b-9a4b-3280c5fe4cdc",
+      "profile1_id": "5c8e8572-eb04-4737-a0c0-abac688cbcf5",
+      "profile2_id": "fd273ff6-cb83-4ed4-92d3-c5c33969388a",
+      "shared_cm": 130.0,
+      "shared_percentage": 0.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0,
+      "match_source": "internal"
+    },
+    {
+      "id": "c8e0fc03-0df7-4a71-951b-66f0d4420841",
+      "profile1_id": "f78f7bbc-5008-4627-b34c-10e010fd3b5b",
+      "profile2_id": "5c8e8572-eb04-4737-a0c0-abac688cbcf5",
+      "shared_cm": 860.0,
+      "shared_percentage": 0.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0,
+      "match_source": "internal"
+    }
+  ],
+  "dna_segments": [],
+  "dna_clusters": [
+    {
+      "id": "097621d7-890a-4f53-997a-99ef34dad532",
+      "name": "Näslund",
+      "person_ids": [
+        "person_25",
+        "person_33",
+        "person_34",
+        "person_48",
+        "person_47"
+      ]
+    },
+    {
+      "id": "f8b4e42a-0625-44f3-abee-4549b155e1e0",
+      "name": "Jönsson",
+      "person_ids": [
+        "person_26",
+        "person_27",
+        "person_28",
+        "person_29",
+        "person_40",
+        "person_41"
+      ]
+    },
+    {
+      "id": "66411cc4-8cf8-4614-997a-baa3efa70a4f",
+      "name": "Hedberg",
+      "person_ids": [
+        "person_30",
+        "person_31",
+        "person_32"
+      ]
+    },
+    {
+      "id": "bdefb4ca-2064-42ee-aa08-7b956c563f35",
+      "name": "Hedlund",
+      "person_ids": [
+        "person_36",
+        "person_35",
+        "person_37",
+        "person_39"
+      ]
+    },
+    {
+      "id": "10bbbc41-8afd-42a2-bdd8-6050935e340b",
+      "name": "Knutsson",
+      "person_ids": [
+        "person_49",
+        "person_51",
+        "person_50",
+        "person_52",
+        "person_53"
+      ]
+    }
+  ],
+  "dna_triangulations": [
+    {
+      "id": "11311286-09ad-474a-870f-6ae5c957d5ad",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "profile_ids": [
+        "fd273ff6-cb83-4ed4-92d3-c5c33969388a",
+        "f78f7bbc-5008-4627-b34c-10e010fd3b5b",
+        "5c8e8572-eb04-4737-a0c0-abac688cbcf5"
+      ],
+      "shared_cm": 83.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0
+    },
+    {
+      "id": "769ba1f2-f9d9-420f-8f43-e935d7ed3305",
+      "company_id": "086f8c28-ccb8-42c0-a65e-ba3438d6fa59",
+      "profile_ids": [
+        "8cbe9b96-da12-4dd1-8670-5686ba661f7f",
+        "f78f7bbc-5008-4627-b34c-10e010fd3b5b",
+        "5c8e8572-eb04-4737-a0c0-abac688cbcf5"
+      ],
+      "shared_cm": 102.0,
+      "segment_count": 0,
+      "largest_segment_cm": 0.0
+    }
+  ],
+  "research_notes": [],
+  "leverantorer": [
+    {
+      "id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Arkiv Digital"
+    },
+    {
+      "id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Nationell arkivdatabas"
+    },
+    {
+      "id": "2150107d-925b-4691-8b29-2798ce39aecb",
+      "name": "Rötter.se"
+    },
+    {
+      "id": "e369e68a-af38-4a24-91b6-20394fcde04e",
+      "name": "Skatteverket"
+    },
+    {
+      "id": "2f3ad310-c184-4fee-8711-3436fffb73ea",
+      "name": "Övrigt"
+    }
+  ],
+  "kalltyper": [
+    {
+      "id": "054a16fc-896e-4e05-828b-d991fd96358d",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Husförhörslängd"
+    },
+    {
+      "id": "6efec983-b714-4e00-8927-7e94032c89a3",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Församlingsbok"
+    },
+    {
+      "id": "5f423683-43c2-4b44-ad9c-c40338b399aa",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Mantalslängd"
+    },
+    {
+      "id": "c747981f-40ba-49c8-8831-704f114e2e0a",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Folkräkning"
+    },
+    {
+      "id": "52635046-5397-4a66-b5d4-62a14cf5a4a4",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Inflyttningslängd"
+    },
+    {
+      "id": "c39e3bdb-581a-4509-856e-962cfe8b1040",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Utflyttningslängd"
+    },
+    {
+      "id": "d5437edb-2ad6-451a-9385-d2823da6199d",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "In- och Utflyttningslängd"
+    },
+    {
+      "id": "771ef194-3899-4987-a540-b4fdc1ab398e",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Födelse- och dopbok"
+    },
+    {
+      "id": "7e790a67-c9fc-4b56-90e5-df1b62e2a38d",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Lysnings- och vigselbok"
+    },
+    {
+      "id": "73aca078-e168-4623-9527-f3ef0c36cfd3",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Död- och begravningsbok"
+    },
+    {
+      "id": "0ad8116b-1997-4d8e-a87b-9e10dffee59c",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Generalmönstringsrullor"
+    },
+    {
+      "id": "2a7bb792-fef1-4bba-a104-7586390c42d2",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Bouppteckningar"
+    },
+    {
+      "id": "ac01cb2b-c290-4fdb-a48c-7a27386600b8",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Konfirmationsbok"
+    },
+    {
+      "id": "446fff65-dca8-4ea3-bec1-7adf2c16839a",
+      "leverantor_id": "ee000518-7403-441c-a10f-dd3fd4689ec7",
+      "name": "Övrigt"
+    },
+    {
+      "id": "f986df42-bf42-4d64-9dfe-e0f8b1c61551",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Husförhörslängd"
+    },
+    {
+      "id": "5e8a36ea-3c4b-43f1-a818-3ff479ac8ebb",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Församlingsbok"
+    },
+    {
+      "id": "6ee1374f-d15d-4457-a00a-aec20eadcd58",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Mantalslängd"
+    },
+    {
+      "id": "9064a86f-c8f4-43d3-914c-55db6fba43b4",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Folkräkning"
+    },
+    {
+      "id": "d78aa86f-c2a7-40be-b1df-9707e3736ce7",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Inflyttningslängd"
+    },
+    {
+      "id": "ff87836f-5edd-4be1-94ec-2170c9b2951f",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Utflyttningslängd"
+    },
+    {
+      "id": "8f6c2e6d-0488-4c9b-99e5-3f3607740982",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "In- och Utflyttningslängd"
+    },
+    {
+      "id": "6fda6f55-2773-4727-a3c1-8e88d50e2a1c",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Födelse- och dopbok"
+    },
+    {
+      "id": "8b5e22cc-b08c-4872-9463-609377627a68",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Lysnings- och vigselbok"
+    },
+    {
+      "id": "e432cead-7ec1-4215-b9c1-c834da8a6c06",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Död- och begravningsbok"
+    },
+    {
+      "id": "763a06ed-6b99-48b4-9851-25781ddc2bbd",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Generalmönstringsrullor"
+    },
+    {
+      "id": "e6e02aac-6270-4775-954a-ef95c475bfad",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Bouppteckningar"
+    },
+    {
+      "id": "63e19179-34bc-4ba7-a4cf-67f9b2a4a02b",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Konfirmationsbok"
+    },
+    {
+      "id": "5749a0de-e02b-4f10-9865-2866554d4496",
+      "leverantor_id": "75fd720a-0755-4734-adc9-d0d422b3cbf3",
+      "name": "Övrigt"
+    },
+    {
+      "id": "94ba7f50-b303-4e82-9a63-491e47ff6764",
+      "leverantor_id": "2150107d-925b-4691-8b29-2798ce39aecb",
+      "name": "Sveriges Dödbok Webb",
+      "root_url": "https://www.rotter.se/abonnemang/sveriges-dodbok-webb/post/"
+    },
+    {
+      "id": "7a55bea1-184f-4b46-ab64-7f1ad5d899dc",
+      "leverantor_id": "2150107d-925b-4691-8b29-2798ce39aecb",
+      "name": "Sveriges Dödbok (sticka/dvd)"
+    },
+    {
+      "id": "edd17010-20bb-4762-9992-91e3341ed0b6",
+      "leverantor_id": "2150107d-925b-4691-8b29-2798ce39aecb",
+      "name": "Övrigt"
+    },
+    {
+      "id": "74d2c47a-6279-498a-82f7-ad7aa12314d3",
+      "leverantor_id": "e369e68a-af38-4a24-91b6-20394fcde04e",
+      "name": "Personbild (6401)"
+    },
+    {
+      "id": "5f2bb358-ed02-4a0b-9d2e-7c22d444cb50",
+      "leverantor_id": "e369e68a-af38-4a24-91b6-20394fcde04e",
+      "name": "Övrigt"
+    },
+    {
+      "id": "37e8cc06-901b-41a2-9511-db7405c951eb",
+      "leverantor_id": "2f3ad310-c184-4fee-8711-3436fffb73ea",
+      "name": "Dödsannons"
+    },
+    {
+      "id": "7b908dfa-cbef-4613-916b-2e6b57505623",
+      "leverantor_id": "2f3ad310-c184-4fee-8711-3436fffb73ea",
+      "name": "Tidningsartikel"
+    },
+    {
+      "id": "f6a4c889-68b2-468a-9bc7-c1b99462a9be",
+      "leverantor_id": "2f3ad310-c184-4fee-8711-3436fffb73ea",
+      "name": "Övrig databas"
+    },
+    {
+      "id": "4f680a9e-1328-487f-8aa9-cd63837103ae",
+      "leverantor_id": "2f3ad310-c184-4fee-8711-3436fffb73ea",
+      "name": "Övrigt"
+    }
+  ],
+  "research_cases": [
+    {
+      "id": "case_1",
+      "title": "Letar Astrid Eriksdotters pappa",
+      "description": "Astrid Eriksdotters pappa står som okänd.",
+      "status": "open",
+      "priority": "normal",
+      "primary_entity_ref": {
+        "entity_type": "person",
+        "entity_id": "person_22"
+      }
+    }
+  ],
+  "research_hypotheses": [],
+  "research_actions": [],
+  "merge_candidates": [
+    {
+      "id": "mergecand_1",
+      "person_1_id": "person_20",
+      "person_2_id": "person_18",
+      "assessment": "possible",
+      "enabled": true
+    },
+    {
+      "id": "mergecand_3",
+      "person_1_id": "person_47",
+      "person_2_id": "person_52",
+      "assessment": "confirmed",
+      "enabled": true,
+      "comments": [
+        {
+          "id": "mergecomment_1",
+          "date": "2026-11-13",
+          "text": "Det är helt säkert att det är samma person..."
+        }
+      ]
+    },
+    {
+      "id": "mergecand_4",
+      "person_1_id": "person_48",
+      "person_2_id": "person_53",
+      "assessment": "confirmed",
+      "enabled": true
+    },
+    {
+      "id": "mergecand_5",
+      "person_1_id": "person_58",
+      "person_2_id": "person_63",
+      "assessment": "unreviewed",
+      "enabled": true
+    }
+  ],
+  "merge_history": [
+    {
+      "id": "merge_1",
+      "surviving_person_id": "person_14",
+      "merged_person_id": "person_64",
+      "merged_person_name": "Lena Persson",
+      "merged_person_lifespan": "(1978)",
+      "merge_date": "2026-11-14",
+      "merge_candidate_id": "mergecand_6",
+      "archived_candidates": [
+        {
+          "id": "mergecand_6",
+          "person_1_id": "person_14",
+          "person_2_id": "person_64",
+          "assessment": "confirmed",
+          "enabled": true,
+          "role": "direct"
+        }
+      ],
+      "summary_lines": [
+        "Namn tillagda: 0",
+        "Händelser flyttade: 2",
+        "Boenden flyttade: 0",
+        "Källhänvisningar flyttade: 0",
+        "Mediaobjekt med flyttade personlänkar: 0",
+        "Familjer berörda: 2",
+        "Forskningslänkar flyttade: 0",
+        "Beslut för motstridiga fält: 0",
+        "Anteckningar sammanslagna: nej",
+        "Kandidater omdirigerade: 0",
+        "Kandidater arkiverade: 1",
+        "Tomma dubblettfamiljer borttagna: 0"
+      ]
+    },
+    {
+      "id": "merge_2",
+      "surviving_person_id": "person_26",
+      "merged_person_id": "person_42",
+      "merged_person_name": "Jan Jonsson",
+      "merged_person_lifespan": "(1996)",
+      "merge_date": "2026-11-14",
+      "merge_candidate_id": "mergecand_2",
+      "archived_candidates": [
+        {
+          "id": "mergecand_2",
+          "person_1_id": "person_42",
+          "person_2_id": "person_26",
+          "assessment": "confirmed",
+          "enabled": true,
+          "role": "direct"
+        }
+      ],
+      "summary_lines": [
+        "Namn tillagda: 1",
+        "Händelser flyttade: 1",
+        "Boenden flyttade: 0",
+        "Källhänvisningar flyttade: 0",
+        "Mediaobjekt med flyttade personlänkar: 0",
+        "Familjer berörda: 0",
+        "Forskningslänkar flyttade: 0",
+        "Beslut för motstridiga fält: 0",
+        "Anteckningar sammanslagna: nej",
+        "Kandidater omdirigerade: 0",
+        "Kandidater arkiverade: 1",
+        "Tomma dubblettfamiljer borttagna: 0"
+      ]
+    }
+  ],
+  "connection_overrides": {
+    "person_60": "foster",
+    "person_63": "biological",
+    "person_61": "foster"
+  },
+  "id_high_water_marks": {
+    "mergecand_": 6,
+    "case_": 1,
+    "mergecomment_": 1,
+    "merge_": 2,
+    "person_": 64
+  }
+}

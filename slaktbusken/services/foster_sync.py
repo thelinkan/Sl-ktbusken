@@ -614,7 +614,9 @@ def _start_type_for_parentage(parentage: str) -> str:
     raise ValueError(f"No placement start type for parentage {parentage!r}")
 
 
-def backfill_orphan_placement_events(project: ProjectData) -> list[Event]:
+def backfill_orphan_placement_events(
+    project: ProjectData, *, attach_to_family: bool = True
+) -> list[Event]:
     """Back-fill a dateless placement start event for each orphan Parent_Set.
 
     For every orphan foster/adoptive Parent_Set in ``project`` (a set of
@@ -637,6 +639,9 @@ def backfill_orphan_placement_events(project: ProjectData) -> list[Event]:
 
     Args:
         project: The project to migrate in place.
+        attach_to_family: When ``False`` the event id is not recorded on the
+            originating family (used by the GEDCOM importer so an imported
+            family is never reconciled in place).
 
     Returns:
         The list of newly created back-fill events, in creation order (empty
@@ -669,7 +674,10 @@ def backfill_orphan_placement_events(project: ProjectData) -> list[Event]:
         created.append(event)
 
         # Record the back-fill event id on the family so sync keys off it.
-        if event.id not in family.event_ids:
+        # The GEDCOM importer passes ``attach_to_family=False``: an imported
+        # family is not placement-derived, so the sync must build a separate
+        # derived family instead of rewriting it.
+        if attach_to_family and event.id not in family.event_ids:
             family.event_ids.insert(0, event.id)
 
     return created

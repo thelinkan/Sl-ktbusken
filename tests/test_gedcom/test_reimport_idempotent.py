@@ -155,3 +155,38 @@ def test_reimport_claims_legacy_residence(tmp_path: Path) -> None:
     assert result.residences_added == 0
     assert len(project.residences) == 2
     assert all(len(r.origins) == 1 for r in project.residences)
+
+
+# ---------------------------------------------------------------------------
+# Whole-project idempotence on the real fixtures (families and roles included)
+# ---------------------------------------------------------------------------
+
+
+def _twice_into_one_project(tmp_path: Path, text: str) -> tuple[dict, dict, object]:
+    from slaktbusken.persistence.serialization import serialize
+    from tests.test_gedcom_roundtrip.test_events_roundtrip import World
+
+    world = World(tmp_path)
+    world.run(text)
+    first = serialize(world.data)
+    world.run(text)
+    return first, serialize(world.data), world
+
+
+def test_exporttest_ged_imported_twice_leaves_the_project_unchanged(tmp_path: Path) -> None:
+    from tests.test_gedcom_roundtrip.fixtures import exporttest_ged_path
+
+    text = exporttest_ged_path().read_text(encoding="utf-8")
+    first, second, world = _twice_into_one_project(tmp_path, text)
+    assert second == first
+    assert world.data.families
+
+
+def test_mergetest_export_imported_twice_leaves_the_project_unchanged(tmp_path: Path) -> None:
+    from tests.test_gedcom_roundtrip.fixtures import load_mergetest
+    from tests.test_gedcom_roundtrip.test_families_roundtrip import export_text
+
+    text, _ = export_text(load_mergetest())
+    first, second, world = _twice_into_one_project(tmp_path, text)
+    assert second == first
+    assert world.data.families

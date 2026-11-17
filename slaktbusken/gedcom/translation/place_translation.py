@@ -412,6 +412,21 @@ def map_place_to_hierarchy(
     place_mappings: list[PlaceMapping],
     id_generator: Optional[IDGenerator] = None,
 ) -> list[Place]:
+    """Map a GEDCOM place to a Place hierarchy; return only newly created places.
+
+    See map_place_to_hierarchy_with_leaf for the details and the leaf ID.
+    """
+    return map_place_to_hierarchy_with_leaf(
+        gedcom_place, existing_places, place_mappings, id_generator
+    )[0]
+
+
+def map_place_to_hierarchy_with_leaf(
+    gedcom_place: GedcomPlace,
+    existing_places: list[Place],
+    place_mappings: list[PlaceMapping],
+    id_generator: Optional[IDGenerator] = None,
+) -> tuple[list[Place], Optional[str]]:
     """Map a GEDCOM place to App_JSON Place hierarchy, creating records as needed.
 
     Processes the GEDCOM place levels from least specific (country) to most
@@ -447,7 +462,7 @@ def map_place_to_hierarchy(
         True
     """
     if not gedcom_place.levels:
-        return []
+        return [], None
 
     if id_generator is None:
         existing_ids = {p.id for p in existing_places}
@@ -456,7 +471,7 @@ def map_place_to_hierarchy(
     # --- Pre-scan: detect county position and determine if country is missing ---
     levels = [lv.strip() for lv in gedcom_place.levels if lv.strip()]
     if not levels:
-        return []
+        return [], None
 
     # Find which level index (in the original most→least order) is a county,
     # and where the country sits (so positional inference can anchor on the
@@ -631,7 +646,7 @@ def map_place_to_hierarchy(
             new_places.append(new_place)
             parent_id = new_id
 
-    return new_places
+    return new_places, parent_id
 
 
 def _detect_type_by_name(name: str) -> Optional[str]:

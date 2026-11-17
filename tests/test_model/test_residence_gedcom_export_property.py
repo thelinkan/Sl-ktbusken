@@ -27,6 +27,7 @@ from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 
 from slaktbusken.gedcom.exporter import GEDCOMExporter
+from slaktbusken.gedcom.text_lines import text_lines
 from slaktbusken.model.date_span import expand_iso
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.residence import Endpoint, ResidenceFact
@@ -79,6 +80,12 @@ def _iso_to_gedcom_date(iso_value: str | None, precision: str | None = None) -> 
         result = f"ABT {result}"
 
     return result
+
+
+def _contains_run(block: list[str], run: list[str]) -> bool:
+    """Whether *run* occurs as consecutive lines of *block*."""
+    size = len(run)
+    return any(block[i:i + size] == run for i in range(len(block) - size + 1))
 
 
 def _export_to_lines(data: ProjectData, tmp_dir: Path) -> list[str]:
@@ -332,11 +339,20 @@ class TestGedcomExportProperty:
 
                     # role_in_household
                     if residence.role_in_household:
-                        assert f"2 NOTE Roll: {residence.role_in_household}" in note_lines
+                        # The exporter writes free text through text_lines
+                        # (CONT per line break, CONC for long lines).
+                        assert _contains_run(
+                            block,
+                            text_lines(
+                                2, "NOTE", f"Roll: {residence.role_in_household}"
+                            ),
+                        )
 
                     # notes
                     if residence.notes:
-                        assert f"2 NOTE {residence.notes}" in note_lines
+                        assert _contains_run(
+                            block, text_lines(2, "NOTE", residence.notes)
+                        )
 
                     # Absent values produce no NOTE for that field
                     if not (start_earliest and start_earliest.strip()):
@@ -375,12 +391,8 @@ class TestGedcomExportProperty:
             exporter = GEDCOMExporter()
             result = exporter.export(project, tmp_path / "test2.ged")
             obs_log_msg = "Observationernas delperioder exporteras som anteckningar."
-            if has_any_sour:
-                assert obs_log_msg in result.warnings
-                # Exactly one occurrence
-                assert result.warnings.count(obs_log_msg) == 1
-            else:
-                assert obs_log_msg not in result.warnings
+            # The periods travel in _SLK_OBSFROM, so the line is gone.
+            assert obs_log_msg not in result.warnings
 
             # --- Flytt event assertions (Req 18.14, 18.15) ---
             flytt_events = [e for e in project.events if e.type == "flytt"]
@@ -449,7 +461,5 @@ class TestGedcomExportProperty:
                 and e.from_place.place_id in places_by_id
                 for e in flytt_events
             )
-            if has_resolvable_from_place:
-                assert from_place_warning in result.warnings
-            else:
-                assert from_place_warning not in result.warnings
+            # The origin travels in _SLK_FROMPLAC, so the line is gone.
+            assert from_place_warning not in result.warnings
