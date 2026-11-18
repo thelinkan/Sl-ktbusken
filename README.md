@@ -42,15 +42,21 @@ Placering i fosterhem och adoption registreras som händelser. De visas i diagra
 - Utskrift eller PDF av en vy, uppdelad på flera sidor när den är stor.
 - Släktskapsberäknare som visar hur två personer är släkt.
 
+<img width="989" height="764" alt="Skärmbild 2026-11-18 232746" src="https://github.com/user-attachments/assets/34860400-c4d2-4526-8189-9f901b0e09e9" />
+
 ## Hierarkisk struktur på platser
 
 Alla län ska tillhöra ett land, alla socknar ska tillhöra ett län, alla kyrkor, byar, skolor etc ska tillhöra en socken. Jag vet att det finns vissa som föredrar att lagra socknar på landskap, men jag har valt att lägga upp strukturen så som jag själv vill ha den. Det här gör att det kan bli ett litet extra steg att lägga till nya platser, men jag tror det blir enklare att hantera på sikt. I alla fall så som jag vill kunna söka (till exempel alla platser av en viss typ i ett län eller i en socken).
+
+<img width="903" height="517" alt="Skärmbild 2026-11-18 232949" src="https://github.com/user-attachments/assets/16adf068-6dda-43a2-a526-a39b8a5b9759" />
 
 Platser kan också ha latitud och longitud. Det används för kartan (menyn *Karta*) och är tänkt att göra att kartfunktionen i Arkiv Digital fungerar med GEDCOM-filer som exporterats från Släktbusken.
 
 ## Källhantering
 
 Källor kan hänvisa till bilder. Om du har laddat ner en kopia av kyrkbokens sida kan du hänvisa till den i källan, och den går att nå från alla ställen där källan används. Källor kan ha en leverantör (till exempel Arkiv Digital eller Sveriges Dödbok Webb) och en källtyp, och källhänvisningar kan ha kommentarer. Det går att filtrera personlistan på källa, och en ikon visar vilka personer som har källor. Hur källor ska fungera i detalj är fortfarande under utveckling och ändras utifrån tester med olika typer av källor.
+
+<img width="800" height="762" alt="Skärmbild 2026-11-18 233055" src="https://github.com/user-attachments/assets/d343da6e-b6b7-4811-b87e-d9256bfe5db1" />
 
 ## Forskning
 
@@ -63,6 +69,9 @@ Du kan lägga till DNA-företag och DNA-prov för dig själv, de du testat och a
 ## Jämföra och slå ihop personer
 
 Programmet föreslår personer som kan vara samma person och sparar förslagen i ett register. I jämförelsefönstret ser du de två personerna sida vid sida. Sammanslagningen visar varje del, konflikt och val innan något ändras, och det går att se en historik över alla sammanslagningar. Sammanslagningen körs i bakgrunden och återställs om programmet kraschar mitt i.
+
+<img width="1404" height="831" alt="Skärmbild 2026-11-18 233232" src="https://github.com/user-attachments/assets/a5408aee-e6ca-4ce4-ab1c-ad405f6c6ecb" />
+
 
 ## GEDCOM
 
