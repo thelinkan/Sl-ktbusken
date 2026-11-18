@@ -1,4 +1,4 @@
-﻿"""Application shell — thin wiring layer between services and UI.
+"""Application shell — thin wiring layer between services and UI.
 
 Instantiates all services, creates the main window, and forwards
 UI events (menu actions) to the appropriate service methods.
@@ -2586,7 +2586,20 @@ class Application:
         if app is None:
             return
 
+        # Qt 6.8+ lets the application choose the colour scheme. The native
+        # style (Windows 11) draws menus, tabs and combo boxes from the scheme,
+        # not from the palette, so palette and scheme must agree.
+        hints = app.styleHints()
+
+        def _set_scheme(scheme: Qt.ColorScheme | None) -> None:
+            if scheme is None:
+                if hasattr(hints, "unsetColorScheme"):
+                    hints.unsetColorScheme()
+            elif hasattr(hints, "setColorScheme"):
+                hints.setColorScheme(scheme)
+
         if theme == "dark":
+            _set_scheme(Qt.ColorScheme.Dark)
             palette = QPalette()
             # Window and base colors
             palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
@@ -2623,11 +2636,16 @@ class Application:
                 QTabBar::tab:!selected { color: #cccccc; background-color: #2a2a2a; }
             """)
         elif theme == "light":
-            app.setPalette(app.style().standardPalette())
+            _set_scheme(Qt.ColorScheme.Light)
+            # An empty palette gives back the platform palette for the scheme.
+            # style().standardPalette() is the classic beige palette and mixes
+            # badly with the native style (white text on grey in dark mode).
+            app.setPalette(QPalette())
             app.setStyleSheet("")
         else:
-            # System default — reset to default palette
-            app.setPalette(app.style().standardPalette())
+            # System default: follow the operating system's light/dark setting.
+            _set_scheme(None)
+            app.setPalette(QPalette())
             app.setStyleSheet("")
 
     def _auto_open_default_project(self) -> None:
