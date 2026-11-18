@@ -253,6 +253,12 @@ Preconditions and constraints:
     - Adjust the comment in `tests/test_gedcom_roundtrip/test_cross_version.py` to reference this catalog entry and Requirement 12.10.
     - _Requirements: 12.4, 12.5, 12.10, 14.3_
 
+  - [x] 16.4 Fix the one-level PLAC resolving to a nested place of the same name
+    - Regression from the place parent-reuse fix (`map_place_to_hierarchy_with_leaf` in `slaktbusken/gedcom/translation/place_translation.py`): with places "Ed" (top level) and "Ed" (child of the first), a residence on the top "Ed" exported as `PLAC Ed` is imported onto the child ("Ed, Ed"), because the top-level lookup in `_find_existing_by_name_and_type` falls back to any name+type match, including a nested place.
+    - Make the leaf of a one-level (top-level) PLAC resolve only to a place without a parent, or to the place found by the existing translation mapping; a name+type fallback must never bind a top-level level to a nested place. Keep the repeated-name hierarchy fix of commit e27591a and the parent-reuse fix (a PLAC that matches an already-created parent place returns that place) intact.
+    - Add regression tests for "Ed" next to "Ed, Ed" in both import orders, and make `tests/test_model/test_residence_gedcom_roundtrip_property.py::TestGedcomRoundTripProperty::test_residence_fact_survives_gedcom_round_trip` pass.
+    - _Requirements: 7.5, 7.6, 13.1_
+
 - [x] 15. Final checkpoint - Run the mandatory groups and report
   - Run `python scripts/run_mandatory_tests.py` (Dataskydd and GEDCOM-rundresa) and the relevant regression tests (`python -m pytest tests/test_gedcom tests/test_gedcom_roundtrip tests/test_dataskydd`), confirm the Dataskydd group shows no regression.
   - Report to the user, before any commit, the third-party limitations (design table in "Partner representation in GEDCOM") and the remaining Round_Trip differences (catalog entries `deferred` and `app_only`).
@@ -289,7 +295,7 @@ Preconditions and constraints:
     { "id": 12, "tasks": ["10.3", "13.1", "13.2"] },
     { "id": 13, "tasks": ["14.1", "14.2"] },
     { "id": 14, "tasks": ["16.1", "16.2"] },
-    { "id": 15, "tasks": ["16.3"] }
+    { "id": 15, "tasks": ["16.3", "16.4"] }
   ]
 }
 ```

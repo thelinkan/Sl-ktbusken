@@ -604,7 +604,11 @@ def map_place_to_hierarchy_with_leaf(
 
         # Try to find an existing place with matching name and type
         existing = _find_existing_by_name_and_type(
-            name, place_type, parent_id, existing_places
+            name,
+            place_type,
+            parent_id,
+            existing_places,
+            any_type_if_parentless=(total_levels == 1),
         )
 
         if existing is not None:
@@ -709,6 +713,7 @@ def _find_existing_by_name_and_type(
     place_type: str,
     parent_id: Optional[str],
     existing_places: list[Place],
+    any_type_if_parentless: bool = False,
 ) -> Optional[Place]:
     """Find an existing place matching name, type, and parent position.
 
@@ -719,41 +724,45 @@ def _find_existing_by_name_and_type(
       ``parent_place_id`` equals ``parent_id`` may be reused. There is NO
       fallback to a name+type-only match. This prevents a nested level from
       being bound to a shallower, differently-parented place that merely
-      shares the same name — the collapse that flattened repeated-name
+      shares the same name, the collapse that flattened repeated-name
       hierarchies such as "Ed, Ed" onto a standalone "Ed".
-    - When ``parent_id`` is None (a TOP-level lookup), a name+type match is
-      reused. The preferred match is one whose ``parent_place_id`` is also
-      None, but a name+type-only match is still accepted as a fallback. This
-      preserves distinct-name hierarchy de-duplication and bare single-level
-      reuse unchanged.
+    - When ``parent_id`` is None (a TOP-level lookup), candidates are tried
+      in this order: a parentless place with the same name and type; if
+      ``any_type_if_parentless`` is set (a one-level PLAC, whose positional
+      type may differ from the stored type), a parentless place with the
+      same name and any type; finally a nested place with the same name and
+      type. The nested fallback is used only when no parentless place of
+      that name exists, so a one-level "Ed" binds to the top-level "Ed"
+      instead of the child of "Ed, Ed", while a bare parish name such as
+      "Backa" still reuses an existing parish nested under its country.
 
     Args:
         name: The place name to search for.
         place_type: The expected place type.
         parent_id: The expected parent_place_id (None for top-level).
         existing_places: The list of all existing places.
+        any_type_if_parentless: See above (top-level lookups only).
 
     Returns:
         The matching Place if found, or None.
     """
     name_lower = name.lower()
-    match_with_parent: Optional[Place] = None
-    match_without_parent: Optional[Place] = None
+    same_name = [p for p in existing_places if p.name.lower() == name_lower]
 
-    for place in existing_places:
-        if place.name.lower() == name_lower and place.type == place_type:
-            if place.parent_place_id == parent_id:
-                match_with_parent = place
-                break
-            if match_without_parent is None:
-                match_without_parent = place
-
-    # For a nested level (parent_id provided) only a parent-specific match may
-    # be reused; never fall back to a differently-parented place of the same
-    # name, which would flatten a repeated-name chain.
     if parent_id is not None:
-        return match_with_parent
+        for place in same_name:
+            if place.type == place_type and place.parent_place_id == parent_id:
+                return place
+        return None
 
-    # Top-level lookup: prefer the exact (parentless) match, else reuse any
-    # name+type match so distinct-name de-dup and single-level reuse stand.
-    return match_with_parent if match_with_parent is not None else match_without_parent
+    for place in same_name:
+        if place.type == place_type and place.parent_place_id is None:
+            return place
+    if any_type_if_parentless:
+        for place in same_name:
+            if place.parent_place_id is None:
+                return place
+    for place in same_name:
+        if place.type == place_type:
+            return place
+    return None

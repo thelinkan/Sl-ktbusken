@@ -132,3 +132,28 @@ def test_mergetest_event_places_survive_export_and_import(tmp_path: Path) -> Non
     for item in multiset(original):
         assert item in imported_with_place, item
     assert len(imported_with_place) == len(multiset(original))
+
+
+@pytest.mark.parametrize(
+    "first,second",
+    [("Ed", "Ed, Ed"), ("Ed, Ed", "Ed")],
+    ids=["one_level_first", "nested_first"],
+)
+def test_one_level_place_does_not_resolve_to_nested_same_name(
+    tmp_path: Path, first: str, second: str
+) -> None:
+    project = _new_project()
+    _import(project, tmp_path, _gedcom([("BIRT", first), ("DEAT", second)]))
+    by_id = {p.id: p for p in project.places}
+
+    def chain(event_type: str) -> str:
+        event = next(e for e in project.events if e.type == event_type)
+        names = []
+        place = by_id[event.place.place_id]
+        while place is not None:
+            names.append(place.name)
+            place = by_id.get(place.parent_place_id) if place.parent_place_id else None
+        return ", ".join(names)
+
+    assert chain("birth") == first
+    assert chain("death") == second
