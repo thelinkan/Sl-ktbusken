@@ -278,7 +278,9 @@ def check_birth_not_after_parent_death(
     if birth_date is None:
         return []
 
-    parent_ids = context.parents_of.get(person.id, [])
+    # Only biological parents constrain a child's birth. Foster and adoptive
+    # links are meaningless for this chronology check (Req 12.4).
+    parent_ids = context.biological_parents_of(person.id)
     if not parent_ids:
         return []
 
@@ -336,7 +338,10 @@ def check_no_event_before_parent_birth(
     if not config.logic_checks.no_event_before_parent_birth:
         return []
 
-    parent_ids = context.parents_of.get(person.id, [])
+    # A foster/adoptive child commonly predates the placement, so comparing
+    # the child's events to a non-biological parent's birth is meaningless.
+    # Restrict to biological parents (Req 12.4).
+    parent_ids = context.biological_parents_of(person.id)
     if not parent_ids:
         return []
 

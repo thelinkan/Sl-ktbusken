@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.model.date_semantics import format_date_sv
 from slaktbusken.model.event import Event
 from slaktbusken.services.delete_service import DeletionConsequences
 
@@ -59,7 +60,7 @@ def _format_event_line(event: Event) -> str:
     Shows type and date value, or 'inget datum' when no date is set.
     """
     event_type = _translate_event_type(event)
-    date_str = event.date.value if event.date else "inget datum"
+    date_str = (format_date_sv(event.date) if event.date else "") or "inget datum"
     return f"  • {event_type} ({date_str})"
 
 
@@ -136,6 +137,21 @@ def build_warning_lines(
         count = len(consequences.affected_families)
         lines.append(
             f"{count} familjeassociation{'er' if count != 1 else ''} kommer att uppdateras."
+        )
+        lines.append("")
+
+    # Research data is kept; its references to the person become dangling.
+    if consequences.research_case_count or consequences.research_hypothesis_count:
+        parts: list[str] = []
+        if consequences.research_case_count:
+            n = consequences.research_case_count
+            parts.append(f"{n} forskningsärende{'n' if n != 1 else ''}")
+        if consequences.research_hypothesis_count:
+            n = consequences.research_hypothesis_count
+            parts.append(f"{n} hypotes{'er' if n != 1 else ''}")
+        lines.append(
+            f"Personen förekommer i {' och '.join(parts)}. Forskningsdatan "
+            f"behålls, men kopplingen visas som \"saknat objekt\"."
         )
         lines.append("")
 

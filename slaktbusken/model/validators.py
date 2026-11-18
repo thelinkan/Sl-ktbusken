@@ -8,8 +8,11 @@ messages.  An empty list means the entity is valid.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Callable, Optional
 
+from slaktbusken.model.date_semantics import exact_value, validate_date_value
+from slaktbusken.model.date_span import is_valid_iso, strictly_earlier
 from slaktbusken.model.dna import (
     DnaCluster,
     DnaMatch,
@@ -22,6 +25,21 @@ from slaktbusken.model.family import Family
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import ExternalId, Place, RegionLevel
+from slaktbusken.model.research_case import (
+    SUPPORTED_ENTITY_TYPES,
+    VALID_HYPOTHESIS_ASSESSMENTS,
+    VALID_RESEARCH_PRIORITIES,
+    VALID_RESEARCH_STATUSES,
+    HypothesisComment,
+    ResearchAction,
+    ResearchCase,
+    ResearchEntityLink,
+    ResearchHypothesis,
+    case_entity_links,
+    is_valid_calendar_date,
+)
+from slaktbusken.model.record_origin import RecordOrigin
+from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import Repository, Source
 
 
@@ -31,7 +49,14 @@ from slaktbusken.model.source import Repository, Source
 
 _VALID_SEX = {"M", "F", "X", "U"}
 
-_VALID_PARTNER_ROLES = {"father", "mother", "husband", "wife", "partner"}
+_VALID_PARTNER_ROLES = {
+    "father",
+    "mother",
+    "husband",
+    "wife",
+    "partner",
+    "make/maka",
+}
 
 _VALID_PARENTAGE_TYPES = {
     "biological",
@@ -49,6 +74,124 @@ _VALID_DATE_PRECISIONS = {"day", "month", "year", "approximate"}
 _ISO_DATE_RE = re.compile(r"^\d{4}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?)?$")
 
 _CUSTOM_EVENT_TYPES = {"custom_individual_event", "custom_family_event"}
+
+# Requirement 18.7 — the exact wording of the Flytt same-place warning.
+_MSG_FLYTT_SAME_PLACE = (
+    "Flytten har samma plats som både från och till – kontrollera uppgifterna."
+)
+
+# ---------------------------------------------------------------------------
+# Placement (Fosterhem / Adoption) start-event participant-count validation.
+#
+# A Placement_Start_Event is the single source of truth for a set of derived
+# foster/adoptive links (see the foster-parents design). The event carries its
+# child in a child role and one or two parents in a parent role. These counts
+# are validated here; link derivation lives in the sync service. Only the START
+# types appear below — the end types (``foster_home_ended`` / ``adoption_ended``)
+# are deliberately absent so task 1.5 can extend this table without disturbing
+# the start-event rules (Requirements 1.3–1.7, 1.9, 13.5).
+#
+# Each entry carries the two role strings and the three exact Swedish messages
+# for the zero-child, too-many-children, and too-many-parents cases, keeping
+# the foster and adoptive variants symmetric.
+_MSG_PLACEMENT_NO_CHILD_FOSTER = "Ett fosterhem måste ange ett fosterbarn."
+_MSG_PLACEMENT_NO_CHILD_ADOPTION = "En adoption måste ange ett adopterat barn."
+_MSG_PLACEMENT_MANY_CHILDREN_FOSTER = "Ett fosterhem kan bara ange ett fosterbarn."
+_MSG_PLACEMENT_MANY_CHILDREN_ADOPTION = "En adoption kan bara ange ett adopterat barn."
+_MSG_PLACEMENT_MANY_PARENTS_FOSTER = "Ett fosterhem kan ange högst två fosterföräldrar."
+_MSG_PLACEMENT_MANY_PARENTS_ADOPTION = "En adoption kan ange högst två adoptivföräldrar."
+
+
+@dataclass(frozen=True)
+class _PlacementStartSpec:
+    """Roles and messages for one placement start event type."""
+
+    child_role: str
+    parent_role: str
+    no_child_message: str
+    many_children_message: str
+    many_parents_message: str
+
+
+_PLACEMENT_START: dict[str, _PlacementStartSpec] = {
+    "foster_home": _PlacementStartSpec(
+        child_role="fosterbarn",
+        parent_role="fosterförälder",
+        no_child_message=_MSG_PLACEMENT_NO_CHILD_FOSTER,
+        many_children_message=_MSG_PLACEMENT_MANY_CHILDREN_FOSTER,
+        many_parents_message=_MSG_PLACEMENT_MANY_PARENTS_FOSTER,
+    ),
+    "adoption": _PlacementStartSpec(
+        child_role="adopterad",
+        parent_role="adoptivförälder",
+        no_child_message=_MSG_PLACEMENT_NO_CHILD_ADOPTION,
+        many_children_message=_MSG_PLACEMENT_MANY_CHILDREN_ADOPTION,
+        many_parents_message=_MSG_PLACEMENT_MANY_PARENTS_ADOPTION,
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Placement end-event pairing validation (Requirement 2A).
+#
+# A Placement_End_Event (``foster_home_ended`` closes ``foster_home``;
+# ``adoption_ended`` closes ``adoption``) names the SAME child and the SAME
+# parents as its paired Placement_Start_Event, using the same child/parent
+# roles as its start type (symmetric participants, Requirement 1.10). An end is
+# paired to exactly one start by Parent_Set — same child, same set of parent
+# person ids, same derived parentage type.
+#
+# Unlike the start-event count checks, end-event pairing cannot be decided from
+# a single event: orphan detection (2A.4), at-most-one-end (2A.3) and
+# end-before-start (2A.6) all need the other events in the project. The checks
+# therefore live in project-aware functions over the whole event list rather
+# than in ``validate_event``. ``_PLACEMENT_END`` maps each end type to the start
+# type it closes; the roles and parentage come straight from the matching
+# ``_PLACEMENT_START`` entry so the two stay symmetric.
+_MSG_PLACEMENT_ORPHAN_END_FOSTER = (
+    "Fosterhem upphörde saknar en fosterhemsplacering att avsluta."
+)
+_MSG_PLACEMENT_ORPHAN_END_ADOPTION = "Adoption upphörde saknar en adoption att avsluta."
+_MSG_PLACEMENT_DUPLICATE_END_FOSTER = "Fosterhemsplaceringen har redan ett avslut."
+_MSG_PLACEMENT_DUPLICATE_END_ADOPTION = "Adoptionen har redan ett avslut."
+
+# Requirement 2A.6 — the exact wording of the end-before-start warning, shared
+# by both placement types (its tone matches ``_MSG_END_BEFORE_START`` and
+# ``_MSG_FLYTT_SAME_PLACE``).
+_MSG_PLACEMENT_END_BEFORE_START = "Avslutet inträffar före placeringens början."
+
+
+@dataclass(frozen=True)
+class _PlacementEndSpec:
+    """How one placement end type closes its start type.
+
+    Attributes:
+        start_type: The start event type this end closes (``foster_home`` or
+            ``adoption``), whose ``_PLACEMENT_START`` entry supplies the roles
+            and derived parentage.
+        orphan_message: The exact Swedish error for an end with no matching
+            start (Requirement 2A.4).
+        duplicate_message: The exact Swedish error for a second end on a start
+            that already has one (Requirement 2A.3).
+    """
+
+    start_type: str
+    orphan_message: str
+    duplicate_message: str
+
+
+_PLACEMENT_END: dict[str, _PlacementEndSpec] = {
+    "foster_home_ended": _PlacementEndSpec(
+        start_type="foster_home",
+        orphan_message=_MSG_PLACEMENT_ORPHAN_END_FOSTER,
+        duplicate_message=_MSG_PLACEMENT_DUPLICATE_END_FOSTER,
+    ),
+    "adoption_ended": _PlacementEndSpec(
+        start_type="adoption",
+        orphan_message=_MSG_PLACEMENT_ORPHAN_END_ADOPTION,
+        duplicate_message=_MSG_PLACEMENT_DUPLICATE_END_ADOPTION,
+    ),
+}
 
 _VALID_PLACE_TYPES = {"continent", "country", "church", "cemetery", "farm", "school", "ort"}
 
@@ -218,6 +361,44 @@ def validate_family(
 # ---------------------------------------------------------------------------
 
 
+def _validate_date_value_fields(date) -> list[str]:
+    """Structural and real-day checks of a DateValue (Requirements 14.1-14.5, 15.1).
+
+    Delegates to Date_Semantics, which checks every day against the leap-year
+    rules of the date's own calendar.
+    """
+    return validate_date_value(date)
+
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def validate_record_origin(
+    origin: RecordOrigin, *, residence: bool = False
+) -> list[str]:
+    """Validate a RecordOrigin (Requirements 19.1, 19.2, 22.1, 22.2).
+
+    With ``residence=True`` the origin must be an INDI ``RESI`` record. Equal
+    origins on several residences of one owner are valid and not reported here.
+    """
+    errors: list[str] = []
+    if origin.owner_kind not in ("INDI", "FAM"):
+        errors.append(
+            f"Ursprungets ägartyp '{origin.owner_kind}' är ogiltig; måste vara INDI eller FAM."
+        )
+    if residence:
+        if origin.owner_kind != "INDI":
+            errors.append("Ett boendes ursprung måste ha ägartypen INDI.")
+        if origin.tag_key != "RESI":
+            errors.append("Ett boendes ursprung måste ha taggen RESI.")
+    if not isinstance(origin.record_hash, str) or not _HEX64_RE.match(origin.record_hash):
+        errors.append("Ursprungets posthash måste vara 64 hexadecimala tecken.")
+    if not isinstance(origin.index, int) or origin.index < 0:
+        errors.append("Ursprungets index får inte vara negativt.")
+    if not isinstance(origin.instance, int) or origin.instance < 0:
+        errors.append("Ursprungets instans får inte vara negativ.")
+    return errors
+
+
 def validate_event(event: Event) -> list[str]:
     """Validate an Event instance."""
     errors: list[str] = []
@@ -230,16 +411,12 @@ def validate_event(event: Event) -> list[str]:
 
     # Date validation
     if event.date is not None:
-        if event.date.value and not _ISO_DATE_RE.match(event.date.value):
-            errors.append(
-                f"Datumvärde '{event.date.value}' är inte ett giltigt ISO 8601-datum "
-                f"(förväntat ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD)."
-            )
-        if event.date.precision not in _VALID_DATE_PRECISIONS:
-            errors.append(
-                f"Datumprecision '{event.date.precision}' är ogiltig; "
-                f"måste vara en av {sorted(_VALID_DATE_PRECISIONS)}."
-            )
+        errors.extend(_validate_date_value_fields(event.date))
+
+    if event.origin is not None:
+        errors.extend(validate_record_origin(event.origin))
+    for extra in event.extra_origins:
+        errors.extend(validate_record_origin(extra))
 
     # Custom event type validation
     if event.type in _CUSTOM_EVENT_TYPES:
@@ -250,7 +427,222 @@ def validate_event(event: Event) -> list[str]:
         elif len(event.custom_type_name) > 100:
             errors.append("custom_type_name överskrider 100 tecken.")
 
+    # Placement start-event participant counts (Requirements 1.3–1.6). Exactly
+    # one participant in the child role and one or two in the parent role; each
+    # offending count yields exactly one occurrence of its per-type message.
+    # Zero parents is allowed so a pre-feature Adoption event that names no
+    # adoptive parent stays valid and simply derives no links
+    # (Requirements 1.9, 13.5); only more than two parents is an error.
+    spec = _PLACEMENT_START.get(event.type)
+    if spec is not None:
+        child_count = sum(1 for p in event.participants if p.role == spec.child_role)
+        parent_count = sum(1 for p in event.participants if p.role == spec.parent_role)
+
+        if child_count == 0:
+            errors.append(spec.no_child_message)
+        elif child_count > 1:
+            errors.append(spec.many_children_message)
+
+        if parent_count > 2:
+            errors.append(spec.many_parents_message)
+
+    # A Flytt_Event never errors on its two places: an absent `from_place`, an
+    # absent `place` or both absent all mean an unknown side of the move, and a
+    # Flytt with the same place on both sides is a warning-level finding from
+    # ``event_findings`` (Requirements 18.3, 18.7).
+
     return errors
+
+
+@dataclass
+class EventFinding:
+    """A warning-level observation about an Event.
+
+    Kept apart from ``validate_event``, which returns hard errors only: the
+    residence-periods design keeps errors as Swedish strings from the
+    ``validate_*`` functions and gives severity-carrying findings their own
+    return type.
+
+    Attributes:
+        event_id: The id of the Event the finding concerns.
+        severity: Always ``"warning"`` today.
+        message: The exact Swedish message to display.
+    """
+
+    event_id: str
+    severity: str
+    message: str
+
+
+def event_findings(event: Event) -> list[EventFinding]:
+    """Return the warning-level findings for an Event.
+
+    A Flytt_Event whose ``from_place`` and ``place`` are both present and hold
+    the same ``place_id`` yields ``_MSG_FLYTT_SAME_PLACE`` (Requirement 18.7).
+    Everything else — an absent origin, an absent destination, both absent, or
+    two different places — yields nothing, and none of these are ever errors
+    (Requirement 18.3).
+    """
+    findings: list[EventFinding] = []
+
+    if event.type == "flytt" and event.from_place is not None and event.place is not None:
+        if event.from_place.place_id == event.place.place_id:
+            findings.append(EventFinding(event.id, "warning", _MSG_FLYTT_SAME_PLACE))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Placement end-event pairing (Requirement 2A)
+# ---------------------------------------------------------------------------
+
+
+def _placement_child_id(event: Event, child_role: str) -> Optional[str]:
+    """The single child-role participant's person id, or ``None``.
+
+    A placement names exactly one participant in its child role; if zero or
+    several are present (a shape the start-event count checks already flag)
+    there is no unambiguous child to pair on, so ``None`` is returned.
+    """
+    children = [p.person_id for p in event.participants if p.role == child_role]
+    if len(children) != 1:
+        return None
+    return children[0]
+
+
+def _placement_parent_set(event: Event, parent_role: str) -> frozenset[str]:
+    """The set of parent-role participant person ids (order-independent)."""
+    return frozenset(p.person_id for p in event.participants if p.role == parent_role)
+
+
+def _placement_pairing_key(
+    event: Event,
+    child_role: str,
+    parent_role: str,
+) -> Optional[tuple[str, frozenset[str]]]:
+    """The (child, parent-set) key an end pairs to its start on, or ``None``.
+
+    ``None`` means the event has no unambiguous child to pair on and therefore
+    cannot be matched to a start.
+    """
+    child_id = _placement_child_id(event, child_role)
+    if child_id is None:
+        return None
+    return (child_id, _placement_parent_set(event, parent_role))
+
+
+def validate_placement_end_events(events: list[Event]) -> list[str]:
+    """Return the hard errors for every Placement_End_Event in *events*.
+
+    Operates over the whole event list because end-event pairing is inherently
+    cross-event: an end is paired to its Placement_Start_Event by Parent_Set —
+    the same child and the same set of parents, with the same derived parentage
+    type (Requirements 2A.1, 2A.7). The single-event ``validate_event`` is left
+    untouched so its existing callers keep working.
+
+    Two hard errors are produced, each exactly once per offending end event:
+
+    - **Orphan end** (Requirement 2A.4): an end whose (child, parent set) matches
+      no start event of the type it closes yields the per-type orphan message.
+    - **At most one end per start** (Requirement 2A.3): when several ends match
+      the same start's Parent_Set, every end after the first yields the per-type
+      duplicate message, so a start keeps at most one paired end.
+
+    End-before-start is NOT returned here; it is a warning-level finding from
+    ``placement_end_findings`` (Requirement 2A.6).
+    """
+    errors: list[str] = []
+
+    for end_spec_type, end_spec in _PLACEMENT_END.items():
+        start_spec = _PLACEMENT_START[end_spec.start_type]
+
+        # The pairing keys of the start events this end type can close.
+        start_keys: list[tuple[str, frozenset[str]]] = []
+        for event in events:
+            if event.type != end_spec.start_type:
+                continue
+            key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if key is not None:
+                start_keys.append(key)
+
+        # Walk the end events of this type in project order, counting how many
+        # ends have matched each start key so far: the first consumes the
+        # start's single end slot; later ones are duplicates.
+        matched_counts: dict[tuple[str, frozenset[str]], int] = {}
+        for event in events:
+            if event.type != end_spec_type:
+                continue
+            key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if key is None or key not in start_keys:
+                errors.append(end_spec.orphan_message)
+                continue
+            seen = matched_counts.get(key, 0)
+            if seen >= 1:
+                errors.append(end_spec.duplicate_message)
+            matched_counts[key] = seen + 1
+
+    return errors
+
+
+def placement_end_findings(events: list[Event]) -> list[EventFinding]:
+    """Return the warning-level findings for Placement_End_Events in *events*.
+
+    A Placement_End_Event whose ``date`` is strictly earlier than the ``date``
+    of its paired Placement_Start_Event yields ``_MSG_PLACEMENT_END_BEFORE_START``
+    (Requirement 2A.6). This is a warning, never a hard error, mirroring the
+    residence spec's soft chronology findings. An end paired to several starts
+    (same Parent_Set) is compared against the earliest-dated of them, so the
+    warning fires only when the end precedes every candidate start.
+
+    Ends with no matching start, ends with no date, and starts with no date are
+    all skipped — there is no two dated events to compare.
+    """
+    findings: list[EventFinding] = []
+
+    for end_spec_type, end_spec in _PLACEMENT_END.items():
+        start_spec = _PLACEMENT_START[end_spec.start_type]
+
+        # Earliest known start date per pairing key (dated starts only).
+        start_dates: dict[tuple[str, frozenset[str]], str] = {}
+        for event in events:
+            if event.type != end_spec.start_type:
+                continue
+            key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            start_iso = exact_value(event.date)
+            if key is None or start_iso is None:
+                continue
+            existing = start_dates.get(key)
+            if existing is None or strictly_earlier(start_iso, existing):
+                start_dates[key] = start_iso
+
+        for event in events:
+            if event.type != end_spec_type:
+                continue
+            end_iso = exact_value(event.date)
+            if end_iso is None:
+                continue
+            key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if key is None:
+                continue
+            start_date = start_dates.get(key)
+            if start_date is None:
+                continue
+            if strictly_earlier(end_iso, start_date):
+                findings.append(
+                    EventFinding(
+                        event.id, "warning", _MSG_PLACEMENT_END_BEFORE_START
+                    )
+                )
+
+    return findings
 
 
 # ---------------------------------------------------------------------------
@@ -532,13 +924,24 @@ def _find_country_for_place(
 def _get_region_level_for_type(
     type_key: str,
     place_lookup: dict[str, Place] | Callable[[str], Optional[Place]],
+    owning_country: Optional[Place] = None,
 ) -> Optional[tuple[Place, "RegionLevel"]]:
     """Find the country and RegionLevel that defines the given type key.
 
     Returns (country_place, region_level) or None if not found.
     Only works with dict lookups (can iterate all places).
+
+    A region-level key such as "kommune" can be defined by several countries
+    with different hierarchies (e.g. Norge: fylke→kommune, Danmark:
+    region→kommune). When *owning_country* is given, the key is resolved
+    against that country first so the correct hierarchy level is returned.
+    Only if the key is absent there (or no owning country is supplied) do we
+    fall back to scanning every country.
     """
-    from slaktbusken.model.place import RegionLevel as RL
+    if owning_country is not None:
+        for rl in owning_country.region_levels:
+            if rl.key == type_key:
+                return (owning_country, rl)
 
     if callable(place_lookup):
         return None
@@ -547,6 +950,32 @@ def _get_region_level_for_type(
             for rl in p.region_levels:
                 if rl.key == type_key:
                     return (p, rl)
+    return None
+
+
+def _find_owning_country(
+    place: Place,
+    place_lookup: dict[str, Place] | Callable[[str], Optional[Place]],
+) -> Optional[Place]:
+    """Walk up a place's parent chain to find the country it belongs to.
+
+    Used to disambiguate region-level keys shared by several countries (e.g.
+    "kommune"), so a place's hierarchy is validated against its own country's
+    region levels rather than an arbitrary country that happens to define the
+    same key.
+
+    Returns the ancestor Place of type "country", or None if none is found
+    (e.g. a broken parent chain or a place with no country ancestor).
+    """
+    current: Optional[Place] = place
+    visited: set[str] = set()
+    while current is not None and current.id not in visited:
+        visited.add(current.id)
+        if current.type == "country":
+            return current
+        if not current.parent_place_id:
+            return None
+        current = _resolve_place(current.parent_place_id, place_lookup)
     return None
 
 
@@ -652,8 +1081,13 @@ def _validate_place_hierarchy(
             )
             return
         if place_lookup is not None and not callable(place_lookup):
-            # Try to find the region level definition for this type
-            rl_info = _get_region_level_for_type(place.type, place_lookup)
+            # Resolve the region level against the country this place actually
+            # belongs to, so a shared key like "kommune" is validated with the
+            # right hierarchy (Norge: fylke→kommune, not Danmark: region→kommune).
+            owning_country = _find_owning_country(place, place_lookup)
+            rl_info = _get_region_level_for_type(
+                place.type, place_lookup, owning_country
+            )
             if rl_info is not None:
                 country, region_level = rl_info
                 parent = _resolve_place(place.parent_place_id, place_lookup)
@@ -851,4 +1285,550 @@ def validate_dna_triangulation(triangulation: DnaTriangulation) -> list[str]:
     if len(triangulation.profile_ids) < 3:
         errors.append("DNA-triangulering måste ha minst 3 profile_ids.")
 
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# 3.7 – Residence validation
+# ---------------------------------------------------------------------------
+
+# Length limits (Requirements 1.10, 1.11, 2.1, 2.14, 4.1, 4.2, 10.6)
+_RESIDENCE_NOTES_MAX_LENGTH = 5000
+_RESIDENCE_ROLE_MAX_LENGTH = 100
+_ENDPOINT_NOTE_MAX_LENGTH = 1000
+_MAX_OBSERVATIONS = 100
+
+# The plausible year range an Observation bound must fall in (Requirement 4.12).
+_MIN_OBSERVATION_YEAR = 1500
+_MAX_OBSERVATION_YEAR = 2100
+
+# An Observation bound is a bare four-digit year (ÅÅÅÅ) — nothing else.
+_OBSERVATION_YEAR_RE = re.compile(r"^\d{4}$")
+
+# The exact Swedish error messages, one constant per acceptance criterion.
+_MSG_PERSON_AND_PLACE_REQUIRED = "Boendet måste ange både person och plats."
+_MSG_UNKNOWN_PERSON = "Boendet refererar till en person som inte finns."
+_MSG_UNKNOWN_PLACE = "Boendet refererar till en plats som inte finns."
+_MSG_NOTES_TOO_LONG = "Anteckningen får vara högst 5000 tecken."
+_MSG_ROLE_TOO_LONG = "Roll i hushållet får vara högst 100 tecken."
+_MSG_MALFORMED_ISO = (
+    "Datumvärdet är inte ett giltigt ISO 8601-datum "
+    "(förväntat ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD)."
+)
+_MSG_INVERTED_ENDPOINT = "Tidigaste datum får inte vara senare än senaste datum."
+_MSG_END_BEFORE_START = "Boendets slut kan inte ligga före dess början."
+_MSG_ENDPOINT_NOTE_TOO_LONG = "Endpunktens anteckning får vara högst 1000 tecken."
+_MSG_UNKNOWN_EVENT = "Endpunkten refererar till en händelse som inte finns."
+_MSG_TOO_MANY_OBSERVATIONS = "Ett boende får ha högst 100 observationer."
+_MSG_BAD_OBSERVATION_YEAR = (
+    "Observationens årtal måste anges som fyra siffror (ÅÅÅÅ) mellan 1500 och 2100."
+)
+_MSG_INVERTED_OBSERVATION = "Observationens startår får inte vara senare än dess slutår."
+_MSG_UNKNOWN_OBSERVATION_SOURCE = "Observationen refererar till en källa som inte finns."
+
+
+def _residence_value_present(value: Optional[str]) -> bool:
+    """Whether a residence value counts as present.
+
+    ``None``, empty and whitespace-only all count as absent, for Endpoint bounds
+    (Requirement 2.1) as well as for `person_id`/`place_id` (Requirement 1.7).
+    """
+    return value is not None and bool(value.strip())
+
+
+def _observation_year_value(value: Optional[str]) -> Optional[int]:
+    """The year an Observation bound holds, or ``None`` when it holds no year.
+
+    Only the bare four-digit form ÅÅÅÅ is a year; the 1500–2100 range check is
+    left to the caller so an out-of-range year can still be compared with its
+    counterpart.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not _OBSERVATION_YEAR_RE.match(trimmed):
+        return None
+    return int(trimmed)
+
+
+def _validate_residence_endpoint(
+    endpoint: Endpoint,
+    valid_event_ids: Optional[set[str]],
+    errors: list[str],
+) -> None:
+    """Collect the errors of one Endpoint into *errors*.
+
+    `precision` is descriptive only, so no value of it is ever an error
+    (Requirement 2.3).
+    """
+    # One message per offending value, so two malformed bounds yield two
+    # messages (Requirement 2.11).
+    for bound in (endpoint.earliest, endpoint.latest):
+        if _residence_value_present(bound) and not is_valid_iso(bound):
+            errors.append(_MSG_MALFORMED_ISO)
+
+    # Inverted bounds, compared as day intervals: "1840" together with
+    # "1840-06" is no error (Requirements 2.9, 2.15).
+    if strictly_earlier(endpoint.latest, endpoint.earliest):
+        errors.append(_MSG_INVERTED_ENDPOINT)
+
+    if endpoint.note is not None and len(endpoint.note) > _ENDPOINT_NOTE_MAX_LENGTH:
+        errors.append(_MSG_ENDPOINT_NOTE_TOO_LONG)
+
+    if valid_event_ids is not None and _residence_value_present(endpoint.event_id):
+        if endpoint.event_id not in valid_event_ids:
+            errors.append(_MSG_UNKNOWN_EVENT)
+
+
+def _validate_observation(
+    observation: Observation,
+    valid_source_ids: Optional[set[str]],
+    errors: list[str],
+) -> None:
+    """Collect the errors of one Observation into *errors*."""
+    # One message per offending bound: malformed, or a four-digit year outside
+    # 1500–2100 (Requirement 4.12).
+    for bound in (observation.observed_from, observation.observed_to):
+        if not _residence_value_present(bound):
+            continue
+        year = _observation_year_value(bound)
+        if year is None or not (_MIN_OBSERVATION_YEAR <= year <= _MAX_OBSERVATION_YEAR):
+            errors.append(_MSG_BAD_OBSERVATION_YEAR)
+
+    first = _observation_year_value(observation.observed_from)
+    last = _observation_year_value(observation.observed_to)
+    if first is not None and last is not None and first > last:
+        errors.append(_MSG_INVERTED_OBSERVATION)
+
+    if valid_source_ids is not None:
+        if observation.source_ref.source_id not in valid_source_ids:
+            errors.append(_MSG_UNKNOWN_OBSERVATION_SOURCE)
+
+
+def validate_residence(
+    residence: ResidenceFact,
+    valid_person_ids: Optional[set[str]] = None,
+    valid_place_ids: Optional[set[str]] = None,
+    valid_source_ids: Optional[set[str]] = None,
+    valid_event_ids: Optional[set[str]] = None,
+) -> list[str]:
+    """Validate a Residence_Fact ("Boende") and return its hard errors.
+
+    Returns the exact Swedish error messages of Requirements 1.5, 1.6, 1.7,
+    1.11, 2.9, 2.10, 2.11, 2.12, 2.14, 4.2, 4.4, 4.5, 4.12 and 10.6. An empty
+    list means the fact holds no hard error.
+
+    Each ``valid_*_ids`` set is optional: passing ``None`` skips that reference
+    check, following the convention of the other ``validate_*`` functions here.
+
+    Errors only. Warning-level findings — overlapping start/end windows (2.17),
+    a source cited twice on one fact (4.13), evidence outside the recorded period
+    (16.9) and every cross-fact comparison — live in
+    ``slaktbusken/services/residence_validation.py``.
+
+    Deliberately never an error: the type of the referenced place
+    (Requirement 1.3), two facts sharing a `person_id`+`place_id` combination
+    (Requirement 1.4), an Endpoint with both bounds absent (Requirement 2.8),
+    an Observation holding only one of its two bounds (Requirement 4.6), an
+    Observation span narrower than its Source's coverage period
+    (Requirement 4.10) and any `precision` value, known or unknown
+    (Requirement 2.3).
+    """
+    errors: list[str] = []
+
+    # --- Person and place references (Requirements 1.5, 1.6, 1.7) ----------
+    person_present = _residence_value_present(residence.person_id)
+    place_present = _residence_value_present(residence.place_id)
+
+    # One message however many of the two fields are blank (Requirement 1.7).
+    if not person_present or not place_present:
+        errors.append(_MSG_PERSON_AND_PLACE_REQUIRED)
+
+    # A blank field is reported as blank only, never also as missing.
+    if person_present and valid_person_ids is not None:
+        if residence.person_id not in valid_person_ids:
+            errors.append(_MSG_UNKNOWN_PERSON)
+
+    if place_present and valid_place_ids is not None:
+        if residence.place_id not in valid_place_ids:
+            errors.append(_MSG_UNKNOWN_PLACE)
+
+    # --- Text lengths (Requirements 1.11, 10.6) ---------------------------
+    if len(residence.notes) > _RESIDENCE_NOTES_MAX_LENGTH:
+        errors.append(_MSG_NOTES_TOO_LONG)
+
+    # The role is measured after trimming, which is how it is stored (10.4).
+    if len(residence.role_in_household.strip()) > _RESIDENCE_ROLE_MAX_LENGTH:
+        errors.append(_MSG_ROLE_TOO_LONG)
+
+    # --- Endpoints (Requirements 2.9, 2.11, 2.12, 2.14) -------------------
+    _validate_residence_endpoint(residence.start, valid_event_ids, errors)
+    _validate_residence_endpoint(residence.end, valid_event_ids, errors)
+
+    # --- Across the two Endpoints (Requirement 2.10) ----------------------
+    # An impossible Possible_Span is the only hard error defined across the two
+    # Endpoints; an overlap of the start and end windows is a warning (2.17).
+    if strictly_earlier(residence.end.latest, residence.start.earliest):
+        errors.append(_MSG_END_BEFORE_START)
+
+    # --- Observations (Requirements 4.2, 4.4, 4.5, 4.12) ------------------
+    if len(residence.observations) > _MAX_OBSERVATIONS:
+        errors.append(_MSG_TOO_MANY_OBSERVATIONS)
+
+    for observation in residence.observations:
+        _validate_observation(observation, valid_source_ids, errors)
+
+    # --- Origins (Requirements 22.1, 22.2) --------------------------------
+    # Equal origins on several residences of one owner are valid data.
+    for origin in residence.origins:
+        errors.extend(validate_record_origin(origin, residence=True))
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# 3.8 – Research validation
+# ---------------------------------------------------------------------------
+
+# Length limits (counted as Unicode code points).
+_RESEARCH_TITLE_MAX_LENGTH = 200
+_RESEARCH_LONG_TEXT_MAX_LENGTH = 10000
+_HYPOTHESIS_STATEMENT_MAX_LENGTH = 1000
+_RESEARCH_ACTION_TITLE_MAX_LENGTH = 200
+
+# The exact Swedish error messages, one constant per acceptance criterion.
+_MSG_RESEARCH_BAD_STATUS = "Ogiltig status för forskningsärendet."
+_MSG_RESEARCH_BAD_PRIORITY = "Ogiltig prioritet för forskningsärendet."
+_MSG_RESEARCH_TITLE_TOO_LONG = "Rubriken får vara högst 200 tecken."
+_MSG_RESEARCH_DESCRIPTION_TOO_LONG = "Frågeställningen får vara högst 10000 tecken."
+_MSG_RESEARCH_CONCLUSION_TOO_LONG = "Slutsatsen får vara högst 10000 tecken."
+_MSG_RESEARCH_UNKNOWN_ENTITY_TYPE = "Forskningslänken har en okänd objekttyp."
+_MSG_RESEARCH_UNKNOWN_ENTITY = "Forskningsärendet refererar till ett objekt som inte finns."
+_MSG_RESEARCH_DUPLICATE_LINK = "Forskningsärendet länkar till samma objekt mer än en gång."
+_MSG_HYPOTHESIS_BAD_ASSESSMENT = "Ogiltig bedömning för hypotesen."
+_MSG_HYPOTHESIS_UNKNOWN_CASE = "Hypotesen refererar till ett forskningsärende som inte finns."
+_MSG_HYPOTHESIS_STATEMENT_TOO_LONG = "Hypotesens påstående får vara högst 1000 tecken."
+_MSG_HYPOTHESIS_REASONING_TOO_LONG = "Hypotesens motivering får vara högst 10000 tecken."
+_MSG_COMMENT_BAD_DATE = (
+    "Hypoteskommentarens datum är inte ett giltigt datum "
+    "(förväntat ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD)."
+)
+_MSG_COMMENT_TEXT_TOO_LONG = "Hypoteskommentarens text får vara högst 10000 tecken."
+_MSG_ACTION_UNKNOWN_CASE = "Forskningsåtgärden refererar till ett forskningsärende som inte finns."
+_MSG_ACTION_BAD_COMPLETED_DATE = (
+    "Forskningsåtgärdens färdigdatum är inte ett giltigt datum "
+    "(förväntat ÅÅÅÅ, ÅÅÅÅ-MM eller ÅÅÅÅ-MM-DD)."
+)
+_MSG_ACTION_TITLE_TOO_LONG = "Forskningsåtgärdens rubrik får vara högst 200 tecken."
+_MSG_ACTION_TEXT_TOO_LONG = "Forskningsåtgärdens text får vara högst 10000 tecken."
+_MSG_ACTION_UNKNOWN_SOURCE = "Forskningsåtgärden refererar till en källa som inte finns."
+
+
+def _validate_research_links(
+    links: list[ResearchEntityLink],
+    valid_entity_ids: Optional[dict[str, set[str]]],
+    errors: list[str],
+) -> None:
+    """Collect the errors of research entity links into *errors*.
+
+    One message per offending link. A link with an unsupported type is reported
+    as that only, never also as missing. The existence check is skipped for a
+    blank ``entity_id`` and for any entity type absent from *valid_entity_ids*,
+    so a caller may supply id sets for just the types it knows.
+    """
+    for link in links:
+        if link.entity_type not in SUPPORTED_ENTITY_TYPES:
+            errors.append(_MSG_RESEARCH_UNKNOWN_ENTITY_TYPE)
+            continue
+
+        if valid_entity_ids is None or not link.entity_id.strip():
+            continue
+
+        known_ids = valid_entity_ids.get(link.entity_type)
+        if known_ids is not None and link.entity_id not in known_ids:
+            errors.append(_MSG_RESEARCH_UNKNOWN_ENTITY)
+
+
+def validate_research_case(
+    case: ResearchCase,
+    valid_entity_ids: Optional[dict[str, set[str]]] = None,
+) -> list[str]:
+    """Validate a ResearchCase and return its hard errors.
+
+    *valid_entity_ids* maps an entity type (``"person"``, ``"source"``, ...) to
+    the set of ids that exist; passing ``None`` skips every existence check,
+    following the convention of the other ``validate_*`` functions.
+
+    Deliberately never an error: an empty ``title`` (the editor, not the model,
+    requires one before saving), a case with no linked entity, a closed case
+    with an empty ``conclusion``, an open case with a non-empty ``conclusion``,
+    and the same entity linked more than once (a warning, see
+    ``research_case_findings``).
+    """
+    errors: list[str] = []
+
+    if case.status not in VALID_RESEARCH_STATUSES:
+        errors.append(_MSG_RESEARCH_BAD_STATUS)
+
+    if case.priority not in VALID_RESEARCH_PRIORITIES:
+        errors.append(_MSG_RESEARCH_BAD_PRIORITY)
+
+    if len(case.title) > _RESEARCH_TITLE_MAX_LENGTH:
+        errors.append(_MSG_RESEARCH_TITLE_TOO_LONG)
+
+    if len(case.description) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_RESEARCH_DESCRIPTION_TOO_LONG)
+
+    if len(case.conclusion) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_RESEARCH_CONCLUSION_TOO_LONG)
+
+    _validate_research_links(case_entity_links(case), valid_entity_ids, errors)
+
+    return errors
+
+
+@dataclass
+class ResearchFinding:
+    """A warning-level observation about a ResearchCase.
+
+    Kept apart from ``validate_research_case``, which returns hard errors only,
+    in the same way ``EventFinding`` is kept apart from ``validate_event``.
+
+    Attributes:
+        case_id: The id of the ResearchCase the finding concerns.
+        severity: Always ``"warning"`` today.
+        message: The exact Swedish message to display.
+    """
+
+    case_id: str
+    severity: str
+    message: str
+
+
+def research_case_findings(case: ResearchCase) -> list[ResearchFinding]:
+    """Return the warning-level findings for a ResearchCase.
+
+    A case that links the same ``(entity_type, entity_id)`` more than once —
+    through ``primary_entity_ref`` and ``linked_entities``, or twice in
+    ``linked_entities`` — yields exactly one finding, however many duplicates
+    there are. Links with a blank ``entity_id`` are ignored.
+    """
+    seen: set[tuple[str, str]] = set()
+    for link in case_entity_links(case):
+        if not link.entity_id.strip():
+            continue
+        key = (link.entity_type, link.entity_id)
+        if key in seen:
+            return [ResearchFinding(case.id, "warning", _MSG_RESEARCH_DUPLICATE_LINK)]
+        seen.add(key)
+    return []
+
+
+def validate_hypothesis_comment(comment: HypothesisComment) -> list[str]:
+    """Validate a HypothesisComment and return its hard errors.
+
+    ``date`` may be empty (or whitespace-only, which the editor trims). A
+    non-empty ``date`` must be a real calendar date, so "2026-02-30" is an
+    error. Year and month precision are valid.
+    """
+    errors: list[str] = []
+
+    if comment.date.strip() and not is_valid_calendar_date(comment.date):
+        errors.append(_MSG_COMMENT_BAD_DATE)
+
+    if len(comment.text) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_COMMENT_TEXT_TOO_LONG)
+
+    return errors
+
+
+def validate_research_hypothesis(
+    hypothesis: ResearchHypothesis,
+    valid_case_ids: Optional[set[str]] = None,
+    valid_entity_ids: Optional[dict[str, set[str]]] = None,
+) -> list[str]:
+    """Validate a ResearchHypothesis, including its comments, and return its errors.
+
+    Passing ``None`` for *valid_case_ids* or *valid_entity_ids* skips the
+    corresponding existence check.
+
+    Deliberately never an error: several hypotheses on one case, including ones
+    whose assessments conflict, and any number of comments.
+    """
+    errors: list[str] = []
+
+    if hypothesis.assessment not in VALID_HYPOTHESIS_ASSESSMENTS:
+        errors.append(_MSG_HYPOTHESIS_BAD_ASSESSMENT)
+
+    if valid_case_ids is not None and hypothesis.research_case_id not in valid_case_ids:
+        errors.append(_MSG_HYPOTHESIS_UNKNOWN_CASE)
+
+    if len(hypothesis.statement) > _HYPOTHESIS_STATEMENT_MAX_LENGTH:
+        errors.append(_MSG_HYPOTHESIS_STATEMENT_TOO_LONG)
+
+    if len(hypothesis.reasoning) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_HYPOTHESIS_REASONING_TOO_LONG)
+
+    _validate_research_links(hypothesis.linked_entities, valid_entity_ids, errors)
+
+    for comment in hypothesis.comments:
+        errors.extend(validate_hypothesis_comment(comment))
+
+    return errors
+
+
+def validate_research_action(
+    action: ResearchAction,
+    valid_case_ids: Optional[set[str]] = None,
+    valid_source_ids: Optional[set[str]] = None,
+) -> list[str]:
+    """Validate a ResearchAction and return its hard errors.
+
+    ``completed_date`` is ``None`` for a pending action; anything else must be
+    a real calendar date of year, month or day precision. An empty string is
+    not ``None`` and so is reported: the model normalizes it to ``None`` on
+    construction, so seeing one means it was assigned afterwards.
+
+    Passing ``None`` for *valid_case_ids* or *valid_source_ids* skips the
+    corresponding existence check.
+
+    Deliberately never an error: an empty ``source_refs`` (research may be
+    documented before any formal source exists), several pending actions on
+    one case, and a source reference alongside a negative result.
+    """
+    errors: list[str] = []
+
+    if valid_case_ids is not None and action.research_case_id not in valid_case_ids:
+        errors.append(_MSG_ACTION_UNKNOWN_CASE)
+
+    if action.completed_date is not None and not is_valid_calendar_date(
+        action.completed_date
+    ):
+        errors.append(_MSG_ACTION_BAD_COMPLETED_DATE)
+
+    if len(action.title) > _RESEARCH_ACTION_TITLE_MAX_LENGTH:
+        errors.append(_MSG_ACTION_TITLE_TOO_LONG)
+
+    if len(action.text) > _RESEARCH_LONG_TEXT_MAX_LENGTH:
+        errors.append(_MSG_ACTION_TEXT_TOO_LONG)
+
+    # One message per unresolved reference.
+    if valid_source_ids is not None:
+        for source_ref in action.source_refs:
+            if source_ref.source_id not in valid_source_ids:
+                errors.append(_MSG_ACTION_UNKNOWN_SOURCE)
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Merge candidates and merge history
+# ---------------------------------------------------------------------------
+
+_MSG_MERGE_CAND_SELF = "En person kan inte vara kandidat till sig själv."
+_MSG_MERGE_CAND_BAD_ASSESSMENT = "Ogiltig bedömning för sammanslagningskandidaten."
+_MSG_MERGE_CAND_BAD_ENABLED = "Aktiverad måste vara sant eller falskt."
+_MSG_MERGE_CAND_TOO_MANY_COMMENTS = "Kandidaten har för många kommentarer (högst 500)."
+_MSG_MERGE_CAND_UNKNOWN_PERSON = "Kandidaten hänvisar till en okänd person: {id}."
+_MSG_MERGE_CAND_UNKNOWN_CASE = "Kandidaten hänvisar till ett okänt forskningsuppslag: {id}."
+_MSG_MERGE_CAND_DUPLICATE_COMMENT_ID = "Kandidaten har flera kommentarer med samma id: {id}."
+_MSG_MERGE_CAND_MISSING_PERSON = "Kandidaten saknar person-id."
+_MSG_MERGE_COMMENT_EMPTY = "Kommentarens text får inte vara tom."
+_MSG_MERGE_COMMENT_TOO_LONG = "Kommentarens text är för lång (högst 5000 tecken)."
+_MSG_MERGE_COMMENT_BAD_DATE = "Kommentarens datum är inte ett giltigt datum."
+_MSG_MERGE_HIST_MISSING_ID = "Sammanslagningshistoriken saknar id."
+_MSG_MERGE_HIST_MISSING_SURVIVOR = "Sammanslagningshistoriken saknar överlevande person."
+_MSG_MERGE_HIST_MISSING_MERGED = "Sammanslagningshistoriken saknar sammanslagen person."
+_MSG_MERGE_HIST_SAME_PERSON = (
+    "Överlevande och sammanslagen person får inte vara samma person."
+)
+_MSG_MERGE_HIST_BAD_DATE = "Sammanslagningsdatumet måste vara ett giltigt datum (ÅÅÅÅ-MM-DD)."
+_MSG_MERGE_HIST_BAD_SUMMARY = "Sammanfattningen måste bestå av textrader."
+
+
+def validate_merge_candidate_comment(comment) -> list[str]:
+    """Validate one candidate comment. Returns Swedish messages, ``[]`` if valid."""
+    errors: list[str] = []
+    text = comment.text
+    if not isinstance(text, str) or not text.strip():
+        errors.append(_MSG_MERGE_COMMENT_EMPTY)
+    elif len(text) > 5000:
+        errors.append(_MSG_MERGE_COMMENT_TOO_LONG)
+    date = comment.date
+    if date not in ("", None) and not (
+        isinstance(date, str) and is_valid_calendar_date(date)
+    ):
+        errors.append(_MSG_MERGE_COMMENT_BAD_DATE)
+    return errors
+
+
+def validate_merge_candidate(
+    candidate,
+    valid_person_ids: Optional[set[str]] = None,
+    valid_case_ids: Optional[set[str]] = None,
+    valid_assessments=None,
+) -> list[str]:
+    """Validate a merge candidate. Returns Swedish messages, ``[]`` if valid."""
+    from slaktbusken.model.merge_candidate import (
+        CANDIDATE_ASSESSMENTS,
+        MAX_COMMENTS_PER_CANDIDATE,
+    )
+
+    if valid_assessments is None:
+        valid_assessments = CANDIDATE_ASSESSMENTS
+    errors: list[str] = []
+    if not candidate.person_1_id or not candidate.person_2_id:
+        errors.append(_MSG_MERGE_CAND_MISSING_PERSON)
+    elif candidate.person_1_id == candidate.person_2_id:
+        errors.append(_MSG_MERGE_CAND_SELF)
+    if candidate.assessment not in valid_assessments:
+        errors.append(_MSG_MERGE_CAND_BAD_ASSESSMENT)
+    if not isinstance(candidate.enabled, bool):
+        errors.append(_MSG_MERGE_CAND_BAD_ENABLED)
+    if len(candidate.comments) > MAX_COMMENTS_PER_CANDIDATE:
+        errors.append(_MSG_MERGE_CAND_TOO_MANY_COMMENTS)
+    if valid_person_ids is not None:
+        for pid in (candidate.person_1_id, candidate.person_2_id):
+            if pid and pid not in valid_person_ids:
+                errors.append(_MSG_MERGE_CAND_UNKNOWN_PERSON.format(id=pid))
+    if (
+        valid_case_ids is not None
+        and candidate.research_case_id is not None
+        and candidate.research_case_id not in valid_case_ids
+    ):
+        errors.append(_MSG_MERGE_CAND_UNKNOWN_CASE.format(id=candidate.research_case_id))
+    seen: set[str] = set()
+    reported: set[str] = set()
+    for comment in candidate.comments:
+        if comment.id in seen and comment.id not in reported:
+            errors.append(_MSG_MERGE_CAND_DUPLICATE_COMMENT_ID.format(id=comment.id))
+            reported.add(comment.id)
+        seen.add(comment.id)
+    return errors
+
+
+def validate_merge_history_entry(entry) -> list[str]:
+    """Validate a merge history entry. Returns Swedish messages, ``[]`` if valid."""
+    errors: list[str] = []
+    if not entry.id:
+        errors.append(_MSG_MERGE_HIST_MISSING_ID)
+    if not entry.surviving_person_id:
+        errors.append(_MSG_MERGE_HIST_MISSING_SURVIVOR)
+    if not entry.merged_person_id:
+        errors.append(_MSG_MERGE_HIST_MISSING_MERGED)
+    if (
+        entry.surviving_person_id
+        and entry.surviving_person_id == entry.merged_person_id
+    ):
+        errors.append(_MSG_MERGE_HIST_SAME_PERSON)
+    date = entry.merge_date
+    if not (
+        isinstance(date, str)
+        and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date)
+        and is_valid_calendar_date(date)
+    ):
+        errors.append(_MSG_MERGE_HIST_BAD_DATE)
+    lines = getattr(entry, "summary_lines", [])
+    if not isinstance(lines, list) or not all(isinstance(x, str) for x in lines):
+        errors.append(_MSG_MERGE_HIST_BAD_SUMMARY)
     return errors

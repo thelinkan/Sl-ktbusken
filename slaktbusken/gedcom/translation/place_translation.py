@@ -46,8 +46,59 @@ from slaktbusken.persistence.translation_io import PlaceMapping
 
 _CHURCH_SUFFIXES = ("kyrka", "kapell")
 _CEMETERY_SUFFIXES = ("kyrkogård", "begravningsplats")
-_COUNTRY_NAMES = {"sverige", "norway", "norge", "finland", "danmark", "denmark"}
 _LAN_PATTERN = re.compile(r".+\s+län$", re.IGNORECASE)
+
+# Patterns that identify a place name as a school ("skola"). Unlike churches,
+# Swedish school names are commonly a single fused word ("Stenhamreskolan",
+# "gymnasieskola"), so these are matched as substrings at the end of a word
+# as well as whole words. "universitet"/"högskola" cover higher education.
+_SCHOOL_WORD_RE = re.compile(
+    r"(skola|skolan|gymnasieskola|gymnasium|universitet|högskola|högskolan)$",
+    re.IGNORECASE,
+)
+# Also catch multi-word higher-education names where the keyword is not the
+# final token, e.g. "Högskolan i Gävle".
+_SCHOOL_CONTAINS_RE = re.compile(
+    r"\b(universitet|högskola|högskolan)\b",
+    re.IGNORECASE,
+)
+
+
+def _ends_with_suffix_word(name_lower: str, suffixes: tuple[str, ...]) -> bool:
+    """Whether *name_lower* ends with one of *suffixes* as a standalone word.
+
+    The suffix must be a trailing *word* — i.e. either the entire name or
+    preceded by whitespace — so a church/cemetery reference like
+    "ljusdals kyrka" or "nikolai kyrka" matches, while a parish whose name
+    merely happens to end in the same letters (e.g. "brännkyrka",
+    "storkyrka") does NOT. This avoids mis-typing such parishes as churches.
+
+    Args:
+        name_lower: The already-lowercased, stripped place name.
+        suffixes: Lowercase suffix words to test (e.g. _CHURCH_SUFFIXES).
+
+    Returns:
+        True if the name ends with one of the suffixes as a whole word.
+    """
+    for suffix in suffixes:
+        if name_lower == suffix or name_lower.endswith(" " + suffix):
+            return True
+    return False
+
+
+def _is_school_name(name: str) -> bool:
+    """Whether *name* looks like a school or higher-education institution.
+
+    Matches names ending in school-related words ("...skola", "...skolan",
+    "gymnasieskola", "universitet", "högskola") as well as multi-word
+    higher-education names such as "Högskolan i Gävle".
+    """
+    trimmed = name.strip()
+    if _SCHOOL_WORD_RE.search(trimmed):
+        return True
+    if _SCHOOL_CONTAINS_RE.search(trimmed):
+        return True
+    return False
 
 # Mapping of country names (lowercased) to their continent
 _COUNTRY_TO_CONTINENT: dict[str, str] = {
@@ -88,6 +139,19 @@ _COUNTRY_TO_CONTINENT: dict[str, str] = {
     "kanada": "Nordamerika",
     "canada": "Nordamerika",
 }
+
+# Set of known country names (lowercased), used for name-based type detection.
+# Derived from _COUNTRY_TO_CONTINENT so the two can never drift out of sync:
+# every country that maps to a continent is also recognized as a country when
+# detecting place types. (Previously this was a hand-maintained subset that
+# omitted countries like "kanada"/"usa", causing them to be mis-typed as a
+# parish during import.)
+_COUNTRY_NAMES = set(_COUNTRY_TO_CONTINENT.keys())
+
+# Set of known continent names (lowercased), used for name-based type detection
+# so that a bare continent name (e.g. "Nordamerika") is typed as a continent
+# instead of falling through to the single-level "parish" default.
+_CONTINENT_NAMES = {name.lower() for name in _COUNTRY_TO_CONTINENT.values()}
 
 # Mapping from country names (lowercased) to their preset name in country_presets
 _COUNTRY_NAME_TO_PRESET: dict[str, str] = {
@@ -194,17 +258,23 @@ def infer_place_type(level_index: int, total_levels: int, name: str) -> str:
     # Name-based detection (highest priority)
     name_lower = name.strip().lower()
 
+    if name_lower in _CONTINENT_NAMES:
+        return "continent"
+
     if name_lower in _COUNTRY_NAMES:
         return "country"
 
     if _LAN_PATTERN.match(name):
         return "county"
 
-    if any(name_lower.endswith(suffix) for suffix in _CHURCH_SUFFIXES):
-        return "church"
+    if _is_school_name(name):
+        return "school"
 
-    if any(name_lower.endswith(suffix) for suffix in _CEMETERY_SUFFIXES):
+    if _ends_with_suffix_word(name_lower, _CEMETERY_SUFFIXES):
         return "cemetery"
+
+    if _ends_with_suffix_word(name_lower, _CHURCH_SUFFIXES):
+        return "church"
 
     # Positional inference when name doesn't match known patterns
     if total_levels == 1:
@@ -342,6 +412,21 @@ def map_place_to_hierarchy(
     place_mappings: list[PlaceMapping],
     id_generator: Optional[IDGenerator] = None,
 ) -> list[Place]:
+    """Map a GEDCOM place to a Place hierarchy; return only newly created places.
+
+    See map_place_to_hierarchy_with_leaf for the details and the leaf ID.
+    """
+    return map_place_to_hierarchy_with_leaf(
+        gedcom_place, existing_places, place_mappings, id_generator
+    )[0]
+
+
+def map_place_to_hierarchy_with_leaf(
+    gedcom_place: GedcomPlace,
+    existing_places: list[Place],
+    place_mappings: list[PlaceMapping],
+    id_generator: Optional[IDGenerator] = None,
+) -> tuple[list[Place], Optional[str]]:
     """Map a GEDCOM place to App_JSON Place hierarchy, creating records as needed.
 
     Processes the GEDCOM place levels from least specific (country) to most
@@ -377,7 +462,7 @@ def map_place_to_hierarchy(
         True
     """
     if not gedcom_place.levels:
-        return []
+        return [], None
 
     if id_generator is None:
         existing_ids = {p.id for p in existing_places}
@@ -386,15 +471,21 @@ def map_place_to_hierarchy(
     # --- Pre-scan: detect county position and determine if country is missing ---
     levels = [lv.strip() for lv in gedcom_place.levels if lv.strip()]
     if not levels:
-        return []
+        return [], None
 
-    # Find which level index (in the original most→least order) is a county
+    # Find which level index (in the original most→least order) is a county,
+    # and where the country sits (so positional inference can anchor on the
+    # country rather than assuming the last level is the country — a trailing
+    # continent level, e.g. "..., Finland, Europa", would otherwise shift
+    # every type by one and mis-detect localities as churches/parishes).
     county_index: Optional[int] = None
+    country_index: Optional[int] = None
     has_country = False
     for i, name in enumerate(levels):
         name_lower = name.lower()
         if name_lower in _COUNTRY_NAMES:
             has_country = True
+            country_index = i
         elif _LAN_PATTERN.match(name) or is_county(name):
             county_index = i
 
@@ -466,10 +557,30 @@ def map_place_to_hierarchy(
                 elif i == county_index - 1:
                     place_type = "parish"
                 else:
-                    # More than one level below county = village
-                    place_type = "village"
+                    # More than one level below county is a locality within
+                    # the parish. "ort" is the valid general-purpose locality
+                    # type (an earlier "village" value is not a valid place
+                    # type and failed validation after import).
+                    place_type = "ort"
+            elif country_index is not None and i < country_index:
+                # No county matched by name, but we know where the country is.
+                # Levels below the country are region levels in order, then a
+                # locality: county (immediately below), parish (next), then
+                # ort (anything further down). This stays correct even when a
+                # continent follows the country (e.g. ", Finland, Europa"),
+                # unlike total-level-based inference which assumes the last
+                # level is the country and mis-labels the most-specific level
+                # as a church.
+                depth_below_country = country_index - i
+                if depth_below_country == 1:
+                    place_type = "county"
+                elif depth_below_country == 2:
+                    place_type = "parish"
+                else:
+                    place_type = "ort"
             else:
-                # No county detected — fall back to original positional logic
+                # Neither county nor country position known — fall back to the
+                # original positional logic.
                 place_type = infer_place_type(i, total_levels, name)
 
         # Track the country name for region-level type resolution
@@ -493,7 +604,11 @@ def map_place_to_hierarchy(
 
         # Try to find an existing place with matching name and type
         existing = _find_existing_by_name_and_type(
-            name, place_type, parent_id, existing_places
+            name,
+            place_type,
+            parent_id,
+            existing_places,
+            any_type_if_parentless=(total_levels == 1),
         )
 
         if existing is not None:
@@ -510,6 +625,9 @@ def map_place_to_hierarchy(
                 )
                 if continent_id is not None:
                     effective_parent_id = continent_id
+            elif place_type == "continent":
+                # A continent is always top-level and must have no parent.
+                effective_parent_id = None
 
             new_place = Place(
                 id=new_id,
@@ -532,7 +650,7 @@ def map_place_to_hierarchy(
             new_places.append(new_place)
             parent_id = new_id
 
-    return new_places
+    return new_places, parent_id
 
 
 def _detect_type_by_name(name: str) -> Optional[str]:
@@ -547,17 +665,23 @@ def _detect_type_by_name(name: str) -> Optional[str]:
     """
     name_lower = name.strip().lower()
 
+    if name_lower in _CONTINENT_NAMES:
+        return "continent"
+
     if name_lower in _COUNTRY_NAMES:
         return "country"
 
     if _LAN_PATTERN.match(name):
         return "county"
 
-    if any(name_lower.endswith(suffix) for suffix in _CHURCH_SUFFIXES):
-        return "church"
+    if _is_school_name(name):
+        return "school"
 
-    if any(name_lower.endswith(suffix) for suffix in _CEMETERY_SUFFIXES):
+    if _ends_with_suffix_word(name_lower, _CEMETERY_SUFFIXES):
         return "cemetery"
+
+    if _ends_with_suffix_word(name_lower, _CHURCH_SUFFIXES):
+        return "church"
 
     return None
 
@@ -589,33 +713,56 @@ def _find_existing_by_name_and_type(
     place_type: str,
     parent_id: Optional[str],
     existing_places: list[Place],
+    any_type_if_parentless: bool = False,
 ) -> Optional[Place]:
-    """Find an existing place matching name, type, and optionally parent.
+    """Find an existing place matching name, type, and parent position.
 
-    Performs case-insensitive name comparison. When parent_id is provided,
-    prefers a match with the same parent, but falls back to a match with
-    just name and type if no parent-specific match is found.
+    Performs case-insensitive name comparison. The parent chain is respected
+    strictly for nested levels:
+
+    - When ``parent_id`` is provided (a NESTED level), only a place whose
+      ``parent_place_id`` equals ``parent_id`` may be reused. There is NO
+      fallback to a name+type-only match. This prevents a nested level from
+      being bound to a shallower, differently-parented place that merely
+      shares the same name, the collapse that flattened repeated-name
+      hierarchies such as "Ed, Ed" onto a standalone "Ed".
+    - When ``parent_id`` is None (a TOP-level lookup), candidates are tried
+      in this order: a parentless place with the same name and type; if
+      ``any_type_if_parentless`` is set (a one-level PLAC, whose positional
+      type may differ from the stored type), a parentless place with the
+      same name and any type; finally a nested place with the same name and
+      type. The nested fallback is used only when no parentless place of
+      that name exists, so a one-level "Ed" binds to the top-level "Ed"
+      instead of the child of "Ed, Ed", while a bare parish name such as
+      "Backa" still reuses an existing parish nested under its country.
 
     Args:
         name: The place name to search for.
         place_type: The expected place type.
-        parent_id: The expected parent_place_id (may be None for top-level).
+        parent_id: The expected parent_place_id (None for top-level).
         existing_places: The list of all existing places.
+        any_type_if_parentless: See above (top-level lookups only).
 
     Returns:
         The matching Place if found, or None.
     """
     name_lower = name.lower()
-    match_with_parent: Optional[Place] = None
-    match_without_parent: Optional[Place] = None
+    same_name = [p for p in existing_places if p.name.lower() == name_lower]
 
-    for place in existing_places:
-        if place.name.lower() == name_lower and place.type == place_type:
-            if place.parent_place_id == parent_id:
-                match_with_parent = place
-                break
-            if match_without_parent is None:
-                match_without_parent = place
+    if parent_id is not None:
+        for place in same_name:
+            if place.type == place_type and place.parent_place_id == parent_id:
+                return place
+        return None
 
-    # Prefer exact parent match, fall back to name+type match
-    return match_with_parent if match_with_parent is not None else match_without_parent
+    for place in same_name:
+        if place.type == place_type and place.parent_place_id is None:
+            return place
+    if any_type_if_parentless:
+        for place in same_name:
+            if place.parent_place_id is None:
+                return place
+    for place in same_name:
+        if place.type == place_type:
+            return place
+    return None

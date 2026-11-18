@@ -1,4 +1,4 @@
-"""Unit tests for the Report Menu structure.
+﻿"""Unit tests for the Report Menu structure.
 
 Verifies category submenus, item placement, placeholder/implemented states,
 tooltip behaviour, and project-open/closed toggling.
@@ -63,6 +63,8 @@ _IMPLEMENTED_LABELS = {
     "Ansedel",
     "Geografisk konsistens",
     "Mediakonsistens",
+    "Forskningskonsistens",
+    "Sammanslagning och dubletter",
 }
 
 
@@ -191,6 +193,8 @@ class TestSubmenuItems:
             "Personkonsistens",
             "Familjekonsistens",
             "Mediakonsistens",
+            "Forskningskonsistens",
+            "Sammanslagning och dubletter",
             "Källkonsistens",
         ]
 
@@ -311,12 +315,14 @@ class TestUpdateProjectState:
         assert builder.action_ansedel.isEnabled()
         assert builder.action_geographic.isEnabled()
         assert builder.action_media.isEnabled()
+        assert builder.action_research_consistency.isEnabled()
 
         # Close project
         builder.update_project_state(False)
         assert not builder.action_ansedel.isEnabled()
         assert not builder.action_geographic.isEnabled()
         assert not builder.action_media.isEnabled()
+        assert not builder.action_research_consistency.isEnabled()
 
     def test_close_then_open(self, menu_project_closed) -> None:
         builder, _menu, _bar = menu_project_closed
@@ -325,12 +331,14 @@ class TestUpdateProjectState:
         assert not builder.action_ansedel.isEnabled()
         assert not builder.action_geographic.isEnabled()
         assert not builder.action_media.isEnabled()
+        assert not builder.action_research_consistency.isEnabled()
 
         # Open project
         builder.update_project_state(True)
         assert builder.action_ansedel.isEnabled()
         assert builder.action_geographic.isEnabled()
         assert builder.action_media.isEnabled()
+        assert builder.action_research_consistency.isEnabled()
 
     def test_placeholders_stay_disabled_after_state_change(
         self, menu_project_closed

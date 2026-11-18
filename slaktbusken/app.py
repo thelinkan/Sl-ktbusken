@@ -1,4 +1,4 @@
-"""Application shell — thin wiring layer between services and UI.
+﻿"""Application shell — thin wiring layer between services and UI.
 
 Instantiates all services, creates the main window, and forwards
 UI events (menu actions) to the appropriate service methods.
@@ -12,10 +12,18 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox, QVBoxLayout
 
 from slaktbusken.relationship.calculator import RelationshipCalculator
+from slaktbusken.services.commit.translation_commit import (
+    ImportSaveUnfinished,
+    SaveConflict,
+    SaveFailed,
+)
 from slaktbusken.services.delete_service import DeleteService
+from slaktbusken.gedcom.errors import ImportAborted
+from slaktbusken.services.edit_session import MSG_IMPORT_SAVE_UNFINISHED
 from slaktbusken.services.export_service import ExportService
+from slaktbusken.services.import_service import ImportError as ImportServiceError
 from slaktbusken.services.import_service import ImportService
-from slaktbusken.services.project_service import ProjectService
+from slaktbusken.services.project_service import MergeInProgressError, ProjectService
 from slaktbusken.services.report_service import ReportService
 from slaktbusken.services.translation_service import TranslationService
 from slaktbusken.services.validation_service import ValidationService
@@ -23,6 +31,164 @@ from slaktbusken.ui.dialogs.delete_person_dialog import DeletePersonDialog
 from slaktbusken.ui.main_window import MainWindow
 
 logger = logging.getLogger(__name__)
+
+
+# Maps the context-menu override action types to the parentage value written
+# into ProjectData.connection_overrides. "override_clear" removes the key.
+_OVERRIDE_ACTION_VALUES: dict[str, str] = {
+    "override_biological": "biological",
+    "override_foster": "foster",
+    "override_adoptive": "adoptive",
+}
+
+
+def apply_connection_override(
+    overrides: dict[str, str], action_type: str, person_id: str
+) -> bool:
+    """Write or clear a child's parentage override in the overrides dict.
+
+    Pure dict mutation, factored out of the GUI handler so it can be unit
+    tested without a Qt application. For the three set actions the child's
+    entry is set to ``biological``/``foster``/``adoptive``; for
+    ``override_clear`` the entry is removed if present
+    (Requirements 5.1, 5.4, 5.5).
+
+    Args:
+        overrides: The ``ProjectData.connection_overrides`` dict to mutate.
+        action_type: One of ``override_biological``, ``override_foster``,
+            ``override_adoptive``, or ``override_clear``.
+        person_id: The child whose override is being set or cleared.
+
+    Returns:
+        ``True`` if the dict was changed, ``False`` otherwise (e.g. clearing a
+        child that had no override, or setting the value it already holds).
+    """
+    if action_type == "override_clear":
+        return overrides.pop(person_id, None) is not None
+
+    value = _OVERRIDE_ACTION_VALUES.get(action_type)
+    if value is None:
+        return False
+    if overrides.get(person_id) == value:
+        return False
+    overrides[person_id] = value
+    return True
+
+
+MSG_SESSION_ACTION_REFUSED = (
+    'Spara eller avbryt redigeringen i "{title}" innan du {action}.'
+)
+
+
+def _refuse_during_edit_session(project_service, parent, action: str) -> bool:
+    """Show the Requirement 1.8 refusal when an edit session is active.
+
+    Returns:
+        True when the action must not proceed.
+    """
+    session = project_service.active_edit_session
+    if session is None:
+        return False
+    QMessageBox.warning(
+        parent,
+        "Redigering pågår",
+        MSG_SESSION_ACTION_REFUSED.format(title=session.owner_title, action=action),
+    )
+    return True
+
+
+def _begin_person_session(project_service, parent):
+    """Start the Edit_Session of a person editor, or show why it cannot.
+
+    Returns:
+        The session, or ``None`` after showing the Swedish refusal message
+        (the person editor then does not open).
+    """
+    from slaktbusken.services.edit_session import (
+        EditSessionBusy,
+        EditSessionRefused,
+        UnsavedEditorsBlock,
+    )
+
+    try:
+        return project_service.begin_edit_session("Personredigerare")
+    except (UnsavedEditorsBlock, EditSessionBusy, EditSessionRefused) as exc:
+        QMessageBox.warning(parent, "Kan inte öppna personredigeraren", str(exc))
+        return None
+
+
+def _rollback_session_quietly(session) -> None:
+    """Roll back after an error or an editor result without data.
+
+    If rollback is refused because the project changed outside the session, the
+    changes are kept (committed) rather than lost.
+    """
+    from slaktbusken.services.edit_session import EditSessionConflict
+
+    if session is None or session._closed:
+        return
+    try:
+        session.rollback()
+    except EditSessionConflict:
+        session.commit()
+
+def _construct_editor_in_session(session, factory, **kwargs):
+    """Build a PersonEditor; roll the session back if construction raises."""
+    try:
+        return factory(**kwargs)
+    except BaseException:
+        _rollback_session_quietly(session)
+        raise
+
+
+class _SessionDialog(QDialog):
+    """Dialog around a PersonEditor that owns an Edit_Session.
+
+    Every way of leaving without saving (Avbryt, Esc, the close button) ends in
+    ``reject``, which rolls the session back. If the project changed outside
+    the session the rollback is refused and the user chooses between "Spara"
+    and "Behåll redigeraren öppen" (Requirement 1.11).
+    """
+
+    def __init__(self, parent, session) -> None:
+        super().__init__(parent)
+        self._session = session
+        self._editor = None
+
+    def attach_editor(self, editor) -> None:
+        """Remember the person editor used by the "Spara" choice."""
+        self._editor = editor
+
+    def reject(self) -> None:  # noqa: D401 - Qt override
+        """Roll the session back, then close; keep the dialog on a conflict."""
+        from slaktbusken.services.edit_session import EditSessionConflict
+
+        session = self._session
+        if session is not None and not session._closed:
+            try:
+                session.rollback()
+            except EditSessionConflict as exc:
+                if self._ask_conflict(str(exc)) == "save" and self._editor is not None:
+                    self._editor._on_save()  # accepts the dialog when valid
+                return
+        super().reject()
+
+    def _ask_conflict(self, text: str) -> str:
+        """Ask "Spara" or "Behåll redigeraren öppen"; returns 'save' or 'keep'."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Kan inte avbryta")
+        box.setText(
+            "Projektet har ändrats utanför redigeringen. Avbrytning kan inte "
+            "ångra ändringarna säkert. Spara eller håll redigeraren öppen."
+        )
+        save_btn = box.addButton("Spara", QMessageBox.ButtonRole.AcceptRole)
+        keep_btn = box.addButton(
+            "Behåll redigeraren öppen", QMessageBox.ButtonRole.RejectRole
+        )
+        box.setDefaultButton(keep_btn)
+        box.exec()
+        return "save" if box.clickedButton() is save_btn else "keep"
 
 
 class Application:
@@ -45,6 +211,23 @@ class Application:
         self.export_service = ExportService(self.report_service)
         self.translation_service = TranslationService()
         self.delete_service = DeleteService(self.project_service)
+
+        # Research change notification: services call
+        # project_service.notify_research_changed(); that is bridged to a Qt
+        # signal so open views can connect their refresh slots to it.
+        from slaktbusken.ui.research_signals import ResearchSignals
+
+        self._research_signals = ResearchSignals()
+        self.project_service.add_research_listener(self._research_signals.changed.emit)
+
+        # Entity editors reach the research actions through this gateway.
+        from slaktbusken.ui.research_gateway import set_research_gateway
+
+        set_research_gateway(self)
+
+        # Merge: one editor registry owned here, and this object is the
+        # gateway through which merge widgets reach the application.
+        self._register_merge_gateway()
 
         # Application-level settings service
         from slaktbusken.persistence.app_settings_io import AppSettingsService
@@ -96,20 +279,156 @@ class Application:
             self.handle_context_menu_action
         )
 
+        # Merge entry points: panels carry the ordered ids; the gateway
+        # (this object) opens the comparison or the candidate editor.
+        for panel in (
+            self.main_window.diagram_panel,
+            self.main_window.person_list_panel,
+        ):
+            panel.compare_requested.connect(self._on_compare_requested)
+            panel.mark_candidates_requested.connect(
+                self._on_mark_candidates_requested
+            )
+
         # Connect diagram single-click selection to detail panel
         self.main_window.diagram_panel.person_selected.connect(
             self.main_window._on_person_activated_for_detail
         )
 
+        # Refresh the person list and the diagram after research changes
+        self._research_signals.changed.connect(self._on_research_changed)
+
         # Apply saved theme
         self._apply_theme(self.app_settings_service._settings.theme)
+
+        # Remember window sizes and positions (all windows, app-wide).
+        self._install_window_geometry_keeper()
 
         # Auto-open default project if configured
         self._auto_open_default_project()
 
     # ------------------------------------------------------------------
+    # Window geometry
+    # ------------------------------------------------------------------
+
+    def _install_window_geometry_keeper(self) -> None:
+        """Restore and record the size and position of every window.
+
+        Geometries are kept in the application settings (per computer, never in
+        a project) and written when the application quits.
+        """
+        from PySide6.QtWidgets import QApplication as _QApp
+
+        from slaktbusken.ui.window_geometry import (
+            KEY_PROPERTY,
+            MAIN_WINDOW_KEY,
+            TRACK_PROPERTY,
+            WindowGeometryKeeper,
+        )
+
+        qt_app = _QApp.instance()
+        if qt_app is None:
+            return
+        self._geometry_keeper = WindowGeometryKeeper(
+            lambda: self.app_settings_service._settings.window_geometries
+        )
+        qt_app.installEventFilter(self._geometry_keeper)
+
+        self.main_window.setProperty(TRACK_PROPERTY, True)
+        self.main_window.setProperty(KEY_PROPERTY, MAIN_WINDOW_KEY)
+        qt_app.aboutToQuit.connect(self._save_window_geometries)
+
+    def _save_window_geometries(self) -> None:
+        """Write window geometries and person list column widths to the settings file."""
+        keeper = getattr(self, "_geometry_keeper", None)
+        if keeper is None:
+            return
+        # The main window may still be visible when quitting starts.
+        if self.main_window.isVisible():
+            keeper.remember(self.main_window)
+        self.main_window.person_list_panel.save_column_widths()
+        self.app_settings_service.save(self.app_settings_service._settings)
+
+    # ------------------------------------------------------------------
+    # Research change notification
+    # ------------------------------------------------------------------
+
+    @property
+    def research_changed(self):
+        """Signal emitted after research data changes.
+
+        Connect a ``QObject`` method to it to refresh a view that shows
+        research-derived content; the connection is dropped automatically when
+        that object is destroyed.
+        """
+        return self._research_signals.changed
+
+    def _on_research_changed(self) -> None:
+        """Refresh the always-open views after research data changed.
+
+        Rebuilds the person list and re-renders the diagram, preserving the
+        active person, the same way saving a person does. Does nothing when no
+        project is open.
+        """
+        if self.project_service.project_path is None:
+            return
+
+        self._update_status()
+        self.main_window.person_list_panel.refresh()
+        self.main_window.detail_panel.refresh()
+        panel = self.main_window.diagram_panel
+        panel.set_project_data(self.project_service.data)
+        panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
+
+    # ------------------------------------------------------------------
     # Action callbacks (invoked by MainWindow actions)
     # ------------------------------------------------------------------
+
+    def _resolve_person_request(self, person_id: str) -> str | None:
+        """Map a requested person id to the person to open (Requirement 36.14).
+
+        A retired id gives its survivor and a status-bar message; an id that
+        resolves to nobody gives a message naming the id and returns None.
+        """
+        from slaktbusken.services.person_lookup import resolve_person_request
+
+        if not person_id:
+            return None
+        result = resolve_person_request(self.project_service.data, person_id)
+        if result.person_id is None:
+            QMessageBox.information(
+                self.main_window,
+                "Personen hittades inte",
+                f"Personen {person_id} finns inte och kunde inte öppnas.",
+            )
+            return None
+        if result.redirected_from is not None:
+            survivor = next(
+                (p for p in self.project_service.data.persons if p.id == result.person_id),
+                None,
+            )
+            name = ""
+            if survivor is not None and survivor.names:
+                n = survivor.names[0]
+                name = f"{n.given} {n.surname}".strip()
+            name = name or result.person_id
+            self.main_window.statusBar().showMessage(
+                f"Personen {result.redirected_from} slogs samman med {name}.", 8000
+            )
+        return result.person_id
+
+    def show_person(self, person_id: str) -> None:
+        """Select the person in the person list and open the person editor."""
+        if self.project_service.project_path is None:
+            return
+        resolved = self._resolve_person_request(person_id)
+        if resolved is None:
+            return
+        try:
+            self.main_window.person_list_panel.select_person_from_diagram(resolved)
+        except Exception:  # noqa: BLE001 - selection is best effort
+            logger.exception("Personen kunde inte markeras i listan.")
+        self.open_person_editor(resolved)
 
     def open_person_editor(self, person_id: str) -> None:
         """Open the person editor dialog for the given person.
@@ -123,6 +442,11 @@ class Application:
         """
         from slaktbusken.ui.editors.person_editor import PersonEditor
 
+        resolved = self._resolve_person_request(person_id)
+        if resolved is None:
+            return
+        person_id = resolved
+
         # Find the person
         person = None
         for p in self.project_service.data.persons:
@@ -134,8 +458,12 @@ class Application:
             logger.warning("Person med ID '%s' hittades inte.", person_id)
             return
 
+        session = _begin_person_session(self.project_service, self.main_window)
+        if session is None:
+            return
+
         # Create dialog wrapper
-        dialog = QDialog(self.main_window)
+        dialog = _SessionDialog(self.main_window, session)
         # Build display name for the title
         if person.names:
             first_name = person.names[0]
@@ -148,12 +476,18 @@ class Application:
         layout = QVBoxLayout(dialog)
 
         # Create editor widget
-        editor = PersonEditor(
+        editor = _construct_editor_in_session(
+            session,
+            PersonEditor,
             project_data=self.project_service.data,
             person=person,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
+            project_service=self.project_service,
         )
+        session.owner_title = editor.editor_title
+        dialog.attach_editor(editor)
         layout.addWidget(editor)
 
         # Connect editor signals to dialog accept/reject
@@ -161,31 +495,45 @@ class Application:
         editor.cancel_requested.connect(dialog.reject)
 
         # Show modal dialog
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            saved = editor.saved_person
-            if saved is not None:
-                self.main_window.show_progress("Uppdaterar...")
-                QApplication.processEvents()
-                try:
-                    # Replace the person in project data
-                    persons = self.project_service.data.persons
-                    for i, existing in enumerate(persons):
-                        if existing.id == saved.id:
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        except BaseException:
+            _rollback_session_quietly(session)
+            raise
+        if not accepted:
+            _rollback_session_quietly(session)  # no-op after reject()
+            return
+        saved = editor.saved_person
+        if saved is None:
+            _rollback_session_quietly(session)
+            return
+        self.main_window.show_progress("Uppdaterar...")
+        QApplication.processEvents()
+        try:
+            try:
+                # Replace the person in project data. An unchanged person keeps
+                # its identity so that saving without edits changes nothing.
+                persons = self.project_service.data.persons
+                for i, existing in enumerate(persons):
+                    if existing.id == saved.id:
+                        if existing != saved:
                             persons[i] = saved
-                            break
+                        break
+            except BaseException:
+                _rollback_session_quietly(session)
+                raise
+            # The commit marks the project changed once, if anything changed.
+            session.commit()
+            self._update_status()
 
-                    # Mark project as dirty and refresh UI without resetting active person
-                    self.project_service._dirty = True
-                    self._update_status()
-
-                    # Refresh person list and re-render diagram preserving active person
-                    self.main_window.person_list_panel.refresh()
-                    panel = self.main_window.diagram_panel
-                    panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
-                    panel.set_project_data(self.project_service.data)
-                    panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
-                finally:
-                    self.main_window.hide_progress()
+            # Refresh person list and re-render diagram preserving active person
+            self.main_window.person_list_panel.refresh()
+            panel = self.main_window.diagram_panel
+            panel.set_project_folder(self.project_service.project_path.parent if self.project_service.project_path else None)
+            panel.set_project_data(self.project_service.data)
+            panel.set_person_box_config(self.app_settings_service._settings.person_box_config)
+        finally:
+            self.main_window.hide_progress()
 
     def add_standalone_person(self) -> None:
         """Create a new person with no family affiliations.
@@ -194,7 +542,7 @@ class Application:
         to project data and sets them as the active person in the diagram.
         """
         from slaktbusken.model.person import Person, Name
-        from slaktbusken.model.id_generator import IDGenerator
+        from slaktbusken.services.id_registry import issue_person_id
         from slaktbusken.ui.editors.person_editor import PersonEditor
 
         if self.project_service.data is None:
@@ -214,8 +562,7 @@ class Application:
         for s in data.sources:
             existing_ids.add(s.id)
 
-        id_gen = IDGenerator(existing_ids)
-        new_id = id_gen.generate("person")
+        new_id = issue_person_id(data, existing_ids)
 
         new_person = Person(
             id=new_id,
@@ -223,37 +570,54 @@ class Application:
             names=[Name(type="birth", given="", surname="")],
         )
 
+        session = _begin_person_session(self.project_service, self.main_window)
+        if session is None:
+            return
+
         # Open editor
-        dialog = QDialog(self.main_window)
+        dialog = _SessionDialog(self.main_window, session)
         dialog.setWindowTitle("Lägg till person")
         dialog.setMinimumSize(600, 700)
         layout = QVBoxLayout(dialog)
 
-        editor = PersonEditor(
+        editor = _construct_editor_in_session(
+            session,
+            PersonEditor,
             project_data=data,
             person=new_person,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
+            project_service=self.project_service,
         )
+        session.owner_title = editor.editor_title
+        dialog.attach_editor(editor)
         layout.addWidget(editor)
         editor.save_requested.connect(dialog.accept)
         editor.cancel_requested.connect(dialog.reject)
 
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        except BaseException:
+            _rollback_session_quietly(session)
+            raise
         saved = editor.saved_person
-        if saved is None:
+        if not accepted or saved is None:
+            _rollback_session_quietly(session)  # no-op after reject()
             return
 
         self.main_window.show_progress("Uppdaterar...")
         QApplication.processEvents()
         try:
-            # Add person to project (no family affiliations)
-            data.persons.append(saved)
+            try:
+                # Add person to project (no family affiliations)
+                data.persons.append(saved)
+            except BaseException:
+                _rollback_session_quietly(session)
+                raise
 
-            # Mark dirty and refresh
-            self.project_service._dirty = True
+            # The commit marks the project changed once.
+            session.commit()
             self._update_status()
             self.main_window.person_list_panel.refresh()
 
@@ -297,8 +661,45 @@ class Application:
             self._handle_filter_dna_matches(person_id)
         elif action_type == "show_on_map":
             self.show_person_map(person_id)
+        elif action_type in (
+            "override_biological",
+            "override_foster",
+            "override_adoptive",
+            "override_clear",
+        ):
+            self._handle_connection_override(action_type, person_id)
         else:
             logger.warning("Unknown context menu action: %s", action_type)
+
+    def _handle_connection_override(self, action_type: str, person_id: str) -> None:
+        """Set or clear a child's per-connection parentage override.
+
+        Writes/clears ``ProjectData.connection_overrides[person_id]`` and
+        redraws the active diagram so the override takes visual effect
+        immediately (Requirements 5.1, 5.4, 5.5). The resolver
+        (``resolve_parent_display``) already consumes the dict, so writing it
+        plus a redraw is sufficient; the serializer persists the dict on save.
+
+        Args:
+            action_type: One of ``override_biological``, ``override_foster``,
+                ``override_adoptive``, or ``override_clear``.
+            person_id: The child whose parent connection is being overridden.
+        """
+        data = self.project_service.data
+        changed = apply_connection_override(
+            data.connection_overrides, action_type, person_id
+        )
+        if not changed:
+            return
+
+        # Mirror how the service marks direct data mutations dirty so the
+        # override is persisted on the next save (Requirement 5.5).
+        self.project_service.mark_changed()
+        self._update_status()
+
+        # Lightest redraw: the panel re-renders from the same ProjectData
+        # object the views read connection_overrides from.
+        self.main_window.diagram_panel._refresh_diagram()
 
     def _handle_context_add_relative(self, role: str, person_id: str) -> None:
         """Handle adding a relative via context menu.
@@ -306,14 +707,69 @@ class Application:
         Directly calls handle_placeholder_click with an explicit target
         person ID, avoiding fragile active-person swapping.
 
+        For the ``child`` role, if the clicked person has one or more partner
+        families, first show a chooser letting the user pick which partner
+        family the child belongs to (i.e. who the other parent is), or create
+        a new single-parent family. Choosing an existing family routes through
+        the regular ``family_id`` path so the child is added exactly like the
+        in-graph "Lägg till barn" flow (ParentChildLink from every partner).
+
         Args:
             role: The relationship role ('partner', 'father', 'mother', 'child').
             person_id: The ID of the person to add the relative to.
         """
+        if role == "child":
+            self._handle_context_add_child(person_id)
+            return
+
         # Use empty family_id — handle_placeholder_click will first search for an
         # existing family containing the child before creating a new one.
         # Pass target_person_id explicitly so it doesn't depend on active_person_id
         self.handle_placeholder_click(role, "", target_person_id=person_id)
+
+    def _handle_context_add_child(self, person_id: str) -> None:
+        """Resolve the other-parent chooser, then add a child via the editor.
+
+        Args:
+            person_id: The clicked person who will be a parent of the new child.
+        """
+        from slaktbusken.services.diagram_lookup import find_partner_families
+        from slaktbusken.ui.dialogs.add_child_parent_dialog import (
+            NEW_FAMILY_SENTINEL,
+            AddChildParentDialog,
+        )
+
+        data = self.project_service.data
+        if data is None:
+            return
+
+        partner_families = find_partner_families(data, person_id)
+
+        if partner_families:
+            persons_by_id = {p.id: p for p in data.persons}
+            dialog = AddChildParentDialog(
+                partner_families,
+                persons_by_id,
+                person_id,
+                parent=self.main_window,
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                # Cancel: add nothing, do not open the editor.
+                return
+            chosen = dialog.chosen_family_id
+            if chosen and chosen != NEW_FAMILY_SENTINEL:
+                # Route through the existing-family path (same as in-graph
+                # "Lägg till barn"): append child + ParentChildLink per partner.
+                self.handle_placeholder_click(
+                    "child", chosen, target_person_id=person_id
+                )
+                return
+            # NEW_FAMILY_SENTINEL (or None) -> single-parent family with link.
+
+        # No partner family, or "Annan/ingen andra förälder" chosen:
+        # create a single-parent family. The empty-family_id child branch in
+        # handle_placeholder_click now always adds the ParentChildLink.
+        self.handle_placeholder_click("child", "", target_person_id=person_id)
 
     def _handle_delete_person(self, person_id: str) -> None:
         """Handle deletion of a person via context menu.
@@ -325,6 +781,9 @@ class Application:
         Args:
             person_id: The ID of the person to delete.
         """
+        if _refuse_during_edit_session(self.project_service, self.main_window, "tar bort personer"):
+            return
+
         # Check if the person can be deleted
         allowed, error_message = self.delete_service.can_delete(person_id)
         if not allowed:
@@ -521,6 +980,30 @@ class Application:
         dialog.exec()
 
     def handle_placeholder_click(self, role: str, family_id: str, target_person_id: str = "") -> None:
+        """Add a new relative through the person editor inside one Edit_Session.
+
+        The session starts before the editor opens. Cancel rolls everything back
+        (including nested creations); on accept the new person and the family
+        links are added inside the session and the commit marks the change once.
+        See ``_add_relative_in_session`` for the parameters.
+        """
+        if self.project_service.data is None:
+            return
+        session = _begin_person_session(self.project_service, self.main_window)
+        if session is None:
+            return
+        try:
+            self._add_relative_in_session(role, family_id, target_person_id, session)
+        except BaseException:
+            _rollback_session_quietly(session)
+            raise
+        # Every normal path commits or rolls back itself; this is a safety net
+        # for early returns so that a session never stays active.
+        _rollback_session_quietly(session)
+
+    def _add_relative_in_session(
+        self, role: str, family_id: str, target_person_id: str, session
+    ) -> None:
         """Handle click on a placeholder box to add a new person.
 
         Creates a new person via the person editor, then links them
@@ -535,6 +1018,8 @@ class Application:
         from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
         from slaktbusken.model.id_generator import IDGenerator
         from slaktbusken.model.person import Name, Person
+        from slaktbusken.services.id_registry import issue_person_id
+        from slaktbusken.services.parent_service import build_new_parent_family
         from slaktbusken.ui.editors.person_editor import PersonEditor
 
         if self.project_service.data is None:
@@ -563,7 +1048,7 @@ class Application:
             existing_ids.add(s.id)
 
         id_gen = IDGenerator(existing_ids)
-        new_id = id_gen.generate("person")
+        new_id = issue_person_id(data, existing_ids)
 
         new_person = Person(
             id=new_id,
@@ -572,17 +1057,23 @@ class Application:
         )
 
         # Open editor for the new person
-        dialog = QDialog(self.main_window)
+        dialog = _SessionDialog(self.main_window, session)
         dialog.setWindowTitle("Lägg till person")
         dialog.setMinimumSize(600, 700)
         layout = QVBoxLayout(dialog)
 
-        editor = PersonEditor(
+        editor = _construct_editor_in_session(
+            session,
+            PersonEditor,
             project_data=data,
             person=new_person,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
+            project_service=self.project_service,
         )
+        session.owner_title = editor.editor_title
+        dialog.attach_editor(editor)
         layout.addWidget(editor)
         editor.save_requested.connect(dialog.accept)
         editor.cancel_requested.connect(dialog.reject)
@@ -593,13 +1084,14 @@ class Application:
         active_id = target_person_id if target_person_id else self.main_window.diagram_panel.active_person_id
 
         if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
+            return  # reject() rolled the session back
 
         saved = editor.saved_person
         if saved is None:
+            _rollback_session_quietly(session)
             return
 
-        # Add the new person to project data
+        # Add the new person to project data (inside the session)
         data.persons.append(saved)
 
         # Link to appropriate family
@@ -644,14 +1136,15 @@ class Application:
                 else:
                     # No existing family — create new one (first parent addition)
                     fam_id = id_gen.generate("family")
-                    new_family = Family(
-                        id=fam_id,
-                        partners=[FamilyPartner(person_id=saved.id, role=partner_role)],
-                        children=[active_id] if active_id else [],
-                        parent_child_links=[
-                            ParentChildLink(child_id=active_id, parent_id=saved.id, parentage_type="biological")
-                        ] if active_id else [],
-                    )
+                    if active_id:
+                        new_family = build_new_parent_family(
+                            fam_id, saved.id, partner_role, active_id
+                        )
+                    else:
+                        new_family = Family(
+                            id=fam_id,
+                            partners=[FamilyPartner(person_id=saved.id, role=partner_role)],
+                        )
                     data.families.append(new_family)
 
         elif role == "child":
@@ -671,13 +1164,23 @@ class Application:
                             )
                         )
             else:
-                # Create new family with active person as partner and new person as child
+                # Create new single-parent family with active person as partner
+                # and new person as child. Always include a ParentChildLink so
+                # the parent and child can see each other in the diagrams
+                # (views draw parents/children from parent_child_links).
                 if active_id:
                     fam_id = id_gen.generate("family")
                     new_family = Family(
                         id=fam_id,
                         partners=[FamilyPartner(person_id=active_id, role="partner")],
                         children=[saved.id],
+                        parent_child_links=[
+                            ParentChildLink(
+                                child_id=saved.id,
+                                parent_id=active_id,
+                                parentage_type="biological",
+                            )
+                        ],
                     )
                     data.families.append(new_family)
 
@@ -695,11 +1198,11 @@ class Application:
                 )
                 data.families.append(new_family)
 
-        # Mark dirty and refresh UI
+        # Commit the session (marks the project changed once) and refresh UI
+        session.commit()
         self.main_window.show_progress("Uppdaterar...")
         QApplication.processEvents()
         try:
-            self.project_service._dirty = True
             self._update_status()
             self.main_window.person_list_panel.refresh()
             panel = self.main_window.diagram_panel
@@ -769,6 +1272,7 @@ class Application:
             self._update_status()
             self._update_diagram_panel()
             self.main_window.statusBar().showMessage("Projekt öppnat", 5000)
+            self._show_recovery_message()
         except FileNotFoundError:
             QMessageBox.critical(
                 self.main_window,
@@ -776,11 +1280,12 @@ class Application:
                 "Filen hittades inte.",
             )
         except Exception as e:
-            QMessageBox.critical(
-                self.main_window,
-                "Fel",
-                f"Kunde inte öppna projektet:\n{e}",
-            )
+            if not self._report_open_failure(e):
+                QMessageBox.critical(
+                    self.main_window,
+                    "Fel",
+                    f"Kunde inte öppna projektet:\n{e}",
+                )
         finally:
             self.main_window.hide_progress()
 
@@ -792,6 +1297,16 @@ class Application:
             self.project_service.save_project()
             self._update_status()
             self.main_window.statusBar().showMessage("Projekt sparat", 5000)
+        except MergeInProgressError as e:
+            QMessageBox.warning(self.main_window, "Spara projekt", str(e))
+        except (SaveConflict, SaveFailed) as e:
+            # Nothing was replaced: the project stays open and dirty.
+            QMessageBox.warning(self.main_window, "Spara projekt", e.message)
+            self._update_status()
+        except ImportSaveUnfinished as e:
+            # The project file is saved; the translation files finish at next open.
+            QMessageBox.warning(self.main_window, "Spara projekt", e.message)
+            self._update_status()
         except Exception as e:
             QMessageBox.critical(
                 self.main_window,
@@ -803,6 +1318,11 @@ class Application:
 
     def import_gedcom(self) -> None:
         """Import a GEDCOM file into the current project."""
+        if self.project_service.import_save_unfinished:
+            QMessageBox.warning(self.main_window, "Importera GEDCOM", MSG_IMPORT_SAVE_UNFINISHED)
+            return
+        if _refuse_during_edit_session(self.project_service, self.main_window, "importerar"):
+            return
         path, _ = QFileDialog.getOpenFileName(
             self.main_window,
             "Importera GEDCOM",
@@ -821,7 +1341,7 @@ class Application:
                 return
 
             result = self.import_service.run(
-                project_data, Path(path), project_path.parent
+                project_data, Path(path), project_path.parent, self.project_service
             )
             summary = self.import_service.format_result(result)
             self._update_status()
@@ -853,6 +1373,18 @@ class Application:
                 "Fel",
                 str(e),
             )
+        except ImportAborted as e:
+            # Nothing has changed; the working copy was dropped. No import
+            # report is shown (Requirements 20.25 to 20.27).
+            logger.error(
+                "GEDCOM-importen avbröts (%s): %s\n%s",
+                e.phase or "okänd fas",
+                e.message_sv,
+                e.traceback_text,
+            )
+            QMessageBox.critical(self.main_window, "Importen avbröts", e.message_sv)
+        except ImportServiceError as e:
+            QMessageBox.critical(self.main_window, "Importfel", e.message)
         except Exception as e:
             QMessageBox.critical(
                 self.main_window,
@@ -983,6 +1515,8 @@ class Application:
         if not self._confirm_discard_changes():
             return
 
+        self._close_research_overview()
+        self._close_candidate_register()
         self.project_service.close_project()
         self._update_status()
         self._update_diagram_panel()
@@ -1091,6 +1625,8 @@ class Application:
         app_settings.person_box_config = dialog.person_box_config
         app_settings.diagram_settings = dialog.diagram_settings
         app_settings.person_list_config = dialog.person_list_config
+        # The header menu and the dialog both control the research column.
+        app_settings.column_visibility.research = app_settings.person_list_config.research
         self.app_settings_service.save(app_settings)
 
         # Apply theme
@@ -1125,6 +1661,7 @@ class Application:
             project_data=project_data,
             project_folder=self.project_service.project_path.parent if self.project_service.project_path else None,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
         )
         layout.addWidget(editor)
 
@@ -1132,10 +1669,38 @@ class Application:
         editor.cancel_requested.connect(dialog.reject)
 
         # Mark project dirty on save
-        editor.save_requested.connect(lambda: setattr(self.project_service, '_dirty', True))
+        editor.save_requested.connect(self.project_service.mark_changed)
         editor.save_requested.connect(self._update_status)
+        # Media added before Spara is already in the project data.
+        editor.media_added.connect(self.project_service.mark_changed)
 
+        self._exec_source_editor_dialog(dialog, editor)
+
+    def _exec_source_editor_dialog(self, dialog: QDialog, editor) -> None:
+        """Run a source editor dialog and honour "Filtrera källans personer".
+
+        The signal only closes the dialog; the person list is filtered after
+        exec() returns, so the filtered view is showing back in the main window.
+        Filtering is a view change and does not mark the project dirty.
+        """
+        requested: list[str] = []
+
+        def _on_filter(source_id: str) -> None:
+            requested.append(source_id)
+            dialog.accept()
+
+        editor.filter_persons_requested.connect(_on_filter)
         dialog.exec()
+        if requested:
+            self._filter_persons_by_source(requested[-1])
+
+    def _filter_persons_by_source(self, source_id: str) -> None:
+        """Show only the persons connected to a source in the Personlista."""
+        from slaktbusken.services.source_stats import compute_usage_stats
+
+        data = self.project_service.data
+        stats = compute_usage_stats(source_id, data.events, data.residences)
+        self.main_window.person_list_panel.apply_person_id_filter(set(stats.person_ids))
 
     def show_place_editor(self) -> None:
         """Open the place editor dialog.
@@ -1159,7 +1724,9 @@ class Application:
         editor = PlaceEditor(
             project_data=project_data,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
             photo_service=photo_service,
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
 
@@ -1167,13 +1734,25 @@ class Application:
         editor.cancel_requested.connect(dialog.reject)
 
         # Mark project dirty when a place is saved
-        editor.save_requested.connect(lambda: setattr(self.project_service, '_dirty', True))
+        editor.save_requested.connect(self.project_service.mark_changed)
         editor.save_requested.connect(self._update_status)
 
         # Connect person open signal to open person editor
         editor.person_open_requested.connect(self.open_person_editor)
 
         dialog.exec()
+        # Deleting a place marks the project changed without a save signal.
+        self._update_status()
+
+    def _refuse_translation_editor(self, title: str) -> bool:
+        """Refuse a translation editor while an import waits to be saved or is unfinished."""
+        from slaktbusken.ui.merge.recovery_dialogs import translation_edit_refusal
+
+        message = translation_edit_refusal(self.project_service)
+        if message:
+            QMessageBox.warning(self.main_window, title, message)
+            return True
+        return False
 
     def show_place_translation_editor(self) -> None:
         """Open the place translation editor dialog.
@@ -1185,6 +1764,9 @@ class Application:
         from slaktbusken.ui.editors.place_translation_editor import (
             PlaceTranslationEditor,
         )
+
+        if self._refuse_translation_editor("Platsöversättningar"):
+            return
 
         project_data = self.project_service.data
         project_path = self.project_service.project_path
@@ -1201,6 +1783,8 @@ class Application:
             project_data=project_data,
             project_path=project_path.parent,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
 
@@ -1214,7 +1798,7 @@ class Application:
 
         # If the editor saved changes, mark project dirty
         if editor.is_dirty:
-            self.project_service._dirty = True
+            self.project_service.mark_changed()
             self._update_status()
 
     def show_source_translation_editor(self) -> None:
@@ -1227,6 +1811,9 @@ class Application:
         from slaktbusken.ui.editors.source_translation_editor import (
             SourceTranslationEditor,
         )
+
+        if self._refuse_translation_editor("Källöversättningar"):
+            return
 
         project_data = self.project_service.data
         project_path = self.project_service.project_path
@@ -1243,6 +1830,8 @@ class Application:
             project_data=project_data,
             project_path=project_path.parent,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
+            project_service=self.project_service,
         )
         layout.addWidget(editor)
 
@@ -1256,7 +1845,7 @@ class Application:
 
         # If the editor saved changes, mark project dirty
         if editor.is_dirty:
-            self.project_service._dirty = True
+            self.project_service.mark_changed()
             self._update_status()
 
     def show_dna_editor(self) -> None:
@@ -1279,14 +1868,565 @@ class Application:
             project_data=project_data,
             project_path=self.project_service.project_path,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
         )
         layout.addWidget(editor)
 
         dialog.exec()
 
         # Mark project dirty if any DNA data was modified
-        self.project_service._dirty = True
+        self.project_service.mark_changed()
         self._update_status()
+
+    # ------------------------------------------------------------------
+    # Research
+    # ------------------------------------------------------------------
+
+    def show_research_for_entity(
+        self, entity_type: str, entity_id: str, person_filter: str | None = None
+    ) -> None:
+        """Show the research overview filtered to the cases about one entity.
+
+        With *person_filter* the overview is also filtered to that person.
+        """
+        self.show_research_overview("cases", person_filter=person_filter)
+        window = getattr(self, "_research_overview", None)
+        if window is not None:
+            window.filter_to_entity(entity_type, entity_id)
+
+    def show_research_overview(
+        self, initial_mode: str = "cases", person_filter: str | None = None
+    ) -> None:
+        """Show the research overview window in the given mode.
+
+        There is one overview window. When it is already open it is raised and
+        switched to *initial_mode*. The window refreshes itself whenever
+        research data changes. An earlier person filter is cleared unless
+        *person_filter* is given.
+        """
+        from PySide6.QtCore import Qt as _Qt
+
+        from slaktbusken.ui.dialogs.delete_research_case_dialog import (
+            confirm_and_delete_case,
+        )
+        from slaktbusken.ui.research_overview import ResearchOverview
+
+        if self.project_service.project_path is None:
+            return
+        data = self.project_service.data
+
+        window = getattr(self, "_research_overview", None)
+        if window is not None and window._data is not data:
+            # A different project was opened since: start over with the new data.
+            window.close()
+            window = None
+
+        if window is None:
+            window = ResearchOverview(data, initial_mode, parent=self.main_window)
+            window.setWindowFlag(_Qt.WindowType.Window, True)
+            window.resize(900, 520)
+            # Not a dialog, so it opts in to remembering its size and place.
+            window.setProperty("rememberGeometry", True)
+            window.open_case_requested.connect(self.open_research_case)
+            window.create_case_requested.connect(lambda: self.open_research_case())
+            window.open_action_requested.connect(
+                lambda case_id, action_id: self.open_research_case(
+                    case_id, select_action_id=action_id
+                )
+            )
+            window.delete_case_requested.connect(
+                lambda case_id: confirm_and_delete_case(
+                    window, self.project_service, case_id
+                )
+            )
+            # Views that show research content rebuild when research changes.
+            self.research_changed.connect(window.refresh)
+            window.setAttribute(_Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            window.destroyed.connect(lambda *_: self._forget_research_overview())
+            self._research_overview = window
+        else:
+            window.set_mode(initial_mode)
+            window.refresh()
+
+        if person_filter is not None or window.person_filter() is not None:
+            window.set_person_filter(person_filter)
+
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    # ------------------------------------------------------------------
+    # Merge gateway (MergeGateway protocol)
+    # ------------------------------------------------------------------
+
+    def _register_merge_gateway(self) -> None:
+        """Create the editor registry and signal bridge, and register as gateway."""
+        from slaktbusken.services.editor_registry import EditorRegistry
+        from slaktbusken.ui.merge.merge_gateway import set_merge_gateway
+        from slaktbusken.ui.merge.merge_signals import MergeSignals
+
+        self.editor_registry = EditorRegistry()
+        self.project_service.set_editor_registry(self.editor_registry)
+        self._merge_signals = MergeSignals()
+        self.project_service.add_merge_listener(self._merge_signals.changed.emit)
+        self._candidate_register = None
+        self._comparison_window = None
+        set_merge_gateway(self)
+        self._register_merge_executor()
+
+    def _register_merge_executor(self) -> None:
+        """Register the engine adapter the Merge_Review wizard executes through."""
+        from slaktbusken.ui.merge.merge_gateway import set_merge_executor
+        from slaktbusken.ui.merge.merge_runner import ThreadedMergeExecutor
+
+        set_merge_executor(
+            ThreadedMergeExecutor(self.project_service, self.editor_registry)
+        )
+
+    def _translation_for_planning(self):
+        """Translation data of the open project, or None when unreadable."""
+        from slaktbusken.persistence import translation_io
+
+        path = self.project_service.project_path
+        if path is None:
+            return None
+        try:
+            return translation_io.read_all(Path(path).parent / "translation")
+        except Exception:  # noqa: BLE001 - planning then runs without mappings
+            logger.exception("Översättningsfilerna kunde inte läsas för planeringen.")
+            return None
+
+    def open_merge_review(self, person_1_id: str, person_2_id: str) -> None:
+        """Open the Merge_Review wizard for two persons (from the comparison window)."""
+        from slaktbusken.ui.merge.merge_review_wizard import (
+            MergeReviewWizard,
+            ensure_saved_before_merge,
+        )
+
+        if self.project_service.project_path is None:
+            return
+        if _refuse_during_edit_session(
+            self.project_service, self.main_window, "slår ihop personer"
+        ):
+            return
+        parent = self._comparison_window or self.main_window
+        was_saved = self.project_service.is_saved_state()
+        allowed = ensure_saved_before_merge(self.project_service, self.editor_registry, parent)
+        if not was_saved:
+            self._update_status()
+        if not allowed:
+            return
+        try:
+            wizard = MergeReviewWizard(
+                self.project_service,
+                [person_1_id, person_2_id],
+                editor_registry=self.editor_registry,
+                translation_provider=self._translation_for_planning,
+                parent=parent,
+            )
+        except Exception as exc:  # noqa: BLE001 - e.g. MergeRefusal
+            QMessageBox.warning(parent, "Sammanslagning", str(exc))
+            return
+        wizard.exec()
+        self._after_merge_review(wizard, parent)
+
+    def _after_merge_review(self, wizard, parent) -> None:
+        """Refresh views and report the outcome of a finished Merge_Review."""
+        from slaktbusken.ui.merge.recovery_dialogs import ask_show_history
+
+        self._update_status()
+        if not wizard.executed:
+            return
+        self._update_diagram_panel()
+        result = wizard.last_result
+        text = result.message if result is not None and result.message else "Sammanslagningen är klar."
+        if result is not None and result.recovery_message:
+            text = f"{text}\n{result.recovery_message}"
+        self.main_window.statusBar().showMessage("Sammanslagningen är klar.", 5000)
+        survivor = result.survivor_id if result is not None else ""
+        if ask_show_history(parent, text) and survivor:
+            self.open_history(survivor)
+
+    def _report_open_failure(self, exc: Exception) -> bool:
+        """Show a Recovery_Refusal for *exc*. Returns True when it was one."""
+        from slaktbusken.services.commit.recovery import RecoveryRefusedError
+        from slaktbusken.ui.merge.recovery_dialogs import (
+            log_recovery_refusal,
+            show_recovery_refusal,
+        )
+
+        if not isinstance(exc, RecoveryRefusedError):
+            return False
+        log_recovery_refusal(exc.refusal)
+        self.main_window.hide_progress()
+        show_recovery_refusal(self.main_window, str(exc))
+        return True
+
+    def _show_recovery_message(self) -> None:
+        """Tell the user about a recovery that ran while opening the project."""
+        from slaktbusken.ui.merge.recovery_dialogs import show_recovery_outcome
+
+        from slaktbusken.services.commit.translation_commit import (
+            MSG_RECOVERY_COMPLETED,
+            MSG_RECOVERY_ROLLED_BACK,
+        )
+        from slaktbusken.ui.merge.recovery_dialogs import INTERRUPTED_SAVE_TITLE
+
+        message = self.project_service.last_recovery_message
+        if message in (MSG_RECOVERY_COMPLETED, MSG_RECOVERY_ROLLED_BACK):
+            show_recovery_outcome(self.main_window, message, INTERRUPTED_SAVE_TITLE)
+        else:
+            show_recovery_outcome(self.main_window, message)
+
+    @property
+    def merge_changed(self):
+        """Signal emitted after merge candidates or merge history changed."""
+        return self._merge_signals.changed
+
+    def open_comparison(self, person_1_id: str = "", person_2_id: str = "") -> None:
+        """Open the person comparison window with the given persons preselected.
+
+        The window module is imported here so the application still starts
+        when it is not available; a short status message is shown instead.
+        """
+        if self.project_service.project_path is None:
+            return
+        requested = [p for p in (person_1_id, person_2_id) if p]
+        resolved_ids: list[str] = []
+        for pid in requested:
+            resolved = self._resolve_person_request(pid)
+            if resolved is None:
+                return
+            resolved_ids.append(resolved)
+        if len(resolved_ids) == 2 and resolved_ids[0] == resolved_ids[1]:
+            resolved_ids = resolved_ids[:1]
+        person_1_id = resolved_ids[0] if resolved_ids else ""
+        person_2_id = resolved_ids[1] if len(resolved_ids) > 1 else ""
+        try:
+            from slaktbusken.ui.merge.person_comparison_window import (
+                open_comparison_window,
+            )
+        except ImportError:
+            self.main_window.statusBar().showMessage(
+                "Jämförelsefönstret är inte tillgängligt.", 5000
+            )
+            return
+
+        import shiboken6
+
+        window = self._comparison_window
+        if window is not None and not shiboken6.isValid(window):
+            window = self._comparison_window = None
+        if window is not None:
+            # Reuse the existing window when it already shows the requested
+            # pair (or no pair was requested); otherwise open a new one.
+            wanted = {p for p in (person_1_id, person_2_id) if p}
+            shown = {p for p in window.slot_persons() if p}
+            if not wanted or wanted == shown:
+                window.show()
+                window.raise_()
+                window.activateWindow()
+                return
+
+        window = open_comparison_window(
+            self.main_window,
+            self.project_service,
+            person_1_id or None,
+            person_2_id or None,
+            state_store=lambda: self.app_settings_service._settings.comparison_window_state,
+        )
+        window.setProperty("rememberGeometry", True)
+        window.continue_to_merge_requested.connect(self.open_merge_review)
+        window.destroyed.connect(
+            lambda *_a, w=window: self._forget_comparison_window(w)
+        )
+        self._comparison_window = window
+
+    def _on_compare_requested(self, ids: list) -> None:
+        """Open the comparison for one or two ids (person-list order)."""
+        if self.project_service.project_path is None or len(ids) not in (1, 2):
+            return
+        self.open_comparison(ids[0], ids[1] if len(ids) == 2 else "")
+
+    def _on_mark_candidates_requested(self, ids: list) -> None:
+        """Mark exactly two persons as candidates; never starts a merge."""
+        if self.project_service.project_path is None or len(ids) != 2:
+            return
+        self.mark_candidates(ids[0], ids[1])
+
+    def _forget_comparison_window(self, window) -> None:
+        if self._comparison_window is window:
+            self._comparison_window = None
+
+    def mark_candidates(self, person_1_id: str, person_2_id: str) -> None:
+        """Mark two persons as merge candidates, or open the existing candidate."""
+        from slaktbusken.services.project_service import ValidationError
+
+        if self.project_service.project_path is None:
+            return
+        try:
+            candidate, _created = self.project_service.get_or_create_merge_candidate(
+                person_1_id, person_2_id
+            )
+        except (ValidationError, KeyError) as exc:
+            text = "\n".join(exc.errors) if isinstance(exc, ValidationError) else str(exc)
+            QMessageBox.warning(self.main_window, "Sammanslagningskandidat", text)
+            return
+        self._update_status()
+        self.open_candidate(candidate.id)
+
+    def open_candidate(self, candidate_id: str) -> None:
+        """Open the editor for one merge candidate."""
+        from slaktbusken.ui.merge.candidate_editor_dialog import CandidateEditorDialog
+
+        if self.project_service.project_path is None:
+            return
+        dialog = CandidateEditorDialog(
+            self.project_service,
+            candidate_id,
+            parent=self.main_window,
+            registry=self.editor_registry,
+        )
+        dialog.exec()
+        self._update_status()
+
+    def open_register(self, person_id: str | None = None) -> None:
+        """Show the candidate register, optionally filtered to one person."""
+        from PySide6.QtCore import Qt as _Qt
+
+        from slaktbusken.ui.merge.candidate_register_window import (
+            CandidateRegisterWindow,
+        )
+
+        if self.project_service.project_path is None:
+            return
+        window = self._candidate_register
+        if window is None:
+            window = CandidateRegisterWindow(
+                self.project_service,
+                gateway=self,
+                registry=self.editor_registry,
+                parent=self.main_window,
+            )
+            window.setWindowFlag(_Qt.WindowType.Window, True)
+            window.setAttribute(_Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            window.setProperty("rememberGeometry", True)
+            window.destroyed.connect(lambda *_: setattr(self, "_candidate_register", None))
+            self.research_changed.connect(window.schedule_refresh)
+            self._candidate_register = window
+        window.set_person_filter(person_id)
+        window.refresh()
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def open_history(self, person_id: str | None = None) -> None:
+        """Open the merge history window, scoped to one person when given.
+
+        The window reaches this application through the registered merge gateway.
+        """
+        from slaktbusken.ui.merge.merge_history_window import open_merge_history_window
+
+        if self.project_service.project_path is None:
+            self.main_window.statusBar().showMessage("Inget projekt är öppet.", 5000)
+            return
+        open_merge_history_window(self.project_service, person_id, parent=self.main_window)
+
+    def _close_candidate_register(self) -> None:
+        window = getattr(self, "_candidate_register", None)
+        if window is not None:
+            window.close()
+            self._candidate_register = None
+
+    def _forget_research_overview(self) -> None:
+        self._research_overview = None
+
+    def _close_research_overview(self) -> None:
+        window = getattr(self, "_research_overview", None)
+        if window is not None:
+            window.close()
+            self._research_overview = None
+
+    def open_research_case(
+        self,
+        case_id: Optional[str] = None,
+        prepopulate=None,
+        select_action_id: Optional[str] = None,
+    ) -> None:
+        """Open the research case editor in a dialog.
+
+        Args:
+            case_id: The case to edit, or None to create a new one.
+            prepopulate: For a new case, a ``ResearchEntityLink`` to use as the
+                primary entity (for example the person the user came from).
+            select_action_id: An action to select when the editor opens.
+
+        Saving commits through the project service, which marks the project
+        changed and notifies open views. Cancelling or closing the dialog
+        discards the editor's working copy and leaves the project untouched.
+        """
+        from slaktbusken.ui.editors.research_case_editor import ResearchCaseEditor
+
+        if self.project_service.project_path is None:
+            return
+
+        # Open on top of whatever dialog the user came from (an entity editor
+        # keeps its unsaved edits underneath), else the overview or main window.
+        from PySide6.QtWidgets import QApplication as _QApp
+
+        parent = (
+            _QApp.activeModalWidget()
+            or getattr(self, "_research_overview", None)
+            or self.main_window
+        )
+        dialog = QDialog(parent)
+        dialog.setWindowTitle("Forskningsärende")
+        dialog.setMinimumSize(760, 700)
+        layout = QVBoxLayout(dialog)
+
+        try:
+            editor = ResearchCaseEditor(
+                self.project_service, case_id, prepopulate, parent=dialog,
+                registry=getattr(self, "editor_registry", None),
+            )
+        except KeyError:
+            # The case was deleted (for example in another window) before opening.
+            self._update_status()
+            return
+        layout.addWidget(editor)
+
+        editor.save_requested.connect(lambda _case_id: dialog.accept())
+        editor.cancel_requested.connect(dialog.reject)
+        editor.deleted.connect(lambda _case_id: dialog.accept())
+        editor.open_entity_requested.connect(self._open_research_linked_entity)
+        if select_action_id:
+            editor.select_action(select_action_id)
+
+        dialog.exec()
+        self._update_status()
+
+    # --- ResearchGateway (used by the entity editors' research tabs) ---
+
+    def open_research_action(self, case_id: str, action_id: str) -> None:
+        """Open the case that owns an action and select the action."""
+        self.open_research_case(case_id, select_action_id=action_id)
+
+    def create_research_case(self, entity_type: str, entity_id: str) -> None:
+        """Create a case about an entity; the entity becomes its primary entity."""
+        from slaktbusken.model.research_case import ResearchEntityLink
+
+        self.open_research_case(None, ResearchEntityLink(entity_type, entity_id))
+
+    def link_research_case(self, entity_type: str, entity_id: str) -> None:
+        """Let the user pick an existing case and link the entity to it."""
+        from slaktbusken.ui.dialogs.research_case_picker_dialog import (
+            ResearchCasePickerDialog,
+        )
+        from PySide6.QtWidgets import QApplication as _QApp
+
+        if self.project_service.project_path is None:
+            return
+        parent = _QApp.activeModalWidget() or self.main_window
+        case_id = ResearchCasePickerDialog.pick(
+            self.project_service.data, entity_type, entity_id, parent
+        )
+        if case_id:
+            self.project_service.link_research_case_entity(case_id, entity_type, entity_id)
+            self._update_status()
+
+    def unlink_research_case(self, case_id: str, entity_type: str, entity_id: str) -> None:
+        """Remove the association between a case and an entity after confirming.
+
+        Only the link is removed; the case and everything in it are kept.
+        """
+        from PySide6.QtWidgets import QApplication as _QApp
+        from PySide6.QtWidgets import QMessageBox
+
+        parent = _QApp.activeModalWidget() or self.main_window
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Ta bort kopplingen")
+        box.setText(
+            "Kopplingen mellan forskningsärendet och objektet tas bort. "
+            "Själva forskningsärendet och dess innehåll behålls."
+        )
+        cancel = box.addButton("Avbryt", QMessageBox.ButtonRole.RejectRole)
+        confirm = box.addButton("Ta bort kopplingen", QMessageBox.ButtonRole.AcceptRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if box.clickedButton() is not confirm:
+            return
+        try:
+            self.project_service.unlink_research_case_entity(case_id, entity_type, entity_id)
+        except KeyError:
+            pass
+        self._update_status()
+
+    def _open_research_linked_entity(self, entity_type: str, entity_id: str) -> None:
+        """Go to a linked entity from the case editor, keeping its unsaved edits.
+
+        The editor dialog stays open underneath, so nothing is discarded.
+        Only persons have a dedicated editor to go to so far.
+        """
+        if entity_type == "person":
+            self.open_person_editor(entity_id)
+        elif entity_type in ("source", "media"):
+            self._open_single_entity_editor(entity_type, entity_id)
+
+    def _open_single_entity_editor(self, entity_type: str, entity_id: str) -> None:
+        """Open the source or media editor on one entity (modal, on top)."""
+        from PySide6.QtWidgets import QApplication as _QApp
+
+        data = self.project_service.data
+        parent = _QApp.activeModalWidget() or self.main_window
+        dialog = QDialog(parent)
+        dialog.setMinimumSize(800, 600)
+        layout = QVBoxLayout(dialog)
+        if entity_type == "source":
+            from slaktbusken.ui.editors.source_editor import SourceEditor
+
+            source = next((s for s in data.sources if s.id == entity_id), None)
+            if source is None:
+                return
+            dialog.setWindowTitle("Källredigerare")
+            editor = SourceEditor(
+                project_data=data,
+                source=source,
+                project_folder=self.project_service.project_path.parent
+                if self.project_service.project_path
+                else None,
+                parent=dialog,
+                registry=getattr(self, "editor_registry", None),
+            )
+        else:
+            from slaktbusken.ui.editors.media_editor import MediaEditor
+
+            media = next((m for m in data.media if m.id == entity_id), None)
+            if media is None:
+                return
+            dialog.setWindowTitle("Mediaredigerare")
+            editor = MediaEditor(
+                project_data=data,
+                media_item=media,
+                parent=dialog,
+                registry=getattr(self, "editor_registry", None),
+            )
+        layout.addWidget(editor)
+        if hasattr(editor, "cancel_requested"):
+            editor.cancel_requested.connect(dialog.reject)
+        saved: list[bool] = []
+        if hasattr(editor, "save_requested"):
+            editor.save_requested.connect(lambda: saved.append(True))
+        if hasattr(editor, "media_added"):
+            editor.media_added.connect(lambda: saved.append(True))
+        if entity_type == "source":
+            self._exec_source_editor_dialog(dialog, editor)
+        else:
+            dialog.exec()
+        # The editors change project data in place, so a save marks it changed.
+        if saved or entity_type == "media":
+            self.project_service.mark_changed()
+            self._update_status()
 
     def show_provider_editor(self) -> None:
         """Open the provider editor dialog.
@@ -1309,13 +2449,14 @@ class Application:
         editor = ProviderEditor(
             project_data=project_data,
             parent=dialog,
+            registry=getattr(self, "editor_registry", None),
         )
         layout.addWidget(editor)
 
         dialog.exec()
 
         # ProviderEditor modifies project_data in-place, mark dirty
-        self.project_service._dirty = True
+        self.project_service.mark_changed()
         self._update_status()
 
     def confirm_close(self) -> bool:
@@ -1350,6 +2491,7 @@ class Application:
             self._update_status()
             self._update_diagram_panel()
             self.main_window.statusBar().showMessage("Projekt öppnat", 5000)
+            self._show_recovery_message()
         except FileNotFoundError:
             QMessageBox.critical(
                 self.main_window,
@@ -1357,11 +2499,12 @@ class Application:
                 "Filen hittades inte.",
             )
         except Exception as e:
-            QMessageBox.critical(
-                self.main_window,
-                "Fel",
-                f"Kunde inte öppna projektet:\n{e}",
-            )
+            if not self._report_open_failure(e):
+                QMessageBox.critical(
+                    self.main_window,
+                    "Fel",
+                    f"Kunde inte öppna projektet:\n{e}",
+                )
         finally:
             self.main_window.hide_progress()
 
@@ -1393,7 +2536,7 @@ class Application:
             selected_id = dialog.selected_person_id
             if selected_id:
                 project_data.project.main_person_id = selected_id
-                self.project_service._dirty = True
+                self.project_service.mark_changed()
                 self._update_status()
                 self._update_diagram_panel()
 
@@ -1533,13 +2676,15 @@ class Application:
                     self.main_window.statusBar().showMessage(
                         "Senaste projekt öppnat", 5000
                     )
+                self._show_recovery_message()
             except Exception as e:
                 logger.warning("Kunde inte öppna projektet vid start: %s", e)
-                QMessageBox.warning(
-                    self.main_window,
-                    "Programstart",
-                    f"Kunde inte öppna projektet:\n{e}",
-                )
+                if not self._report_open_failure(e):
+                    QMessageBox.warning(
+                        self.main_window,
+                        "Programstart",
+                        f"Kunde inte öppna projektet:\n{e}",
+                    )
             finally:
                 self.main_window.hide_progress()
         else:

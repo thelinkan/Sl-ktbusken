@@ -40,6 +40,10 @@ class GedcomLine:
         xref_id: The optional cross-reference identifier (e.g., @I1@).
         line_number: The 1-based line number in the source file.
         children: Child lines (level N+1 lines following this level N line).
+        raw_value: The value as written in the file (CONC/CONT joined, but
+            with ``@@`` not unescaped). ``None`` for lines not made by the
+            parser. The record hash reads this, so that unescaping does not
+            change the hash of existing files.
     """
 
     level: int
@@ -48,6 +52,7 @@ class GedcomLine:
     xref_id: Optional[str]
     line_number: int
     children: list[GedcomLine] = field(default_factory=list)
+    raw_value: Optional[str] = None
 
 
 @dataclass
@@ -91,6 +96,9 @@ _GEDCOM_LINE_RE = re.compile(
 )
 
 
+_LINE_BREAK_RE = re.compile(r"\r\n|\r|\n")
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -113,7 +121,9 @@ def parse_gedcom(text: str) -> ParseResult:
         GedcomParseError: If the file does not appear to be a valid GEDCOM file
             (no ``0 HEAD`` found within the first 5 non-empty lines).
     """
-    lines = text.splitlines()
+    # Only CR and LF end a line. str.splitlines() would also split at U+2028,
+    # U+0085 and form feed, which can occur inside note text.
+    lines = _LINE_BREAK_RE.split(text)
     _validate_is_gedcom(lines)
     return _build_tree(lines)
 
@@ -182,9 +192,10 @@ def _build_tree(lines: list[str]) -> ParseResult:
     stack: list[GedcomLine] = []
 
     for line_number, raw_line in enumerate(lines, start=1):
-        stripped = raw_line.strip()
-        if not stripped:
+        if not raw_line.strip():
             continue
+        # Trailing spaces belong to the value (a CONC split may leave one).
+        stripped = raw_line.lstrip()
 
         parsed = _parse_line(stripped, line_number)
         if parsed is None:
@@ -251,13 +262,27 @@ def _parse_line(stripped: str, line_number: int) -> Optional[GedcomLine]:
     if level > 99:
         return None
 
+    raw = value if value else None
+    # GEDCOM 5.5.1: a value that starts with "@" is written with a doubled
+    # "@". Pointers (@I1@) never start with "@@", so they are unaffected.
+    # CONC values are fragments in the middle of a line and are not unescaped.
+    text = raw if tag == "CONC" else _unescape_leading_at(raw)
+
     return GedcomLine(
         level=level,
         tag=tag,
-        value=value if value else None,
+        value=text,
         xref_id=xref_id,
         line_number=line_number,
+        raw_value=raw,
     )
+
+
+def _unescape_leading_at(value: Optional[str]) -> Optional[str]:
+    """Read a doubled leading ``@`` as one ``@``."""
+    if value is not None and value.startswith("@@"):
+        return value[1:]
+    return value
 
 
 def _handle_continuation(
@@ -288,16 +313,8 @@ def _handle_continuation(
 
     parent = stack[parent_level]
     continuation_value = parsed.value or ""
-
-    if parsed.tag == "CONC":
-        # Append without separator
-        if parent.value is None:
-            parent.value = continuation_value
-        else:
-            parent.value += continuation_value
-    elif parsed.tag == "CONT":
-        # Append with newline separator
-        if parent.value is None:
-            parent.value = "\n" + continuation_value
-        else:
-            parent.value += "\n" + continuation_value
+    raw_continuation = parsed.raw_value or ""
+    separator = "\n" if parsed.tag == "CONT" else ""
+    # CONC appends without separator, CONT with a newline.
+    parent.value = (parent.value or "") + separator + continuation_value
+    parent.raw_value = (parent.raw_value or "") + separator + raw_continuation

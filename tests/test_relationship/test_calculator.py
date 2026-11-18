@@ -1156,3 +1156,76 @@ class TestSiblingRedundantPaths:
             "Should find additional relationship through great-grandpa via "
             "different lineages (father->gp1 vs mother->gp2)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _classify_relationship_type (task 8.1)
+# Validates: Requirements 8.1, 8.2, 9.1, 9.3, 9.4
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyRelationshipType:
+    """Tests for the relationship-type classification branch logic."""
+
+    def _calc(self) -> RelationshipCalculator:
+        """Build a calculator over a minimal project to reach the method."""
+        person = _make_person("p0", "M")
+        project = _make_project(person)
+        return RelationshipCalculator(project)
+
+    def test_empty_is_legal(self):
+        calc = self._calc()
+        assert calc._classify_relationship_type([]) == "legal"
+
+    def test_single_biological_is_blood(self):
+        calc = self._calc()
+        assert calc._classify_relationship_type(["biological"]) == "blood"
+
+    def test_all_biological_is_blood(self):
+        calc = self._calc()
+        assert (
+            calc._classify_relationship_type(["biological", "biological"])
+            == "blood"
+        )
+
+    def test_single_adoptive_is_adoption(self):
+        calc = self._calc()
+        assert calc._classify_relationship_type(["adoptive"]) == "adoption"
+
+    def test_mixed_blood_and_adoptive_is_adoption(self):
+        # Mixed with blood is not all-blood, so blood branch is skipped;
+        # adoptive is still reported (Req 9.4).
+        calc = self._calc()
+        assert (
+            calc._classify_relationship_type(["biological", "adoptive"])
+            == "adoption"
+        )
+
+    def test_single_foster_is_foster(self):
+        calc = self._calc()
+        assert calc._classify_relationship_type(["foster"]) == "foster"
+
+    def test_mixed_blood_and_foster_is_foster(self):
+        # Not all blood, no adoptive, has foster -> foster (Req 9.1).
+        calc = self._calc()
+        assert (
+            calc._classify_relationship_type(["biological", "foster"])
+            == "foster"
+        )
+
+    def test_foster_and_adoptive_is_adoption(self):
+        # Adoptive takes precedence over foster per branch order.
+        calc = self._calc()
+        assert (
+            calc._classify_relationship_type(["foster", "adoptive"])
+            == "adoption"
+        )
+
+    def test_legal_only_is_legal(self):
+        calc = self._calc()
+        assert calc._classify_relationship_type(["legal"]) == "legal"
+
+    def test_step_only_is_legal(self):
+        # Non-blood, non-foster, non-adoptive -> legal.
+        calc = self._calc()
+        assert calc._classify_relationship_type(["step"]) == "legal"

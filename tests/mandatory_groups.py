@@ -1,0 +1,772 @@
+"""Registry of the Mandatory_Test_Groups of Requirement 35.
+
+This file is the single source for the conftest hooks, the guard test
+(``tests/test_meta/test_mandatory_groups_guard.py``) and the runner
+(``scripts/run_mandatory_tests.py``).
+
+Paths are relative to the repository root and use forward slashes.
+``required_tests`` entries have the form ``"<module path>::<test name>"``.
+A test name matches a function or method by its name, so parametrised tests
+match on the function name. A name may end in ``*`` (``test_property_25_*``)
+to require at least one test whose name starts with the prefix.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class MandatoryGroup:
+    key: str  # "reference_preservation", ...
+    title_sv: str  # shown by the runner
+    requirement: str  # "35.1(a)" ...
+    modules: tuple[str, ...]  # test files that belong to the group
+    properties: tuple[int, ...]  # design property numbers the group must cover
+    required_tests: tuple[str, ...]  # "module::test_name" that must exist and be collected
+    # Spec name used in the property tags ``# Feature: <feature>, Property <n>:``.
+    feature: str = "person-comparison-and-merge"
+
+
+_SERVICES = "tests/test_services/"
+_GEDCOM = "tests/test_gedcom/"
+
+
+def _req(module: str, *names: str) -> tuple[str, ...]:
+    return tuple(f"{module}::{name}" for name in names)
+
+
+_REFERENCE_INDEX = _SERVICES + "test_person_reference_index.py"
+_REFERENCE_RULES = _SERVICES + "test_merge_reference_rules.py"
+_FAMILY_INTEGRITY = _SERVICES + "test_merge_family_integrity.py"
+_FAILURES = _SERVICES + "test_merge_failures.py"
+_SAVED_STATE = _SERVICES + "test_saved_state.py"
+_COMMIT_FAULTS = _SERVICES + "test_commit_faults.py"
+_COMMIT_REFUSAL = _SERVICES + "test_commit_recovery_refusal.py"
+_COMMIT_SUBPROCESS = _SERVICES + "test_commit_subprocess.py"
+_RETIRED_IDS = _SERVICES + "test_retired_ids.py"
+_REIMPORT = _GEDCOM + "test_merge_reimport.py"
+
+_DP = "tests/test_dataskydd/"
+
+_DP_MODULES = (
+    _DP + "test_app_save_refusals.py",
+    _DP + "test_change_path_guards.py",
+    _DP + "test_change_paths.py",
+    _DP + "test_date_semantics.py",
+    _DP + "test_edit_session.py",
+    _DP + "test_edit_session_performance.py",
+    _DP + "test_event_assembler.py",
+    _DP + "test_event_citations.py",
+    _DP + "test_event_editor_ui.py",
+    _DP + "test_gedcom_dates.py",
+    _DP + "test_group_registration.py",
+    _DP + "test_import_abort.py",
+    _DP + "test_import_atomicity.py",
+    _DP + "test_merge_origin.py",
+    _DP + "test_migration_0_5.py",
+    _DP + "test_origin_groups.py",
+    _DP + "test_record_identity.py",
+    _DP + "test_reimport.py",
+    _DP + "test_residence_edit_paths.py",
+    _DP + "test_residence_legacy.py",
+    _DP + "test_residence_reimport.py",
+    _DP + "test_round_trips.py",
+    _DP + "test_serialization_0_5.py",
+    _DP + "test_translation_commit.py",
+    _DP + "test_translation_conflicts.py",
+)
+
+_DP_REQUIRED = (
+    *_req(
+        _DP + "test_change_path_guards.py",
+        "test_no_external_dirty_assignment",
+        "test_guard_no_external_dirty_assignment",
+        "test_guard_no_unlisted_collection_mutation",
+    ),
+    *_req(
+        _DP + "test_change_paths.py",
+        "test_place_delete_marks_dirty_and_bumps_revision",
+        "test_place_delete_refused_does_not_mark_dirty",
+        "test_create_places_marks_dirty_once",
+        "test_create_places_none_created_stays_clean",
+        "test_mark_changed_sets_dirty_bumps_revision_notifies_once",
+        "test_service_methods_for_place_delete_and_create_call_mark_changed_once",
+        "test_every_registered_path_marks_exactly_when_changed",
+        "test_change_path_registry_covers_known_paths",
+        "test_dp_property_20_*",
+    ),
+    *_req(
+        _DP + "test_date_semantics.py",
+        "test_legacy_exact_approximate_is_about",
+        "test_explicit_before_never_about",
+        "test_date_bounds_per_qualifier",
+        "test_julian_bounds_conservative",
+        "test_swedish_window_bounds_unknown",
+        "test_swedish_date_formatting",
+        "test_consumers_treat_qualified_dates_as_not_exact",
+        "test_leap_year_rules_gregorian",
+        "test_leap_year_rules_julian",
+        "test_julian_to_gregorian_conversion_round_trip",
+        "test_invalid_day_unparsed_in_import",
+        "test_date_validity_property",
+        "test_swedish_calendar_not_modelled_by_date_semantics",
+        "test_dp_property_10_*",
+        "test_dp_property_11_*",
+        "test_dp_property_22_*",
+    ),
+    *_req(
+        _DP + "test_edit_session.py",
+        "test_cancel_after_remove_event_restores_event",
+        "test_cancel_after_delete_residence_restores_residence",
+        "test_cancel_after_parent_family_edit_restores_families",
+        "test_cancel_after_new_family_removes_family",
+        "test_cancel_restores_identity_of_entities",
+        "test_cancel_leaves_dirty_and_revision_unchanged",
+        "test_save_unchanged_does_not_mark_dirty",
+        "test_second_session_refused",
+        "test_conflict_detected_refuses_rollback",
+        "test_session_start_refused_when_unsafe",
+        "test_session_snapshot_covers_every_project_data_field",
+        "test_cancel_removes_nested_created_place",
+        "test_cancel_removes_nested_created_source",
+        "test_cancel_restores_nested_deleted_place",
+        "test_cancel_removes_nested_created_media",
+        "test_save_keeps_nested_created_entities",
+        "test_mark_changed_deferred_in_edit_session",
+        "test_edit_session_restores_residence_origins",
+        "test_dp_property_1_*",
+        "test_dp_property_2_*",
+    ),
+    *_req(
+        _DP + "test_edit_session_performance.py",
+        "test_edit_session_10k_persons_reports_time_within_bound",
+    ),
+    *_req(
+        _DP + "test_event_assembler.py",
+        "test_empty_date_keeps_citations_as_event_level",
+        "test_clear_date_prompt_move_preserves_all_fields",
+        "test_clear_date_prompt_remove_keeps_source_record",
+        "test_clear_date_prompt_cancel_preserves_state",
+        "test_move_dedupes_only_exact_identical_references",
+        "test_move_keeps_distinct_citation_details",
+        "test_place_citations_survive_save",
+        "test_open_save_unchanged_event_no_prompt",
+        "test_remove_place_prompt_move_to_event",
+        "test_remove_place_prompt_remove_links",
+        "test_remove_place_prompt_cancel_preserves_state",
+        "test_remove_from_place_prompt_move_to_event",
+        "test_change_place_prompt_keep_for_new_place",
+        "test_change_place_prompt_move_to_event",
+        "test_change_place_prompt_remove_links",
+        "test_change_place_prompt_cancel_preserves_state",
+        "test_change_from_place_prompt_choices",
+        "test_change_place_without_citations_no_prompt",
+        "test_multiple_prompts_cancel_changes_nothing",
+        "test_no_prompt_choice_deletes_a_source_record",
+        "test_event_editor_save_preserves_from_place",
+        "test_residence_editor_save_preserves_from_place",
+        "test_open_save_without_edit_is_identity_for_flytt",
+        "test_clear_from_place_stores_none",
+        "test_from_place_citations_keep_separate_context",
+        "test_type_change_away_from_flytt_keeps_from_place",
+        "test_editor_add_citation_defaults_to_event_level",
+        "test_invalid_day_rejected_in_editor",
+        "test_unparsed_date_preserved_by_unrelated_edit",
+        "test_unparsed_date_replaced_only_by_explicit_new_date",
+        "test_original_text_cleared_when_date_changed",
+        "test_unparsed_date_save_reopen_round_trip",
+        "test_dp_property_3_*",
+        "test_dp_property_4_*",
+        "test_dp_property_13_*",
+    ),
+    *_req(
+        _DP + "test_event_citations.py",
+        "test_importer_event_level_sour_without_date",
+        "test_exporter_event_level_sour",
+        "test_event_citations_returns_all_locations_once",
+        "test_consumers_agree_on_cited_sources",
+        "test_source_delete_refused_for_every_context",
+        "test_unique_source_report_keeps_distinct_contexts",
+        "test_validation_reports_context",
+        "test_merge_counts_event_level_refs",
+        "test_comparison_uses_all_citation_contexts",
+        "test_guard_no_direct_source_refs_reads",
+        "test_dp_property_5_*",
+        "test_dp_property_6_*",
+    ),
+    *_req(
+        _DP + "test_event_editor_ui.py",
+        "test_prompt_default_is_move",
+        "test_place_citations_shown_in_table_with_context",
+        "test_change_place_prompt_default_is_move",
+        "test_from_place_selector_shown_only_for_flytt",
+        "test_from_place_selector_sets_from_place",
+        "test_unparsed_date_shown_read_only_with_explanation",
+    ),
+    *_req(
+        _DP + "test_gedcom_dates.py",
+        "test_import_between_and",
+        "test_import_from_to",
+        "test_import_from_only_and_to_only",
+        "test_import_before_after_about_estimated_calculated",
+        "test_import_int_phrase",
+        "test_import_julian_as_written",
+        "test_import_julian_escape_per_endpoint",
+        "test_import_julian_swedish_window_kept_as_written",
+        "test_import_dual_year_becomes_unparsed",
+        "test_import_swedish_month_names",
+        "test_import_iso_and_dotted_dates",
+        "test_import_invalid_dates_become_unparsed",
+        "test_import_exceptional_swedish_dates_become_unparsed",
+        "test_import_mixed_calendar_range_becomes_unparsed",
+        "test_import_unknown_phrase_becomes_unparsed_with_warning",
+        "test_import_residence_dates_use_same_interpretation",
+        "test_no_date_line_is_ever_dropped",
+        "test_from_to_never_becomes_exact_year",
+        "test_export_qualifiers",
+        "test_export_ranges",
+        "test_export_julian_escape",
+        "test_export_original_text_verbatim",
+        "test_export_unparsed_verbatim",
+        "test_export_stale_original_text_uses_structured",
+        "test_export_before_never_abt",
+        "test_gedcom_date_round_trip_property",
+        "test_dp_property_7_*",
+        "test_dp_property_8_*",
+        "test_dp_property_9_*",
+    ),
+    *_req(
+        _DP + "test_group_registration.py",
+        "test_dataskydd_group_registered_and_complete",
+    ),
+    # Example-count guard (Requirement 23.8 to 23.14); the guard module is not a group module.
+    *_req(
+        "tests/test_meta/test_mandatory_groups_guard.py",
+        "test_dataskydd_example_counts",
+        "test_hypothesis_profile_is_not_lowered",
+        "test_guard_requires_100_examples_by_default",
+        "test_guard_accepts_allowlisted_reduced_count",
+        "test_guard_rejects_count_below_absolute_floor",
+        "test_guard_rejects_stale_allowlist_entry",
+        "test_runner_rejects_hypothesis_override",
+    ),
+    *_req(
+        _DP + "test_import_atomicity.py",
+        "test_import_marks_dirty_and_bumps_revision",
+        "test_noop_import_does_not_mark_dirty",
+        "test_import_notifies_listeners_once",
+        "test_close_after_import_prompts_to_save",
+        "test_translation_only_change_marks_dirty",
+        "test_failed_import_leaves_project_unchanged",
+        "test_failed_import_leaves_translation_files_byte_identical",
+        "test_cancelled_import_leaves_project_unchanged",
+        "test_import_writes_no_translation_file_before_save",
+        "test_successful_import_adopts_once",
+        "test_noop_import_adopts_nothing",
+        "test_import_refused_with_unsaved_editor",
+        "test_import_records_translation_base",
+        "test_translation_file_changed_during_import_aborts_import",
+        "test_close_without_save_discards_pending_translation",
+        "test_second_import_uses_pending_translation",
+        "test_translation_editors_refuse_while_pending",
+        "test_unsaved_import_then_new_person_never_aliases_mapping",
+        "test_dp_property_18_*",
+        "test_dp_property_19_*",
+    ),
+    *_req(
+        _DP + "test_import_abort.py",
+        "test_import_abort_person_create",
+        "test_import_abort_person_update",
+        "test_import_abort_event",
+        "test_import_abort_residence",
+        "test_import_abort_family",
+        "test_import_abort_place_and_source",
+        "test_import_abort_message_names_record_in_swedish",
+        "test_import_abort_traceback_available",
+        "test_import_abort_no_successful_result",
+        "test_recoverable_date_problem_still_warns_and_continues",
+        "test_recoverable_unknown_level0_tag_warns_and_continues",
+        "test_preexisting_validation_finding_still_warns",
+        "test_import_abort_app_shows_critical_message_only",
+        "test_import_abort_property_leaves_everything_unchanged",
+    ),
+    *_req(
+        _DP + "test_merge_origin.py",
+        "test_merge_preserves_event_origin_planner",
+        "test_merge_preserves_event_origin_engine",
+        "test_event_origin_in_person_reference_inventory",
+        "test_merged_identity_record_creates_no_events",
+        "test_survivor_record_matches_only_own_origin_events",
+        "test_reimport_resi_merged_identity_record_creates_none",
+        "test_reimport_resi_after_person_merge_considers_only_survivor_origins",
+        "test_residence_merge_origin_planner",
+        "test_residence_merge_origin_engine",
+        "test_residence_origin_in_person_reference_inventory",
+        "test_dp_property_23_*",
+    ),
+    *_req(
+        _DP + "test_migration_0_5.py",
+        "test_migration_0_4_to_0_5_only_changes_version",
+        "test_migration_creates_backup",
+        "test_migration_is_idempotent",
+        "test_v0_4_fixture_opens_and_round_trips",
+        "test_v0_4_residences_round_trip_without_origins",
+        "test_newer_version_refused",
+        "test_old_precision_approximate_not_rewritten_on_open",
+        "test_dp_property_21_*",
+    ),
+    *_req(
+        _DP + "test_origin_groups.py",
+        "test_reimport_after_residence_split_creates_no_residence_and_changes_none",
+        "test_reimport_after_split_then_merge_again_creates_none",
+        "test_reimport_after_merge_of_residences_from_different_records_creates_none",
+        "test_reimport_after_split_save_reopen_creates_none",
+        "test_reimport_after_split_and_edit_of_one_half_leaves_both_unchanged",
+        "test_identical_resi_records_imported_twice_then_one_split_pairs_by_origin_group",
+        "test_legacy_residence_split_before_first_import_is_never_grouped",
+        "test_residence_split_merge_import_sequences_property",
+        "test_dp_property_28_*",
+    ),
+    *_req(
+        _DP + "test_record_identity.py",
+        "test_origin_instance_assigned_smallest_unused",
+        "test_matcher_origin_group_claimed_once_as_a_whole",
+        "test_event_origin_duplicate_on_two_events_is_one_group",
+        "test_event_origin_is_not_copied_by_any_event_operation",
+        "test_origin_set_on_import",
+        "test_record_hash_ignores_change_tracking_tags",
+        "test_record_hash_ignores_order_of_distinct_tags",
+        "test_record_hash_keeps_order_of_repeated_tags",
+        "test_record_hash_stable_under_source_renumbering",
+        "test_matcher_order_uid_hash_legacy",
+        "test_matcher_claims_once",
+        "test_matcher_never_claims_by_tag_and_index",
+        "test_matcher_legacy_fingerprint_one_to_one",
+        "test_matcher_never_matches_on_type_and_place_alone",
+        "test_matcher_property_no_duplicates_no_merges",
+        "test_matcher_owner_id_survives_xref_renumbering",
+        "test_edited_imported_event_not_modified_by_reimport",
+        "test_record_hash_golden_vectors",
+        "test_origin_group_split_counts_as_one_record",
+        "test_matcher_distinguishes_origin_group_from_ambiguity",
+        "test_residence_changed_uid_with_group_leaves_all_members_unchanged",
+        "test_residence_origin_set_on_import",
+        "test_residence_record_hash_ignores_change_tracking_tags",
+        "test_residence_record_hash_resolves_source_pointers",
+        "test_residence_record_hash_sensitive_to_date_place_and_sources",
+        "test_residence_matcher_claims_pair_once",
+        "test_residence_matcher_never_matches_on_date_and_place_alone",
+        "test_residence_matcher_never_claims_by_tag_and_index",
+        "test_residence_matcher_owner_id_survives_xref_renumbering",
+        "test_dp_property_14_*",
+        "test_dp_property_15_*",
+    ),
+    *_req(
+        _DP + "test_reimport.py",
+        "test_dateless_same_type_place_events_stay_distinct",
+        "test_reimport_identical_file_creates_no_events",
+        "test_reimport_is_idempotent_property",
+        "test_reimport_reordered_records_creates_no_events",
+        "test_reimport_inserted_record_creates_one_event",
+        "test_reimport_removed_record_keeps_event",
+        "test_reimport_identical_records_pair_by_count",
+        "test_reimport_after_user_edit_leaves_event_unchanged",
+        "test_reimport_changed_record_creates_new_with_notice",
+        "test_reimport_uid_match_changed_record_reports_without_modifying",
+        "test_reimport_never_removes_existing_events",
+        "test_reimport_family_events_preserved",
+        "test_family_event_ids_never_dropped",
+        "test_deleted_imported_event_reappears_known_limitation",
+        "test_ambiguous_event_creates_new_with_review_notice",
+        "test_legacy_event_claim_reported_in_import_log",
+        "test_legacy_event_claim_marks_project_changed",
+        "test_reimport_is_idempotent_with_resi_property",
+        "test_dp_property_16_*",
+        "test_dp_property_17_*",
+    ),
+    *_req(
+        _DP + "test_residence_edit_paths.py",
+        "test_residence_origins_survive_every_edit_operation",
+        "test_residence_editor_save_keeps_origins",
+        "test_residence_split_gives_both_halves_the_origins",
+        "test_residence_merge_combines_origins",
+        "test_guard_residence_construction_preserves_origins",
+        "test_dp_property_25_*",
+    ),
+    *_req(
+        _DP + "test_residence_legacy.py",
+        "test_legacy_residence_exact_match_is_claimed_once",
+        "test_legacy_residence_with_different_content_is_not_claimed",
+        "test_legacy_residence_same_date_and_place_but_different_role_is_not_claimed",
+        "test_legacy_duplicates_are_kept_and_reported",
+        "test_legacy_claim_reported_in_import_log",
+        "test_legacy_claim_marks_project_changed",
+        "test_dp_property_26_*",
+    ),
+    *_req(
+        _DP + "test_residence_reimport.py",
+        "test_residence_unchanged_writes_nothing_and_resolves_no_place",
+        "test_reimport_resi_file_creates_no_residences",
+        "test_reimport_resi_reordered_creates_none",
+        "test_reimport_resi_inserted_record_creates_one",
+        "test_reimport_resi_removed_record_keeps_residence",
+        "test_reimport_resi_identical_records_pair_by_count",
+        "test_reimport_resi_changed_record_creates_new_with_notice",
+        "test_reimport_resi_uid_changed_record_reports_without_modifying",
+        "test_reimport_after_user_edit_leaves_residence_unchanged",
+        "test_reimport_after_user_edited_observations_leaves_residence_unchanged",
+        "test_reimport_resi_sour_change_creates_new_residence",
+        "test_deleted_imported_residence_reappears_known_limitation",
+        "test_import_creates_no_flytt_event_from_residence",
+        "test_reimport_keeps_flytt_links_between_residences",
+        "test_reimport_keeps_flytt_event_count_with_resi",
+        "test_flytt_event_edited_in_app_not_duplicated_by_reimport",
+        "test_no_residence_is_merged_or_removed_by_import",
+        "test_residence_save_reopen_reimport_creates_none",
+    ),
+    *_req(
+        _DP + "test_serialization_0_5.py",
+        "test_event_source_refs_serialize_only_when_non_empty",
+        "test_event_source_refs_round_trip",
+        "test_date_value_defaults_and_validation",
+        "test_date_value_serialization_omits_defaults",
+        "test_unparsed_validation",
+        "test_origin_serialization_round_trip",
+        "test_origin_instance_round_trip",
+        "test_residence_origins_serialize_only_when_non_empty",
+        "test_residence_origins_round_trip",
+        "test_dp_property_12_*",
+    ),
+    *_req(
+        _DP + "test_translation_commit.py",
+        "test_save_writes_intent_project_translation_in_order",
+        "test_save_failure_before_project_replace_restores_state",
+        "test_save_fault_before_intent",
+        "test_save_fault_after_intent",
+        "test_save_fault_after_project_write",
+        "test_save_fault_after_each_translation_write",
+        "test_save_fault_before_intent_removal",
+        "test_save_fault_at_every_fs_call_as_exception",
+        "test_save_fault_at_every_fs_call_as_crash",
+        "test_crash_at_every_save_step_recovers_consistently",
+        "test_recovery_fault_at_every_fs_call",
+        "test_recovery_is_idempotent_after_crash",
+        "test_open_completes_translation_when_project_is_new",
+        "test_open_discards_intent_when_project_is_old",
+        "test_dp_property_24_*",
+    ),
+    *_req(
+        _DP + "test_translation_conflicts.py",
+        "test_translation_file_changed_between_import_and_save_refuses_save",
+        "test_translation_file_already_new_is_accepted_at_save",
+        "test_translation_file_changed_before_commit_point_removes_own_artifacts",
+        "test_translation_file_changed_after_commit_point_preserves_intent",
+        "test_project_file_changed_between_open_and_save_refuses_save",
+        "test_project_file_changed_before_commit_point_removes_own_artifacts",
+        "test_translation_file_changed_before_recovery_refuses_open",
+        "test_project_file_changed_before_recovery_refuses_open",
+        "test_project_file_missing_before_recovery_refuses_open",
+        "test_damaged_intent_refuses_open_and_is_kept_byte_identical",
+        "test_conflict_messages_name_files_and_state_in_swedish",
+        "test_conflict_refusal_blocks_normal_save",
+        "test_conflict_refusal_changes_no_file",
+        "test_unfinished_import_save_blocks_save_import_and_translation_editors",
+        "test_dp_property_27_*",
+    ),
+    *_req(
+        "tests/test_services/test_merge_reference_rules.py",
+        "test_reference_rule_event_origin",
+        "test_reference_rule_residence_origins",
+    ),
+)
+
+_RT = "tests/test_gedcom_roundtrip/"
+
+_RT_MODULES = tuple(
+    _RT + f"test_{name}.py"
+    for name in (
+        "citations_roundtrip",
+        "cross_version",
+        "event_links",
+        "events_roundtrip",
+        "export_log",
+        "families_roundtrip",
+        "fixture_roundtrip",
+        "fixture_set",
+        "hash_profile",
+        "persons_roundtrip",
+        "residences_roundtrip",
+        "slk_tags",
+        "sources_roundtrip",
+        "stable_view",
+        "synthetic",
+        "text_roundtrip",
+    )
+)
+
+# One entry per design property (1 to 18) of gedcom-roundtrip-0-3-0.
+_RT_PROPERTY_TESTS = (
+    *_req(_RT + "test_families_roundtrip.py",
+          "test_every_family_event_is_written_exactly_once",  # Property 1
+          "test_placeholder_slots_follow_the_rule",  # Property 4
+          "test_partners_roles_order_and_sex_roundtrip",  # Property 5
+          "test_parentage_links_roundtrip"),  # Property 6
+    *_req(_RT + "test_text_roundtrip.py",
+          "test_free_text_roundtrips_and_lines_are_short"),  # Property 2
+    *_req(_RT + "test_persons_roundtrip.py",
+          "test_person_notes_title_and_occupation_roundtrip",  # Property 2
+          "test_name_types_and_order_roundtrip",  # Property 3
+          "test_sex_roundtrips_for_every_person"),  # Property 5
+    *_req(_RT + "test_events_roundtrip.py",
+          "test_events_roundtrip_with_roles_types_and_participants",  # Property 7
+          "test_event_tokens_join_and_nothing_else_joins"),  # Property 17
+    *_req(_RT + "test_citations_roundtrip.py",
+          "test_citations_roundtrip_with_context_quality_note_and_aspects"),  # Property 8
+    *_req(_RT + "test_residences_roundtrip.py",
+          "test_residences_roundtrip_with_all_structured_data",  # Property 9
+          "test_residence_reimport_is_idempotent",  # Property 9
+          "test_legacy_prose_is_read_only_in_exact_formats"),  # Property 18
+    *_req(_RT + "test_event_links.py",
+          "test_name_and_endpoint_event_links_survive_export_and_import"),  # Property 10
+    *_req(_RT + "test_sources_roundtrip.py",
+          "test_source_metadata_roundtrip",  # Property 11
+          "test_repository_roundtrip"),  # Property 11
+    *_req(_RT + "test_hash_profile.py",
+          "test_slk1_hash_ignores_added_nodes"),  # Property 12
+    *_req(_RT + "test_cross_version.py",
+          "test_reimports_across_versions_create_no_duplicates"),  # Property 13
+    *_req(_RT + "test_slk_tags.py",
+          "test_readers_never_raise_on_arbitrary_slk_lines",  # Property 14
+          "test_unknown_tags_do_not_change_known_data"),  # Property 14
+    *_req(_RT + "test_export_log.py",
+          "test_property_15_*"),  # Property 15
+    *_req(_RT + "test_fixture_roundtrip.py",
+          "test_round_trip_leaves_no_unclassified_difference"),  # Property 16
+)
+
+# One entry per tag of SLK_TAG_REGISTRY (slaktbusken/gedcom/slk_tags.py); the guard
+# checks that this list and the registry agree.
+_RT_SLK_TAG_TESTS = (
+    *_req(_RT + "test_fixture_roundtrip.py", "test_slk_tag_vers_*"),  # _SLK_VERS
+    *_req(
+        _RT + "test_events_roundtrip.py",
+        "test_slk_tag_eid",  # _SLK_EID
+        "test_slk_tag_evtype",  # _SLK_EVTYPE
+        "test_slk_tag_role",  # _SLK_ROLE
+        "test_slk_tag_fromplac",  # _SLK_FROMPLAC
+    ),
+    *_req(
+        _RT + "test_families_roundtrip.py",
+        "test_slk_tag_part",  # _SLK_PART
+        "test_slk_tag_partner",  # _SLK_PARTNER
+        "test_slk_tag_plink",  # _SLK_PLINK
+    ),
+    *_req(_RT + "test_persons_roundtrip.py", "test_slk_tag_sex_x"),  # _SLK_SEX
+    *_req(
+        _RT + "test_citations_roundtrip.py",
+        "test_slk_tag_qual",  # _SLK_QUAL
+        "test_slk_tag_ctx",  # _SLK_CTX
+        "test_slk_tag_asp",  # _SLK_ASP
+    ),
+    *_req(_RT + "test_event_links.py", "test_slk_tag_eref"),  # _SLK_EREF
+    *_req(
+        _RT + "test_residences_roundtrip.py",
+        "test_slk_tag_start_and_slk_tag_end",  # _SLK_START, _SLK_END
+        "test_slk_tag_earliest*",  # _SLK_EARLIEST
+        "test_slk_tag_latest*",  # _SLK_LATEST
+        "test_slk_tag_prec",  # _SLK_PREC
+        "test_slk_tag_note_of_an_endpoint",  # _SLK_NOTE
+        "test_slk_tag_hhrole",  # _SLK_HHROLE
+        "test_slk_tag_rnotes",  # _SLK_RNOTES
+        "test_slk_tag_obsfrom*",  # _SLK_OBSFROM
+        "test_slk_tag_*slk_tag_obsto",  # _SLK_OBSTO
+    ),
+    *_req(
+        _RT + "test_sources_roundtrip.py",
+        "test_slk_tag_stype",  # _SLK_STYPE
+        "test_slk_tag_prov",  # _SLK_PROV
+        "test_slk_tag_lev_*",  # _SLK_LEV
+        "test_slk_tag_*slk_tag_ktyp",  # _SLK_KTYP
+        "test_slk_tag_sref_*",  # _SLK_SREF
+        "test_slk_tag_*slk_tag_fld",  # _SLK_FLD
+        "test_slk_tag_rtype_*",  # _SLK_RTYPE
+        "test_slk_tag_*slk_tag_xid",  # _SLK_XID
+        "test_slk_tag_rstype",  # _SLK_RSTYPE
+        "test_slk_tag_rimg_*",  # _SLK_RIMG
+        "test_slk_tag_*slk_tag_rpage",  # _SLK_RPAGE
+        "test_slk_tag_rmedname",  # _SLK_RMEDNAME
+    ),
+)
+
+MANDATORY_GROUPS: tuple[MandatoryGroup, ...] = (
+    MandatoryGroup(
+        key="reference_preservation",
+        title_sv="Bevarande av personreferenser",
+        requirement="35.1(a)",
+        modules=(_REFERENCE_INDEX, _REFERENCE_RULES),
+        properties=(25, 29, 30, 31),
+        required_tests=(
+            *_req(
+                _REFERENCE_INDEX,
+                "test_inventory_lists_every_person_reference_field",
+                "test_inventory_check_fails_for_unlisted_field",
+                "test_merge_refused_when_handler_missing",
+            ),
+            *_req(
+                _REFERENCE_RULES,
+                "test_every_inventory_row_has_a_rule_test",
+                "test_rewire_rows_leave_no_retired_reference",
+                "test_property_25_*",
+                "test_property_29_*",
+                "test_property_30_*",
+                "test_property_31_*",
+            ),
+        ),
+    ),
+    MandatoryGroup(
+        key="family_relationship_integrity",
+        title_sv="Familje- och släktskapsintegritet",
+        requirement="35.1(b)",
+        modules=(_FAMILY_INTEGRITY,),
+        properties=(32, 33, 34, 35),
+        required_tests=_req(
+            _FAMILY_INTEGRITY,
+            "test_cycle_blocks_merge",
+            "test_self_partner_blocks_merge",
+            "test_self_parent_child_link_blocks_merge",
+            "test_parent_child_link_types_preserved",
+            "test_foster_adoptive_families_resynchronised",
+            "test_two_brita_seven_distinct_children",
+            "test_same_name_siblings_stay_distinct",
+            "test_duplicate_families_stay_separate_with_warning",
+            "test_property_32_*",
+            "test_property_33_*",
+            "test_property_34_*",
+            "test_property_35_*",
+        ),
+    ),
+    MandatoryGroup(
+        key="failed_merges",
+        title_sv="Misslyckade sammanslagningar",
+        requirement="35.1(c)",
+        modules=(_FAILURES, _SAVED_STATE),
+        properties=(39, 47),
+        required_tests=(
+            *_req(
+                _FAILURES,
+                "test_failed_merge_leaves_data_unchanged",
+                "test_failed_merge_leaves_translation_files_unchanged",
+                "test_failed_merge_leaves_dirty_flag_unchanged",
+                "test_property_39_*",
+            ),
+            *_req(
+                _SAVED_STATE,
+                "test_dirty_project_refused",
+                "test_unsaved_editor_refused",
+                "test_property_47_*",
+            ),
+        ),
+    ),
+    MandatoryGroup(
+        key="crash_recovery",
+        title_sv="Återställning efter krasch",
+        requirement="35.1(d)",
+        modules=(_COMMIT_FAULTS, _COMMIT_REFUSAL, _COMMIT_SUBPROCESS),
+        properties=(40, 41, 49),
+        required_tests=(
+            *_req(
+                _COMMIT_FAULTS,
+                "test_crash_matrix_every_operation",
+                "test_recovery_idempotent",
+                "test_crash_during_recovery_converges",
+                "test_property_40_*",
+                "test_property_41_*",
+            ),
+            *_req(
+                _COMMIT_REFUSAL,
+                "test_refusal_project_file_matches_neither",
+                "test_refusal_persons_json_matches_neither",
+                "test_refusal_one_new_other_neither",
+                "test_refusal_corrupt_journal",
+                "test_refusal_backup_missing_or_corrupt",
+                "test_refusal_preserves_every_artifact_byte_for_byte",
+                "test_property_49_*",
+            ),
+            *_req(_COMMIT_SUBPROCESS, "test_os_exit_at_representative_points"),
+        ),
+    ),
+    MandatoryGroup(
+        key="retired_id_preservation",
+        title_sv="Bevarande av pensionerade id:n",
+        requirement="35.1(e)",
+        modules=(_RETIRED_IDS,),
+        properties=(3,),
+        required_tests=_req(
+            _RETIRED_IDS,
+            "test_retired_id_never_reissued",
+            "test_retired_id_with_highest_suffix_not_reissued",
+            "test_retired_id_not_reissued_after_save_and_reopen",
+            "test_importer_seeded_with_retired_ids",
+            "test_property_3_retired_ids",
+        ),
+    ),
+    MandatoryGroup(
+        key="gedcom_reimport_after_merge",
+        title_sv="GEDCOM-återimport efter sammanslagning",
+        requirement="35.1(f)",
+        modules=(_REIMPORT,),
+        properties=(42, 43),
+        required_tests=_req(
+            _REIMPORT,
+            "test_reimport_identical_file_does_not_recreate_retired_person",
+            "test_reimport_edited_variant_matches_by_fingerprint",
+            "test_reimport_counts_unchanged",
+            "test_both_partners_same_person_gives_warning",
+            "test_negative_without_alias_recreates_person",
+            "test_property_42_*",
+            "test_property_43_*",
+        ),
+    ),
+    MandatoryGroup(
+        key="data_protection",
+        title_sv="Dataskydd",
+        requirement="23.1",
+        modules=_DP_MODULES,
+        properties=(),  # property tags of the other spec are not required (task 1.1)
+        required_tests=_DP_REQUIRED,
+    ),
+    MandatoryGroup(
+        key="gedcom_roundtrip",
+        title_sv="GEDCOM-rundresa",
+        requirement="15",
+        modules=_RT_MODULES,
+        properties=tuple(range(1, 19)),
+        required_tests=(*_RT_PROPERTY_TESTS, *_RT_SLK_TAG_TESTS),
+        feature="gedcom-roundtrip-0-3-0",
+    ),
+)
+
+# The guard test is itself mandatory (the only module outside the six groups).
+GUARD_MODULE = "tests/test_meta/test_mandatory_groups_guard.py"
+
+# Platform-conditional tests (Windows file-sharing semantics). They are required,
+# are the only tests allowed a ``skipif``, and the only permitted condition is
+# ``sys.platform != "win32"``. On win32 a skip is turned into a failure.
+WINDOWS_ONLY_MODULE = "tests/test_services/test_commit_preflight.py"
+WINDOWS_ONLY_TESTS: tuple[str, ...] = (
+    f"{WINDOWS_ONLY_MODULE}::test_second_handle_without_write_sharing_refused",
+)
+WINDOWS_ONLY_SKIPIF_CONDITION = 'sys.platform != "win32"'
+
+
+def mandatory_modules() -> frozenset[str]:
+    """All module paths subject to the mandatory machinery (groups plus guard)."""
+    modules = {m for group in MANDATORY_GROUPS for m in group.modules}
+    modules.add(GUARD_MODULE)
+    return frozenset(modules)
+
+
+def all_required_tests() -> tuple[str, ...]:
+    """Every ``module::name`` entry of every group."""
+    return tuple(t for group in MANDATORY_GROUPS for t in group.required_tests)

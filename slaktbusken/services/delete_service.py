@@ -16,6 +16,7 @@ from slaktbusken.model.event import Event
 from slaktbusken.model.family import Family
 from slaktbusken.model.project import ProjectData
 from slaktbusken.relationship.graph_builder import build_relationship_graph
+from slaktbusken.services.research_service import find_research_dependencies
 
 if TYPE_CHECKING:
     from slaktbusken.services.project_service import ProjectService
@@ -32,6 +33,19 @@ class DeletionConsequences:
     affected_families: list[Family]
     would_disconnect: bool
     disconnected_person_count: int
+    # Research data that refers to the person. It is kept on deletion; the
+    # reference then shows as a missing object (Requirement 15).
+    research_case_count: int = 0
+    research_hypothesis_count: int = 0
+
+
+@dataclass
+class ResidenceDependency:
+    """One blocking entry for a Residence_Fact that references a place."""
+
+    residence_id: str
+    person_id: str
+    place_id: str
 
 
 def classify_events(
@@ -209,6 +223,7 @@ def execute_person_deletion(person_id: str, data: ProjectData) -> None:
     9. Remove empty families (zero partners AND zero children)
     10. Clean media: remove from mentioned_person_ids, linked_entities, annotations
     11. Remove person from data.persons
+    12. Remove the person's Residence_Facts (with their Observations)
     """
     # Step 1 & 2: Classify events and collect IDs to remove.
     exclusive_events, family_events, _ = classify_events(person_id, data)
@@ -284,6 +299,67 @@ def execute_person_deletion(person_id: str, data: ProjectData) -> None:
     # Step 11: Remove person from data.persons.
     data.persons = [p for p in data.persons if p.id != person_id]
 
+    # Step 12: Remove the person's Residence_Facts (with their Observations).
+    data.residences = [
+        r for r in data.residences if r.person_id != person_id
+    ]
+
+    # Clear event_id on Endpoints referencing deleted events.
+    clear_event_from_residence_endpoints(deleted_event_ids, data)
+
+
+def clear_event_from_residence_endpoints(
+    event_ids: set[str], data: ProjectData
+) -> None:
+    """Set event_id to None on every Endpoint referencing any of the given events.
+
+    Keeps `earliest`, `latest` and `precision` unchanged. Deletes no
+    Residence_Fact.
+    """
+    for residence in data.residences:
+        if residence.start.event_id in event_ids:
+            residence.start.event_id = None
+        if residence.end.event_id in event_ids:
+            residence.end.event_id = None
+
+
+def find_residence_dependencies(
+    place_id: str, data: ProjectData
+) -> list[ResidenceDependency]:
+    """Return one blocking entry per Residence_Fact referencing *place_id*.
+
+    Used by the Place_Editor to refuse deletion of a place that still has
+    Residence_Facts pointing to it.
+    """
+    deps: list[ResidenceDependency] = []
+    for residence in data.residences:
+        if residence.place_id == place_id:
+            deps.append(
+                ResidenceDependency(
+                    residence_id=residence.id,
+                    person_id=residence.person_id,
+                    place_id=residence.place_id,
+                )
+            )
+    return deps
+
+
+def find_place_event_dependencies(
+    place_id: str, data: ProjectData
+) -> list[Event]:
+    """Return every Event referencing *place_id* via `place` or `from_place`.
+
+    A place referenced by a Flytt_Event `from_place` blocks exactly as one
+    referenced by `place` (Requirement 18.17).
+    """
+    result: list[Event] = []
+    for event in data.events:
+        if event.place and event.place.place_id == place_id:
+            result.append(event)
+        elif event.from_place and event.from_place.place_id == place_id:
+            result.append(event)
+    return result
+
 
 class DeleteService:
     """Service for deleting a person and cascading cleanup.
@@ -339,6 +415,8 @@ class DeleteService:
             person_id, data
         )
 
+        research_dependencies = find_research_dependencies(data, "person", person_id)
+
         return DeletionConsequences(
             person_name=person_name,
             exclusive_events=exclusive_events,
@@ -347,14 +425,20 @@ class DeleteService:
             affected_families=affected_families,
             would_disconnect=would_disconnect,
             disconnected_person_count=disconnected_person_count,
+            research_case_count=len(research_dependencies.cases),
+            research_hypothesis_count=len(research_dependencies.hypotheses),
         )
 
     def execute_deletion(self, person_id: str) -> None:
         """Execute the deletion with all cascading cleanup.
 
         Calls execute_person_deletion to mutate ProjectData, then marks
-        the project as dirty (unsaved changes).
+        the project as dirty (unsaved changes). Research data that refers to
+        the person is kept, so views that show it are told to refresh.
         """
         data = self._project_service.data
+        had_research = not find_research_dependencies(data, "person", person_id).is_empty
         execute_person_deletion(person_id, data)
-        self._project_service._dirty = True
+        self._project_service.mark_changed()
+        if had_research:
+            self._project_service.notify_research_changed()

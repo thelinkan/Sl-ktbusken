@@ -1,0 +1,129 @@
+{
+  "format": "släktbuske-file",
+  "version": "0.3",
+  "format_version": "0.3",
+  "project": {
+    "title": "Boenden",
+    "main_person_id": "person_001",
+    "created_by": "Släktbuske",
+    "language": "sv-SE"
+  },
+  "persons": [
+    {
+      "id": "person_001",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Erik",
+          "surname": "Östberg"
+        }
+      ]
+    }
+  ],
+  "families": [],
+  "events": [
+    {
+      "id": "event_001",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_001",
+          "role": "child"
+        }
+      ],
+      "date": {
+        "value": "1850-03-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_003"
+      }
+    }
+  ],
+  "residences": [
+    {
+      "id": "res_001",
+      "person_id": "person_001",
+      "place_id": "place_002",
+      "start": {
+        "earliest": "1850",
+        "precision": "year",
+        "event_id": "event_001"
+      },
+      "end": {
+        "earliest": "1880-05",
+        "latest": "1880-06",
+        "precision": "month"
+      },
+      "role_in_household": "Son",
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "source_001",
+            "quality": "primary",
+            "note": "s. 12"
+          },
+          "observed_from": "1860",
+          "observed_to": "1865",
+          "page_note": "Hushåll 4"
+        }
+      ],
+      "notes": "Växte upp här."
+    },
+    {
+      "id": "res_002",
+      "person_id": "person_001",
+      "place_id": "place_003",
+      "start": {},
+      "end": {}
+    }
+  ],
+  "places": [
+    {
+      "id": "place_001",
+      "type": "country",
+      "name": "Sverige",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_002",
+      "type": "city",
+      "name": "Örebro",
+      "parent_place_id": "place_001",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_003",
+      "type": "parish",
+      "name": "Ålem",
+      "parent_place_id": "place_001",
+      "custom_field_values": {}
+    }
+  ],
+  "sources": [
+    {
+      "id": "source_001",
+      "provider": "Riksarkivet",
+      "source_type": "church_book",
+      "title": "Husförhörslängd",
+      "structured_reference": {
+        "fields": {}
+      }
+    }
+  ],
+  "media": [],
+  "repositories": [],
+  "dna_companies": [],
+  "dna_profiles": [],
+  "dna_matches": [],
+  "dna_segments": [],
+  "dna_clusters": [],
+  "dna_triangulations": [],
+  "research_notes": [],
+  "leverantorer": [],
+  "kalltyper": [],
+  "research_cases": [],
+  "research_hypotheses": [],
+  "research_actions": []
+}

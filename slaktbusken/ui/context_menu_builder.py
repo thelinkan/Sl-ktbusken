@@ -7,11 +7,29 @@ person actions for use in DiagramPanel and PersonListPanel.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Sequence
 
 from PySide6.QtWidgets import QMenu, QMessageBox, QWidget
 
+from slaktbusken.services.comparison_session import menu_state
+
 logger = logging.getLogger(__name__)
+
+COMPARE_ACTION = "compare_persons"
+MARK_CANDIDATES_ACTION = "mark_candidates"
+SHOW_HISTORY_ACTION = "show_merge_history"
+
+
+def merge_action_ids(action) -> Optional[tuple[str, list[str]]]:
+    """Return ``(kind, ids)`` for a merge menu action, else None."""
+    data = action.data() if action is not None else None
+    if (
+        isinstance(data, tuple)
+        and len(data) == 2
+        and data[0] in (COMPARE_ACTION, MARK_CANDIDATES_ACTION)
+    ):
+        return data[0], list(data[1])
+    return None
 
 
 class ContextMenuBuilder:
@@ -27,8 +45,16 @@ class ContextMenuBuilder:
         person_id: str,
         main_person_id: Optional[str],
         parent_widget: QWidget,
+        selected_ids: Optional[Sequence[str]] = None,
+        project_open: bool = True,
+        has_history: bool = False,
     ) -> QMenu:
         """Create a QMenu with standard person actions.
+
+        ``selected_ids`` are the selected person ids in person-list order
+        (default None: the merge entries are not added). They decide the enablement of the
+        "Jämför personer..." and "Markera som sammanslagningskandidater"
+        entries; both are disabled while no project is open.
 
         Actions are added in the order specified by requirement 7.1:
         Gör aktuell, Redigera person, Ny partner, Ny pappa,
@@ -94,6 +120,52 @@ class ContextMenuBuilder:
         # Action: Visa på karta
         action_show_map = menu.addAction("Visa på karta")
         action_show_map.setData(("show_on_map", person_id))
+
+        # Per-connection parentage override actions (Requirement 5.4).
+        #
+        # The design calls for a context action "on a child's parent
+        # connection" to set/clear ProjectData.connection_overrides[child_id].
+        # Hit-testing the thin ConnectionLineItem is unreliable and the panel's
+        # right-click path is built around PersonBoxItem, so the robust,
+        # codebase-consistent realization is to attach the four override actions
+        # to the PERSON menu: the right-clicked person is treated as the child
+        # whose parent connection is being overridden. The actions live in a
+        # dedicated submenu to avoid cluttering the top-level menu.
+        override_menu = menu.addMenu("Visa föräldratyp")
+
+        action_override_bio = override_menu.addAction("Visa biologiska föräldrar")
+        action_override_bio.setData(("override_biological", person_id))
+
+        action_override_foster = override_menu.addAction("Visa fosterföräldrar")
+        action_override_foster.setData(("override_foster", person_id))
+
+        action_override_adoptive = override_menu.addAction("Visa adoptivföräldrar")
+        action_override_adoptive.setData(("override_adoptive", person_id))
+
+        action_override_clear = override_menu.addAction("Återställ till standard")
+        action_override_clear.setData(("override_clear", person_id))
+
+        # Merge entry points (Req 8.4 to 8.7). These only open the
+        # comparison or the candidate editor; they never start a merge.
+        if selected_ids is not None:
+            ids = list(selected_ids)
+            state = menu_state(len(ids))
+            menu.addSeparator()
+            action_compare = menu.addAction("Jämför personer...")
+            action_compare.setData((COMPARE_ACTION, tuple(ids)))
+            action_compare.setEnabled(project_open and state.compare_enabled)
+            action_mark = menu.addAction("Markera som sammanslagningskandidater")
+            action_mark.setData((MARK_CANDIDATES_ACTION, tuple(ids)))
+            action_mark.setEnabled(
+                project_open and state.mark_candidates_enabled
+            )
+            # Merge history (Req 36.11): exactly one selected person who has
+            # history. Opens the history view only.
+            action_history = menu.addAction("Visa sammanslagningshistorik")
+            action_history.setData((SHOW_HISTORY_ACTION, person_id))
+            action_history.setEnabled(
+                project_open and len(ids) == 1 and bool(has_history)
+            )
 
         # Separator before destructive action
         menu.addSeparator()

@@ -34,13 +34,16 @@ class ColumnVisibility:
     """Per-column visibility flags for the person list table.
 
     Each field corresponds to an optional column that the user can
-    show or hide. All columns are visible by default.
+    show or hide. All columns are visible by default except "Boende", which
+    is shown only when the user turns it on.
     """
 
     titel: bool = True
     yrke: bool = True
     kluster: bool = True
     dna_company: bool = True
+    boende: bool = False
+    research: bool = True
 
 
 @dataclass
@@ -65,6 +68,19 @@ class AppSettings:
         person_list_config: Configuration for person list columns/icons.
         column_visibility: Visibility flags for optional columns in the
             person list table.
+        window_geometries: Last size and position of each kind of window,
+            keyed by window type (for example "PersonEditor" or
+            "main_window"), as base64 of Qt's saveGeometry(). Stored per
+            computer here rather than in projects, since projects move
+            between computers with other screens.
+        person_list_column_widths: Width in pixels of each person list
+            column, keyed by a stable column key (for example "name"), saved
+            when the program closes.
+        comparison_window_state: Internal state of the Person_Comparison_Window,
+            keyed by window type (the same key the geometry uses). Each entry
+            holds the three-panel splitter sizes and the per-view zoom levels.
+            Stored per computer here rather than in projects, since projects
+            move between computers with other screens.
     """
 
     recent_projects: list[str] = field(default_factory=list)
@@ -76,6 +92,9 @@ class AppSettings:
     diagram_settings: DiagramSettings = field(default_factory=DiagramSettings)
     person_list_config: PersonListConfig = field(default_factory=PersonListConfig)
     column_visibility: ColumnVisibility = field(default_factory=ColumnVisibility)
+    window_geometries: dict[str, str] = field(default_factory=dict)
+    person_list_column_widths: dict[str, int] = field(default_factory=dict)
+    comparison_window_state: dict[str, dict] = field(default_factory=dict)
 
 
 class AppSettingsService:
@@ -268,7 +287,12 @@ class AppSettingsService:
                 "yrke": cv.yrke,
                 "kluster": cv.kluster,
                 "dna_company": cv.dna_company,
+                "boende": cv.boende,
+                "research": cv.research,
             },
+            "window_geometries": dict(settings.window_geometries),
+            "person_list_column_widths": dict(settings.person_list_column_widths),
+            "comparison_window_state": dict(settings.comparison_window_state),
         }
 
     def _deserialize(self, data: dict) -> AppSettings:
@@ -333,12 +357,16 @@ class AppSettingsService:
             yrke = cv_data.get("yrke", True)
             kluster = cv_data.get("kluster", True)
             dna_company = cv_data.get("dna_company", True)
+            research = cv_data.get("research", True)
+            boende = cv_data.get("boende", False)
             # Fall back to True for non-boolean values
             column_visibility = ColumnVisibility(
                 titel=titel if isinstance(titel, bool) else True,
                 yrke=yrke if isinstance(yrke, bool) else True,
                 kluster=kluster if isinstance(kluster, bool) else True,
                 dna_company=dna_company if isinstance(dna_company, bool) else True,
+                research=research if isinstance(research, bool) else True,
+                boende=boende if isinstance(boende, bool) else False,
             )
         else:
             column_visibility = ColumnVisibility()
@@ -361,6 +389,8 @@ class AppSettingsService:
                 cause_of_death=pbc_data.get("cause_of_death", True),
                 clusters=pbc_data.get("clusters", True),
                 age=pbc_data.get("age", True),
+                research=pbc_data.get("research", True),
+                merge_candidates=pbc_data.get("merge_candidates", True),
             )
         else:
             person_box_config = PersonBoxConfig()
@@ -372,6 +402,11 @@ class AppSettingsService:
                 descendants_depth=ds_data.get("descendants_depth", 4),
                 ancestry_compact=ds_data.get("ancestry_compact", False),
                 background_color=ds_data.get("background_color", "#f0f0f0"),
+                parentage_show_level=ds_data.get(
+                    "parentage_show_level", "biological"
+                ),
+                parentage_badge=ds_data.get("parentage_badge", False),
+                parentage_fallback=ds_data.get("parentage_fallback", True),
             )
         else:
             diagram_settings = DiagramSettings()
@@ -390,6 +425,7 @@ class AppSettingsService:
                 occupation=plc_data.get("occupation", True),
                 clusters=plc_data.get("clusters", True),
                 dna=plc_data.get("dna", True),
+                research=plc_data.get("research", True),
             )
         else:
             person_list_config = PersonListConfig()
@@ -404,4 +440,64 @@ class AppSettingsService:
             diagram_settings=diagram_settings,
             person_list_config=person_list_config,
             column_visibility=column_visibility,
+            window_geometries=_deserialize_window_geometries(
+                data.get("window_geometries")
+            ),
+            person_list_column_widths=_deserialize_column_widths(
+                data.get("person_list_column_widths")
+            ),
+            comparison_window_state=_deserialize_comparison_window_state(
+                data.get("comparison_window_state")
+            ),
         )
+
+
+def _deserialize_window_geometries(value: object) -> dict[str, str]:
+    """Return the stored window geometries, dropping anything malformed.
+
+    Only string keys with string values are kept, so a hand-edited or damaged
+    entry is ignored and that window simply opens at its default size.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: item
+        for key, item in value.items()
+        if isinstance(key, str) and isinstance(item, str) and key and item
+    }
+
+
+def _deserialize_comparison_window_state(value: object) -> dict[str, dict]:
+    """Return the stored comparison-window state, dropping anything malformed.
+
+    Only string keys mapping to dict values are kept. The window itself
+    validates the contents of each entry when it restores them, so a damaged
+    or hand-edited entry simply makes that window open with its default
+    splitter proportions and zoom.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: dict(item)
+        for key, item in value.items()
+        if isinstance(key, str) and key and isinstance(item, dict)
+    }
+
+
+def _deserialize_column_widths(value: object) -> dict[str, int]:
+    """Return the stored column widths, dropping anything malformed.
+
+    Only string keys with positive integer widths are kept (``bool`` is not
+    accepted as an integer), so a damaged entry leaves that column at its
+    default width.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: width
+        for key, width in value.items()
+        if isinstance(key, str)
+        and isinstance(width, int)
+        and not isinstance(width, bool)
+        and width > 0
+    }

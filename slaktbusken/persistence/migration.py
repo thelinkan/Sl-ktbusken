@@ -1,4 +1,4 @@
-"""Migration management for App_JSON format version upgrades.
+﻿"""Migration management for App_JSON format version upgrades.
 
 This module provides the MigrationManager class which handles detection of
 outdated or too-new format versions, sequential migration between versions
@@ -50,6 +50,37 @@ def _parse_version(version: str) -> tuple[int, int]:
     return (int(parts[0]), int(parts[1]))
 
 
+def backup_project_files(path: Path, old_version: str) -> list[Path]:
+    """Copy the files a migration backup consists of.
+
+    The project file is copied beside the original as
+    ``<stem>_v<old_version><suffixes>`` (``project.json.gz`` becomes
+    ``project_v0.3.json.gz``). When ``translation/persons.json`` exists beside
+    the project it is copied to ``translation/persons_v<old_version>.json``; a
+    missing file is skipped silently.
+
+    Used only by ``MigrationManager.create_backup`` and the merge Recovery_Point.
+
+    Returns:
+        The created backup paths; the project file backup is always first.
+
+    Raises:
+        OSError: If a backup cannot be created.
+    """
+    suffixes = "".join(path.suffixes)
+    stem = path.name[: len(path.name) - len(suffixes)]
+    backup_path = path.parent / f"{stem}_v{old_version}{suffixes}"
+    shutil.copy2(path, backup_path)
+    created = [backup_path]
+
+    persons = path.parent / "translation" / "persons.json"
+    if persons.is_file():
+        persons_backup = persons.parent / f"persons_v{old_version}.json"
+        shutil.copy2(persons, persons_backup)
+        created.append(persons_backup)
+    return created
+
+
 class MigrationManager:
     """Manages sequential migrations between App_JSON format versions.
 
@@ -75,7 +106,7 @@ class MigrationManager:
             migrated_data = MigrationManager.migrate(old_data, "0.1")
     """
 
-    CURRENT_VERSION: str = "0.1"
+    CURRENT_VERSION: str = "0.5"
 
     # Registry: maps source version → (target version, migration function)
     _migrations: dict[str, tuple[str, Callable[[dict], dict]]] = {}
@@ -191,7 +222,70 @@ class MigrationManager:
         # Get the base name without any suffixes
         stem = path.name[: len(path.name) - len(suffixes)]
 
-        backup_name = f"{stem}_v{old_version}{suffixes}"
-        backup_path = path.parent / backup_name
-        shutil.copy2(path, backup_path)
-        return backup_path
+        return backup_project_files(path, old_version)[0]
+
+
+# ---------------------------------------------------------------------------
+# Registered migrations
+# ---------------------------------------------------------------------------
+
+
+@MigrationManager.register("0.1", "0.2")
+def _migrate_0_1_to_0_2(data: dict) -> dict:
+    """Add an empty residences collection when the key is missing.
+
+    This migration supports the new Residence_Fact entity introduced in
+    format version 0.2. It is idempotent: if the key already exists
+    (e.g., from a re-application), the existing collection is left
+    unchanged.
+    """
+    if "residences" not in data:
+        data["residences"] = []
+    data["format_version"] = "0.2"
+    data["version"] = "0.2"
+    return data
+
+
+@MigrationManager.register("0.2", "0.3")
+def _migrate_0_2_to_0_3(data: dict) -> dict:
+    """Add the empty research collections when their keys are missing.
+
+    This migration supports the research cases, hypotheses and actions
+    introduced in format version 0.3. It is additive and idempotent: a
+    collection that already exists, including one that holds data, is left
+    unchanged, and no other part of the project is touched.
+    """
+    for key in ("research_cases", "research_hypotheses", "research_actions"):
+        if key not in data:
+            data[key] = []
+    data["format_version"] = "0.3"
+    data["version"] = "0.3"
+    return data
+
+
+@MigrationManager.register("0.3", "0.4")
+def _migrate_0_3_to_0_4(data: dict) -> dict:
+    """Add the empty merge collections when their keys are missing.
+
+    This migration supports merge candidates and merge history introduced in
+    format version 0.4. It is additive and idempotent: a collection that
+    already exists, including one that holds data, is left unchanged.
+    """
+    for key in ("merge_candidates", "merge_history"):
+        if key not in data:
+            data[key] = []
+    data["format_version"] = "0.4"
+    data["version"] = "0.4"
+    return data
+
+
+@MigrationManager.register("0.4", "0.5")
+def _migrate_0_4_to_0_5(data: dict) -> dict:
+    """Bump the version keys to 0.5.
+
+    All fields introduced in 0.5 are optional, so only the version keys change.
+    The migration is idempotent and corrects no data.
+    """
+    data["format_version"] = "0.5"
+    data["version"] = "0.5"
+    return data

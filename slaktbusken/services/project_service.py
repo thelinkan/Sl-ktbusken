@@ -1,4 +1,4 @@
-"""Project lifecycle service: create, open, save, close.
+﻿"""Project lifecycle service: create, open, save, close.
 
 ProjectService is the main coordination layer for managing a genealogy
 project. It delegates persistence to FilePersistence, settings to
@@ -9,8 +9,10 @@ additions are validated before being appended to the in-memory data.
 from __future__ import annotations
 
 import logging
+import dataclasses
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional, Sequence
 
 from slaktbusken.model.dna import (
     DnaCluster,
@@ -26,11 +28,20 @@ from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
+from slaktbusken.model.research_case import (
+    ResearchAction,
+    ResearchCase,
+    ResearchHypothesis,
+    normalize_completed_date,
+)
 from slaktbusken.model.research_note import ResearchNote
 from slaktbusken.model.source import Repository, Source
 from slaktbusken.model.validators import (
     validate_dna_cluster,
     validate_dna_match,
+    validate_research_action,
+    validate_research_case,
+    validate_research_hypothesis,
     validate_dna_profile,
     validate_dna_segment,
     validate_dna_triangulation,
@@ -53,9 +64,86 @@ from slaktbusken.persistence.translation_io import (
     TranslationData,
     write_all as write_translations,
 )
+from slaktbusken.services.edit_session import (
+    MSG_IMPORT_RUNNING,
+    MSG_IMPORT_SAVE_UNFINISHED,
+    MSG_MERGE,
+    MSG_NO_PROJECT,
+    MSG_SNAPSHOT_FAILED,
+    EditSession,
+    EditSessionBusy,
+    EditSessionRefused,
+    UnsavedEditorsBlock,
+)
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.services.commit.fs_ops import CommitFs, RealFs
+from slaktbusken.services.commit.journal import sha256_hex
+from slaktbusken.services.commit.preflight import journal_path_for
+from slaktbusken.services.commit.translation_commit import (
+    ImportSaveUnfinished,
+    SaveFailed,
+    TranslationCommit,
+    recover_translation_intent,
+)
+from slaktbusken.services.commit.recovery import (
+    RecoveryOutcome,
+    RecoveryRefusedError,
+    recover_if_needed,
+)
+from slaktbusken.services.research_service import (
+    ResearchCaseDiff,
+    ResearchCaseWorkingCopy,
+    ResearchIdGenerator,
+    RewireResult,
+    apply_working_copy,
+    delete_case_cascade,
+    diff_working_copy,
+    open_working_copy,
+    reconcile_id_high_water_marks,
+    rewire_entity_merge,
+)
+from slaktbusken.services.foster_sync import (
+    migrate_orphan_links,
+    sync_parentage_links,
+)
 from slaktbusken.services.standard_providers import initialize_standard_providers
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PendingTranslation:
+    """Translation data staged by an import and not yet written to disk.
+
+    Attributes:
+        data: The Staged_Translation (all mappings as the import left them).
+        base: Translation_Base: SHA-256 of each translation file as the import
+            read it (or ``"absent"``), keyed by ``translation/<name>.json``.
+    """
+
+    data: TranslationData
+    base: dict[str, str] = field(default_factory=dict)
+
+#: Stand-in id used while validating research data that has not been issued an id yet.
+_PENDING_ID = "\x00pending"
+
+
+def _with_placeholder_ids(hypothesis: ResearchHypothesis) -> ResearchHypothesis:
+    """Return a copy of *hypothesis* in which blank ids are replaced by placeholders.
+
+    Used only to validate before ids are issued; the original is not changed.
+    """
+    comments = [
+        replace(c, id=c.id or f"{_PENDING_ID}{i}")
+        for i, c in enumerate(hypothesis.comments)
+    ]
+    return replace(hypothesis, id=hypothesis.id or _PENDING_ID, comments=comments)
+
+
+_MSG_RESEARCH_CASE_TITLE_REQUIRED = "Forskningsärendet måste ha en rubrik."
+_MSG_RESEARCH_DUPLICATE_ID = "Id:t {id} används redan av annan forskningsdata."
+_MSG_RESEARCH_EMPTY_ID = "Forskningsdata saknar id."
+_MSG_RESEARCH_WRONG_CASE = "Hypotesen eller åtgärden {id} tillhör inte forskningsärendet."
 
 # Media subfolders to create in a new project.
 _MEDIA_SUBFOLDERS = [
@@ -87,6 +175,22 @@ class ProjectNotOpenError(Exception):
     """Raised when an operation requires an open project but none is loaded."""
 
 
+class MergeInProgressError(Exception):
+    """Raised when a save is attempted while a merge is running."""
+
+
+#: Shown when a save is attempted while a merge journal exists.
+MERGE_UNFINISHED_MESSAGE = "En sammanslagning är inte avslutad. Starta om Släktbusken."
+
+
+class MergeNotFinishedError(MergeInProgressError):
+    """Raised when a save is attempted while a Merge_Journal exists.
+
+    Also applies after a Recovery_Refusal: a normal save must not overwrite
+    the project file between the steps of an interrupted merge.
+    """
+
+
 class ProjectService:
     """Manages project lifecycle: create, open, save, close.
 
@@ -95,11 +199,341 @@ class ProjectService:
     tracks dirty state so callers know when unsaved changes exist.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, commit_fs: Optional[CommitFs] = None) -> None:
+        #: File-system seam for recovery and the journal check (tests inject faults).
+        self._commit_fs: Optional[CommitFs] = commit_fs
+        #: Project files whose open was refused by recovery (journal kept on disk).
+        self._refused_projects: set[Path] = set()
+        #: Message of the recovery that ran during the last ``open_project``, or "".
+        self._last_recovery_message: str = ""
         self._project_data: Optional[ProjectData] = None
         self._project_path: Optional[Path] = None
         self._settings: Optional[ProjectSettings] = None
-        self._dirty: bool = False
+        self._dirty_value: bool = False
+        # In-memory only counters (never serialised); see design section 5.
+        self._revision: int = 0
+        self._content_revision: int = 0
+        self._clean_content_revision: int = 0
+        self._merge_in_progress: bool = False
+        #: Active edit session whose changes are deferred.
+        self._active_session: Optional[EditSession] = None
+        #: Whether a GEDCOM import is running (Session_Start_Condition d).
+        self._import_in_progress: bool = False
+        #: Import_Save_Unfinished (condition c2): the project file was replaced but
+        #: the translation files were not finished; cleared by open and close.
+        self._import_save_unfinished: bool = False
+        #: Disk_Digest: SHA-256 of the project file bytes as last read or written.
+        self._disk_digest: Optional[str] = None
+        #: Translation data staged by an import, written at the next save.
+        self._pending_translation: Optional[PendingTranslation] = None
+        #: Registry consulted by ``begin_edit_session`` (condition b).
+        self._editor_registry: Optional[EditorRegistry] = None
+        self._merge_listeners: list[Callable[[], None]] = []
+        # Observers of research changes. They belong to the service, not to a
+        # project, so they survive opening and closing projects.
+        self._research_listeners: list[Callable[[], None]] = []
+
+    # ------------------------------------------------------------------
+    # Research change notification
+    # ------------------------------------------------------------------
+
+    def add_research_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback to run after research data changes.
+
+        Rebuilding a ``ResearchIndex`` does not repaint a widget that is already
+        on screen, so views that show research-derived content are told when
+        research data changed and rebuild themselves.
+
+        Args:
+            listener: Called with no arguments after every research change.
+
+        Returns:
+            A function that removes the listener again; calling it twice is
+            harmless.
+        """
+        self._research_listeners.append(listener)
+
+        def remove() -> None:
+            if listener in self._research_listeners:
+                self._research_listeners.remove(listener)
+
+        return remove
+
+    def notify_research_changed(self) -> None:
+        """Tell every registered listener that research data changed.
+
+        Call this after any committed create, update or delete of a research
+        case, hypothesis, comment or action, and after a merge or a deletion
+        that rewires or leaves behind research references. A listener that
+        raises is logged and does not stop the others or the caller.
+        """
+        for listener in list(self._research_listeners):
+            try:
+                listener()
+            except Exception:  # noqa: BLE001 - one broken view must not block the rest
+                logger.exception("Lyssnare på forskningsändring misslyckades.")
+
+    # ------------------------------------------------------------------
+    # Merge change notification, revision counters and saved state
+    # ------------------------------------------------------------------
+
+    def add_merge_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback to run after a change notification.
+
+        Returns:
+            A function that removes the listener again; calling it twice is
+            harmless.
+        """
+        self._merge_listeners.append(listener)
+
+        def remove() -> None:
+            if listener in self._merge_listeners:
+                self._merge_listeners.remove(listener)
+
+        return remove
+
+    def notify_merge_changed(self) -> None:
+        """Tell every merge listener that the project changed.
+
+        A listener that raises is logged and does not stop the others.
+        """
+        for listener in list(self._merge_listeners):
+            try:
+                listener()
+            except Exception:  # noqa: BLE001 - one broken view must not block the rest
+                logger.exception("Lyssnare på sammanslagningsändring misslyckades.")
+
+    def _record_change(self, content: bool = True, notify: bool = True) -> None:
+        """Count one completed change and optionally notify listeners."""
+        self._revision += 1
+        if content:
+            self._content_revision += 1
+        if notify:
+            self.notify_merge_changed()
+
+    @property
+    def _dirty(self) -> bool:
+        """Unsaved-changes flag. Setting True records a content change."""
+        return self._dirty_value
+
+    @_dirty.setter
+    def _dirty(self, value: bool) -> None:
+        self._dirty_value = bool(value)
+        if value:
+            self._record_change()
+
+    def mark_changed(self, reason: str = "") -> None:
+        """Mark the project as changed: set the dirty flag, count the change and
+        notify merge listeners once.
+
+        This is the public way to record a change. The ``_dirty`` setter is for
+        internal use by this service only.
+
+        While an edit session is active the call is recorded in the session and
+        applied as one call at commit, so counters and listeners stay untouched.
+
+        Args:
+            reason: Short description of the change, used for logging.
+        """
+        session = self._active_session
+        if session is not None:
+            session.mark_changed(reason)
+            return
+        logger.debug("Projekt ändrat: %s", reason or "(ingen orsak angiven)")
+        self._dirty = True
+
+    # ------------------------------------------------------------------
+    # Edit sessions
+    # ------------------------------------------------------------------
+
+    def set_editor_registry(self, registry: Optional[EditorRegistry]) -> None:
+        """Set the registry whose unsaved editors block ``begin_edit_session``."""
+        self._editor_registry = registry
+
+    def unsaved_editor_titles(self) -> list[str]:
+        """Swedish titles of the registered editors that hold unsaved changes."""
+        reg = self._editor_registry
+        if reg is None:
+            return []
+        return [e.editor_title for e in reg.unsaved_editors()]
+
+    @property
+    def import_in_progress(self) -> bool:
+        """Whether a GEDCOM import is running."""
+        return self._import_in_progress
+
+    @property
+    def pending_translation(self) -> Optional[PendingTranslation]:
+        """Staged translation data (with its base) waiting for the next save."""
+        return self._pending_translation
+
+    def adopt_working_copy(
+        self,
+        work: ProjectData,
+        pending: Optional[PendingTranslation],
+        reason: str,
+    ) -> None:
+        """Adopt an import's working copy into the existing project instance.
+
+        Every field of *work* is assigned onto the existing ``ProjectData``
+        object (same object, new entity objects). *pending*, when given,
+        becomes the Pending_Translation; a Pending_Translation that already
+        exists keeps its base. The project is then marked changed once.
+
+        Args:
+            work: The working copy the import produced.
+            pending: Staged translation, or ``None`` when it did not change.
+            reason: Short description for the change log.
+        """
+        target = self.data
+        for f in dataclasses.fields(ProjectData):
+            setattr(target, f.name, getattr(work, f.name))
+        if pending is not None:
+            existing = self._pending_translation
+            base = existing.base if existing is not None else pending.base
+            self._pending_translation = PendingTranslation(pending.data, dict(base))
+        self.mark_changed(reason)
+
+    def set_import_in_progress(self, running: bool) -> None:
+        """Mark whether a GEDCOM import runs; edit sessions are refused meanwhile."""
+        self._import_in_progress = bool(running)
+
+    @property
+    def import_save_unfinished(self) -> bool:
+        """Whether an interrupted import save waits for the next open."""
+        return self._import_save_unfinished
+
+    @property
+    def disk_digest(self) -> Optional[str]:
+        """SHA-256 of the project file bytes as last read (open) or written (save)."""
+        return self._disk_digest
+
+    @property
+    def active_edit_session(self) -> Optional[EditSession]:
+        """The active edit session, or ``None``."""
+        return self._active_session
+
+    def begin_edit_session(
+        self, owner_title: str, registry: Optional[EditorRegistry] = None
+    ) -> EditSession:
+        """Take a full snapshot and start deferring ``mark_changed`` calls.
+
+        Checks the Session_Start_Conditions in order (a), (b), (c), (c2), (d),
+        (e), (f).
+
+        Args:
+            owner_title: Swedish title of the editor that owns the session.
+            registry: Editor registry to check; defaults to the one set with
+                ``set_editor_registry``.
+
+        Raises:
+            EditSessionBusy: Another session is active.
+            UnsavedEditorsBlock: Registered editors hold unsaved changes.
+            EditSessionRefused: Any other condition holds.
+        """
+        if self._active_session is not None:
+            raise EditSessionBusy()
+        reg = registry if registry is not None else self._editor_registry
+        if reg is not None:
+            titles = [e.editor_title for e in reg.unsaved_editors()]
+            if titles:
+                raise UnsavedEditorsBlock(titles)
+        if self._merge_in_progress or self.is_merge_journal_pending():
+            raise EditSessionRefused(MSG_MERGE)
+        if self._import_save_unfinished:
+            raise EditSessionRefused(MSG_IMPORT_SAVE_UNFINISHED)
+        if self._import_in_progress:
+            raise EditSessionRefused(MSG_IMPORT_RUNNING)
+        if self._project_data is None:
+            raise EditSessionRefused(MSG_NO_PROJECT)
+        try:
+            session = EditSession(self, owner_title)
+        except Exception as exc:  # noqa: BLE001 - any copy failure refuses the start
+            logger.exception("Ögonblicksbilden kunde inte skapas.")
+            raise EditSessionRefused(MSG_SNAPSHOT_FAILED) from exc
+        self._active_session = session
+        return session
+
+    def _release_edit_session(self, session: EditSession) -> None:
+        """Called by a session when it commits or rolls back."""
+        if self._active_session is session:
+            self._active_session = None
+
+    @property
+    def revision(self) -> int:
+        """Number of completed change notifications (in-memory only)."""
+        return self._revision
+
+    @property
+    def content_revision(self) -> int:
+        """Number of notifications that changed project content."""
+        return self._content_revision
+
+    @property
+    def clean_content_revision(self) -> int:
+        """The content revision at the last open, save or merge commit."""
+        return self._clean_content_revision
+
+    def is_saved_state(self) -> bool:
+        """Whether the project is clean and content equals the last saved state."""
+        return (
+            not self._dirty_value
+            and self._content_revision == self._clean_content_revision
+        )
+
+    def set_merge_in_progress(self, running: bool) -> None:
+        """Mark whether the merge engine is running; saving is refused meanwhile."""
+        self._merge_in_progress = bool(running)
+
+    @property
+    def last_recovery_message(self) -> str:
+        """Message of the recovery run by the last ``open_project``, or ``""``.
+
+        "Sammanslagningen slutfördes." or "Sammanslagningen återställdes."
+        when an interrupted merge was resolved at open; empty otherwise.
+        """
+        return self._last_recovery_message
+
+    def is_merge_journal_pending(self) -> bool:
+        """Whether a Merge_Journal exists for the open project, or a recovery
+        refusal was recorded for it. Read-only."""
+        path = self._project_path
+        if path is None:
+            return False
+        if self._import_save_unfinished or Path(path) in self._refused_projects:
+            return True
+        fs = self._commit_fs if self._commit_fs is not None else RealFs()
+        try:
+            return bool(fs.exists(journal_path_for(Path(path))))
+        except OSError:
+            return True  # cannot tell: refuse the save rather than risk it
+
+    def adopt_committed_state(
+        self,
+        project_data: Optional[ProjectData] = None,
+        project_path: Optional[Path] = None,
+    ) -> None:
+        """Adopt the state of a committed merge as the saved state.
+
+        Clears the dirty flag without going through the ``True`` setter, adds
+        one to ``revision`` and ``content_revision`` each and notifies
+        listeners exactly once.
+
+        Args:
+            project_data: The committed project data to adopt, if replaced.
+            project_path: The project path, if it changed.
+        """
+        if project_data is not None:
+            self._project_data = project_data
+        if project_path is not None:
+            self._project_path = project_path
+        self._dirty_value = False
+        self._record_change(content=True, notify=False)
+        self._clean_content_revision = self._content_revision
+        if self._project_path is not None:
+            # The merge commit replaced the project file: track the new bytes.
+            self._disk_digest = self._read_disk_digest(self._project_path)
+        self.notify_merge_changed()
 
     # ------------------------------------------------------------------
     # Properties
@@ -169,7 +603,7 @@ class ProjectService:
         )
         project_data = ProjectData(
             format="släktbuske-file",
-            version="0.1",
+            version="0.5",
             project=metadata,
         )
 
@@ -179,6 +613,7 @@ class ProjectService:
         # Save the .json.gz data file.
         data_file = project_folder / f"{name}.json.gz"
         FilePersistence.save(project_data, data_file)
+        self._disk_digest = self._read_disk_digest(data_file)
 
         # Carry forward current settings to the new project (so user
         # preferences persist across project switches). Fall back to
@@ -208,7 +643,9 @@ class ProjectService:
         self._project_data = project_data
         self._project_path = data_file
         self._settings = settings
-        self._dirty = False
+        self._pending_translation = None
+        self._dirty_value = False
+        self._clean_content_revision = self._content_revision
 
         logger.info("Projekt skapat: %s", project_folder)
         return project_data
@@ -228,12 +665,62 @@ class ProjectService:
             FileNotFoundError: If the file does not exist.
             CorruptedFileError: If the file is corrupted.
             UnsupportedVersionError: If the file version is too new.
+            RecoveryRefusedError: If an interrupted merge cannot be resolved
+                safely. The previous project state is kept and nothing is
+                opened; ``error.refusal`` carries the paths.
+
+        After a successful open, ``last_recovery_message`` holds the message of
+        a recovery that ran (or ``""``).
         """
-        project_data = FilePersistence.load(path)
+        # Recovery runs before the file is read, so a half-committed merge is
+        # resolved first. A refusal is read-only and leaves all state alone.
+        path = Path(path)
+        outcome: Optional[RecoveryOutcome] = None
+        if path.parent.exists():
+            try:
+                outcome = recover_if_needed(path, self._commit_fs)
+                # An interrupted import save is resolved after the merge
+                # recovery and before the project is loaded.
+                import_outcome = recover_translation_intent(path, self._commit_fs)
+                if import_outcome is not None:
+                    outcome = (
+                        import_outcome
+                        if outcome is None
+                        else RecoveryOutcome(
+                            import_outcome.kind,
+                            f"{outcome.message}\n{import_outcome.message}",
+                        )
+                    )
+            except RecoveryRefusedError:
+                self._refused_projects.add(path)
+                raise
+        self._refused_projects.discard(path)
+        self._last_recovery_message = outcome.message if outcome is not None else ""
+
+        project_data, digest = FilePersistence.load_with_digest(path)
+        self._disk_digest = digest
 
         self._project_data = project_data
         self._project_path = path
-        self._dirty = False
+        self._active_session = None
+        self._import_save_unfinished = False
+        self._pending_translation = None
+        self._dirty_value = False
+        self._clean_content_revision = self._content_revision
+
+        # Establish the placement-event source-of-truth invariant on load:
+        # back-fill a dateless placement start event for every pre-feature
+        # orphan foster/adoptive Parent_Set (task 3.2), then reconcile the
+        # derived links from the events. The migrate-then-sync order ensures no
+        # orphan foster/adoptive link is dropped (Design Decision 1 /
+        # Requirement 13.3). `migrate_orphan_links` runs the sync internally.
+        created = migrate_orphan_links(project_data)
+        # A freshly loaded project is clean. Only flag it dirty when the
+        # migration actually created back-fill events — those are genuine new
+        # entities the user will want to persist. A no-op migration (the common
+        # case for post-feature projects) leaves the load's clean state intact.
+        if created:
+            self._dirty = True
 
         # Attempt to load settings from the same folder.
         settings_file = path.parent / "settings.json"
@@ -252,9 +739,73 @@ class ProjectService:
         if self._project_data is None or self._project_path is None:
             raise ProjectNotOpenError("Inget projekt är öppet att spara.")
 
-        FilePersistence.save(self._project_data, self._project_path)
-        self._dirty = False
+        if self._merge_in_progress:
+            raise MergeInProgressError(
+                "En sammanslagning pågår. Projektet kan inte sparas just nu."
+            )
+
+        if self._import_save_unfinished:
+            raise MergeNotFinishedError(MSG_IMPORT_SAVE_UNFINISHED)
+
+        if self.is_merge_journal_pending():
+            raise MergeNotFinishedError(MERGE_UNFINISHED_MESSAGE)
+
+        project_bytes = FilePersistence.encode(self._project_data)  # encode once
+        pending = self._pending_translation
+        if pending is None:
+            FilePersistence.write_bytes(project_bytes, self._project_path)
+            self._disk_digest = sha256_hex(project_bytes)
+        else:
+            self._save_with_translation(project_bytes, pending)
+        self._mark_saved()
         logger.info("Projekt sparat: %s", self._project_path)
+
+    def _save_with_translation(
+        self, project_bytes: bytes, pending: PendingTranslation
+    ) -> None:
+        """Save the project and the staged translation files (Requirement 20).
+
+        Raises ``SaveConflict`` and ``SaveFailed`` (nothing replaced; the
+        project stays dirty and the pending translation is kept) or
+        ``ImportSaveUnfinished`` (the project is saved; the translation files
+        are finished at the next open).
+        """
+        path = self._project_path
+        assert path is not None
+        expected = self._disk_digest
+        if expected is None:
+            # No digest was recorded (should not happen): use the file as it is now.
+            expected = self._read_disk_digest(path) or "absent"
+        commit = TranslationCommit(path, self._commit_fs)
+        try:
+            self._disk_digest = commit.commit(project_bytes, pending, expected)
+        except ImportSaveUnfinished:
+            self._disk_digest = sha256_hex(project_bytes)
+            self._pending_translation = None
+            self._import_save_unfinished = True
+            self._mark_saved()
+            raise
+        except SaveFailed as exc:
+            if exc.unresolved:
+                self._import_save_unfinished = True
+            raise
+        self._pending_translation = None
+
+    def _mark_saved(self) -> None:
+        """Clear the dirty state after a save and record the save."""
+        self._dirty_value = False
+        self._clean_content_revision = self._content_revision
+        self._record_change(content=False)
+
+    @staticmethod
+    def _read_disk_digest(path: Path) -> Optional[str]:
+        """SHA-256 of the file bytes, ``"absent"`` when missing, ``None`` when unreadable."""
+        try:
+            return sha256_hex(Path(path).read_bytes())
+        except FileNotFoundError:
+            return "absent"
+        except OSError:
+            return None
 
     def close_project(self) -> None:
         """Close the current project.
@@ -265,7 +816,12 @@ class ProjectService:
         self._project_data = None
         self._project_path = None
         self._settings = None
-        self._dirty = False
+        self._active_session = None
+        self._import_save_unfinished = False
+        self._pending_translation = None
+        self._disk_digest = None
+        self._dirty_value = False
+        self._clean_content_revision = self._content_revision
         logger.info("Projekt stängt.")
 
     # ------------------------------------------------------------------
@@ -332,8 +888,64 @@ class ProjectService:
         if errors:
             raise ValidationError(errors)
         data.events.append(event)
+        # Reconcile derived foster/adoptive links from placement events. Sync is
+        # idempotent and cheap, so it runs unconditionally for every event
+        # rather than gating on placement types — a non-placement event simply
+        # leaves the links unchanged (Requirement 2.3).
+        sync_parentage_links(data)
         self._dirty = True
         return event
+
+    def update_event(self, event: Event) -> Event:
+        """Validate and replace an existing event in place by id.
+
+        Finds the event with the same id in ``project.events`` and replaces it
+        with ``event``, preserving its position, then reconciles derived
+        foster/adoptive links so editing a placement event's child or parents
+        re-derives its links (Requirement 2.3).
+
+        Args:
+            event: The updated Event instance (matched by ``id``).
+
+        Returns:
+            The updated Event instance.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+            ValidationError: If the event fails validation.
+            KeyError: If no event with the same id exists.
+        """
+        data = self.data
+        errors = validate_event(event)
+        if errors:
+            raise ValidationError(errors)
+        for index, existing in enumerate(data.events):
+            if existing.id == event.id:
+                data.events[index] = event
+                break
+        else:
+            raise KeyError(f"Ingen händelse med id {event.id!r} att uppdatera.")
+        sync_parentage_links(data)
+        self._dirty = True
+        return event
+
+    def delete_event(self, event_id: str) -> None:
+        """Remove an event by id and reconcile derived links.
+
+        Removing a placement start event removes its derived foster/adoptive
+        links; the subsequent sync handles that cleanup (Requirement 2.3).
+        Deleting an unknown id is a no-op beyond the sync.
+
+        Args:
+            event_id: The id of the event to remove.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+        """
+        data = self.data
+        data.events = [event for event in data.events if event.id != event_id]
+        sync_parentage_links(data)
+        self._dirty = True
 
     def add_place(self, place: Place) -> Place:
         """Validate and add a place to the project.
@@ -355,6 +967,50 @@ class ProjectService:
         data.places.append(place)
         self._dirty = True
         return place
+
+    def delete_place(self, place_id: str) -> None:
+        """Remove a place by id and mark the project changed once.
+
+        The caller decides whether a referenced place may be deleted (the
+        Place_Editor keeps its refusal and confirmation dialogs). An unknown id
+        changes nothing and does not mark the project changed.
+
+        Args:
+            place_id: The id of the place to remove.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+        """
+        data = self.data
+        remaining = [p for p in data.places if p.id != place_id]
+        if len(remaining) == len(data.places):
+            return
+        data.places = remaining
+        self.mark_changed("Plats borttagen")
+
+    def add_places(self, places: Sequence[Place]) -> int:
+        """Append several places and mark the project changed once.
+
+        Used by "Skapa platser" in the place translation editor. Nothing is
+        marked changed when *places* is empty. Places are not validated here,
+        matching the raw appends this method replaces.
+
+        Args:
+            places: The places to add.
+
+        Returns:
+            The number of places added.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+        """
+        data = self.data
+        new_places = list(places)
+        if not new_places:
+            return 0
+        data.places.extend(new_places)
+        self.mark_changed("Platser skapade")
+        return len(new_places)
 
     def add_source(self, source: Source) -> Source:
         """Validate and add a source to the project.
@@ -563,3 +1219,483 @@ class ProjectService:
         data.research_notes.append(note)
         self._dirty = True
         return note
+
+    # ------------------------------------------------------------------
+    # Research cases, hypotheses and actions
+    # ------------------------------------------------------------------
+
+    def new_research_id(self, entity_type: str) -> str:
+        """Issue a research id that is never reused, even after a delete and reopen.
+
+        Args:
+            entity_type: ``"research_case"``, ``"research_hypothesis"``,
+                ``"research_action"`` or ``"hypothesis_comment"``.
+
+        Returns:
+            A new id. The id high-water mark advances immediately, so an id
+            handed to an editor's working copy is not issued twice.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+            ValueError: If *entity_type* is not a research entity type.
+        """
+        return ResearchIdGenerator(self.data).generate(entity_type)
+
+    def _research_children_errors(
+        self,
+        hypotheses: list[ResearchHypothesis],
+        actions: list[ResearchAction],
+        case_ids: set[str],
+        owner_case_id: Optional[str],
+        other_hypothesis_ids: set[str],
+        other_comment_ids: set[str],
+        other_action_ids: set[str],
+    ) -> list[str]:
+        """Return the hard errors for a set of hypotheses and actions.
+
+        Entity and source existence is not checked: a reference that was kept
+        on purpose after its target was deleted must not block an edit.
+        """
+        errors: list[str] = []
+        seen_h: set[str] = set()
+        seen_c: set[str] = set()
+        seen_a: set[str] = set()
+
+        for hypothesis in hypotheses:
+            if not hypothesis.id:
+                errors.append(_MSG_RESEARCH_EMPTY_ID)
+            elif hypothesis.id in seen_h or hypothesis.id in other_hypothesis_ids:
+                errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=hypothesis.id))
+            seen_h.add(hypothesis.id)
+            if owner_case_id is not None and hypothesis.research_case_id != owner_case_id:
+                errors.append(_MSG_RESEARCH_WRONG_CASE.format(id=hypothesis.id))
+            errors.extend(validate_research_hypothesis(hypothesis, case_ids, None))
+            for comment in hypothesis.comments:
+                if not comment.id:
+                    errors.append(_MSG_RESEARCH_EMPTY_ID)
+                elif comment.id in seen_c or comment.id in other_comment_ids:
+                    errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=comment.id))
+                seen_c.add(comment.id)
+
+        for action in actions:
+            if not action.id:
+                errors.append(_MSG_RESEARCH_EMPTY_ID)
+            elif action.id in seen_a or action.id in other_action_ids:
+                errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=action.id))
+            seen_a.add(action.id)
+            if owner_case_id is not None and action.research_case_id != owner_case_id:
+                errors.append(_MSG_RESEARCH_WRONG_CASE.format(id=action.id))
+            errors.extend(validate_research_action(action, case_ids, None))
+
+        return errors
+
+    def _commit_research_change(self) -> None:
+        """Mark the project changed and tell research listeners."""
+        reconcile_id_high_water_marks(self.data)
+        self._dirty = True
+        self.notify_research_changed()
+
+    # ------------------------------------------------------------------
+    # Merge candidates (pure logic in merge_candidate_service)
+    # ------------------------------------------------------------------
+
+    def _candidate_op(self, func, *args):
+        """Run a candidate operation; set the dirty flag only on success."""
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        data = self.data
+        try:
+            result = func(data, *args)
+        except mcs.CandidateError as exc:
+            raise ValidationError(exc.errors) from exc
+        self._dirty = True  # bumps revision counters, notifies merge listeners once
+        return result
+
+    def add_merge_candidate(self, person_1_id: str, person_2_id: str):
+        """Create a candidate for an explicit pair.
+
+        Raises:
+            ValidationError: Equal ids, unknown person or duplicate pair.
+        """
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.create_candidate, person_1_id, person_2_id)
+
+    def get_or_create_merge_candidate(self, person_1_id: str, person_2_id: str):
+        """Return ``(candidate, created)``; an existing pair is returned unchanged
+        without touching the dirty flag."""
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        data = self.data
+        existing = mcs.find_candidate_by_pair(data, person_1_id, person_2_id)
+        if existing is not None and person_1_id != person_2_id:
+            return existing, False
+        return self.add_merge_candidate(person_1_id, person_2_id), True
+
+    def set_candidate_assessment(self, candidate_id: str, assessment: str):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.set_assessment, candidate_id, assessment)
+
+    def set_candidate_enabled(self, candidate_id: str, enabled: bool):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.set_enabled, candidate_id, enabled)
+
+    def set_candidate_research_case(self, candidate_id: str, case_id: Optional[str]):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.set_research_case, candidate_id, case_id)
+
+    def add_candidate_comment(self, candidate_id: str, date: str, text: str):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.add_comment, candidate_id, date, text)
+
+    def update_candidate_comment(
+        self, candidate_id: str, comment_id: str, date: str, text: str
+    ):
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(
+            mcs.update_comment, candidate_id, comment_id, date, text
+        )
+
+    def delete_candidate_comment(self, candidate_id: str, comment_id: str) -> bool:
+        """Delete a comment; returns False (no change, not dirty) if absent."""
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        data = self.data
+        cand = next((c for c in data.merge_candidates if c.id == candidate_id), None)
+        if cand is None:
+            raise KeyError(mcs.MSG_UNKNOWN_CANDIDATE.format(id=candidate_id))
+        if not any(c.id == comment_id for c in cand.comments):
+            return False
+        return self._candidate_op(mcs.delete_comment, candidate_id, comment_id)
+
+    def create_research_case_for_candidate(
+        self, candidate_id: str, title: str = ""
+    ) -> ResearchCase:
+        """Create a research case for a candidate's pair (all or nothing).
+
+        Raises:
+            ValidationError: The case was not created; nothing changed.
+        """
+        from slaktbusken.services import merge_candidate_service as mcs
+
+        return self._candidate_op(mcs.create_research_case_for_candidate, candidate_id, title)
+
+    def add_research_case(self, case: ResearchCase) -> ResearchCase:
+        """Validate and add a research case; assigns an id when it has none.
+
+        Raises:
+            ProjectNotOpenError: If no project is open.
+            ValidationError: If the case is invalid or its id is taken. The
+                project is unchanged.
+        """
+        data = self.data
+        errors = validate_research_case(case, None)
+        if not case.title.strip():
+            errors.append(_MSG_RESEARCH_CASE_TITLE_REQUIRED)
+        if case.id and any(c.id == case.id for c in data.research_cases):
+            errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=case.id))
+        if errors:
+            raise ValidationError(errors)
+        if not case.id:
+            case.id = self.new_research_id("research_case")
+        data.research_cases.append(case)
+        self._commit_research_change()
+        return case
+
+    def update_research_case(self, case: ResearchCase) -> ResearchCase:
+        """Validate a case and replace the stored one with the same id.
+
+        Raises:
+            KeyError: If no case has that id.
+            ValidationError: If the case is invalid. The project is unchanged.
+        """
+        data = self.data
+        index = next(
+            (i for i, c in enumerate(data.research_cases) if c.id == case.id), None
+        )
+        if index is None:
+            raise KeyError(f"Inget forskningsärende med id {case.id!r} att uppdatera.")
+        errors = validate_research_case(case, None)
+        if not case.title.strip():
+            errors.append(_MSG_RESEARCH_CASE_TITLE_REQUIRED)
+        if errors:
+            raise ValidationError(errors)
+        data.research_cases[index] = case
+        self._commit_research_change()
+        return case
+
+    def delete_research_case(self, case_id: str) -> bool:
+        """Delete a case with its own hypotheses, comments and actions.
+
+        Returns:
+            True if a case was deleted, False if there was none (a no-op).
+        """
+        data = self.data
+        if not any(c.id == case_id for c in data.research_cases):
+            return False
+        delete_case_cascade(data, case_id)
+        self._commit_research_change()
+        return True
+
+    def add_research_hypothesis(self, hypothesis: ResearchHypothesis) -> ResearchHypothesis:
+        """Validate and add a hypothesis to an existing case.
+
+        Assigns ids to the hypothesis and to comments that have none.
+
+        Raises:
+            ValidationError: If it is invalid or its case does not exist.
+        """
+        data = self.data
+        case_ids = {c.id for c in data.research_cases}
+        other_comments = {
+            c.id for h in data.research_hypotheses for c in h.comments
+        }
+        # A missing id is assigned only after validation passes, so a rejected
+        # hypothesis does not advance the id high-water mark. Validate with a
+        # placeholder id and blank comment ids in the meantime.
+        missing_id = not hypothesis.id
+        errors = self._research_children_errors(
+            [hypothesis if not missing_id else _with_placeholder_ids(hypothesis)],
+            [],
+            case_ids,
+            None,
+            {h.id for h in data.research_hypotheses},
+            other_comments,
+            set(),
+        )
+        if errors:
+            raise ValidationError(errors)
+        if not hypothesis.id:
+            hypothesis.id = self.new_research_id("research_hypothesis")
+        for comment in hypothesis.comments:
+            if not comment.id:
+                comment.id = self.new_research_id("hypothesis_comment")
+        data.research_hypotheses.append(hypothesis)
+        self._commit_research_change()
+        return hypothesis
+
+    def update_research_hypothesis(
+        self, hypothesis: ResearchHypothesis
+    ) -> ResearchHypothesis:
+        """Validate a hypothesis and replace the stored one with the same id.
+
+        Raises:
+            KeyError: If no hypothesis has that id.
+            ValidationError: If it is invalid. The project is unchanged.
+        """
+        data = self.data
+        index = next(
+            (i for i, h in enumerate(data.research_hypotheses) if h.id == hypothesis.id),
+            None,
+        )
+        if index is None:
+            raise KeyError(f"Ingen hypotes med id {hypothesis.id!r} att uppdatera.")
+        others = [h for i, h in enumerate(data.research_hypotheses) if i != index]
+        errors = self._research_children_errors(
+            [hypothesis],
+            [],
+            {c.id for c in data.research_cases},
+            None,
+            {h.id for h in others},
+            {c.id for h in others for c in h.comments},
+            set(),
+        )
+        if errors:
+            raise ValidationError(errors)
+        for comment in hypothesis.comments:
+            if not comment.id:
+                comment.id = self.new_research_id("hypothesis_comment")
+        data.research_hypotheses[index] = hypothesis
+        self._commit_research_change()
+        return hypothesis
+
+    def delete_research_hypothesis(self, hypothesis_id: str) -> bool:
+        """Delete a hypothesis and its comments; False if there was none."""
+        data = self.data
+        remaining = [h for h in data.research_hypotheses if h.id != hypothesis_id]
+        if len(remaining) == len(data.research_hypotheses):
+            return False
+        data.research_hypotheses = remaining
+        self._commit_research_change()
+        return True
+
+    def add_research_action(self, action: ResearchAction) -> ResearchAction:
+        """Validate and add an action to an existing case; assigns a missing id.
+
+        A blank ``completed_date`` is normalized to ``None`` (pending).
+
+        Raises:
+            ValidationError: If it is invalid or its case does not exist.
+        """
+        data = self.data
+        action.completed_date = normalize_completed_date(action.completed_date)
+        checked = action if action.id else replace(action, id=_PENDING_ID)
+        errors = self._research_children_errors(
+            [],
+            [checked],
+            {c.id for c in data.research_cases},
+            None,
+            set(),
+            set(),
+            {a.id for a in data.research_actions},
+        )
+        if errors:
+            raise ValidationError(errors)
+        if not action.id:
+            action.id = self.new_research_id("research_action")
+        data.research_actions.append(action)
+        self._commit_research_change()
+        return action
+
+    def update_research_action(self, action: ResearchAction) -> ResearchAction:
+        """Validate an action and replace the stored one with the same id.
+
+        Raises:
+            KeyError: If no action has that id.
+            ValidationError: If it is invalid. The project is unchanged.
+        """
+        data = self.data
+        index = next(
+            (i for i, a in enumerate(data.research_actions) if a.id == action.id), None
+        )
+        if index is None:
+            raise KeyError(f"Ingen forskningsåtgärd med id {action.id!r} att uppdatera.")
+        action.completed_date = normalize_completed_date(action.completed_date)
+        errors = self._research_children_errors(
+            [],
+            [action],
+            {c.id for c in data.research_cases},
+            None,
+            set(),
+            set(),
+            {a.id for i, a in enumerate(data.research_actions) if i != index},
+        )
+        if errors:
+            raise ValidationError(errors)
+        data.research_actions[index] = action
+        self._commit_research_change()
+        return action
+
+    def delete_research_action(self, action_id: str) -> bool:
+        """Delete an action; False if there was none."""
+        data = self.data
+        remaining = [a for a in data.research_actions if a.id != action_id]
+        if len(remaining) == len(data.research_actions):
+            return False
+        data.research_actions = remaining
+        self._commit_research_change()
+        return True
+
+    def commit_research_case_working_copy(
+        self, working_copy: ResearchCaseWorkingCopy
+    ) -> ResearchCaseDiff:
+        """Validate a case editor's working copy and write it all at once.
+
+        Blank action completion dates are normalized to ``None`` first. If
+        anything is invalid nothing at all is written. If the copy equals what
+        the project already holds, the project is not marked changed and no
+        listener is told.
+
+        Returns:
+            What was created, updated and deleted.
+
+        Raises:
+            ValidationError: With every error found; the project is unchanged.
+        """
+        data = self.data
+        case = working_copy.case
+        for action in working_copy.actions:
+            action.completed_date = normalize_completed_date(action.completed_date)
+
+        errors = validate_research_case(case, None)
+        if not case.title.strip():
+            errors.append(_MSG_RESEARCH_CASE_TITLE_REQUIRED)
+        if not case.id:
+            errors.append(_MSG_RESEARCH_EMPTY_ID)
+        elif case.id in {c.id for c in data.research_cases} - {case.id}:
+            errors.append(_MSG_RESEARCH_DUPLICATE_ID.format(id=case.id))
+
+        other_h = [h for h in data.research_hypotheses if h.research_case_id != case.id]
+        errors.extend(
+            self._research_children_errors(
+                working_copy.hypotheses,
+                working_copy.actions,
+                {c.id for c in data.research_cases} | {case.id},
+                case.id,
+                {h.id for h in other_h},
+                {c.id for h in other_h for c in h.comments},
+                {a.id for a in data.research_actions if a.research_case_id != case.id},
+            )
+        )
+        if errors:
+            raise ValidationError(errors)
+
+        diff = diff_working_copy(data, working_copy)
+        if diff.is_empty:
+            return diff
+        apply_working_copy(data, working_copy)
+        self._commit_research_change()
+        return diff
+
+    def link_research_case_entity(
+        self, case_id: str, entity_type: str, entity_id: str, role: str = ""
+    ) -> bool:
+        """Link an entity to an existing case ("koppla befintligt").
+
+        Does nothing, and notifies no one, if the entity is already linked.
+
+        Returns:
+            True if a link was added.
+
+        Raises:
+            KeyError: If there is no case with that id.
+        """
+        from slaktbusken.services.research_editing import add_link
+
+        working_copy = open_working_copy(self.data, case_id)
+        if not add_link(working_copy.case, entity_type, entity_id, role):
+            return False
+        self.commit_research_case_working_copy(working_copy)
+        return True
+
+    def unlink_research_case_entity(
+        self, case_id: str, entity_type: str, entity_id: str
+    ) -> bool:
+        """Remove the association between a case and an entity ("ta bort kopplingen").
+
+        Only the links to that entity are removed. The case, its hypotheses and
+        actions are kept, and no other entity is promoted to primary.
+
+        Returns:
+            True if anything was removed.
+
+        Raises:
+            KeyError: If there is no case with that id.
+        """
+        from slaktbusken.services.research_editing import is_linked, remove_link
+
+        working_copy = open_working_copy(self.data, case_id)
+        if not is_linked(working_copy.case, entity_type, entity_id):
+            return False
+        remove_link(working_copy.case, entity_type, entity_id)
+        self.commit_research_case_working_copy(working_copy)
+        return True
+
+    def merge_research_references(
+        self, entity_type: str, old_id: str, survivor_id: str
+    ) -> RewireResult:
+        """Repoint research references from a merged-away entity to the survivor.
+
+        Call this from any merge of persons, places, sources, events, media or
+        DNA matches. Marks the project changed and notifies only if a
+        reference actually moved.
+        """
+        result = rewire_entity_merge(self.data, entity_type, old_id, survivor_id)
+        if result.links_rewired or result.links_collapsed or result.source_refs_rewired:
+            self._commit_research_change()
+        return result

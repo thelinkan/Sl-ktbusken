@@ -7,6 +7,7 @@ selected in the person list or diagram.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt
@@ -16,6 +17,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from html import escape as _html_escape
+
+from slaktbusken.model.date_semantics import format_date_sv, sort_key
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.swedish_locale import get_parentage_type_label, get_research_status_label
 
 if TYPE_CHECKING:
     from slaktbusken.app import Application
@@ -39,6 +46,9 @@ _EVENT_TYPE_LABELS: dict[str, str] = {
     "will": "Testamente",
     "cremation": "Kremering",
     "adoption": "Adoption",
+    "adoption_ended": "Adoption upphörde",
+    "foster_home": "Fosterhem",
+    "foster_home_ended": "Fosterhem upphörde",
     "blessing": "Välsignelse",
     "engagement": "Förlovning",
     "divorce_filed": "Skilsmässoansökan",
@@ -54,6 +64,133 @@ _SEX_LABELS: dict[str, str] = {
     "X": "Annat",
     "U": "Okänt",
 }
+
+
+def _parentage_type_for(family: object, child_id: str, parent_id: str) -> str:
+    """Return the parentage type of a parent's link to a child in a family.
+
+    Reads the authoritative ``parent_child_links`` on the family, finding the
+    link where ``child_id`` and ``parent_id`` match. When no explicit link
+    exists (e.g. older biological data), the parentage is treated as
+    ``"biological"``. This mirrors the convention used by the Ansedel report
+    so foster and adoptive annotations stay consistent across the app.
+    """
+    for link in family.parent_child_links:
+        if link.child_id == child_id and link.parent_id == parent_id:
+            return link.parentage_type
+    return "biological"
+
+
+def _format_parent_entry(role_label: str, name: str, parentage_type: str) -> str:
+    """Build the parent display line, annotating non-biological parents.
+
+    Biological parents (and links with no explicit parentage type) are listed
+    unannotated. Foster and adoptive parents get the Swedish parentage label
+    appended in parentheses, distinct from each other, e.g.
+    ``"Far: Erik Svensson (Foster)"`` or ``"Mor: Anna Persdotter (Adoptiv)"``.
+    This mirrors the Ansedel report's convention.
+    """
+    if parentage_type and parentage_type != "biological":
+        label = get_parentage_type_label(parentage_type)
+        return f"{role_label}: {name} ({label})"
+    return f"{role_label}: {name}"
+
+
+@dataclass(frozen=True)
+class ResearchBriefRow:
+    """One line of the detail panel's research list."""
+
+    case_id: str
+    title: str
+    detail: str
+
+
+def research_brief_rows(index: ResearchIndex, person_id: str) -> list[ResearchBriefRow]:
+    """Return the cases linked directly to a person, open ones first.
+
+    *detail* reads like "Öppen" or "Pågår, 2 åtgärder kvar". Within open and
+    closed, the project order is kept.
+    """
+    cases = index.cases_for_entity("person", person_id)
+    ordered = [c for c in cases if c.status != "closed"] + [c for c in cases if c.status == "closed"]
+    rows: list[ResearchBriefRow] = []
+    for case in ordered:
+        pending = index.pending_action_count(case.id)
+        detail = get_research_status_label(case.status)
+        if pending:
+            detail += ", 1 åtgärd kvar" if pending == 1 else f", {pending} åtgärder kvar"
+        rows.append(
+            ResearchBriefRow(case.id, case.title.strip() or "(utan rubrik)", detail)
+        )
+    return rows
+
+
+#: How a child is listed, by its parentage link to the person shown.
+#: Unlisted types are shown as ordinary children.
+_CHILD_GROUP_LABELS: dict[str, str] = {
+    "biological": "Barn",
+    "foster": "Fosterbarn",
+    "adoptive": "Adoptivbarn",
+    "step": "Styvbarn",
+    "legal": "Juridiska barn",
+}
+_CHILD_GROUP_ORDER: tuple[str, ...] = ("Barn", "Adoptivbarn", "Fosterbarn", "Styvbarn", "Juridiska barn")
+
+
+def _display_name(person) -> str:
+    if not person.names:
+        return person.id
+    return f"{person.names[0].given} {person.names[0].surname}".strip() or person.id
+
+
+def family_summary_lines(data, person_id: str, families: list) -> list[str]:
+    """Return one line per partner set for the families of a person.
+
+    Families sharing the same partners are merged into one line, so a couple
+    with biological children in one family record and foster children in
+    another reads "Partner: Janne Karlsson · Barn: Rut Karlsson · Fosterbarn:
+    Bertil Svensson". Each child is grouped by its parentage link to
+    *person_id* (biological when there is no explicit link) and listed once.
+    A family without partners other than the person reads without "Partner".
+    """
+    persons = {p.id: p for p in data.persons}
+    groups: dict[frozenset, list] = {}
+    for family in families:
+        key = frozenset(
+            partner.person_id
+            for partner in family.partners
+            if partner.person_id != person_id
+        )
+        groups.setdefault(key, []).append(family)
+
+    lines: list[str] = []
+    for partner_ids, grouped in groups.items():
+        partner_names = [
+            _display_name(persons[pid])
+            for family in grouped[:1]
+            for partner in family.partners
+            if (pid := partner.person_id) in partner_ids and pid in persons
+        ]
+
+        children: dict[str, list[str]] = {}
+        seen: set[str] = set()
+        for family in grouped:
+            for child_id in family.children:
+                if child_id in seen or child_id not in persons:
+                    continue
+                seen.add(child_id)
+                parentage = _parentage_type_for(family, child_id, person_id)
+                label = _CHILD_GROUP_LABELS.get(parentage, "Barn")
+                children.setdefault(label, []).append(_display_name(persons[child_id]))
+
+        parts: list[str] = []
+        if partner_names:
+            parts.append(f"Partner: {', '.join(partner_names)}")
+        for label in _CHILD_GROUP_ORDER:
+            if label in children:
+                parts.append(f"{label}: {', '.join(children[label])}")
+        lines.append(" · ".join(parts) if parts else "(inga detaljer)")
+    return lines
 
 
 class PersonDetailPanel(QWidget):
@@ -188,7 +325,7 @@ class PersonDetailPanel(QWidget):
             self._content_layout.addWidget(events_header)
 
             # Sort events by date
-            events.sort(key=lambda e: e.date.value if e.date else "")
+            events.sort(key=lambda e: (1, sort_key(e.date)) if e.date else (0, (0, 0, 0, 0)))
 
             for event in events:
                 event_widget = self._build_event_widget(event)
@@ -214,11 +351,15 @@ class PersonDetailPanel(QWidget):
                 entry_widget.setStyleSheet("margin-left: 8px; margin-top: 2px;")
                 self._content_layout.addWidget(entry_widget)
 
-        # Partner/barn familjer
+        # Partner/barn familjer. Families with the same partners (for example
+        # one holding the biological children and one the foster children) are
+        # shown as one line.
         families = self._get_person_families(self._current_person_id)
         if families:
-            for family in families:
-                fam_widget = self._build_family_widget(family)
+            for line in family_summary_lines(data, self._current_person_id, families):
+                fam_widget = QLabel(f"  {line}")
+                fam_widget.setWordWrap(True)
+                fam_widget.setStyleSheet("margin-left: 8px; margin-top: 2px;")
                 self._content_layout.addWidget(fam_widget)
 
         if not parents_siblings and not families:
@@ -263,8 +404,52 @@ class PersonDetailPanel(QWidget):
                 cluster_widget.setStyleSheet("margin-left: 8px; margin-top: 2px;")
                 self._content_layout.addWidget(cluster_widget)
 
+        # --- Forskningsärenden section ---
+        self._add_research_section(data, self._current_person_id)
+
         # Spacer at bottom
         self._content_layout.addStretch()
+
+    def refresh(self) -> None:
+        """Rebuild the panel for the person it shows (for example after research changed)."""
+        if self._current_person_id is not None:
+            self._refresh()
+
+    def _add_research_section(self, data, person_id: str) -> None:
+        """Add a brief list of the research cases linked directly to the person.
+
+        One line per case: its title, status and number of waiting actions.
+        Open cases come first. Clicking a title opens the case. Nothing is shown
+        when the person has no research case.
+        """
+        index = ResearchIndex(data)
+        rows = research_brief_rows(index, person_id)
+        if not rows:
+            return
+
+        header = QLabel("<b>Forskningsärenden</b>")
+        header.setTextFormat(Qt.TextFormat.RichText)
+        header.setStyleSheet("margin-top: 12px;")
+        self._content_layout.addWidget(header)
+
+        for row in rows:
+            line = QLabel(
+                f"&nbsp;&nbsp;• <a href=\"{_html_escape(row.case_id)}\">"
+                f"{_html_escape(row.title)}</a> – {_html_escape(row.detail)}"
+            )
+            line.setTextFormat(Qt.TextFormat.RichText)
+            line.setWordWrap(True)
+            line.setStyleSheet("margin-left: 8px; margin-top: 2px;")
+            line.setToolTip("Öppna forskningsärendet")
+            line.linkActivated.connect(self._open_research_case)
+            self._content_layout.addWidget(line)
+
+    def _open_research_case(self, case_id: str) -> None:
+        from slaktbusken.ui.research_gateway import get_research_gateway
+
+        gateway = get_research_gateway()
+        if gateway is not None:
+            gateway.open_research_case(case_id)
 
     def _clear_content(self) -> None:
         """Remove all widgets from the content layout."""
@@ -293,7 +478,9 @@ class PersonDetailPanel(QWidget):
         parts = [f"<b>{type_label}</b>"]
 
         if event.date:
-            parts.append(event.date.value)
+            date_text = format_date_sv(event.date)
+            if date_text:
+                parts.append(date_text)
 
         if event.place:
             place = next((p for p in data.places if p.id == event.place.place_id), None)
@@ -306,39 +493,6 @@ class PersonDetailPanel(QWidget):
         text = " — ".join(parts)
         label = QLabel(f"  {text}")
         label.setTextFormat(Qt.TextFormat.RichText)
-        label.setWordWrap(True)
-        label.setStyleSheet("margin-left: 8px; margin-top: 2px;")
-        return label
-
-    def _build_family_widget(self, family) -> QWidget:
-        """Build a compact widget for a family relationship."""
-        data = self._app.project_service.data
-
-        # Find partner(s)
-        partner_names = []
-        for partner in family.partners:
-            if partner.person_id != self._current_person_id:
-                person = next((p for p in data.persons if p.id == partner.person_id), None)
-                if person and person.names:
-                    name = f"{person.names[0].given} {person.names[0].surname}".strip()
-                    partner_names.append(name)
-
-        # Children
-        child_names = []
-        for child_id in family.children:
-            person = next((p for p in data.persons if p.id == child_id), None)
-            if person and person.names:
-                name = f"{person.names[0].given} {person.names[0].surname}".strip()
-                child_names.append(name)
-
-        parts = []
-        if partner_names:
-            parts.append(f"Partner: {', '.join(partner_names)}")
-        if child_names:
-            parts.append(f"Barn: {', '.join(child_names)}")
-
-        text = "  " + " · ".join(parts) if parts else "  (inga detaljer)"
-        label = QLabel(text)
         label.setWordWrap(True)
         label.setStyleSheet("margin-left: 8px; margin-top: 2px;")
         return label
@@ -374,8 +528,11 @@ class PersonDetailPanel(QWidget):
 
         Returns a list of display strings like:
         - "Far: Erik Svensson"
-        - "Mor: Anna Persdotter"
+        - "Mor: Anna Persdotter (Foster)"
         - "Syskon: Karl Eriksson, Maria Eriksdotter"
+
+        Foster and adoptive parents are annotated distinctly from biological
+        parents with the Swedish parentage label (Requirement 12.3).
         """
         data = self._app.project_service.data
         entries: list[str] = []
@@ -385,13 +542,14 @@ class PersonDetailPanel(QWidget):
                 continue
 
             # Found a family where this person is a child
-            # List parents
+            # List parents, annotating foster/adoptive parents distinctly
             for partner in family.partners:
                 parent = next((p for p in data.persons if p.id == partner.person_id), None)
                 if parent:
                     name = f"{parent.names[0].given} {parent.names[0].surname}".strip() if parent.names else parent.id
                     role_label = "Far" if parent.sex == "M" else "Mor" if parent.sex == "F" else "Förälder"
-                    entries.append(f"{role_label}: {name}")
+                    parentage_type = _parentage_type_for(family, person_id, partner.person_id)
+                    entries.append(_format_parent_entry(role_label, name, parentage_type))
 
             # List siblings (other children in this family)
             sibling_names = []

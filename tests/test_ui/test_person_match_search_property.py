@@ -38,19 +38,19 @@ def find_matching_person_ids(
 
     This replicates the logic in DnaMatchDialog._suggest_profile2().
     """
-    match_name_lower = match_name.lower()
+    match_name_folded = match_name.casefold()
     result: list[str] = []
     for person in persons:
         if person.id == exclude_person_id:
             continue
         for name in person.names:
-            given_lower = name.given.lower() if name.given else ""
-            surname_lower = name.surname.lower() if name.surname else ""
+            given_folded = name.given.casefold() if name.given else ""
+            surname_folded = name.surname.casefold() if name.surname else ""
             if (
-                match_name_lower in given_lower
-                or match_name_lower in surname_lower
-                or given_lower in match_name_lower
-                or surname_lower in match_name_lower
+                match_name_folded in given_folded
+                or match_name_folded in surname_folded
+                or given_folded in match_name_folded
+                or surname_folded in match_name_folded
             ):
                 result.append(person.id)
                 break
@@ -61,15 +61,18 @@ def find_matching_person_ids(
 # Strategies
 # ---------------------------------------------------------------------------
 
-# Name text: use letters and spaces, non-empty
+# Name text: use letters and spaces, non-empty.
+# Exclude the Turkish dotless i (U+0131) and dotted capital I (U+0130): no
+# locale-independent caseless matching (casefold) is invariant under upper/lower
+# for that pair, so they cannot be used to assert case-insensitive matching.
 _name_text = st.text(
-    alphabet=st.characters(categories=("L", "Z")),
+    alphabet=st.characters(categories=("L", "Z"), exclude_characters="\u0131\u0130"),
     min_size=1,
     max_size=30,
 )
 
 _name_text_or_empty = st.text(
-    alphabet=st.characters(categories=("L", "Z")),
+    alphabet=st.characters(categories=("L", "Z"), exclude_characters="\u0131\u0130"),
     min_size=0,
     max_size=30,
 )
@@ -194,19 +197,19 @@ class TestPersonNameMatchingForCsvImport:
         match_name, persons = data
 
         result = find_matching_person_ids(match_name, persons)
-        match_name_lower = match_name.lower()
+        match_name_folded = match_name.casefold()
 
         for person_id in result:
             person = next(p for p in persons if p.id == person_id)
             matches_any_name = False
             for name in person.names:
-                given_lower = name.given.lower() if name.given else ""
-                surname_lower = name.surname.lower() if name.surname else ""
+                given_folded = name.given.casefold() if name.given else ""
+                surname_folded = name.surname.casefold() if name.surname else ""
                 if (
-                    match_name_lower in given_lower
-                    or match_name_lower in surname_lower
-                    or given_lower in match_name_lower
-                    or surname_lower in match_name_lower
+                    match_name_folded in given_folded
+                    or match_name_folded in surname_folded
+                    or given_folded in match_name_folded
+                    or surname_folded in match_name_folded
                 ):
                     matches_any_name = True
                     break
@@ -280,7 +283,7 @@ class TestPersonNameMatchingForCsvImport:
         **Validates: Requirements 13.4**
         """
         match_name, persons = data
-        match_name_lower = match_name.lower()
+        match_name_folded = match_name.casefold()
 
         result = set(find_matching_person_ids(match_name, persons))
 
@@ -288,13 +291,13 @@ class TestPersonNameMatchingForCsvImport:
         expected: set[str] = set()
         for person in persons:
             for name in person.names:
-                given_lower = name.given.lower() if name.given else ""
-                surname_lower = name.surname.lower() if name.surname else ""
+                given_folded = name.given.casefold() if name.given else ""
+                surname_folded = name.surname.casefold() if name.surname else ""
                 if (
-                    match_name_lower in given_lower
-                    or match_name_lower in surname_lower
-                    or given_lower in match_name_lower
-                    or surname_lower in match_name_lower
+                    match_name_folded in given_folded
+                    or match_name_folded in surname_folded
+                    or given_folded in match_name_folded
+                    or surname_folded in match_name_folded
                 ):
                     expected.add(person.id)
                     break

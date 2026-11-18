@@ -32,6 +32,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from slaktbusken.gedcom.slk_tags import SourceExtras
 from slaktbusken.gedcom.translation.models import GedcomSource
 from slaktbusken.model.id_generator import IDGenerator
 from slaktbusken.model.source import ArkivReferens, Kalltyp, Leverantor, RepositoryRef, Source, StructuredReference
@@ -164,6 +165,7 @@ def map_gedcom_source(
     source_mappings: list[SourceMapping],
     leverantorer: list[Leverantor] | None = None,
     kalltyper: list[Kalltyp] | None = None,
+    extras: SourceExtras | None = None,
 ) -> Source:
     """Map a GEDCOM source record to an App_JSON Source entity.
 
@@ -212,11 +214,21 @@ def map_gedcom_source(
     id_gen = IDGenerator(existing_ids)
     new_id = id_gen.generate("source")
 
-    source_type = detect_source_type(gedcom_source)
-    structured_ref = _build_structured_reference(gedcom_source, source_type)
+    # Requirements 9.3 to 9.5: a valid _SLK_STYPE skips the keyword detection,
+    # _SLK_SREF replaces the parsed reference text, _SLK_PROV is the provider.
+    if extras is not None and extras.source_type is not None:
+        source_type = extras.source_type
+    else:
+        source_type = detect_source_type(gedcom_source)
+    if extras is not None and extras.reference_fields is not None:
+        structured_ref = StructuredReference(fields=dict(extras.reference_fields))
+    else:
+        structured_ref = _build_structured_reference(gedcom_source, source_type)
     title = gedcom_source.title or _derive_title(gedcom_source)
     reference_text = _derive_reference_text(gedcom_source)
     provider = _derive_provider(gedcom_source)
+    if extras is not None and extras.provider is not None:
+        provider = extras.provider
 
     source = Source(
         id=new_id,
@@ -343,6 +355,26 @@ def map_gedcom_source(
                 ):
                     source.kalltyp_id = kt.id
                     break
+
+    # Requirement 9.6: _SLK_LEV / _SLK_KTYP resolve by name to existing ids and
+    # win over the heuristics above. No match leaves the ids as they are.
+    if extras is not None and extras.leverantor_name is not None:
+        lev = next(
+            (l for l in (leverantorer or []) if l.name == extras.leverantor_name),
+            None,
+        )
+        if lev is not None:
+            source.leverantor_id = lev.id
+            if extras.kalltyp_name is not None:
+                kt = next(
+                    (
+                        k for k in (kalltyper or [])
+                        if k.leverantor_id == lev.id and k.name == extras.kalltyp_name
+                    ),
+                    None,
+                )
+                if kt is not None:
+                    source.kalltyp_id = kt.id
 
     return source
 

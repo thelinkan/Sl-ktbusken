@@ -63,6 +63,9 @@ class GedcomPerson:
     notes: str = ""
     source_citations: list[str] = field(default_factory=list)
     line_number: int = 0
+    # Name type read from TYPE for each NAME record, in file order (the
+    # primary NAME first, then ``additional_names``); None = no TYPE.
+    name_types: list[Optional[str]] = field(default_factory=list)
 
 
 @dataclass

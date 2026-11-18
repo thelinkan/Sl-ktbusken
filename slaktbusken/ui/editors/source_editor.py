@@ -9,6 +9,14 @@ Validates that title and type are set before save. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import (
+    DISCARD_CHOICE,
+    SAVE_CHOICE,
+    EditorRegistryParticipant,
+    prompt_resolution,
+)
+
 import logging
 import shutil
 import uuid
@@ -17,12 +25,15 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
+from html import escape as _html_escape
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHeaderView,
+    QVBoxLayout,
     QLabel,
     QLineEdit,
     QListWidgetItem,
@@ -33,15 +44,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from slaktbusken.model.event_citations import event_cites_source
+from slaktbusken.services.edit_session import register_created_file_in_active_session
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.source import ArkivReferens, RepositoryRef, Source, StructuredReference
 from slaktbusken.parsing.reference_parser import ParsedReference, parse_reference
 from slaktbusken.services.media_utils import resolve_filename_conflict
+from slaktbusken.services.safe_io import (
+    is_safe_external_url,
+    is_safe_media_extension,
+    resolve_within,
+)
 from slaktbusken.services.source_formatting import format_source_title
 from slaktbusken.services.source_links import generate_direct_link
 from slaktbusken.services.source_stats import compute_usage_stats
+from slaktbusken.services.research_index import ResearchIndex
 from slaktbusken.ui.dialogs.usage_detail_dialog import UsageDetailDialog
+from slaktbusken.ui.research_gateway import connect_source_research
+from slaktbusken.ui.widgets.research_marker import ResearchMarkerDelegate, apply_research_marker
+from slaktbusken.ui.widgets.source_research_tab import SourceResearchSection
 from slaktbusken.ui.generated.ui_source_editor import Ui_SourceEditor
 
 logger = logging.getLogger(__name__)
@@ -73,7 +95,7 @@ IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", 
 DOCUMENT_EXTENSIONS: set[str] = {".pdf", ".docx", ".rtf", ".odt"}
 
 
-class SourceEditor(QWidget):
+class SourceEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Source records with list and form panels.
 
     Displays a filterable source list on the left and a full edit form on the
@@ -91,7 +113,13 @@ class SourceEditor(QWidget):
     """
 
     save_requested = Signal()
+    media_added = Signal()
     cancel_requested = Signal()
+    # Carries the id of the source whose persons the Personlista should show.
+    filter_persons_requested = Signal(str)
+
+    FILTER_TOOLTIP = "Filtrerar på källa och stänger källredigerarfönstret"
+    FILTER_TOOLTIP_NO_PERSONS = "Vald källa har ingen person ansluten till sig"
 
     def __init__(
         self,
@@ -99,6 +127,7 @@ class SourceEditor(QWidget):
         source: Optional[Source] = None,
         project_folder: Optional[Path] = None,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the source editor.
 
@@ -109,6 +138,7 @@ class SourceEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Källredigerare")
 
         self._project_data = project_data
         self._source = source
@@ -122,6 +152,8 @@ class SourceEditor(QWidget):
         # Set up UI from generated form
         self._ui = Ui_SourceEditor()
         self._ui.setupUi(self)
+
+        self._setup_research_section()
 
         # Add direct link label programmatically (after basic_group)
         self._direct_link_label = QLabel(self._ui.scroll_content)
@@ -169,6 +201,16 @@ class SourceEditor(QWidget):
         self._edit_arkivref_button.setObjectName("edit_arkivref_button")
         self._ui.repository_buttons_layout.addWidget(self._edit_arkivref_button)
 
+        # "Filtrera källans personer": in the left button row, right of "Ta bort",
+        # far from "Spara"/"Avbryt" in the right panel.
+        self._filter_persons_button = QPushButton("Filtrera källans personer")
+        self._filter_persons_button.setObjectName("filter_persons_button")
+        self._ui.list_buttons_layout.addSpacing(20)
+        self._ui.list_buttons_layout.addWidget(self._filter_persons_button)
+        self._ui.list_buttons_layout.addStretch(1)
+        self._filter_persons_button.clicked.connect(self._on_filter_persons_clicked)
+
+        self._form_baseline: tuple = ()
         self._populate_provider_combo()
         self._connect_signals()
         self._update_structured_fields()
@@ -176,6 +218,8 @@ class SourceEditor(QWidget):
 
         if self._source is not None:
             self._load_source()
+        self._form_baseline = self._form_signature()
+        self._update_filter_button()
 
     # ------------------------------------------------------------------
     # Public API
@@ -194,9 +238,88 @@ class SourceEditor(QWidget):
         """
         return self._saved_source
 
+    def set_person_filter_available(self, available: bool) -> None:
+        """Show or hide "Filtrera källans personer" (hidden when embedded in
+        another editor, where there is no host that can filter the Personlista)."""
+        self._filter_persons_button.setVisible(available)
+
+    def is_dirty(self) -> bool:
+        """True when the form differs from the loaded (or last saved) source."""
+        return self._form_signature() != self._form_baseline
+
     # ------------------------------------------------------------------
-    # Private: setup
+    # Private: unsaved-change detection and person filter button
     # ------------------------------------------------------------------
+
+    def _form_signature(self) -> tuple:
+        """Snapshot of every editable form field, for unsaved-change detection."""
+        ui = self._ui
+        line_edits = (
+            ui.title_input, ui.reference_text_input, ui.provider_ref_input,
+            ui.short_note_input, ui.parish_input, ui.county_code_input,
+            ui.series_input, ui.volume_input, ui.years_input, ui.image_input,
+            ui.page_input, ui.database_name_input, ui.record_id_input,
+            ui.dn_newspaper_input, ui.publication_date_input, ui.dn_page_input,
+            ui.np_newspaper_input, ui.np_date_input, ui.np_page_input,
+            ui.article_title_input,
+        )
+        media = tuple(
+            ui.media_list.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(ui.media_list.count())
+        )
+        arkiv = tuple(
+            tuple(
+                (self._arkivref_table.item(r, c).text() if self._arkivref_table.item(r, c) else "")
+                for c in range(2)
+            )
+            for r in range(self._arkivref_table.rowCount())
+        )
+        return (
+            tuple(e.text() for e in line_edits),
+            ui.free_note_input.toPlainText(),
+            ui.provider_combo.currentData() or "",
+            ui.kalltyp_combo.currentData() or "",
+            media,
+            arkiv,
+        )
+
+    def _mark_form_clean(self) -> None:
+        self._form_baseline = self._form_signature()
+
+    def _selected_source_stats(self):
+        """Usage stats of the currently edited saved source, or None."""
+        if self._source is None:
+            return None
+        if not any(s.id == self._source.id for s in self._project_data.sources):
+            return None
+        return compute_usage_stats(
+            self._source.id, self._project_data.events, self._project_data.residences
+        )
+
+    def _update_filter_button(self) -> None:
+        """Enable the filter button only for a saved source with persons."""
+        stats = self._selected_source_stats()
+        if stats is not None and stats.person_count == 0:
+            self._filter_persons_button.setToolTip(self.FILTER_TOOLTIP_NO_PERSONS)
+        else:
+            self._filter_persons_button.setToolTip(self.FILTER_TOOLTIP)
+        self._filter_persons_button.setEnabled(stats is not None and stats.person_count >= 1)
+
+    def _on_filter_persons_clicked(self) -> None:
+        """Resolve unsaved changes, then ask the host to filter the person list."""
+        stats = self._selected_source_stats()
+        if stats is None or stats.person_count < 1 or self._source is None:
+            return
+        source_id = self._source.id
+        if self.is_dirty():
+            choice = prompt_resolution(self, self.editor_title)
+            if choice == SAVE_CHOICE:
+                self._on_save()
+                if self.is_dirty():
+                    return  # validation failed: stay open
+            elif choice != DISCARD_CHOICE:
+                return
+        self.filter_persons_requested.emit(source_id)
 
     def _populate_provider_combo(self) -> None:
         """Fill the provider combo box with Leverantörer from project data."""
@@ -380,6 +503,9 @@ class SourceEditor(QWidget):
         """
         self._ui.source_list.clear()
         filter_lower = filter_text.lower()
+        if not isinstance(self._ui.source_list.itemDelegate(), ResearchMarkerDelegate):
+            self._ui.source_list.setItemDelegate(ResearchMarkerDelegate(self._ui.source_list))
+        research_index = ResearchIndex(self._project_data)
 
         # Collect and sort sources alphabetically by title
         sorted_sources = sorted(
@@ -395,16 +521,29 @@ class SourceEditor(QWidget):
                     continue
 
             # Compute usage stats for this source
-            stats = compute_usage_stats(source.id, self._project_data.events)
+            stats = compute_usage_stats(
+                source.id, self._project_data.events, self._project_data.residences
+            )
 
             display = source.title or source.id
             if source.provider:
                 display = f"{display} ({source.provider})"
-            display = f"{display} [{stats.person_count} pers, {stats.event_count} händ]"
+            counts = f"{stats.person_count} pers"
+            if stats.event_count:
+                counts += f", {stats.event_count} händ"
+            if stats.residence_count:
+                counts += f", {stats.residence_count} boende"
+            display = f"{display} [{counts}]"
 
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, source.id)
+            # Directly linked cases only; actions that merely cite the source are
+            # shown in the source editor's research section (task 9.4).
+            apply_research_marker(
+                item, research_index.counts_for_entity("source", source.id)
+            )
             self._ui.source_list.addItem(item)
+        self._update_filter_button()
 
     def _on_search_changed(self, text: str) -> None:
         """Handle search input text changes.
@@ -438,8 +577,28 @@ class SourceEditor(QWidget):
             source=source,
             events=self._project_data.events,
             persons=self._project_data.persons,
+            residences=self._project_data.residences,
+            places=self._project_data.places,
         )
         dialog.exec()
+
+    def _setup_research_section(self) -> None:
+        """Add the "Forskning" group: cases about the source and actions using it."""
+        self._research_group = QGroupBox("Forskning", self._ui.scroll_content)
+        group_layout = QVBoxLayout(self._research_group)
+        self._research_section = SourceResearchSection(
+            self._project_data,
+            lambda: self._source.id if self._source is not None else None,
+            self._research_group,
+        )
+        group_layout.addWidget(self._research_section)
+        connect_source_research(self._research_section)
+        self._ui.scroll_content_layout.addWidget(self._research_group)
+
+    def _refresh_research_section(self) -> None:
+        section = getattr(self, "_research_section", None)
+        if section is not None:
+            section.refresh()
 
     def _on_source_selected(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
         """Handle source list selection change.
@@ -456,12 +615,14 @@ class SourceEditor(QWidget):
             if source.id == source_id:
                 self._source = source
                 self._load_source()
+                self._refresh_research_section()
                 break
 
     def _on_add_source(self) -> None:
         """Clear the form to create a new source."""
         self._source = None
         self._clear_form()
+        self._refresh_research_section()
         self._clear_status()
 
     def _on_delete_source(self) -> None:
@@ -473,7 +634,7 @@ class SourceEditor(QWidget):
 
         source_id = current.data(Qt.ItemDataRole.UserRole)
 
-        # Check for referencing events (source_refs in date or place)
+        # Check for referencing events (any citation context)
         referencing_events = self._find_referencing_events(source_id)
         if referencing_events:
             event_lines: list[str] = []
@@ -505,13 +666,14 @@ class SourceEditor(QWidget):
         ]
         self._source = None
         self._clear_form()
+        self._refresh_research_section()
         self._refresh_source_list(self._ui.search_input.text())
         self._clear_status()
 
     def _find_referencing_events(self, source_id: str) -> list:
-        """Find all events that reference a given source via source_refs.
+        """Find all events that cite a given source in any context.
 
-        Checks both date.source_refs and place.source_refs on each event.
+        Uses the event citation helper (event, date, place, from-place).
 
         Args:
             source_id: The source ID to search for.
@@ -519,22 +681,11 @@ class SourceEditor(QWidget):
         Returns:
             List of Event objects referencing this source.
         """
-        referencing = []
-        for event in self._project_data.events:
-            found = False
-            if event.date and event.date.source_refs:
-                for sr in event.date.source_refs:
-                    if sr.source_id == source_id:
-                        found = True
-                        break
-            if not found and event.place and event.place.source_refs:
-                for sr in event.place.source_refs:
-                    if sr.source_id == source_id:
-                        found = True
-                        break
-            if found:
-                referencing.append(event)
-        return referencing
+        return [
+            event
+            for event in self._project_data.events
+            if event_cites_source(event, source_id)
+        ]
 
     # ------------------------------------------------------------------
     # Private: load source data
@@ -600,6 +751,8 @@ class SourceEditor(QWidget):
             self._update_direct_link()
         finally:
             self._inhibit_reference_parse = False
+        self._mark_form_clean()
+        self._update_filter_button()
 
     def _load_structured_reference(self) -> None:
         """Populate structured reference fields from the source data."""
@@ -782,6 +935,9 @@ class SourceEditor(QWidget):
                 f"Kunde inte kopiera filen: {e}",
             )
             return
+        # The copy is new (the name was made unique); an Avbryt in the person
+        # editor session deletes it again.
+        register_created_file_in_active_session(target_path)
 
         # Compute relative path from media directory root (media/subfolder/filename)
         relative_path = f"media/{subfolder}/{target_name}"
@@ -807,6 +963,9 @@ class SourceEditor(QWidget):
         list_item.setData(Qt.ItemDataRole.UserRole, media_id)
         self._ui.media_list.addItem(list_item)
         self._clear_status()
+        # The media record is already in the project data; standalone owners
+        # mark the project changed (an edit session covers it by rollback).
+        self.media_added.emit()
 
     def _on_remove_media(self) -> None:
         """Remove the currently selected media item from the list."""
@@ -848,7 +1007,31 @@ class SourceEditor(QWidget):
             self._update_status("Kunde inte hitta mediafilen.")
             return
 
-        full_path = self._project_folder / media_item.file
+        # The file reference comes from project data. Contain it within the
+        # project folder so a ``..`` sequence or absolute path cannot open a
+        # file elsewhere on disk.
+        full_path = resolve_within(self._project_folder, media_item.file)
+        if full_path is None:
+            self._update_status("Mediafilens sökväg pekar utanför projektmappen.")
+            return
+
+        # The OS handler launches whatever application is registered for the
+        # file's type, so only known-safe media types open directly; an unknown
+        # type (possibly an executable or script) needs explicit confirmation.
+        if not is_safe_media_extension(full_path.name):
+            proceed = QMessageBox.question(
+                self,
+                "Öppna okänd filtyp?",
+                "Filen är inte en känd mediatyp och kan vara ett program "
+                "eller skript som körs när den öppnas:\n\n"
+                f"{full_path.name}\n\n"
+                "Vill du öppna den ändå?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if proceed != QMessageBox.StandardButton.Yes:
+                return
+
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(full_path)))
 
     # ------------------------------------------------------------------
@@ -1228,6 +1411,8 @@ class SourceEditor(QWidget):
 
         # Update the in-memory editing source
         self._source = self._saved_source
+        self._mark_form_clean()
+        self._refresh_research_section()
 
         # Refresh the source list
         self._refresh_source_list()
@@ -1357,6 +1542,8 @@ class SourceEditor(QWidget):
             self._direct_link_label.setVisible(False)
         finally:
             self._inhibit_reference_parse = False
+        self._mark_form_clean()
+        self._update_filter_button()
 
     def _update_status(self, message: str) -> None:
         """Update the status label text with an error/info message.
@@ -1398,7 +1585,12 @@ class SourceEditor(QWidget):
             return
 
         if url:
-            self._direct_link_label.setText(f'<a href="{url}">{url}</a>')
+            # The URL comes from project data, so escape it before splicing it
+            # into the label's rich text. ``quote=True`` also escapes the double
+            # quotes that delimit the href attribute, so a crafted value cannot
+            # break out of the attribute.
+            safe = _html_escape(url, quote=True)
+            self._direct_link_label.setText(f'<a href="{safe}">{safe}</a>')
             self._direct_link_label.setVisible(True)
         else:
             self._direct_link_label.setVisible(False)
@@ -1406,11 +1598,25 @@ class SourceEditor(QWidget):
     def _on_direct_link_clicked(self, url: str) -> None:
         """Handle click on the direct link label.
 
-        Opens the URL in the system default browser via QDesktopServices.
+        Opens the URL in the system default browser via QDesktopServices, but
+        only when it is a safe web/mail link. The URL comes from project data,
+        which may be shared; handing an arbitrary scheme (``file:``,
+        ``javascript:``, a custom protocol) to the OS handler could read local
+        files or launch an application rather than open a web page, so anything
+        outside the ``http``/``https``/``mailto`` allow-list is refused.
 
         Args:
             url: The URL string from the link's href attribute.
         """
+        if not is_safe_external_url(url):
+            logger.warning("Vägrade att öppna osäker länk: %s", url)
+            QMessageBox.warning(
+                self,
+                "Osäker länk",
+                "Länken kunde inte öppnas eftersom den inte är en säker "
+                "webb- eller e-postlänk (http, https eller mailto).",
+            )
+            return
         try:
             QDesktopServices.openUrl(QUrl(url))
         except Exception:

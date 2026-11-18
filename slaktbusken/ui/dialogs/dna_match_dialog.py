@@ -501,7 +501,7 @@ class DnaMatchDialog(QDialog):
         Performs case-insensitive substring match on given name and surname.
         Excludes Profile 1's person from results.
         """
-        match_name_lower = match_name.lower()
+        match_name_folded = match_name.casefold()
         profile1_id = self._combo_profile1.currentData()
 
         # Find profile1's person_id to exclude
@@ -518,13 +518,13 @@ class DnaMatchDialog(QDialog):
             if person.id == profile1_person_id:
                 continue
             for name in person.names:
-                given_lower = name.given.lower() if name.given else ""
-                surname_lower = name.surname.lower() if name.surname else ""
+                given_folded = name.given.casefold() if name.given else ""
+                surname_folded = name.surname.casefold() if name.surname else ""
                 if (
-                    match_name_lower in given_lower
-                    or match_name_lower in surname_lower
-                    or given_lower in match_name_lower
-                    or surname_lower in match_name_lower
+                    match_name_folded in given_folded
+                    or match_name_folded in surname_folded
+                    or given_folded in match_name_folded
+                    or surname_folded in match_name_folded
                 ):
                     matching_person_ids.append(person.id)
                     break

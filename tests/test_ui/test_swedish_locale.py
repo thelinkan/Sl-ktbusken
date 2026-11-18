@@ -9,6 +9,7 @@ from datetime import date, datetime
 
 import pytest
 
+from slaktbusken.model.residence import Endpoint
 from slaktbusken.ui.swedish_locale import (
     CHURCH_BOOK_SERIES_LABELS,
     EVENT_TYPE_LABELS,
@@ -30,7 +31,11 @@ from slaktbusken.ui.swedish_locale import (
     format_date,
     format_date_range,
     format_number,
+    format_observation_span,
     format_percentage,
+    format_residence_endpoint,
+    format_residence_interval,
+    format_residence_line,
     get_event_type_label,
     get_media_type_label,
     get_parentage_type_label,
@@ -275,3 +280,212 @@ class TestGetLabelFallback:
     def test_get_sex_label_known(self) -> None:
         assert get_sex_label("M") == "Man"
         assert get_sex_label("F") == "Kvinna"
+
+# ---------------------------------------------------------------------------
+# Residence_Formatter
+#
+# Validates: Requirements 10.8, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.11,
+#            11.12, 11.13
+# ---------------------------------------------------------------------------
+
+
+EN_DASH = "\u2013"
+
+
+class TestFormatResidenceEndpoint:
+    """The five endpoint wordings, used alike at the start and end position."""
+
+    def test_exact_renders_bare_value(self) -> None:
+        # 11.1
+        assert format_residence_endpoint(Endpoint(earliest="1840", latest="1840")) == "1840"
+
+    def test_only_latest_renders_senast(self) -> None:
+        # 11.2
+        assert format_residence_endpoint(Endpoint(latest="1840")) == "senast 1840"
+
+    def test_only_earliest_renders_tidigast(self) -> None:
+        # 11.3
+        assert format_residence_endpoint(Endpoint(earliest="1846")) == "tidigast 1846"
+
+    def test_window_renders_mellan_och(self) -> None:
+        # 11.4
+        endpoint = Endpoint(earliest="1838", latest="1840")
+        assert format_residence_endpoint(endpoint) == "mellan 1838 och 1840"
+
+    def test_unknown_renders_okant(self) -> None:
+        # 11.5
+        assert format_residence_endpoint(Endpoint()) == "okänt"
+
+    def test_whitespace_only_bounds_count_as_unknown(self) -> None:
+        # 11.5 — a whitespace-only bound is absent
+        assert format_residence_endpoint(Endpoint(earliest="  ", latest="\t")) == "okänt"
+
+    def test_same_wording_at_start_and_end_position(self) -> None:
+        # 11.2, 11.3 — the function has no notion of position
+        endpoint = Endpoint(latest="1840")
+        assert format_residence_endpoint(endpoint) == format_residence_endpoint(endpoint)
+
+    def test_month_precision_is_not_truncated(self) -> None:
+        # 11.13
+        assert format_residence_endpoint(Endpoint(latest="1840-06")) == "senast 1840-06"
+
+    def test_day_precision_is_not_truncated(self) -> None:
+        # 11.13
+        endpoint = Endpoint(earliest="1840-06-15")
+        assert format_residence_endpoint(endpoint) == "tidigast 1840-06-15"
+
+    def test_mixed_precision_window_keeps_both_stored_forms(self) -> None:
+        # 11.4, 11.13 — "1840" and "1840-06" denote different day intervals
+        endpoint = Endpoint(earliest="1840", latest="1840-06")
+        assert format_residence_endpoint(endpoint) == "mellan 1840 och 1840-06"
+
+    def test_precision_field_does_not_affect_wording(self) -> None:
+        # 11.1 — precision is descriptive only
+        plain = Endpoint(earliest="1840", latest="1840")
+        approximate = Endpoint(earliest="1840", latest="1840", precision="approximate")
+        assert format_residence_endpoint(plain) == format_residence_endpoint(approximate)
+
+
+class TestFormatResidenceInterval:
+    """Interval joining, the unknown period and pairwise distinguishability."""
+
+    def test_two_exact_dates(self) -> None:
+        # 11.1
+        rendered = format_residence_interval(
+            Endpoint(earliest="1840", latest="1840"),
+            Endpoint(earliest="1846", latest="1846"),
+        )
+        assert rendered == "1840\u20131846"
+
+    def test_two_open_endpoints(self) -> None:
+        # 11.2, 11.3, 11.11
+        rendered = format_residence_interval(
+            Endpoint(latest="1840"), Endpoint(earliest="1846")
+        )
+        assert rendered == "senast 1840\u2013tidigast 1846"
+
+    def test_worked_example_place_a(self) -> None:
+        # 14.6 — "senast 1837–1840"
+        rendered = format_residence_interval(
+            Endpoint(latest="1837"),
+            Endpoint(earliest="1840", latest="1840"),
+        )
+        assert rendered == "senast 1837\u20131840"
+
+    def test_both_unknown_renders_unknown_period(self) -> None:
+        # 11.12
+        assert format_residence_interval(Endpoint(), Endpoint()) == "okänd period"
+
+    def test_unknown_period_carries_no_separator(self) -> None:
+        # 11.12
+        assert EN_DASH not in format_residence_interval(Endpoint(), Endpoint())
+
+    def test_one_unknown_side_still_renders_okant(self) -> None:
+        # 11.5, 11.11 — no "?" placeholder, unlike format_date_range
+        rendered = format_residence_interval(
+            Endpoint(earliest="1840", latest="1840"), Endpoint()
+        )
+        assert rendered == "1840\u2013okänt"
+        assert "?" not in rendered
+
+    def test_dash_is_exactly_one_unspaced_en_dash(self) -> None:
+        # 11.11
+        rendered = format_residence_interval(
+            Endpoint(latest="1840"), Endpoint(earliest="1846")
+        )
+        assert rendered.count(EN_DASH) == 1
+        index = rendered.index(EN_DASH)
+        assert rendered[index - 1] != " "
+        assert rendered[index + 1] != " "
+
+    def test_differs_from_format_date_range(self) -> None:
+        # 11.11
+        rendered = format_residence_interval(
+            Endpoint(earliest="1840", latest="1840"),
+            Endpoint(earliest="1846", latest="1846"),
+        )
+        assert rendered != format_date_range("1840", "1846")
+
+    def test_every_ordered_classification_pair_is_distinguishable(self) -> None:
+        # 11.6, 11.12
+        representatives = {
+            "exact": Endpoint(earliest="1840", latest="1840"),
+            "open_latest": Endpoint(latest="1840"),
+            "open_earliest": Endpoint(earliest="1840"),
+            "window": Endpoint(earliest="1838", latest="1840"),
+            "unknown": Endpoint(),
+        }
+        rendered = {
+            (start_kind, end_kind): format_residence_interval(start, end)
+            for start_kind, start in representatives.items()
+            for end_kind, end in representatives.items()
+        }
+        assert len(rendered) == 25
+        assert len(set(rendered.values())) == 25
+
+
+class TestFormatResidenceLine:
+    """Place, interval and household role on one line."""
+
+    def test_non_empty_role_is_appended_with_comma_and_space(self) -> None:
+        # 10.8
+        line = format_residence_line(
+            "Ekeby", Endpoint(latest="1840"), Endpoint(), "piga"
+        )
+        assert line == "Ekeby, senast 1840\u2013okänt, piga"
+
+    def test_role_is_rendered_unchanged(self) -> None:
+        # 10.8 — stored text, including internal spacing and case
+        line = format_residence_line(
+            "Ekeby",
+            Endpoint(earliest="1840", latest="1840"),
+            Endpoint(earliest="1846", latest="1846"),
+            "Piga  hos  Anders",
+        )
+        assert line.endswith(", Piga  hos  Anders")
+
+    def test_empty_role_adds_no_separator_and_no_trailing_whitespace(self) -> None:
+        # 10.8
+        line = format_residence_line(
+            "Ekeby",
+            Endpoint(earliest="1840", latest="1840"),
+            Endpoint(earliest="1846", latest="1846"),
+            "",
+        )
+        assert line == "Ekeby, 1840\u20131846"
+        assert line == line.rstrip()
+
+    def test_unknown_period_line(self) -> None:
+        # 11.12
+        assert format_residence_line("Ekeby", Endpoint(), Endpoint(), "") == "Ekeby, okänd period"
+
+    def test_missing_place_display_adds_no_leading_separator(self) -> None:
+        line = format_residence_line("", Endpoint(latest="1840"), Endpoint(), "")
+        assert line == "senast 1840\u2013okänt"
+
+
+class TestFormatObservationSpan:
+    """Observation spans as "1866–1870" or "1866"."""
+
+    def test_differing_years(self) -> None:
+        # 11.9
+        assert format_observation_span("1866", "1870") == "1866\u20131870"
+
+    def test_equal_years(self) -> None:
+        # 11.9
+        assert format_observation_span("1866", "1866") == "1866"
+
+    def test_only_from_year(self) -> None:
+        assert format_observation_span("1866", "") == "1866"
+
+    def test_only_to_year(self) -> None:
+        assert format_observation_span("", "1870") == "1870"
+
+    def test_both_absent(self) -> None:
+        assert format_observation_span("", "") == ""
+
+    def test_span_dash_is_unspaced(self) -> None:
+        # 11.11
+        rendered = format_observation_span("1866", "1870")
+        assert rendered.count(EN_DASH) == 1
+        assert " " not in rendered

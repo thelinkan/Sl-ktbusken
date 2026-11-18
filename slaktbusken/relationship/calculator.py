@@ -722,8 +722,11 @@ class RelationshipCalculator:
             parentage_types: List of parentage type strings along the path.
 
         Returns:
-            'blood' if all are biological, 'adoption' if any adoptive,
-            'legal' otherwise.
+            'blood' if all are blood parentages, 'adoption' if any adoptive,
+            'foster' if any foster (and none adoptive), 'legal' otherwise.
+            Blood takes priority: a mixed path with at least one blood edge
+            is not all-blood and so does not classify as 'blood' here; path
+            selection applies the blood-priority preference upstream.
         """
         if not parentage_types:
             return "legal"
@@ -733,6 +736,9 @@ class RelationshipCalculator:
 
         if any(pt == "adoptive" for pt in parentage_types):
             return "adoption"
+
+        if any(pt == "foster" for pt in parentage_types):
+            return "foster"
 
         return "legal"
 

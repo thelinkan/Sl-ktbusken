@@ -144,3 +144,35 @@ class TestDeleteDnaFile:
         ensure_dna_folder_exists(project_path)
         # Should not raise
         delete_dna_file(project_path, "already_gone.json")
+
+
+class TestPathContainment:
+    """A filename from project data must stay inside the dna/ folder."""
+
+    def test_read_rejects_parent_traversal(self, project_path: Path) -> None:
+        ensure_dna_folder_exists(project_path)
+        with pytest.raises(ValueError):
+            read_dna_file(project_path, "../../secret.json")
+
+    def test_read_rejects_absolute_path(self, project_path: Path) -> None:
+        ensure_dna_folder_exists(project_path)
+        with pytest.raises(ValueError):
+            read_dna_file(project_path, str(Path("C:/Windows/win.ini")))
+
+    def test_write_rejects_parent_traversal(self, project_path: Path) -> None:
+        with pytest.raises(ValueError):
+            write_dna_file(project_path, "../escape.json", {"x": 1})
+
+    def test_delete_refuses_traversal_and_leaves_outside_file_intact(
+        self, project_path: Path, tmp_path: Path
+    ) -> None:
+        # A file living outside the dna/ folder must never be unlinked by a
+        # crafted filename that climbs out of it.
+        ensure_dna_folder_exists(project_path)
+        outside = tmp_path / "keepme.json"
+        outside.write_text("{}", encoding="utf-8")
+
+        # ../keepme.json from dna/ resolves to the project folder's keepme.json.
+        delete_dna_file(project_path, "../keepme.json")
+
+        assert outside.exists(), "delete must not touch files outside dna/"

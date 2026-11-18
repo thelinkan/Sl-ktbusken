@@ -42,3 +42,6 @@ Desktop.ini
 
 # Project data files (user content, not source)
 *.json.gz
+
+# Kiro task-execution metadata (generated, churny; not source)
+.kiro/specs/*/tasks.meta.json

@@ -11,18 +11,24 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QPainter
 from PySide6.QtWidgets import (
+    QGraphicsItem,
     QGraphicsScene,
     QGraphicsView,
     QVBoxLayout,
     QWidget,
 )
 
+from slaktbusken.model.date_semantics import display_year
 from slaktbusken.services.lineage_computer import LineageComputer
 from slaktbusken.ui.widgets.person_box import PersonBoxItem
-from slaktbusken.ui.widgets.placeholder_box import PlaceholderBoxItem
+from slaktbusken.ui.widgets.research_marker import begin_diagram_render
+from slaktbusken.ui.widgets.placeholder_box import (
+    PlaceholderBoxItem,
+    PlaceholderRole,
+)
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QWheelEvent
@@ -151,6 +157,8 @@ class DiagramPanel(QWidget):
     person_double_clicked = Signal(str)
     placeholder_clicked = Signal(str, str)  # role, family_id
     context_menu_action = Signal(str, str)  # action_type, person_id
+    compare_requested = Signal(list)  # ordered person ids
+    mark_candidates_requested = Signal(list)  # ordered person ids
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         """Initialise the diagram panel.
@@ -283,20 +291,253 @@ class DiagramPanel(QWidget):
         self._current_view = view_type
         self._refresh_diagram()
 
-    def print_diagram(self) -> None:
-        """Print the current diagram view.
+    def _current_view_title(self) -> str:
+        """Returnera en läsbar titel för den aktuella vyn."""
+        from slaktbusken.ui.main_window import ViewType
 
-        Opens a print dialog and renders the current scene content
-        to the selected printer.
+        names = {
+            ViewType.FAMILY: "Familjevy",
+            ViewType.ANCESTRY: "Antavla",
+            ViewType.DESCENDANTS: "Ättlingar",
+        }
+        return names.get(self._current_view, "Diagram")
+
+    def _active_person_years(self) -> tuple[Optional[str], Optional[str]]:
+        """Hämta födelse- och dödsår för den aktiva personen.
+
+        Scannar händelser efter personens födelse- och dödshändelser och
+        extraherar ett fyrsiffrigt årtal ur respektive datum om möjligt.
+
+        Returns:
+            Ett par (födelseår, dödsår) där vardera kan vara None.
         """
-        from PySide6.QtPrintSupport import QPrintDialog, QPrinter
+        if self._project_data is None or self._active_person_id is None:
+            return (None, None)
 
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        dialog = QPrintDialog(printer, self)
-        if dialog.exec() == QPrintDialog.DialogCode.Accepted:
-            painter = QPainter(printer)
-            self._scene.render(painter)
-            painter.end()
+        birth_year: Optional[str] = None
+        death_year: Optional[str] = None
+        for event in self._project_data.events:
+            if not any(
+                p.person_id == self._active_person_id for p in event.participants
+            ):
+                continue
+            if event.type == "birth" and event.date and birth_year is None:
+                birth_year = display_year(event.date)
+            elif event.type == "death" and event.date and death_year is None:
+                death_year = display_year(event.date)
+        return (birth_year, death_year)
+
+    def _print_heading(self) -> Optional[str]:
+        """Bygg rubriken som visas överst i utskriften.
+
+        Formaterar rubriken som "Familj till Förnamn Efternamn (ÅÅÅÅ–ÅÅÅÅ)"
+        beroende på aktuell vy. Returnerar None om det inte finns någon aktiv
+        person att beskriva.
+
+        Returns:
+            Rubriktext eller None.
+        """
+        from slaktbusken.ui.main_window import ViewType
+        from slaktbusken.ui.views.family_view import (
+            _find_person,
+            _get_display_name,
+        )
+
+        if self._project_data is None or self._active_person_id is None:
+            return None
+
+        person = _find_person(self._project_data, self._active_person_id)
+        if person is None:
+            return None
+
+        name = _get_display_name(person)
+
+        birth_year, death_year = self._active_person_years()
+        years = ""
+        if birth_year or death_year:
+            years = f" ({birth_year or ''}-{death_year or ''})"
+
+        prefixes = {
+            ViewType.FAMILY: "Familj till",
+            ViewType.ANCESTRY: "Anor till",
+            ViewType.DESCENDANTS: "Ättlingar till",
+        }
+        prefix = prefixes.get(self._current_view, "Diagram för")
+        return f"{prefix} {name}{years}"
+
+    def _person_box_scene_rects(self) -> list["QRectF"]:
+        """Samla personrutornas gränser i scenekoordinater.
+
+        Används av utskriftsplaneringen för att undvika att en personruta
+        delas mellan två sidor. Fungerar för alla tre vyer eftersom
+        personrutorna läses direkt från scenen.
+
+        Returns:
+            Lista med QRectF i scenekoordinater.
+        """
+        rects: list[QRectF] = []
+        for item in self._scene.items():
+            if isinstance(item, PersonBoxItem):
+                rects.append(item.sceneBoundingRect())
+        return rects
+
+    def _collect_print_hidden_items(self) -> list["QGraphicsItem"]:
+        """Hämta objekt som ska döljas i utskriften.
+
+        Vid utskrift ska icke-existerande personer utelämnas, utom när de
+        behövs för att visa kopplingen mellan två personer. Platshållare för
+        förälder (far/mor) markerar en strukturell position i släktträdet och
+        behålls därför, medan "Lägg till barn" och "Lägg till partner" är rena
+        tilläggsknappar utan någon person på andra sidan och tas bort.
+
+        Dessutom tas kopplingslinjer bort om de inte förbinder minst två
+        kvarvarande ankare (personrutor eller behållna förälderplatshållare).
+        På så vis försvinner även hängande linjestumpar — t.ex. "ryggraden"
+        ned mot den aktiva personens "Lägg till partner"-platshållare — som
+        annars skulle lämna lösa linjer mot tom yta.
+
+        Returns:
+            Lista med objekt (platshållare och tillhörande linjer) som ska
+            döljas i utskriften.
+        """
+        from slaktbusken.ui.widgets.connection_line import ConnectionLineItem
+
+        drop_roles = {PlaceholderRole.CHILD, PlaceholderRole.PARTNER}
+        removed_placeholders = [
+            item
+            for item in self._scene.items()
+            if isinstance(item, PlaceholderBoxItem) and item.role in drop_roles
+        ]
+
+        # Ankare som en linje måste förbinda för att vara meningsfull:
+        # verkliga personrutor samt behållna förälderplatshållare.
+        anchor_rects: list[QRectF] = []
+        for item in self._scene.items():
+            if isinstance(item, PersonBoxItem):
+                anchor_rects.append(item.sceneBoundingRect().adjusted(-2, -2, 2, 2))
+            elif isinstance(item, PlaceholderBoxItem) and item.role not in drop_roles:
+                anchor_rects.append(item.sceneBoundingRect().adjusted(-2, -2, 2, 2))
+
+        lines = [
+            item
+            for item in self._scene.items()
+            if isinstance(item, ConnectionLineItem)
+        ]
+
+        # Ändpunkter (scenekoordinater) för varje linje.
+        endpoints: list[tuple[QPointF, QPointF]] = []
+        for line in lines:
+            endpoints.append(
+                (line.mapToScene(line.start_point), line.mapToScene(line.end_point))
+            )
+
+        tol = 2.0
+
+        def _on_segment(pt: QPointF, a: QPointF, b: QPointF) -> bool:
+            """True om punkten ligger på segmentet a–b (med tolerans)."""
+            minx, maxx = min(a.x(), b.x()) - tol, max(a.x(), b.x()) + tol
+            miny, maxy = min(a.y(), b.y()) - tol, max(a.y(), b.y()) + tol
+            if not (minx <= pt.x() <= maxx and miny <= pt.y() <= maxy):
+                return False
+            # Avstånd punkt-till-linje (räcker med linjens riktning).
+            dx, dy = b.x() - a.x(), b.y() - a.y()
+            seg_len = (dx * dx + dy * dy) ** 0.5
+            if seg_len < 1e-6:
+                return (
+                    abs(pt.x() - a.x()) <= tol and abs(pt.y() - a.y()) <= tol
+                )
+            dist = abs(dy * (pt.x() - a.x()) - dx * (pt.y() - a.y())) / seg_len
+            return dist <= tol
+
+        # Union-find för att koppla ihop linjer som rör varandra, även vid
+        # T-korsningar (en linjes ändpunkt ligger på en annan linjes mitt).
+        parent = list(range(len(lines)))
+
+        def _find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def _union(i: int, j: int) -> None:
+            ri, rj = _find(i), _find(j)
+            if ri != rj:
+                parent[ri] = rj
+
+        for i in range(len(lines)):
+            ai, bi = endpoints[i]
+            for j in range(i + 1, len(lines)):
+                aj, bj = endpoints[j]
+                if (
+                    _on_segment(ai, aj, bj)
+                    or _on_segment(bi, aj, bj)
+                    or _on_segment(aj, ai, bi)
+                    or _on_segment(bj, ai, bi)
+                ):
+                    _union(i, j)
+
+        # Räkna distinkta ankare som varje komponent rör.
+        comp_anchors: dict[int, set[int]] = {}
+        for i in range(len(lines)):
+            root = _find(i)
+            touched = comp_anchors.setdefault(root, set())
+            for pt in endpoints[i]:
+                for ai, rect in enumerate(anchor_rects):
+                    if rect.contains(pt):
+                        touched.add(ai)
+
+        # En meningsfull koppling förbinder minst två ankare. Komponenter som
+        # rör färre är hängande stumpar och tas bort.
+        lines_to_remove: list[QGraphicsItem] = []
+        for i in range(len(lines)):
+            if len(comp_anchors.get(_find(i), set())) < 2:
+                lines_to_remove.append(lines[i])
+
+        return [*removed_placeholders, *lines_to_remove]
+
+    def print_diagram(self) -> None:
+        """Visa förhandsgranskning för utskrift av den aktuella vyn.
+
+        Öppnar en dialog som renderar scenen skalad efter aktuell zoomnivå,
+        delar upp innehållet på flera sidor vid behov (utan att dela
+        personrutor) och erbjuder utskrift samt PDF-export.
+
+        Rena "lägg till"-platshållare (barn/partner) döljs tillfälligt så att
+        de inte kommer med i utskriften, medan förälderplatshållare behålls
+        eftersom de visar kopplingen mellan personer.
+        """
+        from slaktbusken.ui.dialogs.diagram_print import DiagramPrintDialog
+
+        if not self._scene.items():
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(
+                self,
+                "Skriv ut",
+                "Det finns inget att skriva ut i den aktuella vyn.",
+            )
+            return
+
+        # Ta tillfälligt bort rena tilläggsplatshållare (och linjer som leder
+        # till dem) ur scenen så att de varken påverkar innehållsgränser eller
+        # renderingen. Återställs efter att dialogen stängts.
+        hidden = self._collect_print_hidden_items()
+        for item in hidden:
+            self._scene.removeItem(item)
+
+        try:
+            dialog = DiagramPrintDialog(
+                scene=self._scene,
+                box_rects=self._person_box_scene_rects(),
+                zoom_factor=self._view.zoom_factor,
+                view_title=self._current_view_title(),
+                heading=self._print_heading(),
+                parent=self,
+            )
+            dialog.exec()
+        finally:
+            for item in hidden:
+                self._scene.addItem(item)
 
     def eventFilter(self, obj, event) -> bool:
         """Filtrera tangentbords- och mushändelser.
@@ -418,17 +659,36 @@ class DiagramPanel(QWidget):
             global_pos: The global screen position for the menu.
         """
         from PySide6.QtCore import QPoint
-        from slaktbusken.ui.context_menu_builder import ContextMenuBuilder
+        from slaktbusken.ui.context_menu_builder import (
+            COMPARE_ACTION,
+            ContextMenuBuilder,
+            merge_action_ids,
+        )
 
         main_person_id: Optional[str] = None
         if self._project_data is not None:
             main_person_id = self._project_data.project.main_person_id
 
         builder = ContextMenuBuilder()
-        menu = builder.build_person_menu(person_id, main_person_id, self)
+        menu = builder.build_person_menu(
+            person_id,
+            main_person_id,
+            self,
+            selected_ids=[person_id],
+            project_open=self._project_data is not None,
+        )
 
         action = menu.exec(QPoint(global_pos.x(), global_pos.y()) if not isinstance(global_pos, QPoint) else global_pos)
         if action is None:
+            return
+
+        merge_action = merge_action_ids(action)
+        if merge_action is not None:
+            kind, ids = merge_action
+            if kind == COMPARE_ACTION:
+                self.compare_requested.emit(ids)
+            else:
+                self.mark_candidates_requested.emit(ids)
             return
 
         data = action.data()
@@ -479,6 +739,14 @@ class DiagramPanel(QWidget):
                     ancestor_set = lineage.get_ancestors(main_person_id)
                     descendant_set = lineage.get_descendants(main_person_id)
 
+            # One research index for all boxes of this render (diagram indicator).
+            begin_diagram_render(
+                self._project_data,
+                self._person_box_config is not None and self._person_box_config.research,
+                self._person_box_config is not None
+                and getattr(self._person_box_config, "merge_candidates", False),
+            )
+
             if (
                 self._current_view == ViewType.FAMILY
                 and self._project_data is not None
@@ -493,6 +761,7 @@ class DiagramPanel(QWidget):
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,
+                    diagram_settings=self._diagram_settings,
                 )
 
                 # Enable selection on person boxes
@@ -530,6 +799,7 @@ class DiagramPanel(QWidget):
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,
                     compact=ancestry_compact,
+                    diagram_settings=getattr(self, "_diagram_settings", None),
                 )
 
                 # Enable selection on person boxes
@@ -564,6 +834,11 @@ class DiagramPanel(QWidget):
                     ancestor_set=ancestor_set,
                     descendant_set=descendant_set,
                     project_folder=self._project_folder,
+                    diagram_settings=(
+                        self._diagram_settings
+                        if hasattr(self, "_diagram_settings")
+                        else None
+                    ),
                 )
 
                 # Aktivera markering på personrutor

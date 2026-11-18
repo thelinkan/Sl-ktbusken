@@ -31,11 +31,15 @@ def qapp():
     return app
 
 
-# Strategy for generating cluster names: non-empty strings of letter characters
+# Strategy for generating cluster names. Names are drawn from Latin/Swedish
+# letters and kept short so they always fit the fixed-width box without
+# elision. Elision of over-wide names is intended production behaviour, and
+# arbitrary Unicode letters (CJK, full-width forms) can be wider than the box,
+# which made this test depend on font metrics.
 _cluster_name_st = st.text(
     min_size=1,
-    max_size=20,
-    alphabet=st.characters(whitelist_categories=("L",)),
+    max_size=12,
+    alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÅÄÖåäö",
 )
 
 

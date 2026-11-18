@@ -1,0 +1,4453 @@
+{
+  "format": "släktbuske-file",
+  "version": "0.5",
+  "format_version": "0.5",
+  "project": {
+    "title": "exporttest",
+    "main_person_id": "person_9",
+    "created_by": "Släktbuske",
+    "language": "sv-SE"
+  },
+  "persons": [
+    {
+      "id": "person_1",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Stina",
+          "surname": "Jansson"
+        },
+        {
+          "type": "other",
+          "given": "Stina",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_2",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Anders",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_3",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lina",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_4",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Rut",
+          "surname": "Karlsson"
+        },
+        {
+          "type": "other",
+          "given": "Rut",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_5",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Janne",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_6",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Janne",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_7",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta Stina",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_8",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Ärla",
+          "surname": "Larsson"
+        }
+      ]
+    },
+    {
+      "id": "person_9",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Anders",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_10",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Bettan",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_11",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Gösta* Samuel",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_12",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Klara",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_13",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kurt",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_14",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lena",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_15",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Sune",
+          "surname": "Persson"
+        }
+      ]
+    },
+    {
+      "id": "person_16",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lotta",
+          "surname": "Pettersson"
+        }
+      ]
+    },
+    {
+      "id": "person_17",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Karl",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_18",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta",
+          "surname": "Larsdotter"
+        }
+      ]
+    },
+    {
+      "id": "person_19",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Jan",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_20",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta",
+          "surname": "Larsdotter"
+        }
+      ]
+    },
+    {
+      "id": "person_21",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Anna",
+          "surname": "Östlund"
+        }
+      ]
+    },
+    {
+      "id": "person_22",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Astrid",
+          "surname": "Eriksdotter"
+        }
+      ]
+    },
+    {
+      "id": "person_23",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lars",
+          "surname": "Olofsson"
+        }
+      ]
+    },
+    {
+      "id": "person_24",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Fia",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_25",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Alice",
+          "surname": "Näslund"
+        }
+      ]
+    },
+    {
+      "id": "person_26",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Jan",
+          "surname": "Jönsson"
+        },
+        {
+          "type": "other",
+          "given": "Jan",
+          "surname": "Jonsson"
+        }
+      ]
+    },
+    {
+      "id": "person_27",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Stina",
+          "surname": "Berggren"
+        },
+        {
+          "type": "other",
+          "given": "Stina",
+          "surname": "Jönsson"
+        }
+      ]
+    },
+    {
+      "id": "person_28",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Karl",
+          "surname": "Jönsson"
+        }
+      ]
+    },
+    {
+      "id": "person_29",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Katarina",
+          "surname": "Jönsson"
+        }
+      ]
+    },
+    {
+      "id": "person_30",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Frida",
+          "surname": "Hedberg"
+        }
+      ]
+    },
+    {
+      "id": "person_31",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Folke",
+          "surname": "Hedberg"
+        }
+      ]
+    },
+    {
+      "id": "person_32",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Klara",
+          "surname": "Hammar"
+        },
+        {
+          "type": "other",
+          "given": "Klara",
+          "surname": "Hedberg"
+        }
+      ]
+    },
+    {
+      "id": "person_33",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Rut",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_34",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kurt",
+          "surname": "Näslund"
+        }
+      ]
+    },
+    {
+      "id": "person_35",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Astrid",
+          "surname": "Hedlund"
+        }
+      ]
+    },
+    {
+      "id": "person_36",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kent",
+          "surname": "Hedlund"
+        }
+      ]
+    },
+    {
+      "id": "person_37",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Eva",
+          "surname": "Karlsson"
+        },
+        {
+          "type": "other",
+          "given": "Eva",
+          "surname": "Hedlund"
+        }
+      ]
+    },
+    {
+      "id": "person_38",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Märta",
+          "surname": "Karlsdotter"
+        }
+      ]
+    },
+    {
+      "id": "person_39",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Gösta",
+          "surname": "Karlsson"
+        }
+      ]
+    },
+    {
+      "id": "person_40",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Gösta",
+          "surname": "Berggren"
+        }
+      ]
+    },
+    {
+      "id": "person_41",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Klara",
+          "surname": "Österman"
+        }
+      ]
+    },
+    {
+      "id": "person_42",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Folke",
+          "surname": "Larsson"
+        }
+      ]
+    },
+    {
+      "id": "person_43",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Berit",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_44",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Greta",
+          "surname": "Larsson"
+        }
+      ]
+    },
+    {
+      "id": "person_45",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Göte",
+          "surname": "Larsson"
+        }
+      ]
+    },
+    {
+      "id": "person_46",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Arne",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_47",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Siv",
+          "surname": "Jansson"
+        },
+        {
+          "type": "other",
+          "given": "Siv",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_48",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Per",
+          "surname": "Knutsson"
+        }
+      ]
+    },
+    {
+      "id": "person_49",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Oskar Frans",
+          "surname": "Knutsson"
+        }
+      ]
+    },
+    {
+      "id": "person_50",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Eva",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_51",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Arne",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_52",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Siv",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_53",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lars Ove",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_54",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kristina",
+          "surname": "Svensson"
+        }
+      ]
+    },
+    {
+      "id": "person_55",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kurt",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_56",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Lisa",
+          "surname": "Lund"
+        }
+      ]
+    },
+    {
+      "id": "person_57",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Rutger",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_58",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Kurt Sune",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_59",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Alf",
+          "surname": "Rutgersson"
+        }
+      ]
+    },
+    {
+      "id": "person_60",
+      "sex": "M",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Sune",
+          "surname": "Rutgersson"
+        }
+      ]
+    },
+    {
+      "id": "person_61",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Beata",
+          "surname": "Rutgersson"
+        }
+      ]
+    },
+    {
+      "id": "person_62",
+      "sex": "U",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Rutger",
+          "surname": "Jansson"
+        }
+      ]
+    },
+    {
+      "id": "person_63",
+      "sex": "F",
+      "names": [
+        {
+          "type": "birth",
+          "given": "Margareta",
+          "surname": "Lindholm"
+        }
+      ]
+    }
+  ],
+  "families": [
+    {
+      "id": "family_1",
+      "partners": [
+        {
+          "person_id": "person_9",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_1",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_10"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_10",
+          "parent_id": "person_9",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_10",
+          "parent_id": "person_1",
+          "parentage_type": "biological"
+        }
+      ],
+      "event_ids": [
+        "event_83"
+      ]
+    },
+    {
+      "id": "family_2",
+      "partners": [
+        {
+          "person_id": "person_15",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_4",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_9",
+        "person_13",
+        "person_14"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_9",
+          "parent_id": "person_15",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_9",
+          "parent_id": "person_4",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_13",
+          "parent_id": "person_15",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_13",
+          "parent_id": "person_4",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_14",
+          "parent_id": "person_15",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_14",
+          "parent_id": "person_4",
+          "parentage_type": "biological"
+        }
+      ],
+      "event_ids": [
+        "event_84"
+      ]
+    },
+    {
+      "id": "family_3",
+      "partners": [
+        {
+          "person_id": "person_2",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_7",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_1"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_1",
+          "parent_id": "person_2",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_1",
+          "parent_id": "person_7",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_4",
+      "partners": [
+        {
+          "person_id": "person_13",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_16",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_12"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_12",
+          "parent_id": "person_13",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_12",
+          "parent_id": "person_16",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_5",
+      "partners": [
+        {
+          "person_id": "person_6",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_8",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_4"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_4",
+          "parent_id": "person_6",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_4",
+          "parent_id": "person_8",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_6",
+      "partners": [
+        {
+          "person_id": "person_5",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_3",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_6"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_6",
+          "parent_id": "person_5",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_6",
+          "parent_id": "person_3",
+          "parentage_type": "biological"
+        }
+      ],
+      "event_ids": [
+        "event_85"
+      ]
+    },
+    {
+      "id": "family_7",
+      "partners": [
+        {
+          "person_id": "person_11",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_63",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_15"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_15",
+          "parent_id": "person_11",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_15",
+          "parent_id": "person_63",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_8",
+      "partners": [
+        {
+          "person_id": "person_17",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_18",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_5"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_5",
+          "parent_id": "person_17",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_5",
+          "parent_id": "person_18",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_9",
+      "partners": [
+        {
+          "person_id": "person_20",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_19"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_19",
+          "parent_id": "person_20",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_10",
+      "partners": [
+        {
+          "person_id": "person_21",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_19",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_24"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_24",
+          "parent_id": "person_21",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_24",
+          "parent_id": "person_19",
+          "parentage_type": "biological"
+        }
+      ],
+      "event_ids": [
+        "event_86"
+      ]
+    },
+    {
+      "id": "family_11",
+      "partners": [
+        {
+          "person_id": "person_19",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_21",
+          "role": "wife"
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "family_12",
+      "partners": [
+        {
+          "person_id": "person_23",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_22",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_20"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_20",
+          "parent_id": "person_23",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_20",
+          "parent_id": "person_22",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_13",
+      "partners": [
+        {
+          "person_id": "person_28",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_27",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_26",
+        "person_29"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_26",
+          "parent_id": "person_28",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_26",
+          "parent_id": "person_27",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_29",
+          "parent_id": "person_28",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_29",
+          "parent_id": "person_27",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_14",
+      "partners": [
+        {
+          "person_id": "person_28",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_27",
+          "role": "wife"
+        }
+      ],
+      "children": [],
+      "event_ids": [
+        "event_87"
+      ]
+    },
+    {
+      "id": "family_15",
+      "partners": [
+        {
+          "person_id": "person_31",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_32",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_30"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_30",
+          "parent_id": "person_31",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_30",
+          "parent_id": "person_32",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_16",
+      "partners": [
+        {
+          "person_id": "person_34",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_33",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_25"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_25",
+          "parent_id": "person_34",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_25",
+          "parent_id": "person_33",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_17",
+      "partners": [
+        {
+          "person_id": "person_36",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_37",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_35"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_35",
+          "parent_id": "person_36",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_35",
+          "parent_id": "person_37",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_18",
+      "partners": [
+        {
+          "person_id": "person_38",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_22"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_22",
+          "parent_id": "person_38",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_19",
+      "partners": [
+        {
+          "person_id": "person_39",
+          "role": "husband"
+        }
+      ],
+      "children": [
+        "person_37"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_37",
+          "parent_id": "person_39",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_20",
+      "partners": [
+        {
+          "person_id": "person_40",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_41",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_27"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_27",
+          "parent_id": "person_40",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_27",
+          "parent_id": "person_41",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_21",
+      "partners": [
+        {
+          "person_id": "person_42",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_43",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_8",
+        "person_44",
+        "person_45"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_8",
+          "parent_id": "person_42",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_8",
+          "parent_id": "person_43",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_44",
+          "parent_id": "person_42",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_44",
+          "parent_id": "person_43",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_45",
+          "parent_id": "person_42",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_45",
+          "parent_id": "person_43",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_22",
+      "partners": [
+        {
+          "person_id": "person_46",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_47",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_33"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_33",
+          "parent_id": "person_46",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_33",
+          "parent_id": "person_47",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_23",
+      "partners": [
+        {
+          "person_id": "person_49",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_50",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_48"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_48",
+          "parent_id": "person_49",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_48",
+          "parent_id": "person_50",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_24",
+      "partners": [
+        {
+          "person_id": "person_51",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_52",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_50"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_50",
+          "parent_id": "person_51",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_50",
+          "parent_id": "person_52",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_25",
+      "partners": [
+        {
+          "person_id": "person_53",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_54",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_46"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_46",
+          "parent_id": "person_53",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_46",
+          "parent_id": "person_54",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_26",
+      "partners": [
+        {
+          "person_id": "person_55",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_56",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_52"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_52",
+          "parent_id": "person_55",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_52",
+          "parent_id": "person_56",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_27",
+      "partners": [
+        {
+          "person_id": "person_14",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_57",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_58"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_58",
+          "parent_id": "person_14",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_58",
+          "parent_id": "person_57",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_28",
+      "partners": [
+        {
+          "person_id": "person_60",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_61",
+          "role": "wife"
+        }
+      ],
+      "children": [
+        "person_59"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_59",
+          "parent_id": "person_60",
+          "parentage_type": "biological"
+        },
+        {
+          "child_id": "person_59",
+          "parent_id": "person_61",
+          "parentage_type": "biological"
+        }
+      ]
+    },
+    {
+      "id": "family_29",
+      "partners": [
+        {
+          "person_id": "person_62",
+          "role": "husband"
+        },
+        {
+          "person_id": "person_14",
+          "role": "wife"
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "family_31",
+      "partners": [
+        {
+          "person_id": "person_62",
+          "role": "partner"
+        },
+        {
+          "person_id": "person_14",
+          "role": "mother"
+        }
+      ],
+      "children": [
+        "person_59"
+      ],
+      "parent_child_links": [
+        {
+          "child_id": "person_59",
+          "parent_id": "person_62",
+          "parentage_type": "foster"
+        },
+        {
+          "child_id": "person_59",
+          "parent_id": "person_14",
+          "parentage_type": "foster"
+        }
+      ],
+      "event_ids": [
+        "event_77"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "event_1",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_1",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1978-05-06",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_4"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_1",
+        "owner_xref": "@I1@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "a46e2d25ecf615553a35e0cc32a449374a59f905a0d47560f21f5104ee4ba7f0",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_2",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_2",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1948-08-08",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_2",
+        "owner_xref": "@I2@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "40210e61a6151ebcead179a8885a92eb2388c51f7847b32368d52aac67b1e25f",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_3",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_3",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1889-12-17",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_7"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_3",
+        "owner_xref": "@I3@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "bb8521689f217021a0d4b1f4fdebad39f4a6c90be602aae6ee970289cbdf7139",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_4",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_3",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1922-01-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_3",
+        "owner_xref": "@I3@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "404d092f8744310610e5993ae1e456314fb4072721d42bbc0954539577442b5e",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_5",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_4",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1955-05-04",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_9"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_4",
+        "owner_xref": "@I4@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "194b1a174eba61d92e38eed2cb287e0150a30487f2d155d2f1d5e8a6126a4f34",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_6",
+      "type": "baptism",
+      "participants": [
+        {
+          "person_id": "person_4",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1955-08-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_9"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_4",
+        "owner_xref": "@I4@",
+        "tag_key": "BAPM",
+        "index": 0,
+        "record_hash": "8effb934f8b40585f3c47513c325b5a0d1fcf6fbb5e7f771d06233848083ebe0",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_7",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_5",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1888-11-14",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_10"
+      },
+      "source_refs": [
+        {
+          "source_id": "source_3",
+          "quality": "secondary"
+        }
+      ],
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_5",
+        "owner_xref": "@I5@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "e3f1ede28c34d6ab9e603260c70c3685d97930a11d6081d9c10b3e3bccb3579b",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_8",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_6",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1912-05-06",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_6",
+        "owner_xref": "@I6@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "bfabb3367665fe27ca2e6ade8c309c4cb7300e1aa916c1644641060e3c166d02",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_9",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_6",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1994-11-15",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      },
+      "source_refs": [
+        {
+          "source_id": "source_4",
+          "quality": "secondary"
+        }
+      ],
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_6",
+        "owner_xref": "@I6@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "5c3856efac26cfeb19779d091d909fb1df246710690493f2369d1a98a0efe968",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_10",
+      "type": "burial",
+      "participants": [
+        {
+          "person_id": "person_6",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1994-12-02",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_11"
+      },
+      "source_refs": [
+        {
+          "source_id": "source_4",
+          "quality": "secondary"
+        }
+      ],
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_6",
+        "owner_xref": "@I6@",
+        "tag_key": "BURI",
+        "index": 0,
+        "record_hash": "0abc57635047fbe3463625ef4215d0bad2212ac669ed309043da80b55f408e39",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_11",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_7",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1949-09-09",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_13"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_7",
+        "owner_xref": "@I7@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "b40c726929876eb879df2639df661a96ed10e019049de92c02538f0d67d43e8b",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_12",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_8",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1912-08-05",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_15"
+      },
+      "source_refs": [
+        {
+          "source_id": "source_1",
+          "quality": "secondary"
+        },
+        {
+          "source_id": "source_2",
+          "quality": "secondary"
+        }
+      ],
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_8",
+        "owner_xref": "@I8@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "a433c3fa7eeeb1ffab295c2744915a7cd7b603895056b7c404ba37055d04f2c0",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_13",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_8",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1987-12-16",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_8",
+        "owner_xref": "@I8@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "22c4c64b925d12cebdfeb622947c0bfa3354339593ad58bb731a592f24f3dc43",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_14",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_9",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1975-01-15",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_16"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_9",
+        "owner_xref": "@I9@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "cc0af35b6fdcf77f62accabb2583daf524e000e65831bfcb00df84a018a57366",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_15",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_10",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1998-08-09",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_17"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_10",
+        "owner_xref": "@I10@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "28138ced3300e12584ad99cf449609a925e5483372a9870a39b156f7838b1245",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_16",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_11",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1914-09-17",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_11",
+        "owner_xref": "@I11@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "9078f92709038d9b8895c787bb0753543e185df08bbf6c6fb64fc1193546601c",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_17",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_11",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1984-06-15",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_17"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_11",
+        "owner_xref": "@I11@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "0007aaf08cfe7b88ff0672591787588c6748bf8b47406972de621ea33d38d32b",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_18",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_12",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "2001-08-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_16"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_12",
+        "owner_xref": "@I12@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "0272fcf82d61bbe64b8425246accfb55bfb605dce2586ac3964deb3156bea4ff",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_19",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_13",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1976-11-23",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_16"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_13",
+        "owner_xref": "@I13@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "d8aa22071dc7f8e0e43076faf94ad3a8326fc9d13bc0a999a30b184c944cbf3e",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_20",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_14",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1978-08-09",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_14",
+        "owner_xref": "@I14@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "f7e1f7c410c9602e6b5711edf902c47201108611161df07000cfd3796fcc3fb6",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_21",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_14",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1978-08-09",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_14",
+        "owner_xref": "@I14@",
+        "tag_key": "BIRT",
+        "index": 1,
+        "record_hash": "b844c83ee2f57122f82bc2c130ea82dd5e93af31ff413c10dbee06a845c42fa1",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_22",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_15",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1952-03-04",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_17"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_15",
+        "owner_xref": "@I15@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "82bb4712453c546774d067ab6e5915916c1a5e615bd0ed8e09411aa3b48c6cf7",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_23",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_16",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1977-06-05",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_16",
+        "owner_xref": "@I16@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "1ce6ee55fee1193ebdc002bcc1a73325159d9e0bdb00f116ed3ef2917aedb6f6",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_24",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_17",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1854-12-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_17",
+        "owner_xref": "@I17@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "d99400a4b106d35860cad1fca1c72c8ada57bd85a2da32f4994fac4034b56ff3",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_25",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_18",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1855-11-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_18",
+        "owner_xref": "@I18@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "f95fda13a0f443fc3ccc083d74f658dbea3b4f3b9afb7d7e35a411e83e909ca2",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_26",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_19",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1888-11-14",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_16"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_19",
+        "owner_xref": "@I19@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "5abc68622ed92babaef9ed06ff16f092e1caef57b48a3f759e8b6b91c4c3cc74",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_27",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_19",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1956-03-03",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_19",
+        "owner_xref": "@I19@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "b1aa53494b7f84ded4788f8073c399635a29129d198b66af51707921f5e1d9c4",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_28",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_20",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1855-11-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_20",
+        "owner_xref": "@I20@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "f95fda13a0f443fc3ccc083d74f658dbea3b4f3b9afb7d7e35a411e83e909ca2",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_29",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_20",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1912-10-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_20",
+        "owner_xref": "@I20@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "3345ceefb43d74196c9e808f389c72289d52c9071aafc699bfd441f9e771358c",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_30",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_21",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1891-03-12",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_21",
+        "owner_xref": "@I21@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "ed297344586ce3144b0c7a142e55bbcbf74a699f63285dd88441b6ed484eec5e",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_31",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_22",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1812-05-06",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_9"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_22",
+        "owner_xref": "@I22@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "be75986b4870fb84645289235dd27dc8ba067ddf4ab210ac9e024ea2ed34d677",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_32",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_22",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1902-01-03",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_22",
+        "owner_xref": "@I22@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "9cf516a752127bb1efbbec703d9d119b89ffd5d621cee4b03dcab4b598cdf324",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_33",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_23",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1810-02-17",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_23",
+        "owner_xref": "@I23@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "e17dc108544a31009d45b94b98d9d160adbde95d6885ed452afe773d252b3a31",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_34",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_23",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1901-11-06",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_23",
+        "owner_xref": "@I23@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "30cd77297a77d0b6e8d92edcb8312def4e818134ef93a9f8f5d8e6b3049447ef",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_35",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_24",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1924-05-06",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_24",
+        "owner_xref": "@I24@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "cb79ba62d3da7f6a4fe6738f949c24309a01c26b766c8edc9f0acc8ae9340646",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_36",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_25",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "2002-05-22",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_25",
+        "owner_xref": "@I25@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "c8a3be466d2b9ce54c74422e4ad3a348f403d617b23a275146b2c4bd93e9feb0",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_37",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_26",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1996-08-08",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_18"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_26",
+        "owner_xref": "@I26@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "61aa2283b82ca62dccc08899c772db8177a78f6d41322c2e16d3f2bc46348f79",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_38",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_26",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1996-08-09",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_26",
+        "owner_xref": "@I26@",
+        "tag_key": "BIRT",
+        "index": 1,
+        "record_hash": "74e06f0bf4b17f2d2109c730ec56d0208fd32048774de74f7b21fbd55a91c184",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_39",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_27",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1971-01-05",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_19"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_27",
+        "owner_xref": "@I27@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "3ce31223ec33c16aaf3785737e0bd684aa66069b716c7f7de85181081c47bff8",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_40",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_28",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1968-09-01",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_20"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_28",
+        "owner_xref": "@I28@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "4b8d57c9c493f1cc3d59e38935c5889ebb677a5b0e963a8e4bf1722d4889c593",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_41",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_29",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1998-09-05",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_18"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_29",
+        "owner_xref": "@I29@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "395cb09cf7626353762ee9946b3439f530e2b442ddec8b51a53aaf694732d555",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_42",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_30",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1982-12-04",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_30",
+        "owner_xref": "@I30@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "bf9fe76d8ffb29af59132e3f327a9af5d437dd1c3e52f2223558da8f727c72d5",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_43",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_31",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1954-01-17",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_21"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_31",
+        "owner_xref": "@I31@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "0f4353577e93eca0076ab1c124cde5aa0c0ef9eeb80a5d71f3c36d221d9ce2a6",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_44",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_32",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1960-11-18",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_32",
+        "owner_xref": "@I32@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "bf5371ecccae8674920004dd25e881c68ecc4991c662877ff7e71a8bb3c37d63",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_45",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_33",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1978-09-15",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_33",
+        "owner_xref": "@I33@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "ebe8b15b38fdfd3aefdbb30ae730ed94ce35661dd6e4149f9be2de5544d52a8e",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_46",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_34",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1977-11-19",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_9"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_34",
+        "owner_xref": "@I34@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "9d2903b0af3f327af84794a38420e9d3a9e6dcb1396519704062669ea6cdf6a7",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_47",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_35",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1998-02-01",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_35",
+        "owner_xref": "@I35@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "8c2a3298cd164afdbaf4edf865c8e7247136435803cc06fe9fc932517185c83f",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_48",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_36",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1969-12-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_36",
+        "owner_xref": "@I36@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "f12e970a97bab0cb72ba6fc78011cc3204d52fadab44acd9cb1c0ef1291f9e9a",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_49",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_37",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1971-03-11",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_37",
+        "owner_xref": "@I37@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "604c18c268ba9d6c86898027d420cc6605668ab5254135c9272384dd4b9da10e",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_50",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_38",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1789-06-06",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_9"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_38",
+        "owner_xref": "@I38@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "a3e232469bf45fe6cd5fa261f33fe9ce383db8bc3efe8278b13510ea2becf6aa",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_51",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_38",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1847-11-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_38",
+        "owner_xref": "@I38@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "e8381782e0b3f0f4b68eb7ae027ba4310478972254047d8790bdd8d8a709f1d1",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_52",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_39",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1947-11-11",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_39",
+        "owner_xref": "@I39@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "dc99842cf5cb21e7ae351c0b9945a005c3f7674591176b1fac2d4df4aa18a217",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_53",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_40",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1942-01-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_40",
+        "owner_xref": "@I40@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "f1cf8190c86ae68ee1286fef0b51e3f2b057b11f67aa6f8c805ac8e12cc85f03",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_54",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_41",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1943-02-28",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_41",
+        "owner_xref": "@I41@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "a3f4811b61a5138170d77446ff23445e1c766d863629c5128342510946ec939b",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_55",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_42",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1885-04-15",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_7"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_42",
+        "owner_xref": "@I43@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "7f3841d3d2b83d1c0fa87a20b3082bf20e40cb54c1bb78194976ed0870a0f926",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_56",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_43",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1882-04-30",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_15"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_43",
+        "owner_xref": "@I44@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "4fdf59b1b3a8501bd6cee1785b56e7c61dec6b0884cca38b7a1fe940dacd2d20",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_57",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_44",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1914-06-28",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_15"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_44",
+        "owner_xref": "@I45@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "34b3b22403a2ba6222943b3aa463472d59623618fbb39a48fef83ddf2c33b11a",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_58",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_44",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1993-08-15",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_44",
+        "owner_xref": "@I45@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "67d8197138a3dd584a91e75a5cb720dc7b425ec6e0180ad4dd9fa4d365e8f6b8",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_59",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_45",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1910-09-30",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_15"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_45",
+        "owner_xref": "@I46@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "e4f49340f200502db6079a494728612acb3efd4733d26848d4bdd00f3b8e688c",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_60",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_45",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "2002-08-28",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_45",
+        "owner_xref": "@I46@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "b5219ac701c5df2dad820038a482a0347eb2c44c9d4fe02692e8fd9e4630d25c",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_61",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_46",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1954-03-20",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_46",
+        "owner_xref": "@I47@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "09a90898ea0bbc5b8f5877919e7d9eeadc676c5c7c41c24bba063d3c581f2f99",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_62",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_47",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1955-12-06",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_47",
+        "owner_xref": "@I48@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "4b0f55cab998a56c91374840b2acda2e33d4eca50830e805b7b98a5f275cebe8",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_63",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_48",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "2005-02-28",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_48",
+        "owner_xref": "@I49@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "2ce60c50e718766c18b714613c60c8fab1a35d077b6e5fda23ab47eb55a8c6b9",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_64",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_49",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1977-12-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_49",
+        "owner_xref": "@I50@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "94360590c72f9cea05268143cfc04ec5cc8066788e645b2eac820727ed8530d5",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_65",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_50",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1980-03-28",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_50",
+        "owner_xref": "@I51@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "0218d8fabfa2be2483e7e71566d54173b6ca54e0c325fbf34955550464945dfa",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_66",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_51",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1954-03-20",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_51",
+        "owner_xref": "@I52@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "09a90898ea0bbc5b8f5877919e7d9eeadc676c5c7c41c24bba063d3c581f2f99",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_67",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_52",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1955-12-06",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_52",
+        "owner_xref": "@I53@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "4b0f55cab998a56c91374840b2acda2e33d4eca50830e805b7b98a5f275cebe8",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_68",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_53",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1918-03-31",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_53",
+        "owner_xref": "@I54@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "bac8630c6c9c200a30a6b7f03f1cf7598ff87a0958af3316a23d63706d629d34",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_69",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_53",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1994-09-29",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_53",
+        "owner_xref": "@I54@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "684a1235f38d513795a39f667ed690c9ac17cd0f8cd5584bc191a0098a47b7bd",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_70",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_54",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1921-05-16",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_54",
+        "owner_xref": "@I55@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "0c6776e5b69e98ae3b8c1bc90e8c5471640d67b8028906113594de9084f5b004",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_71",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_54",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "2012-12-16",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_54",
+        "owner_xref": "@I55@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "3bc2d71921d2736c8c32966c0e5a46f2313e4f1bbb4d1d8e488cf69bc8ef61d2",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_72",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_55",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1935-06-15",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_55",
+        "owner_xref": "@I56@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "a240a131797c5f9f734f71efd6783266246e41f65f40425a4a27f3dfebb48e28",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_73",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_56",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1933-03-03",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_56",
+        "owner_xref": "@I57@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "3ec1deaf864291d80db8e0f3d8011dbddc814ca8c9c53a8c465cf4c46ba44a12",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_74",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_57",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1975-02-13",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_57",
+        "owner_xref": "@I58@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "4ed239be22e64549c5c5ab660d900bbccc2927d799fe7a78f116a5f64ab923ad",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_75",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_58",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1999-05-18",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_58",
+        "owner_xref": "@I59@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "86861177c834661dffbec6a65373a04950041ab5c0792c3b93b2068d51effff9",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_76",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_59",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "2002-03-12",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_59",
+        "owner_xref": "@I60@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "5d3718b62229c30b8521978f463cc1903801ccf067e9ab42a86465576489f220",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_77",
+      "type": "foster_home",
+      "participants": [
+        {
+          "person_id": "person_59",
+          "role": "fosterbarn"
+        },
+        {
+          "person_id": "person_62",
+          "role": "fosterförälder"
+        },
+        {
+          "person_id": "person_14",
+          "role": "fosterförälder"
+        }
+      ],
+      "date": {
+        "value": "2007-06-17",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_59",
+        "owner_xref": "@I60@",
+        "tag_key": "EVEN:fosterhem",
+        "index": 0,
+        "record_hash": "cc96be01c4a10aef7bf73d30dadea719b4b53cbce7398208352ae92b3cfb553e",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_78",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_60",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1980-02-27",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_60",
+        "owner_xref": "@I61@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "d2cb3e6271ea6524a92a4e32f31ef658a3837a6e3df99931d93565a20671a8ff",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_79",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_61",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1984-09-19",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_61",
+        "owner_xref": "@I62@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "8f1847a25d0b1d7ac28d2b9c39570b020d6a7ffc545c6a5ad3ba597a2beaa121",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_80",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_62",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1975-02-13",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_62",
+        "owner_xref": "@I63@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "4ed239be22e64549c5c5ab660d900bbccc2927d799fe7a78f116a5f64ab923ad",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_81",
+      "type": "birth",
+      "participants": [
+        {
+          "person_id": "person_63",
+          "role": "subject"
+        }
+      ],
+      "date": {
+        "value": "1916-02-09",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_63",
+        "owner_xref": "@I65@",
+        "tag_key": "BIRT",
+        "index": 0,
+        "record_hash": "279a384ae4c9f7fc84e326feccecafb039194ef1a147a4c17252c5597eb3045b",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_82",
+      "type": "death",
+      "participants": [
+        {
+          "person_id": "person_63",
+          "role": "subject"
+        }
+      ],
+      "origin": {
+        "owner_kind": "INDI",
+        "owner_id": "person_63",
+        "owner_xref": "@I65@",
+        "tag_key": "DEAT",
+        "index": 0,
+        "record_hash": "a964d78c783a7eeb4a16a4a4b71000bc7379cdf944c7075928144e95b25c4948",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_83",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_9",
+          "role": "spouse"
+        },
+        {
+          "person_id": "person_1",
+          "role": "spouse"
+        }
+      ],
+      "date": {
+        "value": "1998-06-23",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_23"
+      },
+      "origin": {
+        "owner_kind": "FAM",
+        "owner_id": "family_1",
+        "owner_xref": "@F1@",
+        "tag_key": "MARR",
+        "index": 0,
+        "record_hash": "39a5d609cdcd145f604fdd939671e2a14796a3e6f8fea76e4cc644695ada8faa",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_84",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_15",
+          "role": "spouse"
+        },
+        {
+          "person_id": "person_4",
+          "role": "spouse"
+        }
+      ],
+      "date": {
+        "value": "1974-12-09",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "FAM",
+        "owner_id": "family_2",
+        "owner_xref": "@F2@",
+        "tag_key": "MARR",
+        "index": 0,
+        "record_hash": "a32b2df5573814d912d847089b5d773f2add20114f8332aff6754c255af86900",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_85",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_5",
+          "role": "spouse"
+        },
+        {
+          "person_id": "person_3",
+          "role": "spouse"
+        }
+      ],
+      "date": {
+        "value": "1910-08-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_7"
+      },
+      "origin": {
+        "owner_kind": "FAM",
+        "owner_id": "family_6",
+        "owner_xref": "@F6@",
+        "tag_key": "MARR",
+        "index": 0,
+        "record_hash": "09b09058eed88fdeb79bb1e3ec25a7d4467756673dfcbb2ad6d6a3ef906c3e42",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_86",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_21",
+          "role": "spouse"
+        },
+        {
+          "person_id": "person_19",
+          "role": "spouse"
+        }
+      ],
+      "date": {
+        "value": "1926-04-11",
+        "precision": "day"
+      },
+      "origin": {
+        "owner_kind": "FAM",
+        "owner_id": "family_10",
+        "owner_xref": "@X41703@",
+        "tag_key": "MARR",
+        "index": 0,
+        "record_hash": "ada92b12c53f660325152ff31395d6b9446a43083cee5a9fa5b7c40dd74ea411",
+        "instance": 0
+      }
+    },
+    {
+      "id": "event_87",
+      "type": "marriage",
+      "participants": [
+        {
+          "person_id": "person_28",
+          "role": "spouse"
+        },
+        {
+          "person_id": "person_27",
+          "role": "spouse"
+        }
+      ],
+      "date": {
+        "value": "1991-05-12",
+        "precision": "day"
+      },
+      "place": {
+        "place_id": "place_6"
+      },
+      "origin": {
+        "owner_kind": "FAM",
+        "owner_id": "family_14",
+        "owner_xref": "@X67517@",
+        "tag_key": "MARR",
+        "index": 0,
+        "record_hash": "0b23e091ef7f021b5967577c3e969e3ab9f0aeebfa8492f3dff28d9abe4aaaab",
+        "instance": 0
+      }
+    }
+  ],
+  "residences": [
+    {
+      "id": "residence_1",
+      "person_id": "person_8",
+      "place_id": "place_13",
+      "start": {
+        "latest": "1912-08-05",
+        "precision": "day"
+      },
+      "end": {
+        "earliest": "1923",
+        "precision": "year"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "source_1",
+            "quality": "secondary"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "owner_kind": "INDI",
+          "owner_id": "person_8",
+          "owner_xref": "@I8@",
+          "tag_key": "RESI",
+          "index": 0,
+          "record_hash": "1821574fd4ea8394adbc9a20fec7cc6bbd12b49e432e59f4057bc0a5413a7bb5",
+          "instance": 0
+        }
+      ]
+    },
+    {
+      "id": "residence_2",
+      "person_id": "person_19",
+      "place_id": "place_16",
+      "start": {
+        "latest": "1888-11-15",
+        "precision": "day"
+      },
+      "end": {
+        "earliest": "1926-04-11",
+        "precision": "day"
+      },
+      "origins": [
+        {
+          "owner_kind": "INDI",
+          "owner_id": "person_19",
+          "owner_xref": "@I19@",
+          "tag_key": "RESI",
+          "index": 0,
+          "record_hash": "175f7557f9d76ec2d86f363a4eaadc0f2521bce24eadfde1196205bde28beefa",
+          "instance": 0
+        }
+      ]
+    },
+    {
+      "id": "residence_3",
+      "person_id": "person_19",
+      "place_id": "place_17",
+      "start": {
+        "latest": "1926-04-11",
+        "precision": "day"
+      },
+      "end": {},
+      "origins": [
+        {
+          "owner_kind": "INDI",
+          "owner_id": "person_19",
+          "owner_xref": "@I19@",
+          "tag_key": "RESI",
+          "index": 1,
+          "record_hash": "04f70a0b6d07ee89a7ad5df31b47a14ef1692e98a81b2400beb6c0b31cb587f7",
+          "instance": 0
+        }
+      ]
+    },
+    {
+      "id": "residence_4",
+      "person_id": "person_42",
+      "place_id": "place_15",
+      "start": {
+        "latest": "1910",
+        "precision": "year"
+      },
+      "end": {
+        "earliest": "1923",
+        "precision": "year"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "source_1",
+            "quality": "secondary"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "owner_kind": "INDI",
+          "owner_id": "person_42",
+          "owner_xref": "@I43@",
+          "tag_key": "RESI",
+          "index": 0,
+          "record_hash": "5218c3b58a6042614d960d652698d86806cf06d5d2f489bdd8e2188658c78631",
+          "instance": 0
+        }
+      ]
+    },
+    {
+      "id": "residence_5",
+      "person_id": "person_43",
+      "place_id": "place_15",
+      "start": {
+        "latest": "1910",
+        "precision": "year"
+      },
+      "end": {
+        "earliest": "1923",
+        "precision": "year"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "source_1",
+            "quality": "secondary"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "owner_kind": "INDI",
+          "owner_id": "person_43",
+          "owner_xref": "@I44@",
+          "tag_key": "RESI",
+          "index": 0,
+          "record_hash": "5218c3b58a6042614d960d652698d86806cf06d5d2f489bdd8e2188658c78631",
+          "instance": 0
+        }
+      ]
+    },
+    {
+      "id": "residence_6",
+      "person_id": "person_44",
+      "place_id": "place_13",
+      "start": {
+        "latest": "1914-06-28",
+        "precision": "day"
+      },
+      "end": {
+        "earliest": "1923",
+        "precision": "year"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "source_1",
+            "quality": "secondary"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "owner_kind": "INDI",
+          "owner_id": "person_44",
+          "owner_xref": "@I45@",
+          "tag_key": "RESI",
+          "index": 0,
+          "record_hash": "594d11bd729b707786ea5c977967f695c15fcc57cafb38269ce73f03d7bfa459",
+          "instance": 0
+        }
+      ]
+    },
+    {
+      "id": "residence_7",
+      "person_id": "person_45",
+      "place_id": "place_15",
+      "start": {
+        "latest": "1910-09-30",
+        "precision": "day"
+      },
+      "end": {
+        "earliest": "1923",
+        "precision": "year"
+      },
+      "observations": [
+        {
+          "source_ref": {
+            "source_id": "source_1",
+            "quality": "secondary"
+          }
+        }
+      ],
+      "origins": [
+        {
+          "owner_kind": "INDI",
+          "owner_id": "person_45",
+          "owner_xref": "@I46@",
+          "tag_key": "RESI",
+          "index": 0,
+          "record_hash": "8b35c39381f546448305c6b5e6dfaa074dfce918c5044e95dfdac8d9b49af086",
+          "instance": 0
+        }
+      ]
+    }
+  ],
+  "places": [
+    {
+      "id": "place_1",
+      "type": "continent",
+      "name": "Europa",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_2",
+      "type": "country",
+      "name": "Sverige",
+      "parent_place_id": "place_1",
+      "region_levels": [
+        {
+          "key": "lan",
+          "label": "Län",
+          "order": 1,
+          "custom_fields": [
+            {
+              "key": "code",
+              "label": "Länsbokstav"
+            }
+          ]
+        },
+        {
+          "key": "socken",
+          "label": "Socken",
+          "order": 2
+        }
+      ],
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_3",
+      "type": "lan",
+      "name": "Västerbottens län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "AC"
+      }
+    },
+    {
+      "id": "place_4",
+      "type": "socken",
+      "name": "Umeå",
+      "parent_place_id": "place_3",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_5",
+      "type": "lan",
+      "name": "Värmlands län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "S"
+      }
+    },
+    {
+      "id": "place_6",
+      "type": "socken",
+      "name": "Karlstad",
+      "parent_place_id": "place_5",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_7",
+      "type": "socken",
+      "name": "Ed",
+      "parent_place_id": "place_5",
+      "latitude": 59.291264,
+      "longitude": 13.072861,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_8",
+      "type": "lan",
+      "name": "Gävleborgs län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "X"
+      }
+    },
+    {
+      "id": "place_9",
+      "type": "socken",
+      "name": "Forsa",
+      "parent_place_id": "place_8",
+      "latitude": 61.73415,
+      "longitude": 16.939317,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_10",
+      "type": "socken",
+      "name": "Lysvik",
+      "parent_place_id": "place_5",
+      "latitude": 60.014444,
+      "longitude": 13.132222,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_11",
+      "type": "ort",
+      "name": "Västerstrandskyrkan",
+      "parent_place_id": "place_6",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_12",
+      "type": "lan",
+      "name": "Jämtlands län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "Z"
+      }
+    },
+    {
+      "id": "place_13",
+      "type": "socken",
+      "name": "Östersund",
+      "parent_place_id": "place_12",
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_14",
+      "type": "lan",
+      "name": "Kopparbergs län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "W"
+      }
+    },
+    {
+      "id": "place_15",
+      "type": "socken",
+      "name": "Våmhus",
+      "parent_place_id": "place_14",
+      "latitude": 61.123694,
+      "longitude": 14.472556,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_16",
+      "type": "socken",
+      "name": "Falun",
+      "parent_place_id": "place_14",
+      "latitude": 60.607778,
+      "longitude": 15.631111,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_17",
+      "type": "socken",
+      "name": "Gävle",
+      "parent_place_id": "place_8",
+      "latitude": 60.672778,
+      "longitude": 17.138056,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_18",
+      "type": "socken",
+      "name": "Norrbo",
+      "parent_place_id": "place_8",
+      "latitude": 61.853556,
+      "longitude": 16.639361,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_19",
+      "type": "socken",
+      "name": "Ljusdal",
+      "parent_place_id": "place_8",
+      "latitude": 61.828333,
+      "longitude": 16.0725,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_20",
+      "type": "socken",
+      "name": "Järvsö",
+      "parent_place_id": "place_8",
+      "latitude": 61.709442,
+      "longitude": 16.181331,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_21",
+      "type": "socken",
+      "name": "Ekshärad",
+      "parent_place_id": "place_5",
+      "latitude": 60.172567,
+      "longitude": 13.497564,
+      "custom_field_values": {}
+    },
+    {
+      "id": "place_22",
+      "type": "lan",
+      "name": "Uppsala län",
+      "parent_place_id": "place_2",
+      "custom_field_values": {
+        "code": "C"
+      }
+    },
+    {
+      "id": "place_23",
+      "type": "socken",
+      "name": "Enköping",
+      "parent_place_id": "place_22",
+      "latitude": 59.638692,
+      "longitude": 17.082631,
+      "custom_field_values": {}
+    }
+  ],
+  "sources": [
+    {
+      "id": "source_1",
+      "provider": "",
+      "source_type": "church_book",
+      "title": "Våmhus AII:2c Sida: 272",
+      "reference_text": "Våmhus (W) AII:2c (1910-1923) Bild: 70 Sida: 272",
+      "structured_reference": {
+        "fields": {
+          "parish": "Våmhus",
+          "county_code": "W",
+          "series": "AII",
+          "volume": "2c",
+          "years": "1910-1923",
+          "image": 70,
+          "page": 272
+        }
+      }
+    },
+    {
+      "id": "source_2",
+      "provider": "",
+      "source_type": "church_book",
+      "title": "Våmhus C:3 Sida: 146",
+      "reference_text": "Våmhus (W) C:3 (1895-1917) Bild: 430 Sida: 146",
+      "structured_reference": {
+        "fields": {
+          "parish": "Våmhus",
+          "county_code": "W",
+          "series": "C",
+          "volume": "3",
+          "years": "1895-1917",
+          "image": 430,
+          "page": 146
+        }
+      }
+    },
+    {
+      "id": "source_3",
+      "provider": "",
+      "source_type": "church_book",
+      "title": "Lysvik C:11 Bild: 55",
+      "reference_text": "Lysvik (S) C:11 (1885-1894) Bild: 55",
+      "structured_reference": {
+        "fields": {
+          "parish": "Lysvik",
+          "county_code": "S",
+          "series": "C",
+          "volume": "11",
+          "years": "1885-1894",
+          "image": 55,
+          "page": null
+        }
+      }
+    },
+    {
+      "id": "source_4",
+      "provider": "",
+      "source_type": "death_notice",
+      "title": "Dödsannons Janne Karsson d. 1994",
+      "reference_text": "Dödsannons Janne Karsson d. 1994",
+      "structured_reference": {
+        "fields": {}
+      }
+    }
+  ],
+  "media": [],
+  "repositories": [],
+  "dna_companies": [],
+  "dna_profiles": [],
+  "dna_matches": [],
+  "dna_segments": [],
+  "dna_clusters": [],
+  "dna_triangulations": [],
+  "research_notes": [],
+  "leverantorer": [
+    {
+      "id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Arkiv Digital"
+    },
+    {
+      "id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Nationell arkivdatabas"
+    },
+    {
+      "id": "b3522f28-fde9-43eb-a75c-b811a8dc664e",
+      "name": "Rötter.se"
+    },
+    {
+      "id": "880588fc-0d5b-434e-9e25-86236cfc1564",
+      "name": "Skatteverket"
+    },
+    {
+      "id": "b04da7bd-296a-43c0-911c-2e059b18d08b",
+      "name": "Övrigt"
+    }
+  ],
+  "kalltyper": [
+    {
+      "id": "2e928232-9638-4941-8381-4743183b05e6",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Husförhörslängd"
+    },
+    {
+      "id": "9c38f22f-5aa2-462a-a5b6-034949b1ba04",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Församlingsbok"
+    },
+    {
+      "id": "09c35a24-8508-4ff0-bcf2-5a2222ca7ada",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Mantalslängd"
+    },
+    {
+      "id": "406451a4-b528-446a-947a-22b2e718d49d",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Folkräkning"
+    },
+    {
+      "id": "72859fd5-0814-44bf-bdbe-2c235238a101",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Inflyttningslängd"
+    },
+    {
+      "id": "208d121b-6d15-4365-b8f4-c1e26c65de75",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Utflyttningslängd"
+    },
+    {
+      "id": "3c36616f-9cd2-4ba6-90c8-c790ec131384",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "In- och Utflyttningslängd"
+    },
+    {
+      "id": "b23b03c6-453e-4552-9829-5e8c53a0d1a1",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Födelse- och dopbok"
+    },
+    {
+      "id": "06fb42fe-540f-48e3-a7d8-07c23ab9a9d4",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Lysnings- och vigselbok"
+    },
+    {
+      "id": "aa045232-712c-4f4e-a8df-688a15a6f834",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Död- och begravningsbok"
+    },
+    {
+      "id": "468da3b6-8350-4219-ace6-d5cc69819545",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Generalmönstringsrullor"
+    },
+    {
+      "id": "a186e737-5dc1-4061-8518-51c279dbf5bf",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Bouppteckningar"
+    },
+    {
+      "id": "f9a2be3f-9f39-4b58-b77e-44778ee1fbf8",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Konfirmationsbok"
+    },
+    {
+      "id": "67879786-5b0b-47a5-b27a-61c8a4e60e78",
+      "leverantor_id": "07c328dc-98c0-4ce5-89af-0a92ca94d361",
+      "name": "Övrigt"
+    },
+    {
+      "id": "a4f74b2b-7954-4444-a3a4-f23d440d8e4e",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Husförhörslängd"
+    },
+    {
+      "id": "94e85738-1b0a-4814-a714-9cf4ca1596a1",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Församlingsbok"
+    },
+    {
+      "id": "6995c568-f00f-4d3c-b475-41e6db1832bf",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Mantalslängd"
+    },
+    {
+      "id": "0649f775-5bed-40fe-a906-e7006b590f9c",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Folkräkning"
+    },
+    {
+      "id": "3d00e636-4529-45ad-bafc-ce3f39b5340c",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Inflyttningslängd"
+    },
+    {
+      "id": "dc02ab52-10ee-41f6-8279-a72b9f0fd92f",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Utflyttningslängd"
+    },
+    {
+      "id": "ea9531a5-121d-48af-b244-5fa85a7f55b1",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "In- och Utflyttningslängd"
+    },
+    {
+      "id": "49ea50e7-b6fc-4b75-b558-d6e69dd15fe2",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Födelse- och dopbok"
+    },
+    {
+      "id": "831cb2cf-f0f0-48fb-85cf-761bbcfbeb51",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Lysnings- och vigselbok"
+    },
+    {
+      "id": "f1363fc6-73ca-44c0-b9cd-b07a4964fbaa",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Död- och begravningsbok"
+    },
+    {
+      "id": "bd9e8ea9-e278-429f-ae87-173257c5e7bb",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Generalmönstringsrullor"
+    },
+    {
+      "id": "3060ee5c-2847-4903-be03-5c4387021d5b",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Bouppteckningar"
+    },
+    {
+      "id": "f2de31c5-12b5-4d58-87f9-597b0060e7c9",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Konfirmationsbok"
+    },
+    {
+      "id": "ffac8631-eb77-4794-aa56-cffb827dd543",
+      "leverantor_id": "cc97c3d4-414c-4045-bc42-6cebfe059881",
+      "name": "Övrigt"
+    },
+    {
+      "id": "11953939-7bf0-4d41-8487-aef46871f951",
+      "leverantor_id": "b3522f28-fde9-43eb-a75c-b811a8dc664e",
+      "name": "Sveriges Dödbok Webb",
+      "root_url": "https://www.rotter.se/abonnemang/sveriges-dodbok-webb/post/"
+    },
+    {
+      "id": "cc89603c-9bf7-4003-b140-49b731a8bf6b",
+      "leverantor_id": "b3522f28-fde9-43eb-a75c-b811a8dc664e",
+      "name": "Sveriges Dödbok (sticka/dvd)"
+    },
+    {
+      "id": "fd560356-dbc1-4ea7-a98f-5228f5ec9f78",
+      "leverantor_id": "b3522f28-fde9-43eb-a75c-b811a8dc664e",
+      "name": "Övrigt"
+    },
+    {
+      "id": "9a34f1fd-39dd-4f0f-bf20-a9d682225364",
+      "leverantor_id": "880588fc-0d5b-434e-9e25-86236cfc1564",
+      "name": "Personbild (6401)"
+    },
+    {
+      "id": "1f73d951-2e55-499a-a79c-4eb9b04f87e0",
+      "leverantor_id": "880588fc-0d5b-434e-9e25-86236cfc1564",
+      "name": "Övrigt"
+    },
+    {
+      "id": "2d60a9a1-0706-4d05-916f-85b7b15bcf33",
+      "leverantor_id": "b04da7bd-296a-43c0-911c-2e059b18d08b",
+      "name": "Dödsannons"
+    },
+    {
+      "id": "0ceca4e8-8b5b-409b-8df9-9f6c516709c2",
+      "leverantor_id": "b04da7bd-296a-43c0-911c-2e059b18d08b",
+      "name": "Tidningsartikel"
+    },
+    {
+      "id": "24bede6c-12d1-4710-b310-4ebdaad9348a",
+      "leverantor_id": "b04da7bd-296a-43c0-911c-2e059b18d08b",
+      "name": "Övrig databas"
+    },
+    {
+      "id": "a110bccc-e583-4078-aac4-0283a91b253d",
+      "leverantor_id": "b04da7bd-296a-43c0-911c-2e059b18d08b",
+      "name": "Övrigt"
+    }
+  ],
+  "research_cases": [],
+  "research_hypotheses": [],
+  "research_actions": []
+}

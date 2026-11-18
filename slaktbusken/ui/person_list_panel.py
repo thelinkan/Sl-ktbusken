@@ -11,11 +11,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
-from PySide6.QtCore import QModelIndex, QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QResizeEvent
+from PySide6.QtCore import QEvent, QModelIndex, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QContextMenuEvent, QIcon, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
+    QApplication,
+    QProxyStyle,
+    QStyle,
+    QToolTip,
     QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
@@ -33,17 +37,60 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from slaktbusken.app import Application
 
+from slaktbusken.model.date_semantics import display_year, format_date_sv
 from slaktbusken.model.event import Event
 from slaktbusken.model.family import Family
 from slaktbusken.model.name_parser import parse_given_name
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
+from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.dna import DnaCluster, DnaCompany, DnaProfile
 from slaktbusken.model.media import MediaItem
+from slaktbusken.model.research_case import is_pending
+from slaktbusken.services.candidate_index import (
+    BLUE as CANDIDATE_BLUE,
+    GREY as CANDIDATE_GREY,
+    NONE as CANDIDATE_NONE,
+    ORANGE as CANDIDATE_ORANGE,
+    CandidateIndex,
+)
 from slaktbusken.services.lineage_computer import LineageComputer
+from slaktbusken.services.person_summary import PersonSummaryIndex
+from slaktbusken.services.research_index import ResearchCaseCounts, ResearchIndex
 from slaktbusken.ui.icons.icon_registry import icon_registry
+from slaktbusken.ui.swedish_locale import format_residence_interval
+from slaktbusken.ui.widgets.research_marker import research_icon
+from slaktbusken.ui.widgets.research_indicator import (
+    format_research_counts,
+    indicator_color,
+    indicator_state,
+    indicator_tooltip,
+    research_sort_key,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Index of the "Forskningsuppslag" column in the person list.
+_RESEARCH_COLUMN = 10
+
+#: Stable keys for the person list columns, in column order. Used to save
+#: column widths; never shown to the user.
+PERSON_LIST_COLUMN_KEYS: tuple[str, ...] = (
+    "name",
+    "birth_date",
+    "birth_place",
+    "death_date",
+    "death_place",
+    "title",
+    "occupation",
+    "clusters",
+    "dna",
+    "boende",
+    "research",
+)
+_DEFAULT_NAME_WIDTH = 200
+_MIN_COLUMN_WIDTH = 20
+_MAX_COLUMN_WIDTH = 2000
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +115,17 @@ class FilterCriteria:
         marriage_year_to: Marriage year must be <= this (as string, compared as int).
         parish: Parish name to match (includes sub-places of parish).
         cluster: DNA cluster name to match (case-insensitive substring).
+        research_existence: ``"all"``, ``"has"`` (person has research cases) or
+            ``"none"`` (person has none).
+        research_status: ``"all"``, ``"open"`` (at least one case that is not
+            closed) or ``"closed_only"`` (has cases, and all are closed).
+        research_action: ``"all"``, ``"pending"`` (a case with an action that
+            has no completion date), ``"completed"`` (a case with a completed
+            action) or ``"none"`` (a case with no actions).
+
+    The three research fields concern only cases linked directly to the person.
+    When the status and action filters are both set, one and the same case must
+    satisfy both.
     """
 
     title: str = ""
@@ -83,6 +141,9 @@ class FilterCriteria:
     parish: str = ""
     cluster: str = ""
     occupation: str = ""
+    research_existence: str = "all"
+    research_status: str = "all"
+    research_action: str = "all"
 
 
 @dataclass
@@ -134,6 +195,25 @@ class PersonDisplayInfo:
     birth_place: str = ""
     death_date: str = ""
     death_place: str = ""
+    residence_intervals: str = ""
+    research_counts: ResearchCaseCounts = field(
+        default_factory=lambda: ResearchCaseCounts(0, 0)
+    )
+    candidate_colour: str = "none"
+    candidate_kind: str = ""  # "candidates", "history" or "" (no indicator)
+
+
+def candidate_kind(candidate_index: CandidateIndex, person_id: str) -> str:
+    """Return what a click on the candidate indicator opens.
+
+    ``"candidates"`` when the person has at least one Merge_Candidate (open the
+    register), ``"history"`` when the indicator is grey only because of
+    Merge_History, ``""`` when no indicator is shown.
+    """
+    if candidate_index.colour(person_id) == CANDIDATE_NONE:
+        return ""
+    rel = candidate_index.relations(person_id)
+    return "candidates" if rel.candidates else "history"
 
 
 def extract_year(date_value_str: str) -> str:
@@ -177,13 +257,13 @@ def get_person_birth_death_years(
                 if event.type == "birth" and not has_birth_event:
                     has_birth_event = True
                     if event.date is not None:
-                        birth_year = extract_year(event.date.value)
+                        birth_year = display_year(event.date) or ""
                     if not birth_year:
                         birth_year = "?"
                 elif event.type == "death" and not has_death_event:
                     has_death_event = True
                     if event.date is not None:
-                        death_year = extract_year(event.date.value)
+                        death_year = display_year(event.date) or ""
                     if not death_year:
                         death_year = "?"
                 break
@@ -217,14 +297,14 @@ def _get_person_birth_death_details(
             if participant.person_id == person.id:
                 if event.type == "birth" and not birth_date:
                     if event.date is not None:
-                        birth_date = event.date.value
+                        birth_date = format_date_sv(event.date)
                     if event.place is not None:
                         place = place_by_id.get(event.place.place_id)
                         if place is not None:
                             birth_place = place.name
                 elif event.type == "death" and not death_date:
                     if event.date is not None:
-                        death_date = event.date.value
+                        death_date = format_date_sv(event.date)
                     if event.place is not None:
                         place = place_by_id.get(event.place.place_id)
                         if place is not None:
@@ -264,7 +344,7 @@ def get_person_marriage_year(
         for event_id in family.event_ids:
             event = event_by_id.get(event_id)
             if event and event.type == "marriage" and event.date:
-                year = extract_year(event.date.value)
+                year = display_year(event.date) or ""
                 if year:
                     return year
 
@@ -273,7 +353,7 @@ def get_person_marriage_year(
         if event.type == "marriage" and event.date:
             for participant in event.participants:
                 if participant.person_id == person.id:
-                    year = extract_year(event.date.value)
+                    year = display_year(event.date) or ""
                     if year:
                         return year
     return ""
@@ -428,6 +508,9 @@ def build_person_display_list(
     dna_companies: list[DnaCompany] | None = None,
     ancestor_ids: set[str] | None = None,
     descendant_ids: set[str] | None = None,
+    residences: list[ResidenceFact] | None = None,
+    research_index: ResearchIndex | None = None,
+    candidate_index: CandidateIndex | None = None,
 ) -> list[PersonDisplayInfo]:
     """Build a sorted list of person display info from project data.
 
@@ -443,6 +526,9 @@ def build_person_display_list(
         dna_companies: All DNA companies in the project (optional).
         ancestor_ids: Set of person IDs that are ancestors of the main person (optional).
         descendant_ids: Set of person IDs that are descendants of the main person (optional).
+        residences: All residence facts in the project (optional).
+        research_index: Research lookups (optional). Without one, every person
+            has zero research cases.
 
     Returns:
         Sorted list of PersonDisplayInfo items.
@@ -459,6 +545,8 @@ def build_person_display_list(
         ancestor_ids = set()
     if descendant_ids is None:
         descendant_ids = set()
+    if residences is None:
+        residences = []
 
     # Pre-build lookup: company_id -> company name for sorting
     company_name_by_id: dict[str, str] = {c.id: c.name for c in dna_companies}
@@ -470,6 +558,11 @@ def build_person_display_list(
 
     # Pre-build place lookup for birth/death place resolution
     place_by_id: dict[str, Place] = {p.id: p for p in places}
+
+    # Pre-build lookup: person_id -> list of ResidenceFacts for residence intervals
+    person_residences: dict[str, list[ResidenceFact]] = {}
+    for fact in residences:
+        person_residences.setdefault(fact.person_id, []).append(fact)
 
     display_list: list[PersonDisplayInfo] = []
     for person in persons:
@@ -523,6 +616,28 @@ def build_person_display_list(
         is_ancestor = person.id in ancestor_ids
         is_descendant = person.id in descendant_ids
 
+        # Residence intervals: render each fact's interval through the formatter
+        # ordered by start.earliest, start.latest (absent first), then place name.
+        facts = person_residences.get(person.id, [])
+        residence_intervals = ""
+        if facts:
+            def _absent_first(val: str | None) -> tuple[int, str]:
+                if val is None or val.strip() == "":
+                    return (0, "")
+                return (1, val)
+
+            sorted_facts = sorted(
+                facts,
+                key=lambda f: (
+                    _absent_first(f.start.earliest),
+                    _absent_first(f.start.latest),
+                    (place_by_id.get(f.place_id).name if place_by_id.get(f.place_id) else f.place_id),
+                ),
+            )
+            residence_intervals = "; ".join(
+                format_residence_interval(f.start, f.end) for f in sorted_facts
+            )
+
         display_list.append(
             PersonDisplayInfo(
                 person_id=person.id,
@@ -548,6 +663,22 @@ def build_person_display_list(
                 birth_place=birth_place,
                 death_date=death_date,
                 death_place=death_place,
+                residence_intervals=residence_intervals,
+                research_counts=(
+                    research_index.counts_for_entity("person", person.id)
+                    if research_index is not None
+                    else ResearchCaseCounts(0, 0)
+                ),
+                candidate_colour=(
+                    candidate_index.colour(person.id)
+                    if candidate_index is not None
+                    else "none"
+                ),
+                candidate_kind=(
+                    candidate_kind(candidate_index, person.id)
+                    if candidate_index is not None
+                    else ""
+                ),
             )
         )
 
@@ -634,10 +765,67 @@ def format_names_tooltip(all_names: list[tuple[str, str, str]]) -> str:
     return "\n".join(lines)
 
 
+def person_matches_research_filter(
+    person_id: str,
+    criteria: FilterCriteria,
+    research_index: ResearchIndex | None,
+) -> bool:
+    """Return True when a person satisfies the three research filter fields.
+
+    Only cases linked directly to the person count. Within one case the status
+    and action conditions must both hold (one and the same case satisfies
+    both); the person matches when at least one linked case does.
+
+    ``existence == "none"`` matches only persons with no linked case, and the
+    status and action fields are then ignored. Without an index every person
+    has no cases.
+    """
+    existence = criteria.research_existence
+    status = criteria.research_status
+    action = criteria.research_action
+
+    cases = (
+        research_index.cases_for_entity("person", person_id)
+        if research_index is not None
+        else []
+    )
+
+    if existence == "none":
+        return not cases
+
+    if existence == "all" and status == "all" and action == "all":
+        return True
+
+    # "Enbart avslutade ärenden": every case of the person must be closed (a
+    # person with an open case is not "closed only"). The case itself is then
+    # checked against the action condition below, like any other status.
+    if status == "closed_only" and any(case.status != "closed" for case in cases):
+        return False
+
+    # "has", or "all" combined with a status/action condition: a case is needed.
+    def case_matches(case) -> bool:  # noqa: ANN001 - ResearchCase
+        if status == "open" and case.status == "closed":
+            return False
+        if status == "closed_only" and case.status != "closed":
+            return False
+        if action != "all":
+            actions = research_index.actions_for_case(case.id)
+            if action == "pending" and not any(is_pending(a) for a in actions):
+                return False
+            if action == "completed" and not any(not is_pending(a) for a in actions):
+                return False
+            if action == "none" and actions:
+                return False
+        return True
+
+    return any(case_matches(case) for case in cases)
+
+
 def filter_persons(
     persons: list[PersonDisplayInfo],
     criteria: FilterCriteria,
     all_persons_names: dict[str, list[Name]] | None = None,
+    research_index: ResearchIndex | None = None,
 ) -> list[PersonDisplayInfo]:
     """Filter a list of persons by the given criteria using AND logic.
 
@@ -663,6 +851,8 @@ def filter_persons(
         all_persons_names: Optional mapping of person_id to all their Name
             records for multi-name filtering. When None, falls back to
             filtering against the primary name in PersonDisplayInfo.
+        research_index: Research lookups for the research filter fields. When
+            None, no person has any research case.
 
     Returns:
         Filtered list of PersonDisplayInfo matching all active criteria.
@@ -744,6 +934,12 @@ def filter_persons(
         if occupation_lower:
             if occupation_lower not in person.occupation.lower():
                 continue
+
+        # Research filter: concerns only cases linked directly to the person
+        if not person_matches_research_filter(
+            person.person_id, criteria, research_index
+        ):
+            continue
 
         result.append(person)
 
@@ -944,8 +1140,273 @@ class _DnaIconDelegate(QStyledItemDelegate):
 
 
 # ---------------------------------------------------------------------------
+# Research / candidate column delegate
+# ---------------------------------------------------------------------------
+
+_ROLE_RESEARCH_COLOR = Qt.ItemDataRole.UserRole + 30
+_ROLE_RESEARCH_TOOLTIP = Qt.ItemDataRole.UserRole + 31
+_ROLE_CANDIDATE_COLOUR = Qt.ItemDataRole.UserRole + 32
+_ROLE_CANDIDATE_KIND = Qt.ItemDataRole.UserRole + 33
+_ROLE_CELL_PERSON_ID = Qt.ItemDataRole.UserRole + 34
+
+_RESEARCH_GLYPH_SIZE = 16
+_CANDIDATE_GLYPH_SIZE = 16
+_CELL_MARGIN = 4
+_GLYPH_GAP = 4
+
+#: Candidate glyph colours. Distinct from the research glyph (orange #F39C12,
+#: grey #9E9E9E) and the glyph is a two-person silhouette, not a magnifier.
+CANDIDATE_GLYPH_COLOURS: dict[str, str] = {
+    CANDIDATE_BLUE: "#1F5FBF",
+    CANDIDATE_ORANGE: "#C0561A",
+    CANDIDATE_GREY: "#6C7A89",
+}
+
+_candidate_glyph_cache: dict[tuple[str, int], QPixmap] = {}
+
+
+def candidate_glyph(colour: str, size: int = _CANDIDATE_GLYPH_SIZE) -> QPixmap:
+    """Return a two-person silhouette pixmap in the colour of ``colour``."""
+    key = (colour, size)
+    cached = _candidate_glyph_cache.get(key)
+    if cached is not None:
+        return cached
+    scale = 4
+    big = size * scale
+    pixmap = QPixmap(big, big)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(CANDIDATE_GLYPH_COLOURS.get(colour, "#6C7A89")))
+    head = big * 0.28
+    for cx in (big * 0.30, big * 0.70):
+        painter.drawEllipse(QPointF(cx, big * 0.30), head / 2, head / 2)
+        painter.drawRoundedRect(
+            QRectF(cx - big * 0.22, big * 0.52, big * 0.44, big * 0.38),
+            big * 0.15,
+            big * 0.15,
+        )
+    painter.end()
+    result = pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    _candidate_glyph_cache[key] = result
+    return result
+
+
+class _TooltipDelayStyle(QProxyStyle):
+    """Style that gives the indicator column its 500 ms tooltip wake-up delay."""
+
+    def styleHint(self, hint, option=None, widget=None, returnData=None):  # noqa: N802
+        if hint == QStyle.StyleHint.SH_ToolTip_WakeUpDelay:
+            return 500
+        return super().styleHint(hint, option, widget, returnData)
+
+
+class ResearchColumnDelegate(QStyledItemDelegate):
+    """Delegate for the research column: research glyph left, candidate glyph right.
+
+    The two glyphs have separate, non-overlapping hit rectangles. A click on the
+    candidate glyph is consumed and never reaches the research handler.
+    """
+
+    research_indicator_clicked = Signal(str)  # person_id
+    candidate_indicator_clicked = Signal(str, str)  # person_id, kind
+
+    def __init__(self, parent=None, tooltip_provider=None) -> None:
+        """
+        Args:
+            parent: Owner object.
+            tooltip_provider: ``callable(person_id) -> str`` returning the
+                candidate tooltip; called only when the user hovers.
+        """
+        super().__init__(parent)
+        self._enabled = True
+        self._tooltip_provider = tooltip_provider
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Show or hide both indicators (the combined setting)."""
+        self._enabled = bool(enabled)
+
+    def is_enabled(self) -> bool:
+        return self._enabled
+
+    # -- geometry ---------------------------------------------------------
+
+    @staticmethod
+    def hit_rectangles(
+        cell: QRect, text_width: int, has_research: bool, has_candidate: bool
+    ) -> tuple[QRect, QRect]:
+        """Return ``(research_rect, candidate_rect)``; a missing one is a null rect.
+
+        The research rectangle covers glyph and "öppna/totalt" text at the left.
+        The candidate rectangle is at the right edge but never starts before the
+        research rectangle ends, so the two cannot overlap. Both stay inside the
+        cell.
+        """
+        research = QRect()
+        candidate = QRect()
+        top = cell.top() + (cell.height() - _RESEARCH_GLYPH_SIZE) // 2
+        left = cell.left() + _CELL_MARGIN
+        if has_research:
+            width = _RESEARCH_GLYPH_SIZE + (_GLYPH_GAP + text_width if text_width else 0)
+            research = QRect(left, top, width, _RESEARCH_GLYPH_SIZE)
+        if has_candidate:
+            x = cell.right() - _CELL_MARGIN - _CANDIDATE_GLYPH_SIZE + 1
+            if has_research:
+                x = max(x, research.right() + 1 + _GLYPH_GAP)
+            candidate = QRect(x, top, _CANDIDATE_GLYPH_SIZE, _CANDIDATE_GLYPH_SIZE)
+            candidate = candidate.intersected(cell)
+            if candidate.width() <= 0:
+                candidate = QRect()
+        if not research.isNull():
+            research = research.intersected(cell)
+            if not candidate.isNull() and research.intersects(candidate):
+                research.setRight(candidate.left() - 1)
+        return research, candidate
+
+    def _rects_for(self, option, index) -> tuple[QRect, QRect]:
+        if not self._enabled:
+            return QRect(), QRect()
+        has_research = bool(index.data(_ROLE_RESEARCH_COLOR))
+        has_candidate = bool(index.data(_ROLE_CANDIDATE_COLOUR)) and (
+            index.data(_ROLE_CANDIDATE_COLOUR) != CANDIDATE_NONE
+        )
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        text_width = option.fontMetrics.horizontalAdvance(text) if text else 0
+        return self.hit_rectangles(option.rect, text_width, has_research, has_candidate)
+
+    # -- painting ---------------------------------------------------------
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        opt.icon = QIcon()
+        opt.features &= ~QStyleOptionViewItem.ViewItemFeature.HasDecoration
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+        if not self._enabled:
+            return
+
+        research_rect, candidate_rect = self._rects_for(option, index)
+        painter.save()
+        painter.setClipRect(option.rect)
+        if not research_rect.isNull():
+            colour = index.data(_ROLE_RESEARCH_COLOR)
+            painter.drawPixmap(
+                research_rect.left(),
+                research_rect.top(),
+                research_icon(colour, _RESEARCH_GLYPH_SIZE),
+            )
+            text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+            if text:
+                painter.setPen(QColor(colour))
+                text_rect = QRect(
+                    research_rect.left() + _RESEARCH_GLYPH_SIZE + _GLYPH_GAP,
+                    option.rect.top(),
+                    max(0, research_rect.width() - _RESEARCH_GLYPH_SIZE - _GLYPH_GAP),
+                    option.rect.height(),
+                )
+                painter.drawText(
+                    text_rect,
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                    text,
+                )
+        if not candidate_rect.isNull():
+            painter.drawPixmap(
+                candidate_rect.left(),
+                candidate_rect.top(),
+                candidate_glyph(index.data(_ROLE_CANDIDATE_COLOUR), _CANDIDATE_GLYPH_SIZE),
+            )
+        painter.restore()
+
+    # -- events -----------------------------------------------------------
+
+    def helpEvent(self, event, view, option, index) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.ToolTip and index.isValid() and self._enabled:
+            research_rect, candidate_rect = self._rects_for(option, index)
+            pos = event.pos()
+            text = ""
+            if not candidate_rect.isNull() and candidate_rect.contains(pos):
+                person_id = index.data(_ROLE_CELL_PERSON_ID)
+                if self._tooltip_provider is not None and person_id:
+                    text = self._tooltip_provider(person_id)
+            elif not research_rect.isNull() and research_rect.contains(pos):
+                text = index.data(_ROLE_RESEARCH_TOOLTIP) or ""
+            if text:
+                QToolTip.showText(event.globalPos(), text, view)
+            else:
+                QToolTip.hideText()
+            return True
+        return super().helpEvent(event, view, option, index)
+
+    def editorEvent(self, event, model, option, index) -> bool:  # noqa: N802
+        if (
+            self._enabled
+            and event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            person_id = index.data(_ROLE_CELL_PERSON_ID)
+            if person_id:
+                research_rect, candidate_rect = self._rects_for(option, index)
+                pos = event.position().toPoint()
+                if not candidate_rect.isNull() and candidate_rect.contains(pos):
+                    self.candidate_indicator_clicked.emit(
+                        person_id, index.data(_ROLE_CANDIDATE_KIND) or "candidates"
+                    )
+                    return True
+                if not research_rect.isNull() and research_rect.contains(pos):
+                    self.research_indicator_clicked.emit(person_id)
+                    return True
+        return super().editorEvent(event, model, option, index)
+
+
+# ---------------------------------------------------------------------------
 # Qt Widget
 # ---------------------------------------------------------------------------
+
+
+def rows_after_right_click(
+    selected_rows: Sequence[int], clicked_row: Optional[int]
+) -> list[int]:
+    """Pure rule: the selected rows after a right-click on ``clicked_row``.
+
+    ``None`` (empty space) gives no rows, a click inside the selection keeps
+    it unchanged (Req 8.14) and a click outside selects only the clicked row
+    (Req 8.15).
+    """
+    if clicked_row is None:
+        return []
+    if clicked_row in selected_rows:
+        return list(selected_rows)
+    return [clicked_row]
+
+
+class _PersonTreeWidget(QTreeWidget):
+    """Person tree with right-click handling that keeps a multi-selection."""
+
+    #: Emitted with the local position and whether the menu came from the keyboard.
+    person_context_requested = Signal(QPoint, bool)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Keep the selection when right-clicking inside it (Req 8.14)."""
+        if event.button() == Qt.MouseButton.RightButton:
+            item = self.itemAt(event.position().toPoint())
+            if item is not None and item.isSelected():
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Report the menu request without touching selection or current item."""
+        keyboard = event.reason() == QContextMenuEvent.Reason.Keyboard
+        self.person_context_requested.emit(event.pos(), keyboard)
+        event.accept()
 
 
 class PersonListPanel(QWidget):
@@ -960,11 +1421,13 @@ class PersonListPanel(QWidget):
         person_edit_requested: Emitted with person_id on double-click.
     """
 
-    _FULL_HEADERS = ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA"]
+    _FULL_HEADERS = ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende", "Forskningsuppslag"]
 
     person_selected = Signal(str)
     person_edit_requested = Signal(str)
     context_menu_action = Signal(str, str)  # action_type, person_id
+    compare_requested = Signal(list)  # ordered person ids
+    mark_candidates_requested = Signal(list)  # ordered person ids
     person_count_changed = Signal(int, object)  # total, filtered_count_or_None
 
     def __init__(self, app: "Application", parent: Optional[QWidget] = None) -> None:
@@ -988,9 +1451,15 @@ class PersonListPanel(QWidget):
         self._syncing_from_diagram: bool = False
         self._refreshing: bool = False
         self._person_list_config = None  # Will be set via apply_person_list_config
+        self._research_sort: str | None = None  # None, "desc" or "asc"
+        self._candidate_index: CandidateIndex | None = None
+        self._summary_index: PersonSummaryIndex | None = None
+        self._merge_remove: object | None = None
+        self._merge_gateway_connected: object | None = None
 
         self._setup_ui()
         self._connect_signals()
+        self._connect_merge_sources()
 
     def _setup_ui(self) -> None:
         """Build the panel UI: toggle + filter button + tree widget with columns."""
@@ -1018,18 +1487,18 @@ class PersonListPanel(QWidget):
 
         # Person list as QTreeWidget with columns
         # Columns: 0=Namn, 1=Födelsedatum, 2=Födelseort, 3=Dödsdatum, 4=Dödsort,
-        #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA
-        self._tree_widget = QTreeWidget()
+        #          5=Titel, 6=Yrke, 7=Kluster, 8=DNA, 9=Boende, 10=Forskningsuppslag
+        self._tree_widget = _PersonTreeWidget()
         self._tree_widget.setHeaderLabels(
-            ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA"]
+            ["Namn", "Födelsedatum", "Födelseort", "Dödsdatum", "Dödsort", "Titel", "Yrke", "Kluster", "DNA", "Boende", "Forskningsuppslag"]
         )
         self._tree_widget.setIconSize(QSize(20, 20))
         self._tree_widget.setRootIsDecorated(False)
         self._tree_widget.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection
+            QAbstractItemView.SelectionMode.ExtendedSelection
         )
         self._tree_widget.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
+            Qt.ContextMenuPolicy.DefaultContextMenu
         )
         self._tree_widget.setIndentation(0)
         self._tree_widget.setUniformRowHeights(True)
@@ -1043,10 +1512,30 @@ class PersonListPanel(QWidget):
         self._dna_delegate = _DnaIconDelegate(self)
         self._tree_widget.setItemDelegateForColumn(8, self._dna_delegate)
 
+        # Research glyph and candidate indicator in column 10
+        self._research_delegate = ResearchColumnDelegate(
+            self, tooltip_provider=self._candidate_tooltip
+        )
+        self._tree_widget.setItemDelegateForColumn(
+            _RESEARCH_COLUMN, self._research_delegate
+        )
+        self._research_delegate.research_indicator_clicked.connect(
+            self._on_research_indicator_clicked
+        )
+        self._research_delegate.candidate_indicator_clicked.connect(
+            self._on_candidate_indicator_clicked
+        )
+        # 500 ms tooltip wake-up delay (viewport only, so the header is untouched)
+        self._tooltip_style = _TooltipDelayStyle()
+        self._tree_widget.viewport().setStyle(self._tooltip_style)
+
         # Configure header
         header = self._tree_widget.header()
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        # Namn is the column that matters most, so it gets a generous fixed
+        # default instead of whatever width is left over; when the columns do
+        # not fit, the list scrolls sideways.
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
@@ -1055,6 +1544,9 @@ class PersonListPanel(QWidget):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(9, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(10, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(0, _DEFAULT_NAME_WIDTH)
         header.resizeSection(1, 90)
         header.resizeSection(2, 90)
         header.resizeSection(3, 90)
@@ -1063,6 +1555,13 @@ class PersonListPanel(QWidget):
         header.resizeSection(6, 70)
         header.resizeSection(7, 70)
         header.resizeSection(8, 70)
+        header.resizeSection(9, 120)
+        header.resizeSection(10, 110)
+        # Only the research column is sorted from the header; it sorts the data
+        # (see _on_header_clicked), not the tree widget, so other columns keep
+        # the alphabetical order.
+        header.setSectionsClickable(True)
+        header.sectionClicked.connect(self._on_header_clicked)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._show_column_visibility_menu)
 
@@ -1077,6 +1576,8 @@ class PersonListPanel(QWidget):
 
         # Apply saved column visibility settings on startup
         self._restore_column_visibility()
+        # Apply the column widths saved when the program was last closed
+        self._restore_column_widths()
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Check panel width and toggle compact column mode accordingly."""
@@ -1204,6 +1705,24 @@ class PersonListPanel(QWidget):
         )
         menu.addAction(action_dna)
 
+        # Boende (column 9)
+        action_boende = QAction("Boende", menu)
+        action_boende.setCheckable(True)
+        action_boende.setChecked(getattr(visibility, 'boende', False))
+        action_boende.toggled.connect(
+            lambda checked: self._on_column_visibility_changed("boende", checked)
+        )
+        menu.addAction(action_boende)
+
+        # Forskningsuppslag och dubletter (column 10)
+        action_research = QAction("Forskningsuppslag och dubletter", menu)
+        action_research.setCheckable(True)
+        action_research.setChecked(getattr(visibility, "research", True))
+        action_research.toggled.connect(
+            lambda checked: self._on_column_visibility_changed("research", checked)
+        )
+        menu.addAction(action_research)
+
         global_pos = self._tree_widget.header().mapToGlobal(pos)
         menu.exec(global_pos)
 
@@ -1221,15 +1740,49 @@ class PersonListPanel(QWidget):
             "birth_date": 1, "birth_place": 2,
             "death_date": 3, "death_place": 4,
             "titel": 5, "yrke": 6, "kluster": 7, "dna_company": 8,
+            "boende": 9, "research": 10,
         }
         col_index = col_map.get(column)
         if col_index is not None:
             self._tree_widget.setColumnHidden(col_index, not visible)
 
-        # Persist the change
+        # Persist the change. The person list configuration is kept in step so
+        # the settings dialog and this menu never disagree.
         settings = self._app.app_settings_service._settings
         setattr(settings.column_visibility, column, visible)
+        if column == "research":
+            settings.person_list_config.research = visible
+            if self._person_list_config is not None:
+                self._person_list_config.research = visible
+            self._research_delegate.set_enabled(visible)
         self._app.app_settings_service.save(settings)
+
+    def save_column_widths(self) -> None:
+        """Store the current column widths in the application settings.
+
+        Called when the program closes. Hidden columns keep their previously
+        saved width, so hiding a column does not forget how wide it was.
+        """
+        settings = self._app.app_settings_service._settings
+        widths = dict(settings.person_list_column_widths)
+        header = self._tree_widget.header()
+        for index, key in enumerate(PERSON_LIST_COLUMN_KEYS):
+            if header.isSectionHidden(index):
+                continue
+            size = header.sectionSize(index)
+            if size > 0:
+                widths[key] = size
+        settings.person_list_column_widths = widths
+
+    def _restore_column_widths(self) -> None:
+        """Apply the saved column widths, ignoring unknown or unusable values."""
+        settings = self._app.app_settings_service._settings
+        saved = getattr(settings, "person_list_column_widths", {}) or {}
+        header = self._tree_widget.header()
+        for index, key in enumerate(PERSON_LIST_COLUMN_KEYS):
+            width = saved.get(key)
+            if isinstance(width, int) and _MIN_COLUMN_WIDTH <= width <= _MAX_COLUMN_WIDTH:
+                header.resizeSection(index, width)
 
     def _restore_column_visibility(self) -> None:
         """Restore column visibility from persisted application settings.
@@ -1248,6 +1801,8 @@ class PersonListPanel(QWidget):
         self._tree_widget.setColumnHidden(6, not visibility.yrke)
         self._tree_widget.setColumnHidden(7, not visibility.kluster)
         self._tree_widget.setColumnHidden(8, not visibility.dna_company)
+        self._tree_widget.setColumnHidden(9, not getattr(visibility, 'boende', False))
+        self._tree_widget.setColumnHidden(10, not getattr(visibility, 'research', True))
 
     def _connect_signals(self) -> None:
         """Connect button signals and tree selection signals."""
@@ -1256,7 +1811,7 @@ class PersonListPanel(QWidget):
 
         self._tree_widget.currentItemChanged.connect(self._on_item_clicked)
         self._tree_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self._tree_widget.customContextMenuRequested.connect(
+        self._tree_widget.person_context_requested.connect(
             self._on_context_menu_requested
         )
 
@@ -1308,6 +1863,10 @@ class PersonListPanel(QWidget):
             dna_profiles = data.dna_profiles if hasattr(data, "dna_profiles") else []
             dna_companies = data.dna_companies if hasattr(data, "dna_companies") else []
             self._compute_lineage_sets()
+            self._connect_merge_sources()
+            # One CandidateIndex per refresh; rows only do dictionary lookups.
+            self._candidate_index = self._build_candidate_index(data)
+            self._summary_index = None
             self._display_list = build_person_display_list(
                 data.persons,
                 data.events,
@@ -1318,6 +1877,9 @@ class PersonListPanel(QWidget):
                 dna_companies=dna_companies,
                 ancestor_ids=self._ancestor_ids,
                 descendant_ids=self._descendant_ids,
+                residences=data.residences if hasattr(data, "residences") else [],
+                research_index=self._build_research_index(),
+                candidate_index=self._candidate_index,
             )
             self._apply_current_view()
         finally:
@@ -1334,7 +1896,10 @@ class PersonListPanel(QWidget):
         """
         self._current_criteria = criteria
         self._filtered_list = filter_persons(
-            self._display_list, criteria, self._get_all_persons_names()
+            self._display_list,
+            criteria,
+            self._get_all_persons_names(),
+            self._build_research_index(),
         )
         # Automatically switch to filtered view
         if not self._showing_filtered:
@@ -1343,26 +1908,33 @@ class PersonListPanel(QWidget):
             self._update_list_widget()
 
     def apply_dna_match_filter(self, person_ids: set[str], select_person_id: str | None = None) -> None:
+        """Filter the person list to the DNA-match persons (see apply_person_id_filter)."""
+        self.apply_person_id_filter(person_ids, select_person_id)
+
+    def apply_person_id_filter(self, person_ids: set[str], select_person_id: str | None = None) -> None:
         """Filter the person list to show only persons with given IDs.
 
-        Used for "Filtrera på DNA-träffar" — shows the right-clicked person
-        and all persons who share DNA matches with them.
+        Used for "Filtrera på DNA-träffar" and "Filtrera källans personer".
+        Switches to the filtered view; "Visa alla" clears it.
 
         Args:
             person_ids: Set of person IDs to include in the filtered view.
             select_person_id: Optional person ID to select after filtering.
         """
-        self._filtered_list = [
-            p for p in self._display_list if p.person_id in person_ids
-        ]
+        def _matching() -> list[PersonDisplayInfo]:
+            return [p for p in self._display_list if p.person_id in person_ids]
+
+        self._filtered_list = _matching()
         # Guard against emitting person_selected during rebuild
         self._refreshing = True
         try:
             # Automatically switch to filtered view
             if not self._showing_filtered:
+                # Toggling recomputes the list from the criteria; restore ours.
                 self._toggle_button.setChecked(True)
-            else:
-                self._update_list_widget()
+            self._filtered_list = _matching()
+            self._update_list_widget()
+            self._emit_person_count()
         finally:
             self._refreshing = False
 
@@ -1448,6 +2020,7 @@ class PersonListPanel(QWidget):
         header.setSectionHidden(6, not config.occupation)
         header.setSectionHidden(7, not config.clusters)
         header.setSectionHidden(8, not config.dna)
+        header.setSectionHidden(10, not config.research)
 
         # Refresh the list to apply icon/date visibility changes
         self._apply_current_view()
@@ -1502,6 +2075,7 @@ class PersonListPanel(QWidget):
                 self._display_list,
                 self._current_criteria,
                 self._get_all_persons_names(),
+                self._build_research_index(),
             )
             self._update_list_widget()
         else:
@@ -1517,6 +2091,161 @@ class PersonListPanel(QWidget):
             self.person_count_changed.emit(total, filtered)
         else:
             self.person_count_changed.emit(total, None)
+
+    # ------------------------------------------------------------------
+    # Research and candidate indicators
+    # ------------------------------------------------------------------
+
+    def _research_setting_enabled(self) -> bool:
+        """Return the combined "Forskningsuppslag och dubletter" setting."""
+        cfg = self._person_list_config
+        return bool(cfg.research) if cfg is not None else True
+
+    @staticmethod
+    def _build_candidate_index(data) -> CandidateIndex | None:
+        try:
+            return CandidateIndex.build(data)
+        except Exception:  # noqa: BLE001 - the list must still show without candidates
+            logger.exception("Kunde inte bygga kandidatindex för personlistan.")
+            return None
+
+    def _candidate_tooltip(self, person_id: str) -> str:
+        """Tooltip text of the candidate indicator; built only on hover."""
+        if self._candidate_index is None:
+            return ""
+        if self._summary_index is None:
+            self._summary_index = PersonSummaryIndex.build(self._app.project_service.data)
+        return "\n".join(
+            self._candidate_index.tooltip_lines(person_id, self._summary_index)
+        )
+
+    def _on_research_indicator_clicked(self, person_id: str) -> None:
+        """Open the research overview filtered to this person."""
+        from slaktbusken.ui.research_gateway import get_research_gateway
+
+        gateway = get_research_gateway()
+        if gateway is not None:
+            gateway.show_research_for_entity("person", person_id, person_filter=person_id)
+
+    def _on_candidate_indicator_clicked(self, person_id: str, kind: str) -> None:
+        """Open the candidate register or the merge history for this person."""
+        from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
+
+        gateway = get_merge_gateway()
+        if gateway is None:
+            return
+        if kind == "history":
+            gateway.open_history(person_id)
+        else:
+            gateway.open_register(person_id)
+
+    def _connect_merge_sources(self) -> None:
+        """Listen for merge changes from the project service and the gateway."""
+        if self._merge_remove is None:
+            try:
+                add = self._app.project_service.add_merge_listener
+                remove = add(self._on_merge_changed)
+                self._merge_remove = remove
+                if callable(remove):
+                    self.destroyed.connect(lambda *_: remove())
+            except Exception:  # noqa: BLE001 - no project service (e.g. in tests)
+                self._merge_remove = None
+        from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
+
+        gateway = get_merge_gateway()
+        if gateway is not None and gateway is not self._merge_gateway_connected:
+            try:
+                gateway.merge_changed.connect(self._on_merge_changed)
+                self._merge_gateway_connected = gateway
+            except Exception:  # noqa: BLE001
+                logger.exception("Kunde inte ansluta till sammanslagningsgatewayen.")
+
+    def _on_merge_changed(self, *_args) -> None:
+        """Refresh the candidate indicators of changed rows in place.
+
+        Neither the project nor the list is reloaded, so scroll position and
+        selection stay as they are.
+        """
+        try:
+            data = self._app.project_service.data
+        except Exception:  # noqa: BLE001
+            return
+        index = self._build_candidate_index(data)
+        self._candidate_index = index
+        self._summary_index = None
+        by_id = {p.person_id: p for p in self._display_list}
+        for info in by_id.values():
+            self._apply_candidate_state(info, index)
+        tree = self._tree_widget
+        for row in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(row)
+            info = by_id.get(item.data(0, Qt.ItemDataRole.UserRole))
+            if info is None:
+                continue
+            colour = info.candidate_colour if info.candidate_colour != CANDIDATE_NONE else None
+            if (
+                item.data(_RESEARCH_COLUMN, _ROLE_CANDIDATE_COLOUR) != colour
+                or item.data(_RESEARCH_COLUMN, _ROLE_CANDIDATE_KIND)
+                != (info.candidate_kind if colour else None)
+            ):
+                item.setData(_RESEARCH_COLUMN, _ROLE_CANDIDATE_COLOUR, colour)
+                item.setData(
+                    _RESEARCH_COLUMN,
+                    _ROLE_CANDIDATE_KIND,
+                    info.candidate_kind if colour else None,
+                )
+        tree.viewport().update()
+
+    @staticmethod
+    def _apply_candidate_state(
+        info: PersonDisplayInfo, index: CandidateIndex | None
+    ) -> None:
+        if index is None:
+            info.candidate_colour, info.candidate_kind = CANDIDATE_NONE, ""
+        else:
+            info.candidate_colour = index.colour(info.person_id)
+            info.candidate_kind = candidate_kind(index, info.person_id)
+
+    def _build_research_index(self) -> ResearchIndex | None:
+        """Build research lookups from the open project, or None without one."""
+        try:
+            return ResearchIndex(self._app.project_service.data)
+        except Exception:  # noqa: BLE001 - the list must still show without research
+            logger.exception("Kunde inte bygga forskningsindex för personlistan.")
+            return None
+
+    def _on_header_clicked(self, section: int) -> None:
+        """Cycle the research column sort: most open first, fewest first, default."""
+        if section != _RESEARCH_COLUMN:
+            return
+        order = {None: "desc", "desc": "asc", "asc": None}
+        self._research_sort = order[self._research_sort]
+        header = self._tree_widget.header()
+        if self._research_sort is None:
+            header.setSortIndicatorShown(False)
+        else:
+            header.setSortIndicatorShown(True)
+            header.setSortIndicator(
+                _RESEARCH_COLUMN,
+                Qt.SortOrder.DescendingOrder
+                if self._research_sort == "desc"
+                else Qt.SortOrder.AscendingOrder,
+            )
+        self._update_list_widget()
+
+    def _sorted_for_display(self) -> list[PersonDisplayInfo]:
+        """Return the filtered list, ordered by research counts when that sort is on.
+
+        The sort is stable, so persons with equal counts keep their
+        alphabetical order.
+        """
+        if self._research_sort is None:
+            return self._filtered_list
+        return sorted(
+            self._filtered_list,
+            key=lambda p: research_sort_key(p.research_counts),
+            reverse=self._research_sort == "desc",
+        )
 
     def _get_all_persons_names(self) -> dict[str, list[Name]]:
         """Build a mapping of person_id to all their Name records.
@@ -1558,11 +2287,14 @@ class PersonListPanel(QWidget):
         self._company_by_id = {c.id: c for c in data.dna_companies}
         self._media_by_id = {m.id: m for m in data.media}
 
+        research_enabled = self._research_setting_enabled()
+        self._research_delegate.set_enabled(research_enabled)
+
         # Suspend UI updates while populating
         self._tree_widget.setUpdatesEnabled(False)
         try:
             items: list[QTreeWidgetItem] = []
-            for person_info in self._filtered_list:
+            for person_info in self._sorted_for_display():
                 # Build name display text
                 name_text = self._format_person_display(person_info)
 
@@ -1588,6 +2320,8 @@ class PersonListPanel(QWidget):
                     person_info.occupation,
                     person_info.cluster_names_display,
                     "",
+                    person_info.residence_intervals,
+                    format_research_counts(person_info.research_counts),
                 ])
 
                 # Store person_id in UserRole on column 0
@@ -1643,6 +2377,29 @@ class PersonListPanel(QWidget):
                     tree_item.setToolTip(7, person_info.cluster_names_display)
                 if dna_text:
                     tree_item.setToolTip(8, dna_text)
+                if person_info.residence_intervals:
+                    tree_item.setToolTip(9, person_info.residence_intervals)
+                state = indicator_state(person_info.research_counts)
+                color = indicator_color(state)
+                # The delegate draws glyph, text and candidate indicator from these roles.
+                tree_item.setData(_RESEARCH_COLUMN, _ROLE_CELL_PERSON_ID, person_info.person_id)
+                if color is not None:
+                    tree_item.setForeground(_RESEARCH_COLUMN, QBrush(QColor(color)))
+                    tree_item.setData(_RESEARCH_COLUMN, _ROLE_RESEARCH_COLOR, color)
+                    tree_item.setData(
+                        _RESEARCH_COLUMN,
+                        _ROLE_RESEARCH_TOOLTIP,
+                        indicator_tooltip(person_info.research_counts),
+                    )
+                if person_info.candidate_colour != CANDIDATE_NONE:
+                    tree_item.setData(
+                        _RESEARCH_COLUMN, _ROLE_CANDIDATE_COLOUR, person_info.candidate_colour
+                    )
+                    tree_item.setData(
+                        _RESEARCH_COLUMN, _ROLE_CANDIDATE_KIND, person_info.candidate_kind
+                    )
+                if not research_enabled:
+                    tree_item.setText(_RESEARCH_COLUMN, "")
                 if tooltip_parts:
                     tree_item.setToolTip(0, "\n".join(tooltip_parts))
 
@@ -1879,24 +2636,91 @@ class PersonListPanel(QWidget):
             if person_id:
                 self.person_edit_requested.emit(person_id)
 
-    def _on_context_menu_requested(self, pos) -> None:
-        """Handle right-click context menu on a person list item.
+    def selected_ids_in_list_order(self) -> list[str]:
+        """Ids of the selected rows, ordered as the rows appear in the list."""
+        from slaktbusken.services.comparison_session import order_by_person_list
 
-        Uses ContextMenuBuilder to create and show the standard person
-        context menu, then emits context_menu_action with the selected action.
+        tree = self._tree_widget
+        list_order = [
+            tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
+            for i in range(tree.topLevelItemCount())
+        ]
+        selected = [
+            it.data(0, Qt.ItemDataRole.UserRole) for it in tree.selectedItems()
+        ]
+        return order_by_person_list([s for s in selected if s], list_order)
+
+    def _show_empty_space_menu(self, pos) -> None:
+        """Right-click on empty space: the merge entries, both disabled."""
+        from slaktbusken.ui.context_menu_builder import (
+            COMPARE_ACTION,
+            MARK_CANDIDATES_ACTION,
+        )
+
+        menu = QMenu(self)
+        compare = menu.addAction("Jämför personer...")
+        compare.setData((COMPARE_ACTION, ()))
+        compare.setEnabled(False)
+        mark = menu.addAction("Markera som sammanslagningskandidater")
+        mark.setData((MARK_CANDIDATES_ACTION, ()))
+        mark.setEnabled(False)
+        self._exec_menu(menu, self._tree_widget.mapToGlobal(pos))
+
+    def _person_has_history(self, person_id: str) -> bool:
+        """True when the candidate index records merge history for the person."""
+        index = self._candidate_index
+        if index is None:
+            return False
+        try:
+            return bool(index.relations(person_id).has_history)
+        except Exception:  # noqa: BLE001 - the menu must still open
+            return False
+
+    def _exec_menu(self, menu: QMenu, global_pos: QPoint):
+        """Show the context menu modally and return the chosen action.
+
+        A single place for the blocking call, so widget tests can replace it.
+        """
+        return menu.exec(global_pos)
+
+    def _on_context_menu_requested(self, pos, keyboard: bool = False) -> None:
+        """Handle the context menu of the person list.
+
+        The selection is never changed here (the press handling has already
+        applied ``rows_after_right_click``). Uses ContextMenuBuilder to create
+        and show the standard person context menu, then emits
+        context_menu_action with the selected action.
 
         Args:
             pos: The local position of the right-click within the list widget.
+            keyboard: True when the menu was invoked from the keyboard; the
+                current selection is then used as is.
         """
-        from slaktbusken.ui.context_menu_builder import ContextMenuBuilder
+        from slaktbusken.ui.context_menu_builder import (
+            COMPARE_ACTION,
+            SHOW_HISTORY_ACTION,
+            ContextMenuBuilder,
+            merge_action_ids,
+        )
 
-        item = self._tree_widget.itemAt(pos)
-        if item is None:
-            return
+        if keyboard:
+            item = self._tree_widget.currentItem()
+            if item is None:
+                self._show_empty_space_menu(pos)
+                return
+        else:
+            item = self._tree_widget.itemAt(pos)
+            if item is None:
+                self._show_empty_space_menu(pos)
+                return
 
         person_id = item.data(0, Qt.ItemDataRole.UserRole)
         if not person_id:
             return
+
+        selected_ids = self.selected_ids_in_list_order()
+        if not keyboard and person_id not in selected_ids:
+            selected_ids = [person_id]
 
         # Determine main person id
         main_person_id: Optional[str] = None
@@ -1905,11 +2729,39 @@ class PersonListPanel(QWidget):
             main_person_id = data.project.main_person_id
 
         builder = ContextMenuBuilder()
-        menu = builder.build_person_menu(person_id, main_person_id, self)
+        menu = builder.build_person_menu(
+            person_id,
+            main_person_id,
+            self,
+            selected_ids=selected_ids,
+            project_open=self._app.project_service.project_path is not None,
+            has_history=self._person_has_history(person_id),
+        )
 
-        global_pos = self._tree_widget.mapToGlobal(pos)
-        action = menu.exec(global_pos)
+        action = self._exec_menu(menu, self._tree_widget.mapToGlobal(pos))
         if action is None:
+            return
+
+        action_data = action.data()
+        if (
+            isinstance(action_data, tuple)
+            and len(action_data) == 2
+            and action_data[0] == SHOW_HISTORY_ACTION
+        ):
+            from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
+
+            gateway = get_merge_gateway()
+            if gateway is not None:
+                gateway.open_history(action_data[1])
+            return
+
+        merge_action = merge_action_ids(action)
+        if merge_action is not None:
+            kind, ids = merge_action
+            if kind == COMPARE_ACTION:
+                self.compare_requested.emit(ids)
+            else:
+                self.mark_candidates_requested.emit(ids)
             return
 
         action_data = action.data()

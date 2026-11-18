@@ -11,9 +11,11 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QCompleter,
     QDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -32,6 +34,9 @@ from slaktbusken.ui.person_list_panel import FilterCriteria
 # All event types used in the project
 INDIVIDUAL_EVENT_TYPES = [
     ("adoption", "Adoption"),
+    ("adoption_ended", "Adoption upphörde"),
+    ("foster_home", "Fosterhem"),
+    ("foster_home_ended", "Fosterhem upphörde"),
     ("baptism", "Dop"),
     ("birth", "Födelse"),
     ("blessing", "Välsignelse"),
@@ -60,6 +65,38 @@ FAMILY_EVENT_TYPES = [
 ]
 
 
+# Research filter options as (internal key, Swedish label). The first entry of
+# each is the "no filtering" choice.
+RESEARCH_EXISTENCE_OPTIONS = [
+    ("all", "Alla personer"),
+    ("has", "Har forskningsärenden"),
+    ("none", "Saknar forskningsärenden"),
+]
+
+RESEARCH_STATUS_OPTIONS = [
+    ("all", "Alla statusar"),
+    ("open", "Minst ett ej avslutat ärende"),
+    ("closed_only", "Enbart avslutade ärenden"),
+]
+
+RESEARCH_ACTION_OPTIONS = [
+    ("all", "Alla åtgärder"),
+    ("pending", "Minst en ej genomförd åtgärd"),
+    ("completed", "Minst en genomförd åtgärd"),
+    ("none", "Inga forskningsåtgärder"),
+]
+
+_RESEARCH_NOT_APPLICABLE_TIP = "Gäller inte personer som saknar forskningsärenden."
+
+
+def _make_option_combo(options: list[tuple[str, str]]) -> QComboBox:
+    """Build a combo box showing the labels and carrying the keys as item data."""
+    combo = QComboBox()
+    for key, label in options:
+        combo.addItem(label, key)
+    return combo
+
+
 class FilterDialog(QDialog):
     """Non-modal filter dialog for the person list.
 
@@ -80,15 +117,36 @@ class FilterDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle("Filtrera personlistan")
-        self.setMinimumWidth(400)
+        # Resizable; the content scrolls when the window is smaller than the
+        # two columns need.
+        self.setMinimumSize(360, 300)
+        self.resize(780, 560)
         self._event_checkboxes: dict[str, QCheckBox] = {}
 
         self._setup_ui()
         self._connect_signals()
 
     def _setup_ui(self) -> None:
-        """Build the dialog UI."""
+        """Build the dialog UI.
+
+        Two columns inside a scroll area, with the Filtrera/Rensa buttons kept
+        outside it so they stay visible at the bottom.
+        Left: name, date range, parish, DNA cluster. Right: event types.
+        """
         main_layout = QVBoxLayout(self)
+
+        content = QWidget()
+        columns = QHBoxLayout(content)
+        left_column = QVBoxLayout()
+        right_column = QVBoxLayout()
+        columns.addLayout(left_column, 1)
+        columns.addLayout(right_column, 1)
+
+        content_scroll = QScrollArea()
+        content_scroll.setWidgetResizable(True)
+        content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content_scroll.setWidget(content)
+        main_layout.addWidget(content_scroll, 1)
 
         # --- Name filters ---
         name_group = QGroupBox("Namnfilter")
@@ -111,7 +169,7 @@ class FilterDialog(QDialog):
         name_layout.addRow("Yrke:", self._occupation_field)
 
         name_group.setLayout(name_layout)
-        main_layout.addWidget(name_group)
+        left_column.addWidget(name_group)
 
         # --- Event type filters ---
         event_group = QGroupBox("Händelsetyper")
@@ -120,7 +178,7 @@ class FilterDialog(QDialog):
         # Scroll area for many checkboxes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setMaximumHeight(200)
+        scroll.setMinimumHeight(200)
         scroll_widget = QWidget()
         scroll_inner = QVBoxLayout(scroll_widget)
 
@@ -146,7 +204,24 @@ class FilterDialog(QDialog):
         scroll.setWidget(scroll_widget)
         event_layout.addWidget(scroll)
         event_group.setLayout(event_layout)
-        main_layout.addWidget(event_group)
+        right_column.addWidget(event_group, 1)
+
+        # --- Research filters ---
+        # These look only at research cases linked directly to the person.
+        research_group = QGroupBox("Forskningsärenden")
+        research_layout = QFormLayout()
+
+        self._research_existence_combo = _make_option_combo(RESEARCH_EXISTENCE_OPTIONS)
+        research_layout.addRow("Ärenden:", self._research_existence_combo)
+
+        self._research_status_combo = _make_option_combo(RESEARCH_STATUS_OPTIONS)
+        research_layout.addRow("Status:", self._research_status_combo)
+
+        self._research_action_combo = _make_option_combo(RESEARCH_ACTION_OPTIONS)
+        research_layout.addRow("Åtgärder:", self._research_action_combo)
+
+        research_group.setLayout(research_layout)
+        right_column.addWidget(research_group)
 
         # --- Date range filters ---
         date_group = QGroupBox("Datumintervall")
@@ -195,7 +270,7 @@ class FilterDialog(QDialog):
         date_layout.addRow("Vigselår:", marriage_row)
 
         date_group.setLayout(date_layout)
-        main_layout.addWidget(date_group)
+        left_column.addWidget(date_group)
 
         # --- Parish filter ---
         parish_group = QGroupBox("Församling")
@@ -204,7 +279,7 @@ class FilterDialog(QDialog):
         self._parish_field.setPlaceholderText("Församlingsnamn...")
         parish_layout.addRow("Församling:", self._parish_field)
         parish_group.setLayout(parish_layout)
-        main_layout.addWidget(parish_group)
+        left_column.addWidget(parish_group)
 
         # --- DNA Cluster filter ---
         cluster_group = QGroupBox("DNA-kluster")
@@ -217,7 +292,8 @@ class FilterDialog(QDialog):
         self._cluster_field.setCompleter(self._cluster_completer)
         cluster_layout.addRow("Kluster:", self._cluster_field)
         cluster_group.setLayout(cluster_layout)
-        main_layout.addWidget(cluster_group)
+        left_column.addWidget(cluster_group)
+        left_column.addStretch()
 
         # --- Buttons ---
         button_row = QHBoxLayout()
@@ -232,6 +308,24 @@ class FilterDialog(QDialog):
         """Connect button signals."""
         self._apply_button.clicked.connect(self._on_apply)
         self._clear_button.clicked.connect(self._on_clear)
+        self._research_existence_combo.currentIndexChanged.connect(
+            self._on_research_existence_changed
+        )
+
+    def _on_research_existence_changed(self, _index: int) -> None:
+        """Keep the research filters consistent with "Saknar forskningsärenden".
+
+        A person with no research cases has no case that could be open or closed
+        and no action, so the status and action filters cannot apply. Rather
+        than let them silently match nobody, they are reset and disabled, with a
+        tooltip saying why.
+        """
+        applicable = self._research_existence_combo.currentData() != "none"
+        for combo in (self._research_status_combo, self._research_action_combo):
+            if not applicable:
+                combo.setCurrentIndex(0)
+            combo.setEnabled(applicable)
+            combo.setToolTip("" if applicable else _RESEARCH_NOT_APPLICABLE_TIP)
 
     def _on_apply(self) -> None:
         """Gather criteria from fields and emit filter_applied signal."""
@@ -254,6 +348,9 @@ class FilterDialog(QDialog):
             parish=self._parish_field.text(),
             cluster=self._cluster_field.text(),
             occupation=self._occupation_field.text(),
+            research_existence=self._research_existence_combo.currentData(),
+            research_status=self._research_status_combo.currentData(),
+            research_action=self._research_action_combo.currentData(),
         )
         self.filter_applied.emit(criteria)
 
@@ -273,6 +370,10 @@ class FilterDialog(QDialog):
         self._cluster_field.clear()
         for cb in self._event_checkboxes.values():
             cb.setChecked(False)
+        # Resetting existence first re-enables the status and action filters.
+        self._research_existence_combo.setCurrentIndex(0)
+        self._research_status_combo.setCurrentIndex(0)
+        self._research_action_combo.setCurrentIndex(0)
 
     def set_available_clusters(self, cluster_names: list[str]) -> None:
         """Update the autocomplete suggestions for the cluster field.

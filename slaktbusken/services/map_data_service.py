@@ -1,4 +1,9 @@
-"""Service for building map marker data from project events and places."""
+"""Service for building map marker data from project events and places.
+
+Also includes residence places, each labelled with the interval string
+from the Residence_Formatter and ordered by the timeline order defined in
+Requirement 11.10, via :func:`build_markers_for_person`.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 from slaktbusken.model.project import ProjectData
+from slaktbusken.reports.geographic import residence_places_for_person
 
 
 # --- Event type → Swedish display name mapping ---
@@ -110,10 +116,13 @@ def _sort_key_for_event(map_event: MapEvent):
 
 
 def build_markers_for_person(data: ProjectData, person_id: str) -> list[MapMarker]:
-    """Build map markers for all places where a person has events.
+    """Build map markers for all places where a person has events or residences.
 
     Filters events to those where person_id is a participant,
     then groups by place, resolving place coordinates and participant names.
+    Additionally includes residence places, each labelled with the interval
+    string from the Residence_Formatter, in the timeline order of
+    Requirement 11.10.
     Only includes places with non-null latitude and longitude.
 
     Args:
@@ -173,6 +182,39 @@ def build_markers_for_person(data: ProjectData, person_id: str) -> list[MapMarke
         )
 
         markers_by_place[place_id].events.append(map_event)
+
+    # Include residence places, labelled with the formatter's interval string,
+    # in the timeline order of Requirement 11.10.
+    residence_entries = residence_places_for_person(data, person_id)
+    person_display = _resolve_person_name(data, person_id)
+    for entry in residence_entries:
+        # Only include places with valid coordinates
+        if entry.latitude is None or entry.longitude is None:
+            continue
+
+        # Get or create marker for this place
+        if entry.place_id not in markers_by_place:
+            markers_by_place[entry.place_id] = MapMarker(
+                place_id=entry.place_id,
+                place_name=entry.place_name,
+                latitude=entry.latitude,
+                longitude=entry.longitude,
+            )
+
+        # Build a MapEvent entry for the residence
+        map_event = MapEvent(
+            event_id=entry.residence_id,
+            event_type="residence",
+            event_type_display="Boende",
+            date_display=entry.interval_display,
+            participants=[
+                MapParticipant(
+                    person_id=person_id,
+                    display_name=person_display,
+                )
+            ],
+        )
+        markers_by_place[entry.place_id].events.append(map_event)
 
     # Sort events within each marker chronologically
     for marker in markers_by_place.values():
@@ -248,8 +290,29 @@ def build_markers_all_events(data: ProjectData) -> list[MapMarker]:
 
 
 def markers_to_json(markers: list[MapMarker]) -> str:
-    """Serialize markers to JSON string for injection into the HTML template.
+    """Serialize markers to a script-embeddable JSON string.
 
-    Returns a JSON array suitable for use in JavaScript.
+    The result is spliced directly into a ``<script>`` block in the map HTML
+    template (``window.MARKER_DATA = <here>;``). Marker fields such as place
+    and person names come from project data, so a value containing the literal
+    ``</script>`` would otherwise terminate the script element and let the rest
+    of the value be parsed as live HTML — a stored script-injection vector in
+    the embedded QWebEngineView.
+
+    ``json.dumps`` only escapes ``"`` and ``\\``, not ``<``, ``>`` or ``&``, so
+    those (plus the U+2028/U+2029 line separators that are valid in JSON but
+    break a JavaScript string literal) are replaced with their ``\\uXXXX``
+    escapes. The output stays valid JSON and parses to identical data, but can
+    no longer close the surrounding ``<script>`` tag.
+
+    Returns:
+        A JSON array string safe to embed inside an HTML ``<script>`` element.
     """
-    return json.dumps([asdict(m) for m in markers], ensure_ascii=False)
+    raw = json.dumps([asdict(m) for m in markers], ensure_ascii=False)
+    return (
+        raw.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )

@@ -10,6 +10,9 @@ saving a new item. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import os
 import uuid
@@ -20,7 +23,10 @@ from PySide6.QtWidgets import QFileDialog, QListWidgetItem, QMessageBox, QWidget
 
 from slaktbusken.model.media import LinkedEntity, MediaItem
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.research_gateway import ResearchSection
 from slaktbusken.ui.generated.ui_media_editor import Ui_MediaEditor
+from slaktbusken.ui.widgets.research_marker import ResearchMarkerDelegate, apply_research_marker
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +81,7 @@ MENTIONED_TYPES: set[str] = {
 }
 
 
-class MediaEditor(QWidget):
+class MediaEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for MediaItem records with list and form panels.
 
     Displays a filterable media list on the left and a full edit form on the
@@ -93,6 +99,7 @@ class MediaEditor(QWidget):
         project_data: ProjectData,
         media_item: Optional[MediaItem] = None,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the media editor.
 
@@ -102,6 +109,7 @@ class MediaEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Mediaredigerare")
 
         self._project_data = project_data
         self._media_item = media_item
@@ -117,6 +125,7 @@ class MediaEditor(QWidget):
         self._connect_signals()
         self._update_type_specific_fields()
         self._refresh_media_list()
+        self._setup_research_section()
 
         if self._media_item is not None:
             self._load_media_item()
@@ -233,6 +242,9 @@ class MediaEditor(QWidget):
         """
         self._ui.media_list.clear()
         filter_lower = filter_text.lower()
+        if not isinstance(self._ui.media_list.itemDelegate(), ResearchMarkerDelegate):
+            self._ui.media_list.setItemDelegate(ResearchMarkerDelegate(self._ui.media_list))
+        research_index = ResearchIndex(self._project_data)
 
         for media in self._project_data.media:
             if filter_lower:
@@ -252,6 +264,7 @@ class MediaEditor(QWidget):
 
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, media.id)
+            apply_research_marker(item, research_index.counts_for_entity("media", media.id))
             self._ui.media_list.addItem(item)
 
     def _on_search_changed(self, text: str) -> None:
@@ -450,6 +463,8 @@ class MediaEditor(QWidget):
         if self._media_item is None:
             return
 
+        self._refresh_research_section()
+
         # File path
         self._ui.file_input.setText(self._media_item.file)
 
@@ -626,6 +641,7 @@ class MediaEditor(QWidget):
 
         self._media_item = self._saved_media
         self._is_new = False
+        self._refresh_research_section()
         self._refresh_media_list(self._ui.search_input.text())
         self._clear_status()
         logger.info("Media sparad: %s", media_id)
@@ -639,8 +655,32 @@ class MediaEditor(QWidget):
     # Private: helpers
     # ------------------------------------------------------------------
 
+    def _setup_research_section(self) -> None:
+        """Add the "Forskning" section for research cases linked to the media item."""
+        self._research_section = ResearchSection(
+            self._project_data,
+            "media",
+            lambda: (
+                self._media_item.id
+                if self._media_item is not None and not self._is_new
+                else None
+            ),
+        )
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._research_section)
+        else:
+            right_layout.addWidget(self._research_section)
+
+    def _refresh_research_section(self) -> None:
+        section = getattr(self, "_research_section", None)
+        if section is not None:
+            section.refresh()
+
     def _clear_form(self) -> None:
         """Reset all form fields to empty/default state."""
+        self._refresh_research_section()
         self._ui.file_input.clear()
         self._ui.media_type_combo.setCurrentIndex(0)
         self._ui.title_input.clear()

@@ -19,8 +19,10 @@ Bug overview:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
+
+from slaktbusken.services.parent_service import build_new_parent_family
 
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.person import Name, Person
@@ -87,20 +89,11 @@ class TestCreationBugExploration:
         Feature: spurious-family-on-add-parent, Property 1: Bug Condition
         **Validates: Requirements 1.1, 1.2**
         """
-        # Ensure parent and child are different
-        if parent_id == child_id:
-            child_id = child_id + "_child"
+        # A person cannot be their own parent: exclude invalid input.
+        assume(parent_id != child_id)
 
-        # Simulate what handle_placeholder_click does:
-        # It creates a Family exactly like this (the buggy code)
-        partner_role = "father" if role == "father" else "mother"
-        new_family = Family(
-            id="fam_test",
-            partners=[FamilyPartner(person_id=parent_id, role=partner_role)],
-            children=[child_id],
-            # NOTE: The current buggy code does NOT pass parent_child_links,
-            # so it defaults to []. We are asserting expected behavior below.
-        )
+        # Use the same production builder handle_placeholder_click uses.
+        new_family = build_new_parent_family("fam_test", parent_id, role, child_id)
 
         # Expected behavior: parent_child_links SHOULD be non-empty
         assert len(new_family.parent_child_links) > 0, (

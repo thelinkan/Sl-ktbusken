@@ -12,6 +12,7 @@ from hypothesis import strategies as st
 
 from slaktbusken.services.source_aspects import (
     ASPECT_LABELS,
+    EVENT_SOURCE_ASPECTS,
     get_aspects_for_event_type,
 )
 
@@ -27,9 +28,12 @@ _KNOWN_EVENT_TYPES = {
     "marriage": ["date", "place", "spouse"],
 }
 
-# Unknown event types: any string except the three known ones
+# Unknown event types: any string that is not a registered event type key
+# ("_default" is allowed since it maps to the default list itself)
+_REGISTERED_EVENT_TYPES = frozenset(EVENT_SOURCE_ASPECTS) - {"_default"}
+
 unknown_event_type = st.text(min_size=0, max_size=50).filter(
-    lambda s: s not in ("birth", "death", "marriage")
+    lambda s: s not in _REGISTERED_EVENT_TYPES
 )
 
 

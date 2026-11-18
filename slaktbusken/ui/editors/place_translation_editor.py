@@ -9,8 +9,12 @@ unmapped GEDCOM place strings. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -37,6 +41,9 @@ from slaktbusken.services.translation_service import (
 from slaktbusken.ui.generated.ui_place_translation_editor import (
     Ui_PlaceTranslationEditor,
 )
+
+if TYPE_CHECKING:
+    from slaktbusken.services.project_service import ProjectService
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +336,7 @@ class CreatePlaceDialog(QDialog):
         self.accept()
 
 
-class PlaceTranslationEditor(QWidget):
+class PlaceTranslationEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for GEDCOM place → App_JSON place translation mappings.
 
     Displays a searchable table of existing place mappings with hierarchy
@@ -361,6 +368,8 @@ class PlaceTranslationEditor(QWidget):
         project_data: ProjectData,
         project_path: Path,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
+        project_service: "Optional[ProjectService]" = None,
     ) -> None:
         """Initialise the place translation editor.
 
@@ -371,6 +380,8 @@ class PlaceTranslationEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Platsöversättningsredigerare")
+        self._project_service = project_service
 
         self._translation_service = translation_service
         self._project_data = project_data
@@ -742,8 +753,11 @@ class PlaceTranslationEditor(QWidget):
                 place.parent_place_id = name_to_id.get(parent_name)
 
         # Add all new places to the project
+        if self._project_service is not None:
+            self._project_service.add_places(new_places)
+        else:
+            self._project_data.places.extend(new_places)
         for place in new_places:
-            self._project_data.places.append(place)
             self._place_by_id[place.id] = place
             self.place_created.emit(place)
 
@@ -843,6 +857,15 @@ class PlaceTranslationEditor(QWidget):
         displays a Swedish-language error message and retains unsaved
         changes in the editor (requirement 6.6).
         """
+        if self._project_service is not None:
+            from slaktbusken.ui.merge.recovery_dialogs import translation_edit_refusal
+
+            refusal = translation_edit_refusal(self._project_service)
+            if refusal:
+                self._update_status(refusal)
+                QMessageBox.warning(self, "Sparfel", refusal)
+                return
+
         if self._translation_data is None:
             self._update_status("Inga data att spara.")
             return

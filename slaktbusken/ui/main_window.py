@@ -107,6 +107,13 @@ class MainWindow(QMainWindow):
         self.action_close.setToolTip("Stäng aktuellt projekt")
         self.action_close.triggered.connect(self._app.close_project)
 
+        self.action_print_view = QAction("Skriv &ut vy...", self)
+        self.action_print_view.setShortcut(QKeySequence("Ctrl+P"))
+        self.action_print_view.setToolTip(
+            "Förhandsgranska, skriv ut eller exportera den aktuella vyn till PDF"
+        )
+        self.action_print_view.triggered.connect(self._print_current_view)
+
         self.action_exit = QAction("A&vsluta", self)
         self.action_exit.setShortcut(QKeySequence("Ctrl+Q"))
         self.action_exit.setToolTip("Avsluta Släktbusken")
@@ -191,12 +198,50 @@ class MainWindow(QMainWindow):
         self.action_edit_person.setToolTip("Redigera den markerade personen")
         self.action_edit_person.triggered.connect(self._edit_active_person)
 
+        self.action_compare_persons = QAction("&Jämför personer...", self)
+        self.action_compare_persons.setToolTip(
+            "Öppna jämförelsen av två personer med båda platserna tomma"
+        )
+        self.action_compare_persons.setEnabled(False)
+        self.action_compare_persons.triggered.connect(
+            lambda _checked=False: self._app.open_comparison()
+        )
+
         # DNA
         self.action_dna_editor = QAction("&DNA och Kluster", self)
         self.action_dna_editor.setToolTip(
             "Hantera DNA-företag, profiler, matchningar, segment, kluster och trianguleringar"
         )
         self.action_dna_editor.triggered.connect(self._app.show_dna_editor)
+
+        # Forskning (Research)
+        self.action_research_overview = QAction("&Forskningsöversikt", self)
+        self.action_research_overview.setToolTip("Visa och hantera alla forskningsärenden")
+        self.action_research_overview.triggered.connect(
+            lambda: self._app.show_research_overview("cases")
+        )
+        self.action_research_todo = QAction("&Att göra", self)
+        self.action_research_todo.setToolTip("Visa forskningsåtgärder som återstår")
+        self.action_research_todo.triggered.connect(
+            lambda: self._app.show_research_overview("todo")
+        )
+        self.action_research_hypotheses = QAction("&Hypoteser", self)
+        self.action_research_hypotheses.setToolTip("Visa alla hypoteser, en rad per hypotes")
+        self.action_research_hypotheses.triggered.connect(
+            lambda: self._app.show_research_overview("hypotheses")
+        )
+        self.action_research_candidates = QAction("&Sammanslagningskandidater", self)
+        self.action_research_candidates.setToolTip(
+            "Visa alla kandidater för sammanslagning av personer"
+        )
+        self.action_research_candidates.triggered.connect(
+            lambda: self._app.open_register()
+        )
+        self.action_research_history = QAction("&Sammanslagningshistorik", self)
+        self.action_research_history.setToolTip(
+            "Visa historik över alla sammanslagningar av personer"
+        )
+        self.action_research_history.triggered.connect(self._open_merge_history)
 
         # Verktyg (Tools)
         self.action_relationship = QAction("&Släktskapsberäknare...", self)
@@ -206,6 +251,10 @@ class MainWindow(QMainWindow):
         self.action_person_checks = QAction("Kontrollera &personer...", self)
         self.action_person_checks.setToolTip("Kontrollera personuppgifter i projektet")
         self.action_person_checks.triggered.connect(self._app.show_person_checks)
+
+        self.action_residents_at_place = QAction("&Boende på plats\u2026", self)
+        self.action_residents_at_place.setToolTip("Visa vilka som bodde på en plats ett visst år")
+        self.action_residents_at_place.triggered.connect(self._on_residents_at_place)
 
         self.action_settings = QAction("&Inställningar...", self)
         self.action_settings.setToolTip("Öppna inställningar")
@@ -269,6 +318,8 @@ class MainWindow(QMainWindow):
         self.menu_file.addAction(self.action_import)
         self.menu_file.addAction(self.action_export)
         self.menu_file.addSeparator()
+        self.menu_file.addAction(self.action_print_view)
+        self.menu_file.addSeparator()
         self.menu_file.addAction(self.action_close)
         self.menu_file.addAction(self.action_exit)
 
@@ -287,9 +338,19 @@ class MainWindow(QMainWindow):
         self.menu_person.addAction(self.action_add_person)
         self.menu_person.addAction(self.action_edit_person)
         self.menu_person.addSeparator()
+        self.menu_person.addAction(self.action_compare_persons)
+        self.menu_person.addSeparator()
         self.menu_goto = self.menu_person.addMenu("Gå till")
         self.menu_goto.addAction(self.action_show_main_person)
         self.menu_goto.addAction(self.action_goto_selected_person)
+
+        # Forskning (Research)
+        self.menu_research = menu_bar.addMenu("&Forskning")
+        self.menu_research.addAction(self.action_research_overview)
+        self.menu_research.addAction(self.action_research_todo)
+        self.menu_research.addAction(self.action_research_hypotheses)
+        self.menu_research.addAction(self.action_research_candidates)
+        self.menu_research.addAction(self.action_research_history)
 
         # Visa (View)
         self.menu_view = menu_bar.addMenu("&Visa")
@@ -304,6 +365,7 @@ class MainWindow(QMainWindow):
         self.menu_tools = menu_bar.addMenu("V&erktyg")
         self.menu_tools.addAction(self.action_relationship)
         self.menu_tools.addAction(self.action_person_checks)
+        self.menu_tools.addAction(self.action_residents_at_place)
         self.menu_tools.addAction(self.action_settings)
 
         # Karta (Map)
@@ -326,6 +388,12 @@ class MainWindow(QMainWindow):
         )
         self._report_menu_builder.action_media.triggered.connect(
             self._generate_media
+        )
+        self._report_menu_builder.action_research_consistency.triggered.connect(
+            self._generate_research_consistency
+        )
+        self._report_menu_builder.action_merge_consistency.triggered.connect(
+            self._generate_merge_consistency
         )
 
         # Hjälp (Help)
@@ -359,6 +427,8 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(self.action_view_descendants)
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.action_show_main_person)
+        self.toolbar.addSeparator()
+        self.toolbar.addAction(self.action_print_view)
 
     # ------------------------------------------------------------------
     # Central Widget
@@ -454,6 +524,14 @@ class MainWindow(QMainWindow):
                 self._detail_panel_saved_width = current_sizes[2]
             self.detail_panel.hide()
 
+    def _open_merge_history(self) -> None:
+        """Open the merge history for all entries (no person filter)."""
+        from slaktbusken.ui.merge.merge_gateway import get_merge_gateway
+
+        gateway = get_merge_gateway()
+        if gateway is not None:
+            gateway.open_history(None)
+
     def _on_person_activated_for_detail(self, person_id: str) -> None:
         """Update the detail panel when a person is selected.
 
@@ -531,6 +609,7 @@ class MainWindow(QMainWindow):
             project_open: True if a project is currently open.
         """
         self.action_save.setEnabled(project_open)
+        self.action_compare_persons.setEnabled(project_open)
         self.action_import.setEnabled(project_open)
         self.action_export.setEnabled(project_open)
         self.action_close.setEnabled(project_open)
@@ -542,12 +621,18 @@ class MainWindow(QMainWindow):
         self.action_place_editor.setEnabled(project_open)
         self.action_place_translation_editor.setEnabled(project_open)
         self.action_dna_editor.setEnabled(project_open)
+        self.action_research_overview.setEnabled(project_open)
+        self.action_research_todo.setEnabled(project_open)
+        self.action_research_hypotheses.setEnabled(project_open)
+        self.action_research_candidates.setEnabled(project_open)
+        self.action_research_history.setEnabled(project_open)
         self.action_view_family.setEnabled(project_open)
         self.action_view_ancestry.setEnabled(project_open)
         self.action_view_descendants.setEnabled(project_open)
         self.action_show_main_person.setEnabled(project_open)
         self.action_goto_selected_person.setEnabled(project_open)
         self.action_map_all_events.setEnabled(project_open)
+        self.action_print_view.setEnabled(project_open)
 
         if hasattr(self, '_report_menu_builder'):
             self._report_menu_builder.update_project_state(project_open)
@@ -572,6 +657,10 @@ class MainWindow(QMainWindow):
         )
         if selected_id:
             self._app.open_person_editor(selected_id)
+
+    def _print_current_view(self) -> None:
+        """Öppna utskrifts-/förhandsgranskningsdialogen för den aktuella vyn."""
+        self.diagram_panel.print_diagram()
 
     def _switch_view(self, view_type: ViewType) -> None:
         """Switch the diagram panel view type.
@@ -678,12 +767,61 @@ class MainWindow(QMainWindow):
         dlg = ReportPreviewDialog(content, settings, parent=self)
         dlg.exec()
 
+    def _generate_research_consistency(self) -> None:
+        """Generate and display the research consistency report (Forskningskonsistens)."""
+        if self._app.project_service.project_path is None:
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        data = self._app.project_service.data
+
+        service = ReportGeneratorService()
+        content = service.generate_research_consistency(data)
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
+    def _generate_merge_consistency(self) -> None:
+        """Generate and display the merge consistency report (Sammanslagning och dubletter)."""
+        if self._app.project_service.project_path is None:
+            return
+
+        from slaktbusken.reports.generator import ReportGeneratorService
+        from slaktbusken.ui.dialogs.report_preview import ReportPreviewDialog
+
+        try:
+            data = self._app.project_service.data
+            content = ReportGeneratorService().generate_merge_consistency(data)
+        except Exception:
+            QMessageBox.warning(
+                self, "Sammanslagning och dubletter", "Rapporten kunde inte skapas."
+            )
+            return
+
+        settings = self._app.project_service.settings
+        dlg = ReportPreviewDialog(content, settings, parent=self)
+        dlg.exec()
+
+    def _on_residents_at_place(self) -> None:
+        """Open the 'Boende på plats' query dialog from the Verktyg menu."""
+        from slaktbusken.ui.dialogs.residents_dialog import ResidentsDialog
+
+        data = self._app.project_service.data if self._app.project_service else None
+        if data is None:
+            QMessageBox.information(self, "Boende på plats", "Inget projekt är öppet.")
+            return
+        dialog = ResidentsDialog(parent=self, project_data=data)
+        dialog.exec()
+
     def _show_about(self) -> None:
         """Show the About dialog."""
         QMessageBox.about(
             self,
             "Om Släktbusken",
-            "<p>Släktbusken v0.2.0 (beta)</p>"
+            "<p>Släktbusken v0.3.0 (beta)</p>"
             "<p>Ett skrivbordsverktyg för svensk släktforskning.</p>"
             "<p>Byggt med Python och PySide6.</p>"
             "<p>Gjort av Linkan, med hjälp av Specdriven AI (KIRO)</p>"

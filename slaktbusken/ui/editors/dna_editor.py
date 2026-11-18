@@ -8,6 +8,9 @@ All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import shutil
 import uuid
@@ -22,6 +25,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -45,6 +49,7 @@ from slaktbusken.model.dna import (
 )
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
+from slaktbusken.services.edit_session import register_created_file_in_active_session
 from slaktbusken.model.project import ProjectData
 from slaktbusken.services.cluster_filter import get_dna_match_filtered_persons
 from slaktbusken.services.dna_file_utils import delete_dna_file
@@ -54,6 +59,9 @@ from slaktbusken.ui.dialogs.chromosome_browser_dialog import ChromosomeBrowserDi
 from slaktbusken.ui.dna_match_display import format_match_entry, matches_filter
 from slaktbusken.ui.generated.ui_dna_editor import Ui_DnaEditor
 from slaktbusken.ui.widgets.person_search_widget import PersonSearchWidget
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.research_gateway import ResearchSection
+from slaktbusken.ui.widgets.research_marker import ResearchMarkerDelegate, apply_research_marker
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +186,7 @@ def _copy_to_logo_folder(source: Path, logo_folder: Path) -> Path | None:
         logo_folder.mkdir(parents=True, exist_ok=True)
         destination = _unique_filename(logo_folder, source.name)
         shutil.copy2(source, destination)
+        register_created_file_in_active_session(destination)
         return destination
     except OSError as e:
         logger.error("Misslyckades kopiera logofil %s: %s", source, e)
@@ -375,7 +384,7 @@ def resolve_profile_logo_icon(
     return QIcon(scaled)
 
 
-class DnaEditor(QWidget):
+class DnaEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for DNA-related records with tabbed interface.
 
     Provides management of DNA companies, profiles, matches,
@@ -393,6 +402,7 @@ class DnaEditor(QWidget):
         project_data: ProjectData,
         project_path: Path | None = None,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the DNA editor.
 
@@ -402,6 +412,7 @@ class DnaEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "DNA-redigerare")
 
         self._project_data = project_data
         self._project_path = project_path
@@ -462,14 +473,24 @@ class DnaEditor(QWidget):
         # Profile form customization (Req 1.1–1.5, 1.7, 1.8, 4.1–4.5)
         # ---------------------------------------------------------------
 
-        # --- Replace person_id input with read-only name label (Req 4.1, 4.2)
-        self._profile_person_name_label = QLabel()
-        self._profile_person_name_label.setObjectName("profile_person_name_label")
-        # Hide the original editable person_id input
-        self._ui.profile_person_input.hide()
-        # Insert the read-only name label in the same form row (row 0 field)
-        self._ui.profile_form_layout.setWidget(
-            0, QFormLayout.ItemRole.FieldRole, self._profile_person_name_label
+        # --- Replace person_id input with a PersonSearchWidget (Req 4.1, 4.2)
+        #
+        # The profile's person is chosen through a searchable widget. The
+        # original plain-text ``profile_person_input`` from the .ui is no
+        # longer a visible control, so it is removed from the layout (not
+        # merely hidden) and the search widget takes over its form row.
+        # NOTE: ``QFormLayout.setWidget`` silently refuses to place a widget
+        # into a cell that is still occupied, which previously left the
+        # replacement widgets unmanaged and floating on top of other rows.
+        # We therefore always remove the original occupant first and look up
+        # the replacement row dynamically so future .ui changes cannot shift
+        # a hard-coded index onto the wrong cell.
+        self._profile_person_search = PersonSearchWidget()
+        self._profile_person_search.setObjectName("profile_person_search_widget")
+        self._replace_form_field(
+            self._ui.profile_form_layout,
+            self._ui.profile_person_input,
+            self._profile_person_search,
         )
 
         # --- Add haplogroup fields (Req 1.2–1.5, 1.8)
@@ -483,24 +504,30 @@ class DnaEditor(QWidget):
         self._mt_haplogroup_input.setMaxLength(50)
         self._mt_haplogroup_input.setPlaceholderText("T.ex. H1a1")
 
-        # Insert haplogroup fields after test_type (row 2) — insert at row 3
-        # We insert mt first at row 3, then y at row 3 so y ends up above mt
+        # Insert haplogroup fields immediately after the test_type row so they
+        # appear above Kit-namn. Look the row up dynamically rather than using
+        # a hard-coded index.
+        test_type_row, _ = self._ui.profile_form_layout.getWidgetPosition(
+            self._ui.profile_test_type_combo
+        )
+        haplogroup_row = test_type_row + 1
+        # Insert mt first, then y at the same index so y ends up above mt.
         self._ui.profile_form_layout.insertRow(
-            3, self._mt_haplogroup_label, self._mt_haplogroup_input
+            haplogroup_row, self._mt_haplogroup_label, self._mt_haplogroup_input
         )
         self._ui.profile_form_layout.insertRow(
-            3, self._y_haplogroup_label, self._y_haplogroup_input
+            haplogroup_row, self._y_haplogroup_label, self._y_haplogroup_input
         )
 
         # --- Replace admin_person_id input with PersonSearchWidget (Req 4.3, 4.4)
         self._admin_person_search = PersonSearchWidget()
         self._admin_person_search.setObjectName("admin_person_search_widget")
-        # Hide the original admin person input
-        self._ui.profile_admin_person_input.hide()
-        # Find the row of the admin person field. Originally at row 5, after
-        # inserting 2 haplogroup rows it's shifted to row 7.
-        self._ui.profile_form_layout.setWidget(
-            7, QFormLayout.ItemRole.FieldRole, self._admin_person_search
+        # Swap the search widget into the admin-person row, resolving the row
+        # dynamically so it lands on its own cell (never overlapping Kit-namn).
+        self._replace_form_field(
+            self._ui.profile_form_layout,
+            self._ui.profile_admin_person_input,
+            self._admin_person_search,
         )
 
         # --- Remove/hide admin_status combo box (Req 4.5)
@@ -518,6 +545,7 @@ class DnaEditor(QWidget):
 
         # Redesign cluster tab with split-panel layout (Req 8.1–8.7)
         self._setup_cluster_panel()
+        self._setup_match_research_section()
 
         # Redesign triangulation tab — read-only detail view (Req 7.1–7.5)
         self._setup_triangulation_detail_view()
@@ -530,6 +558,11 @@ class DnaEditor(QWidget):
             9, "", self._chromosome_view_button
         )
 
+        # Populate the person search widgets with the available persons so a
+        # person can be chosen for a new profile from the start.
+        self._profile_person_search.set_persons(self._project_data.persons)
+        self._admin_person_search.set_persons(self._project_data.persons)
+
         self._populate_combos()
         self._connect_signals()
         self._refresh_all_lists()
@@ -537,6 +570,32 @@ class DnaEditor(QWidget):
     # ------------------------------------------------------------------
     # Private: setup
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _replace_form_field(
+        layout: QFormLayout, old_widget: QWidget, new_widget: QWidget
+    ) -> None:
+        """Replace *old_widget* with *new_widget* in a QFormLayout field cell.
+
+        Resolves the current row of *old_widget* dynamically, removes the
+        original from the layout (so the field cell is freed), hides it, and
+        installs *new_widget* in the same row/role.
+
+        ``QFormLayout.setWidget`` silently refuses to place a widget into a
+        cell that is still occupied. Removing the occupant first guarantees
+        the replacement is actually managed by the layout instead of floating
+        on top of neighbouring rows.
+        """
+        row, role = layout.getWidgetPosition(old_widget)
+        if row < 0:
+            # Fallback: old widget is not in this layout — append a new row.
+            layout.addRow(new_widget)
+            return
+        # Detach the original from the layout and hide it.
+        layout.removeWidget(old_widget)
+        old_widget.hide()
+        # Install the replacement into the freed cell.
+        layout.setWidget(row, role, new_widget)
 
     def _on_test_type_changed(self, _index: int) -> None:
         """Handle test_type combo box change — update haplogroup field visibility.
@@ -633,6 +692,22 @@ class DnaEditor(QWidget):
         # Add the new detail group to the triangulations tab layout
         self._ui.triangulations_layout.addWidget(self._triangulation_detail_group)
 
+    def _setup_match_research_section(self) -> None:
+        """Add the "Forskning" section to the match form for the selected match."""
+        self._match_research_section = ResearchSection(
+            self._project_data,
+            "dna_match",
+            lambda: self._editing_match.id if self._editing_match is not None else None,
+        )
+        self._ui.match_form_layout.addRow(self._match_research_section)
+
+    def _refresh_dna_research(self) -> None:
+        """Re-point the match and cluster research sections at the current selection."""
+        for name in ("_match_research_section", "_cluster_research_section"):
+            section = getattr(self, name, None)
+            if section is not None:
+                section.refresh()
+
     def _setup_cluster_panel(self) -> None:
         """Replace the cluster tab content with a split-panel layout.
 
@@ -680,6 +755,27 @@ class DnaEditor(QWidget):
         self._cluster_list_widget = QListWidget()
         self._cluster_list_widget.setObjectName("cluster_panel_list")
         left_layout.addWidget(self._cluster_list_widget)
+
+        # Button row beneath the cluster list: create / rename / delete.
+        # Matches the add/remove button layout used by the other tabs.
+        cluster_buttons_layout = QHBoxLayout()
+
+        self._add_cluster_button = QPushButton("Nytt kluster")
+        self._add_cluster_button.setObjectName("add_cluster_button")
+        self._add_cluster_button.clicked.connect(self._on_create_cluster)
+        cluster_buttons_layout.addWidget(self._add_cluster_button)
+
+        self._rename_cluster_button = QPushButton("Byt namn")
+        self._rename_cluster_button.setObjectName("rename_cluster_button")
+        self._rename_cluster_button.clicked.connect(self._on_rename_cluster)
+        cluster_buttons_layout.addWidget(self._rename_cluster_button)
+
+        self._remove_cluster_button = QPushButton("Ta bort kluster")
+        self._remove_cluster_button.setObjectName("remove_cluster_button")
+        self._remove_cluster_button.clicked.connect(self._on_remove_cluster)
+        cluster_buttons_layout.addWidget(self._remove_cluster_button)
+
+        left_layout.addLayout(cluster_buttons_layout)
 
         # Right panel (70%)
         right_widget = QWidget()
@@ -731,6 +827,14 @@ class DnaEditor(QWidget):
         self._cluster_save_notes_button.clicked.connect(self._on_save_cluster_notes)
         right_layout.addWidget(self._cluster_save_notes_button)
 
+        # Research cases linked to the selected cluster
+        self._cluster_research_section = ResearchSection(
+            self._project_data,
+            "dna_cluster",
+            lambda: self._editing_cluster.id if self._editing_cluster is not None else None,
+        )
+        right_layout.addWidget(self._cluster_research_section)
+
         # Add panels to splitter
         self._cluster_splitter.addWidget(left_widget)
         self._cluster_splitter.addWidget(right_widget)
@@ -750,6 +854,9 @@ class DnaEditor(QWidget):
         # Track DNA match filter state (Req 9.3–9.6)
         self._cluster_filter_active: bool = False
         self._cluster_filter_person_id: str | None = None
+
+        # Initialise create/rename/delete button enablement
+        self._update_cluster_button_states()
 
     def _resolve_person_display_name(self, person_id: str) -> str:
         """Resolve a person_id to a display name string.
@@ -952,6 +1059,11 @@ class DnaEditor(QWidget):
         """Rebuild the matches list widget."""
         self._ui.matches_list.clear()
         self._ui.matches_list.setIconSize(QSize(LOGO_ICON_SIZE, LOGO_ICON_SIZE))
+        if not isinstance(self._ui.matches_list.itemDelegate(), ResearchMarkerDelegate):
+            self._ui.matches_list.setItemDelegate(
+                ResearchMarkerDelegate(self._ui.matches_list)
+            )
+        research_index = ResearchIndex(self._project_data)
         filter_text = self._ui.match_filter_input.text()
         filtered_matches = matches_filter(
             self._project_data.dna_matches, filter_text, self._project_data
@@ -970,6 +1082,9 @@ class DnaEditor(QWidget):
                     display = f"⚠ {display} (saknar segmentfil)"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, match.id)
+            apply_research_marker(
+                item, research_index.counts_for_entity("dna_match", match.id)
+            )
             icon = resolve_company_logo_icon(
                 match, self._project_data, self._project_folder, LOGO_ICON_SIZE
             )
@@ -988,10 +1103,18 @@ class DnaEditor(QWidget):
     def _refresh_clusters_list(self) -> None:
         """Rebuild the clusters list widget in the split panel."""
         self._cluster_list_widget.clear()
+        if not isinstance(self._cluster_list_widget.itemDelegate(), ResearchMarkerDelegate):
+            self._cluster_list_widget.setItemDelegate(
+                ResearchMarkerDelegate(self._cluster_list_widget)
+            )
+        research_index = ResearchIndex(self._project_data)
         for cluster in self._project_data.dna_clusters:
             display = cluster.name or cluster.id
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, cluster.id)
+            apply_research_marker(
+                item, research_index.counts_for_entity("dna_cluster", cluster.id)
+            )
             self._cluster_list_widget.addItem(item)
 
     def _refresh_triangulations_list(self) -> None:
@@ -1287,10 +1410,9 @@ class DnaEditor(QWidget):
         Args:
             profile: The profile to load into the form.
         """
-        # Show person name as read-only label (Req 4.1, 4.2)
-        self._ui.profile_person_input.setText(profile.person_id)
-        self._profile_person_name_label.setText(
-            self._resolve_person_display_name(profile.person_id)
+        # Populate the person search widget with the profile's person (Req 4.1, 4.2)
+        self._profile_person_search.set_selected_person(
+            profile.person_id, self._project_data.persons
         )
         idx = self._ui.profile_company_combo.findData(profile.company_id)
         if idx >= 0:
@@ -1314,8 +1436,10 @@ class DnaEditor(QWidget):
     def _on_add_profile(self) -> None:
         """Clear form for new profile entry."""
         self._editing_profile = None
-        self._ui.profile_person_input.clear()
-        self._profile_person_name_label.clear()
+        # Reset the person search widget and refresh its available persons so
+        # a person can be chosen for the new profile (Req 4.1, 4.2).
+        self._profile_person_search.set_persons(self._project_data.persons)
+        self._profile_person_search.clear_selection()
         self._ui.profile_company_combo.setCurrentIndex(0)
         self._ui.profile_test_type_combo.setCurrentIndex(0)
         self._y_haplogroup_input.clear()
@@ -1323,6 +1447,7 @@ class DnaEditor(QWidget):
         self._update_haplogroup_visibility()
         self._ui.profile_kit_name_input.clear()
         self._ui.profile_kit_id_input.clear()
+        self._admin_person_search.set_persons(self._project_data.persons)
         self._admin_person_search.clear_selection()
         self._ui.profile_notes_input.clear()
         self._clear_status()
@@ -1344,9 +1469,10 @@ class DnaEditor(QWidget):
 
     def _on_save_profile(self) -> None:
         """Validate and save the profile form data."""
-        person_id = self._ui.profile_person_input.text().strip()
+        # Read the chosen person from the visible search widget (Req 4.1, 4.2).
+        person_id = self._profile_person_search.selected_person_id()
         if not person_id:
-            self._update_status("Person-ID krävs.")
+            self._update_status("Person krävs.")
             return
         if not any(p.id == person_id for p in self._project_data.persons):
             self._update_status(
@@ -1435,6 +1561,7 @@ class DnaEditor(QWidget):
             if match.id == match_id:
                 self._editing_match = match
                 self._load_match(match)
+                self._refresh_dna_research()
                 break
 
     def _load_match(self, match: DnaMatch) -> None:
@@ -1464,6 +1591,7 @@ class DnaEditor(QWidget):
     def _on_add_match(self) -> None:
         """Clear form for new match entry."""
         self._editing_match = None
+        self._refresh_dna_research()
         self._ui.match_profile1_combo.setCurrentIndex(0)
         self._ui.match_profile2_combo.setCurrentIndex(0)
         self._ui.match_shared_cm_input.setValue(0.0)
@@ -1495,6 +1623,7 @@ class DnaEditor(QWidget):
         ]
         self._editing_match = None
         self._refresh_matches_list()
+        self._refresh_dna_research()
         self._refresh_match_combos()
         self._clear_status()
 
@@ -1547,6 +1676,7 @@ class DnaEditor(QWidget):
             )
             self._project_data.dna_matches.append(new_match)
             self._editing_match = new_match
+            self._refresh_dna_research()
 
         self._refresh_matches_list()
         self._refresh_match_combos()
@@ -1735,10 +1865,12 @@ class DnaEditor(QWidget):
             # Empty state (Req 8.6)
             self._editing_cluster = None
             self._previous_cluster_id = None
+            self._refresh_dna_research()
             self._cluster_persons_list.clear()
             self._cluster_notes_edit.clear()
             self._cluster_notes_edit.setEnabled(False)
             self._cluster_save_notes_button.setEnabled(False)
+            self._update_cluster_button_states()
             return
 
         cluster_id = current.data(Qt.ItemDataRole.UserRole)
@@ -1747,7 +1879,9 @@ class DnaEditor(QWidget):
                 self._editing_cluster = cluster
                 self._previous_cluster_id = cluster.id
                 self._load_cluster_panel(cluster)
+                self._refresh_dna_research()
                 break
+        self._update_cluster_button_states()
 
     def _persist_cluster_notes(self) -> None:
         """Save current notes text to the previously selected cluster.
@@ -1890,6 +2024,105 @@ class DnaEditor(QWidget):
         """
         self._load_cluster_panel(cluster)
 
+    def _selected_cluster(self) -> DnaCluster | None:
+        """Return the currently selected cluster, or None."""
+        current = self._cluster_list_widget.currentItem()
+        if current is None:
+            return None
+        cluster_id = current.data(Qt.ItemDataRole.UserRole)
+        for cluster in self._project_data.dna_clusters:
+            if cluster.id == cluster_id:
+                return cluster
+        return None
+
+    def _select_cluster_in_list(self, cluster_id: str) -> None:
+        """Select the list item matching the given cluster id."""
+        for row in range(self._cluster_list_widget.count()):
+            item = self._cluster_list_widget.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) == cluster_id:
+                self._cluster_list_widget.setCurrentItem(item)
+                return
+
+    def _update_cluster_button_states(self) -> None:
+        """Refresh enablement/tooltips for the create/rename/delete buttons.
+
+        - "Nytt kluster" is always enabled.
+        - "Byt namn" is enabled only when a cluster is selected.
+        - "Ta bort kluster" is enabled only when a cluster is selected and
+          that cluster has no persons. Tooltip explains why it is disabled.
+        """
+        cluster = self._selected_cluster()
+        has_selection = cluster is not None
+
+        self._add_cluster_button.setEnabled(True)
+        self._rename_cluster_button.setEnabled(has_selection)
+
+        if not has_selection:
+            self._remove_cluster_button.setEnabled(False)
+            self._remove_cluster_button.setToolTip("Välj ett kluster")
+        elif cluster.person_ids:
+            self._remove_cluster_button.setEnabled(False)
+            self._remove_cluster_button.setToolTip(
+                "Klustret innehåller personer och kan inte tas bort."
+            )
+        else:
+            self._remove_cluster_button.setEnabled(True)
+            self._remove_cluster_button.setToolTip("")
+
+    def _on_create_cluster(self) -> None:
+        """Create a new cluster from a name entered via an input dialog.
+
+        Opens QInputDialog for the name (no default). Cancel or an
+        empty/whitespace name creates nothing. Otherwise a DnaCluster with a
+        generated id and trimmed name is appended, the list/combos refreshed,
+        and the new cluster selected.
+        """
+        name, ok = QInputDialog.getText(
+            self, "Nytt kluster", "Namn på kluster:"
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            return
+
+        new_cluster = DnaCluster(id=str(uuid.uuid4()), name=name)
+        self._project_data.dna_clusters.append(new_cluster)
+        self._refresh_clusters_list()
+        self._refresh_cluster_combos()
+        self._select_cluster_in_list(new_cluster.id)
+        self._update_cluster_button_states()
+        self._clear_status()
+        logger.info("DNA-kluster skapat: %s", name)
+
+    def _on_rename_cluster(self) -> None:
+        """Rename the selected cluster via an input dialog.
+
+        Prefills the current name. Cancel or an empty/whitespace name leaves
+        the cluster unchanged. Otherwise the cluster is renamed, the
+        list/combos refreshed, and it stays selected.
+        """
+        cluster = self._selected_cluster()
+        if cluster is None:
+            return
+
+        name, ok = QInputDialog.getText(
+            self, "Byt namn", "Namn på kluster:", text=cluster.name
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            return
+
+        cluster.name = name
+        self._refresh_clusters_list()
+        self._refresh_cluster_combos()
+        self._select_cluster_in_list(cluster.id)
+        self._update_cluster_button_states()
+        self._clear_status()
+        logger.info("DNA-kluster omdöpt: %s", name)
+
     def _on_add_cluster(self) -> None:
         """Clear selection for new cluster entry (no longer used in split panel)."""
         self._editing_cluster = None
@@ -1917,6 +2150,7 @@ class DnaEditor(QWidget):
         self._cluster_notes_edit.setEnabled(False)
         self._refresh_clusters_list()
         self._refresh_cluster_combos()
+        self._update_cluster_button_states()
         self._clear_status()
 
     def _on_add_cluster_member(self) -> None:

@@ -8,6 +8,9 @@ deleting places referenced by events. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import uuid
 from pathlib import Path
@@ -38,6 +41,7 @@ from PySide6.QtWidgets import (
 
 if TYPE_CHECKING:
     from slaktbusken.services.photo_service import PhotoService
+    from slaktbusken.services.project_service import ProjectService
 
 from slaktbusken.data.country_presets import available_presets, get_preset
 from slaktbusken.model.place import (
@@ -53,9 +57,13 @@ from slaktbusken.model.place import (
     remove_external_id,
 )
 from slaktbusken.model.project import ProjectData
+from slaktbusken.services.delete_service import find_residence_dependencies
 from slaktbusken.ui.generated.ui_place_editor import Ui_PlaceEditor
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.widgets.coordinate_spin_box import CoordinateSpinBox
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.ui.research_gateway import ResearchSection
+from slaktbusken.ui.widgets.research_marker import apply_research_marker, paint_research_dot
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +298,8 @@ class PlaceListItemDelegate(QStyledItemDelegate):
             return
 
         if not needs_red_dot(place):
+            # No red dot: the research marker (if any) takes the first position.
+            paint_research_dot(painter, option, index)
             return
 
         # Calculate text width to position the dot after it
@@ -314,6 +324,11 @@ class PlaceListItemDelegate(QStyledItemDelegate):
         painter.drawEllipse(QRect(dot_x, dot_y, self._DOT_DIAMETER, self._DOT_DIAMETER))
         painter.restore()
 
+        # The research marker follows the red dot.
+        paint_research_dot(
+            painter, option, index, extra_offset=self._DOT_DIAMETER + self._DOT_SPACING
+        )
+
     def _find_place(self, place_id: str) -> Optional[Place]:
         """Find a place by its ID in the project data."""
         for p in self._project_data.places:
@@ -322,7 +337,7 @@ class PlaceListItemDelegate(QStyledItemDelegate):
         return None
 
 
-class PlaceEditor(QWidget):
+class PlaceEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Place records with list/detail split layout.
 
     Displays a filterable list of all places on the left and an edit form
@@ -349,6 +364,8 @@ class PlaceEditor(QWidget):
         place: Optional[Place] = None,
         parent: QWidget | None = None,
         photo_service: "Optional[PhotoService]" = None,
+        registry: EditorRegistry | None = None,
+        project_service: "Optional[ProjectService]" = None,
     ) -> None:
         """Initialise the place editor.
 
@@ -357,8 +374,12 @@ class PlaceEditor(QWidget):
             place: Optional existing Place to select initially for editing.
             parent: Optional parent widget.
             photo_service: Optional PhotoService for photo management operations.
+            project_service: Optional ProjectService used to delete places and
+                record the change.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Platsredigerare")
+        self._project_service = project_service
 
         self._project_data = project_data
         self._place = place
@@ -392,15 +413,17 @@ class PlaceEditor(QWidget):
             3, QFormLayout.ItemRole.FieldRole, coords_row_layout
         )
 
-        # Wrap the right panel in a QScrollArea so all content is accessible
+        # Wrap the right panel in a QScrollArea so all form content is
+        # accessible. The status label and Spara/Avbryt buttons are moved out
+        # of the scroll area afterwards (see _pin_actions_below_scroll) so they
+        # stay fixed at the bottom of the panel instead of scrolling away.
+        # Capture the splitter slot of right_panel before setWidget reparents
+        # it into the scroll area (after which indexOf would no longer find it).
+        self._right_splitter_index = self._ui.splitter.indexOf(self._ui.right_panel)
+
         self._right_scroll = QScrollArea()
         self._right_scroll.setWidgetResizable(True)
         self._right_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        # Replace right_panel in the splitter with the scroll area containing it
-        self._ui.splitter.replaceWidget(
-            self._ui.splitter.indexOf(self._ui.right_panel),
-            self._right_scroll,
-        )
         self._right_scroll.setWidget(self._ui.right_panel)
         # Add type filter combo box to left panel between filter_input and place_list
         self._type_filter_label = QLabel("Typ:", self._ui.left_panel)
@@ -416,6 +439,13 @@ class PlaceEditor(QWidget):
         self._setup_preset_section()
         self._setup_custom_fields_section()
         self._setup_photo_section()
+        self._setup_research_section()
+
+        # Now that all scrollable sections have been inserted (they anchor on
+        # status_label's position), pin the status label and action buttons
+        # below the scroll area so they stay fixed at the bottom.
+        self._pin_actions_below_scroll()
+
         self._connect_signals()
 
         # Set up custom delegate for red dot indicator on places missing a parent
@@ -478,6 +508,30 @@ class PlaceEditor(QWidget):
 
         # Update the reference on the UI object so existing code keeps working
         setattr(self._ui, attr_name, new_spin)
+
+    def _pin_actions_below_scroll(self) -> None:
+        """Pin the status label and Spara/Avbryt buttons below the scroll area.
+
+        Moves the status label and the button row out of the scrollable
+        right_layout and into a container that stacks the scroll area above
+        them, then installs that container in the splitter where right_panel
+        used to be. This keeps the action buttons fixed at the bottom-right of
+        the window rather than scrolling with the form content.
+        """
+        self._ui.right_layout.removeWidget(self._ui.status_label)
+        self._ui.right_layout.removeItem(self._ui.buttons_layout)
+
+        self._right_container = QWidget()
+        container_layout = QVBoxLayout(self._right_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.addWidget(self._right_scroll, 1)
+        container_layout.addWidget(self._ui.status_label)
+        container_layout.addLayout(self._ui.buttons_layout)
+
+        self._ui.splitter.insertWidget(
+            self._right_splitter_index,
+            self._right_container,
+        )
 
     def _setup_child_places_list(self) -> None:
         """Add a child places group box to the right panel.
@@ -724,9 +778,11 @@ class PlaceEditor(QWidget):
 
         entries.sort(key=lambda x: x[0].lower())
 
+        research_index = ResearchIndex(self._project_data)
         for display, place_id in entries:
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, place_id)
+            apply_research_marker(item, research_index.counts_for_entity("place", place_id))
             # Show map icon for places with coordinates
             place = self._find_place_by_id(place_id)
             if place and place.latitude is not None and place.longitude is not None:
@@ -947,10 +1003,33 @@ class PlaceEditor(QWidget):
         # Photo section
         self._refresh_photo_section(place)
 
+        self._set_research_entity(place.id)
+
         self._clear_status()
+
+    def _setup_research_section(self) -> None:
+        """Add the "Forskning" section for research cases linked to the place."""
+        self._research_entity_id: Optional[str] = None
+        self._research_section = ResearchSection(
+            self._project_data, "place", lambda: self._research_entity_id
+        )
+        right_layout = self._ui.right_layout
+        status_index = right_layout.indexOf(self._ui.status_label)
+        if status_index >= 0:
+            right_layout.insertWidget(status_index, self._research_section)
+        else:
+            right_layout.addWidget(self._research_section)
+
+    def _set_research_entity(self, place_id: Optional[str]) -> None:
+        """Point the research section at the place the editor now shows."""
+        self._research_entity_id = place_id
+        section = getattr(self, "_research_section", None)
+        if section is not None:
+            section.refresh()
 
     def _clear_form(self) -> None:
         """Reset all form fields to their default empty state."""
+        self._set_research_entity(None)
         self._ui.type_combo.setCurrentIndex(0)
         self._ui.name_input.clear()
         self._ui.parent_combo.clear()
@@ -1374,23 +1453,39 @@ class PlaceEditor(QWidget):
                 if p.type == "country":
                     valid_parent_types.update(self._get_region_keys_for_country(p))
         else:
-            # Dynamic region-level type — find which country defines it
-            for p in self._project_data.places:
-                if p.type == "country":
-                    region_levels = self._get_region_levels_for_country(p)
-                    for rl in region_levels:
-                        if rl.key == place_type:
-                            if rl.order == 1:
-                                valid_parent_types = {"country"}
-                            else:
-                                # Find preceding region level
-                                for rl2 in region_levels:
-                                    if rl2.order == rl.order - 1:
-                                        valid_parent_types = {rl2.key}
-                                        break
-                            break
-                    if valid_parent_types:
+            # Dynamic region-level type — find which country defines it.
+            #
+            # A region-level key such as "kommune" can be defined by more than
+            # one country (e.g. Norge: fylke→kommune, Danmark: region→kommune).
+            # We must therefore resolve the key against the country the place
+            # actually belongs to, found by walking up its parent chain, so a
+            # Norwegian kommune gets "fylke" as its valid parent rather than
+            # Danmark's "region". Only if the owning country cannot be
+            # determined do we fall back to scanning all countries.
+            countries_to_check = []
+            owning_country = self._find_owning_country(self._editing_place)
+            if owning_country is not None:
+                countries_to_check.append(owning_country)
+            else:
+                countries_to_check = [
+                    p for p in self._project_data.places if p.type == "country"
+                ]
+
+            for p in countries_to_check:
+                region_levels = self._get_region_levels_for_country(p)
+                for rl in region_levels:
+                    if rl.key == place_type:
+                        if rl.order == 1:
+                            valid_parent_types = {"country"}
+                        else:
+                            # Find preceding region level
+                            for rl2 in region_levels:
+                                if rl2.order == rl.order - 1:
+                                    valid_parent_types = {rl2.key}
+                                    break
                         break
+                if valid_parent_types:
+                    break
             # If we couldn't determine valid parent types, allow any place as parent
             if not valid_parent_types:
                 valid_parent_types = {"country", "continent"}
@@ -1438,6 +1533,34 @@ class PlaceEditor(QWidget):
         """Get all region level keys for a country, checking presets if not set."""
         return {rl.key for rl in self._get_region_levels_for_country(country_place)}
 
+    def _find_owning_country(self, place: Optional[Place]) -> Optional[Place]:
+        """Walk up a place's parent chain to find the country it belongs to.
+
+        Used to disambiguate region-level keys that several countries share
+        (e.g. "kommune"), so a place's valid parent type is resolved against
+        its own country's region levels rather than an arbitrary country.
+
+        Args:
+            place: The place to resolve the owning country for. May be None
+                (e.g. when adding a brand-new place with no parent yet).
+
+        Returns:
+            The ancestor Place of type "country", or None if none is found
+            (which includes the new-place case and broken parent chains).
+        """
+        if place is None:
+            return None
+        current: Optional[Place] = place
+        visited: set[str] = set()
+        while current is not None and current.id not in visited:
+            visited.add(current.id)
+            if current.type == "country":
+                return current
+            if not current.parent_place_id:
+                return None
+            current = self._find_place_by_id(current.parent_place_id)
+        return None
+
     def _on_type_changed(self, index: int) -> None:
         """Handle type combo change to update parent combo options.
 
@@ -1448,7 +1571,22 @@ class PlaceEditor(QWidget):
         """
         type_label = self._ui.type_combo.currentText()
         internal_type = _resolve_type_label_to_internal(type_label, self._project_data)
+
+        # Remember the currently selected parent so it can be preserved across
+        # the type change. Many types share the same set of valid parents
+        # (e.g. "ort" and the universal types church/cemetery/farm/school all
+        # accept region-level types), so switching between them should keep the
+        # chosen parent rather than resetting it to "(Ingen)".
+        previous_parent_id = self._ui.parent_combo.currentData()
+
         self._populate_parent_combo(internal_type)
+
+        # Restore the previous parent if it is still a valid choice for the new
+        # type (i.e. it is still present in the repopulated combo).
+        if previous_parent_id:
+            index = self._ui.parent_combo.findData(previous_parent_id)
+            if index >= 0:
+                self._ui.parent_combo.setCurrentIndex(index)
 
         # Show preset section only for country type
         self._preset_group.setVisible(internal_type == "country")
@@ -1598,6 +1736,37 @@ class PlaceEditor(QWidget):
         if place is None:
             return
 
+        # Check for residence dependencies first – these block deletion entirely
+        residence_deps = find_residence_dependencies(place_id, self._project_data)
+        if residence_deps:
+            dep_lines: list[str] = []
+            for dep in residence_deps:
+                # Resolve person display name
+                person_display = dep.person_id
+                for person in self._project_data.persons:
+                    if person.id == dep.person_id:
+                        if person.names:
+                            name = person.names[0]
+                            parts = []
+                            if name.surname:
+                                parts.append(name.surname)
+                            if name.given:
+                                parts.append(name.given)
+                            person_display = ", ".join(parts) if parts else person.id
+                        break
+                dep_lines.append(f"  • Boende: {person_display} ({dep.residence_id})")
+            dep_list = "\n".join(dep_lines)
+            QMessageBox.warning(
+                self,
+                "Kan inte ta bort",
+                f"Platsen kan inte tas bort eftersom den refereras av "
+                f"följande boenden:\n\n"
+                f"{dep_list}\n\n"
+                "Ta bort eller ändra boendena först.",
+                QMessageBox.StandardButton.Ok,
+            )
+            return
+
         # Check for referencing events
         referencing_events = self._find_referencing_events(place_id)
         if referencing_events:
@@ -1626,9 +1795,12 @@ class PlaceEditor(QWidget):
                 return
 
         # Remove from project data
-        self._project_data.places = [
-            p for p in self._project_data.places if p.id != place_id
-        ]
+        if self._project_service is not None:
+            self._project_service.delete_place(place_id)
+        else:
+            self._project_data.places = [
+                p for p in self._project_data.places if p.id != place_id
+            ]
 
         self._editing_place = None
         self._clear_form()
@@ -1759,6 +1931,8 @@ class PlaceEditor(QWidget):
             # New place — add to project
             self._project_data.places.append(self._saved_place)
 
+        self._set_research_entity(place_id)
+
         # Refresh place list so red dot indicator reflects updated parent assignment
         self._refresh_place_list()
 
@@ -1858,6 +2032,10 @@ class PlaceEditor(QWidget):
 
         # Add to project data
         self._project_data.media.append(new_media)
+        # The photo is added immediately, without a later "Spara", so the
+        # project is marked changed here (Requirement 18.1).
+        if self._project_service is not None:
+            self._project_service.mark_changed("Plats-foto tillagt")
 
         # Refresh the photo section and emit signal
         if self._photo_section is not None:

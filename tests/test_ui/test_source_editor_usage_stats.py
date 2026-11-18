@@ -151,13 +151,13 @@ class TestSourceListUsageDisplay:
         assert "Sveriges Dödbok" in text
 
     def test_source_with_zero_usage_shows_zero(self, qapp, project_no_usage) -> None:
-        """Sources with no referencing events display '0' for both counts."""
+        """Sources with no usage show only the person count."""
         editor = SourceEditor(project_data=project_no_usage)
 
         item = editor._ui.source_list.item(0)
         assert item is not None
         text = item.text()
-        assert "[0 pers, 0 händ]" in text
+        assert text.endswith("[0 pers]")
 
     def test_source_list_preserves_provider_display(self, qapp, project_with_usage) -> None:
         """Provider is still displayed in the list item."""

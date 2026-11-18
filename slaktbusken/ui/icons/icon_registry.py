@@ -40,10 +40,14 @@ _EVENT_TYPE_MAP: dict[str, str] = {
     "engagement": "engagement.svg",
     "emigration": "emigration.svg",
     "immigration": "immigration.svg",
+    "flytt": "emigration.svg",
     "census": "census.svg",
     "confirmation": "confirmation.svg",
     "first_communion": "first_communion.svg",
     "adoption": "adoption.svg",
+    "adoption_ended": "adoption_ended.svg",
+    "foster_home": "foster_home.svg",
+    "foster_home_ended": "foster_home_ended.svg",
     "blessing": "blessing.svg",
     "graduation": "graduation.svg",
     "retirement": "retirement.svg",
@@ -112,6 +116,73 @@ class IconRegistry:
         path = _MISC_DIR / "map_marker.svg"
         return self._load_pixmap_sized(path, 14)
 
+    def get_source_icon(self) -> QPixmap:
+        """Return a 14×14 QPixmap of a page with text lines ("has source").
+
+        Drawn in code with the same stroke colour as the map marker (#2c3e50)
+        and cached.
+        """
+        cache_key = "source_icon@14"
+        cached = self._pixmap_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
+
+        size = 14
+        scale = 4
+        big = size * scale
+        pixmap = QPixmap(big, big)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pen = QPen(QColor("#2c3e50"))
+        pen.setWidthF(big * 0.09)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        left, right = big * 0.20, big * 0.80
+        top, bottom = big * 0.07, big * 0.93
+        fold = big * 0.22
+        # Page outline with a folded top-right corner.
+        painter.drawPolygon(
+            QPolygonF(
+                [
+                    QPointF(left, top),
+                    QPointF(right - fold, top),
+                    QPointF(right, top + fold),
+                    QPointF(right, bottom),
+                    QPointF(left, bottom),
+                ]
+            )
+        )
+        painter.drawPolyline(
+            QPolygonF(
+                [
+                    QPointF(right - fold, top),
+                    QPointF(right - fold, top + fold),
+                    QPointF(right, top + fold),
+                ]
+            )
+        )
+        # Text lines.
+        for frac in (0.46, 0.62, 0.78):
+            y = big * frac
+            painter.drawLine(QPointF(left + big * 0.10, y), QPointF(right - big * 0.10, y))
+        painter.end()
+
+        result = pixmap.scaled(
+            size,
+            size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._pixmap_cache[cache_key] = result
+        return result
+
     def get_dna_company_logo(self, media_id: str, media_loader) -> QPixmap | None:
         """Return a 16×16 QPixmap for a DNA company logo.
 
@@ -140,7 +211,13 @@ class IconRegistry:
         return scaled
 
     def get_event_icon_path(self, event_type: str) -> Path:
-        """Return the file path to the SVG icon for the given event type."""
+        """Return the file path to the SVG icon for the given event type.
+
+        Falls back to the generic event icon both when the event type is
+        unrecognized and when the mapped asset file is absent on disk, so a
+        newly registered event type whose dedicated SVG has not been added
+        yet still renders a sensible icon rather than an empty pixmap.
+        """
         filename = _EVENT_TYPE_MAP.get(event_type)
         if filename is None:
             logger.warning(
@@ -148,7 +225,16 @@ class IconRegistry:
                 event_type,
             )
             filename = _FALLBACK_EVENT_ICON
-        return _EVENTS_DIR / filename
+        path = _EVENTS_DIR / filename
+        if not path.exists():
+            logger.warning(
+                "Icon asset '%s' for event type '%s' is missing, using generic "
+                "fallback icon.",
+                filename,
+                event_type,
+            )
+            path = _EVENTS_DIR / _FALLBACK_EVENT_ICON
+        return path
 
     def get_gender_icon_path(self, sex: str) -> Path:
         """Return the file path to the SVG icon for the given sex value."""

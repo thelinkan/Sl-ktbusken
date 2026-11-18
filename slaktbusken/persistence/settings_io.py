@@ -39,6 +39,10 @@ class PersonBoxConfig:
         notes: Show research notes excerpt.
         cause_of_death: Show the cause of death field.
         clusters: Show DNA cluster names on the card.
+        research: Show a compact research indicator (independent of the person
+            list research column).
+        merge_candidates: Show the merge-candidate (duplicate) indicator;
+            defaults to enabled when the key is missing from a settings file.
     """
 
     name: bool = True
@@ -55,6 +59,8 @@ class PersonBoxConfig:
     cause_of_death: bool = True
     clusters: bool = True
     age: bool = True
+    research: bool = True
+    merge_candidates: bool = True
 
 
 @dataclass
@@ -66,12 +72,21 @@ class DiagramSettings:
         descendants_depth: Number of descendant generations to display (1-30).
         ancestry_compact: Use compact layout for ancestry view.
         background_color: Background color for the diagram canvas (hex string).
+        parentage_show_level: Which parent set the diagram draws by default,
+            one of "biological", "non_biological", or "all".
+        parentage_badge: Paint a "foster"/"adoptiv" badge on non-biological
+            connection lines.
+        parentage_fallback: When showing biological parents and a child has
+            none, fall back to drawing its non-biological parents.
     """
 
     ancestry_depth: int = 4
     descendants_depth: int = 4
     ancestry_compact: bool = False
     background_color: str = "#f0f0f0"
+    parentage_show_level: str = "biological"
+    parentage_badge: bool = False
+    parentage_fallback: bool = True
 
 
 @dataclass
@@ -113,6 +128,7 @@ class PersonListConfig:
         occupation: Show occupation column.
         clusters: Show cluster column.
         dna: Show DNA column.
+        research: Show the research cases column ("Forskningsärenden").
     """
 
     sex: bool = True
@@ -126,6 +142,7 @@ class PersonListConfig:
     occupation: bool = True
     clusters: bool = True
     dna: bool = True
+    research: bool = True
 
 
 @dataclass
@@ -186,6 +203,9 @@ class LogicCheckConfig:
     media_files_exist: bool = True
     valid_swedish_calendar: bool = True
     connected_to_main_person: bool = True
+    residence_coverage_gaps: bool = True
+    residence_open_endpoints: bool = True
+    residence_timeline_gaps: bool = True
 
 
 @dataclass
@@ -322,6 +342,8 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         cause_of_death=person_box_data.get("cause_of_death", True),
         clusters=person_box_data.get("clusters", True),
         age=person_box_data.get("age", True),
+        research=person_box_data.get("research", True),
+        merge_candidates=person_box_data.get("merge_candidates", True),
     )
 
     diagram_settings = DiagramSettings(
@@ -329,6 +351,9 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         descendants_depth=diagram_data.get("descendants_depth", 4),
         ancestry_compact=diagram_data.get("ancestry_compact", False),
         background_color=diagram_data.get("background_color", "#f0f0f0"),
+        parentage_show_level=diagram_data.get("parentage_show_level", "biological"),
+        parentage_badge=diagram_data.get("parentage_badge", False),
+        parentage_fallback=diagram_data.get("parentage_fallback", True),
     )
 
     person_list_data = data.get("person_list_config", {})
@@ -344,6 +369,7 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         occupation=person_list_data.get("occupation", True),
         clusters=person_list_data.get("clusters", True),
         dna=person_list_data.get("dna", True),
+        research=person_list_data.get("research", True),
     )
 
     ui_state = UiState(
@@ -452,6 +478,15 @@ def _deserialize_settings(data: dict) -> ProjectSettings:
         ),
         connected_to_main_person=logic_data.get(
             "connected_to_main_person", logic_defaults.connected_to_main_person
+        ),
+        residence_coverage_gaps=logic_data.get(
+            "residence_coverage_gaps", logic_defaults.residence_coverage_gaps
+        ),
+        residence_open_endpoints=logic_data.get(
+            "residence_open_endpoints", logic_defaults.residence_open_endpoints
+        ),
+        residence_timeline_gaps=logic_data.get(
+            "residence_timeline_gaps", logic_defaults.residence_timeline_gaps
         ),
     )
 

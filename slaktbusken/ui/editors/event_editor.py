@@ -8,8 +8,12 @@ All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import uuid
+from html import escape as _escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -26,6 +30,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
@@ -38,12 +43,21 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from slaktbusken.services.photo_service import PhotoService
 
+from slaktbusken.model.date_semantics import (
+    display_year,
+    effective_qualifier,
+    format_date_sv,
+)
 from slaktbusken.model.event import (
     DateValue,
     Event,
     Participant,
-    PlaceRef,
     SourceRef,
+)
+from slaktbusken.model.event_citations import (
+    CitationContext,
+    context_label_sv,
+    event_citations,
 )
 from slaktbusken.model.media import LinkedEntity, MediaItem
 from slaktbusken.model.project import ProjectData
@@ -53,14 +67,67 @@ from slaktbusken.services.source_aspects import (
     ASPECT_LABELS,
     get_aspects_for_event_type,
 )
+from slaktbusken.ui.editors.event_assembler import (
+    CHOICE_LABELS_SV,
+    DEFAULT_CHOICE,
+    CitationChoice,
+    CitationRow,
+    DateFormState,
+    EventFormState,
+    PromptNeed,
+    assemble_event,
+    prompts_needed,
+    prompt_text_sv,
+    validate_date_form,
+)
 from slaktbusken.ui.generated.ui_event_editor import Ui_EventEditor
-from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS, DATE_PRECISION_LABELS
+from slaktbusken.ui.research_gateway import ResearchSection
+from slaktbusken.services.safe_io import is_safe_media_extension, resolve_within
+from slaktbusken.ui.swedish_locale import get_event_type_label, SOURCE_QUALITY_LABELS
 
 logger = logging.getLogger(__name__)
+
+# Qualifier choices of the date section: (Swedish label, qualifier key).
+DATE_QUALIFIER_CHOICES: list[tuple[str, str]] = [
+    ("Exakt", "exact"),
+    ("Ungefär", "about"),
+    ("Uppskattat", "estimated"),
+    ("Beräknat", "calculated"),
+    ("Före", "before"),
+    ("Efter", "after"),
+    ("Mellan", "between"),
+    ("Från\u2013till", "from_to"),
+    ("Från", "from"),
+    ("Till", "to"),
+]
+_RANGE_QUALIFIER_KEYS = ("between", "from_to")
+
+DATE_CALENDAR_CHOICES: list[tuple[str, str]] = [
+    ("Gregorianskt", "gregorian"),
+    ("Julianskt", "julian"),
+]
+
+UNPARSED_DATE_TITLE_SV = "Tolkades inte vid import"
+UNPARSED_DATE_EXPLANATION_SV = (
+    'Det ursprungliga datumet i GEDCOM-filen kunde inte tolkas och sparas som '
+    'text: "{text}". Det bevaras oförändrat tills du anger ett nytt datum.'
+)
+
+# Citation contexts offered in the "Gäller" column, in display order.
+_CONTEXT_ORDER = (
+    CitationContext.EVENT,
+    CitationContext.DATE,
+    CitationContext.PLACE,
+    CitationContext.FROM_PLACE,
+)
+_CONTEXT_COLUMN = 3
 
 # Individual event types
 INDIVIDUAL_EVENT_TYPES: list[str] = [
     "adoption",
+    "adoption_ended",
+    "foster_home",
+    "foster_home_ended",
     "baptism",
     "birth",
     "blessing",
@@ -71,6 +138,7 @@ INDIVIDUAL_EVENT_TYPES: list[str] = [
     "death",
     "emigration",
     "first_communion",
+    "flytt",
     "gender_correction",
     "graduation",
     "immigration",
@@ -129,6 +197,9 @@ NON_PHOTO_MEDIA_TYPES: list[tuple[str, str]] = [
 # Default participant role per event type
 EVENT_TYPE_ROLES: dict[str, str] = {
     "adoption": "adopterad",
+    "adoption_ended": "adopterad",
+    "foster_home": "fosterbarn",
+    "foster_home_ended": "fosterbarn",
     "baptism": "döpt",
     "birth": "född",
     "blessing": "välsignad",
@@ -139,6 +210,7 @@ EVENT_TYPE_ROLES: dict[str, str] = {
     "death": "avliden",
     "emigration": "emigrant",
     "first_communion": "kommunikant",
+    "flytt": "huvudperson",
     "gender_correction": "huvudperson",
     "graduation": "examinerad",
     "immigration": "immigrant",
@@ -154,7 +226,62 @@ EVENT_TYPE_ROLES: dict[str, str] = {
 }
 
 
-class EventEditor(QWidget):
+# Parent role offered for each placement event type when the user adds an
+# additional participant. The default role in EVENT_TYPE_ROLES is the child
+# role (the auto-added subject); the parent added afterwards gets the role
+# below. Foster placements take a foster parent, adoptive placements an
+# adoptive parent.
+PLACEMENT_PARENT_ROLES: dict[str, str] = {
+    "foster_home": "fosterförälder",
+    "foster_home_ended": "fosterförälder",
+    "adoption": "adoptivförälder",
+    "adoption_ended": "adoptivförälder",
+}
+
+
+# End→start type mapping for placement events. A Placement_End_Event closes a
+# Placement_Start_Event of the mapped type (Requirement 2A.5). Kept local to the
+# editor so the one-click orphan-end fix can build the matching start without a
+# round-trip through the validators, while the validators remain the single
+# source of truth for orphan DETECTION.
+PLACEMENT_END_TO_START: dict[str, str] = {
+    "foster_home_ended": "foster_home",
+    "adoption_ended": "adoption",
+}
+
+
+def is_plausible_parent(
+    candidate_birth_year: int | None,
+    candidate_death_year: int | None,
+    child_birth_year: int | None,
+) -> bool:
+    """Decide whether a candidate may plausibly be a child's parent.
+
+    Pure, Qt-free predicate over the year portions of birth/death dates
+    (Requirement 1B.6-1B.9). Returns False only when KNOWN dates prove the
+    candidate cannot be the child's parent:
+
+    - When ``child_birth_year`` is None no judgement is possible, so every
+      candidate is plausible (Requirement 1B.9).
+    - Exclude when the candidate's known birth year is not strictly earlier
+      than the child's birth year; a parent must be strictly older, i.e. any
+      positive gap (Requirement 1B.6).
+    - Exclude when the candidate's known death year is earlier than the
+      child's birth year; the candidate died before the child was born
+      (Requirement 1B.7).
+    - Otherwise plausible. Unknown or partial dates never exclude a candidate
+      (Requirement 1B.8).
+    """
+    if child_birth_year is None:
+        return True
+    if candidate_birth_year is not None and candidate_birth_year >= child_birth_year:
+        return False
+    if candidate_death_year is not None and candidate_death_year < child_birth_year:
+        return False
+    return True
+
+
+class EventEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Event records.
 
     Displays and edits an Event record with type selection, participants,
@@ -187,6 +314,7 @@ class EventEditor(QWidget):
         parent: QWidget | None = None,
         project_folder: Path | None = None,
         photo_service: "Optional[PhotoService]" = None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the event editor.
 
@@ -199,6 +327,7 @@ class EventEditor(QWidget):
             photo_service: Optional PhotoService for photo management operations.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Händelseredigerare")
 
         self._project_data = project_data
         self._event = event
@@ -206,6 +335,13 @@ class EventEditor(QWidget):
         self._project_folder = project_folder
         self._photo_service = photo_service
         self._saved_event: Optional[Event] = None
+        # Tracks the parent role the editor last auto-offered in the role input,
+        # so a stale suggestion can be replaced when the placement type changes
+        # without clobbering a role the user typed.
+        self._offered_parent_role: Optional[str] = None
+        # True while the loaded event has an unparsed date that the form shows
+        # read-only; an empty date field then means "keep it".
+        self._loaded_unparsed: bool = False
 
         # Set up UI inside a scroll area so content is accessible even in
         # smaller windows (edit mode shows all sections simultaneously).
@@ -226,12 +362,15 @@ class EventEditor(QWidget):
         outer_layout.addWidget(scroll_area)
 
         self._setup_tables()
+        self._setup_date_section()
+        self._setup_from_place_section()
         self._populate_combos()
         self._setup_reference_paste()
         self._setup_new_place_button()
         self._setup_aspect_checkboxes()
         self._setup_photo_section()
         self._setup_event_media_section()
+        self._setup_research_section()
         self._connect_signals()
 
         # Hide the old "Media" section from the .ui file (replaced by Foton + Annan media)
@@ -275,7 +414,18 @@ class EventEditor(QWidget):
         table = self._ui.participants_table
         table.horizontalHeader().setStretchLastSection(True)
         table.setEditTriggers(table.EditTrigger.NoEditTriggers)
-        table.setMaximumHeight(100)
+        # Size the table from actual row metrics so several participants
+        # (e.g. a foster child plus both foster parents) are all visible at
+        # once without scrolling. The old hard cap of 100px only showed a
+        # single data row.
+        row_height = table.verticalHeader().defaultSectionSize()
+        header_height = table.horizontalHeader().height()
+        frame = 2 * table.frameWidth()
+        # Show ~4 data rows plus the header by default.
+        table.setMinimumHeight(row_height * 4 + header_height + frame)
+        # Allow growth up to ~8 rows for busier events without dominating the
+        # dialog.
+        table.setMaximumHeight(row_height * 8 + header_height + frame)
 
         # Sources table — give it more room so entries are readable
         table = self._ui.sources_table
@@ -286,6 +436,79 @@ class EventEditor(QWidget):
         header = table.horizontalHeader()
         header.resizeSection(0, 300)
         header.resizeSection(1, 80)
+        # "Gäller": which part of the event the citation supports.
+        table.setColumnCount(_CONTEXT_COLUMN + 1)
+        table.setHorizontalHeaderItem(_CONTEXT_COLUMN, QTableWidgetItem("Gäller"))
+        header.resizeSection(2, 160)
+
+    def _setup_date_section(self) -> None:
+        """Add the qualifier, range-end, calendar and unparsed-date widgets.
+
+        The old precision combo is superseded by the qualifier: its
+        "approximate" choice is the qualifier "Ungefär" (``about``). The combo
+        stays in the generated UI but is hidden and no longer read.
+        """
+        self._ui.date_precision_label.setVisible(False)
+        self._ui.date_precision_combo.setVisible(False)
+
+        layout = self._ui.date_group_layout
+        group = self._ui.date_group
+
+        self._date_qualifier_combo = QComboBox(group)
+        for label, key in DATE_QUALIFIER_CHOICES:
+            self._date_qualifier_combo.addItem(label, key)
+        self._date_qualifier_combo.setToolTip("Hur säkert datumet är")
+
+        self._date_to_label = QLabel("till:", group)
+        self._date_to_input = QLineEdit(group)
+        self._date_to_input.setMaxLength(10)
+        self._date_to_input.setPlaceholderText("ÅÅÅÅ-MM-DD")
+
+        self._date_calendar_combo = QComboBox(group)
+        for label, key in DATE_CALENDAR_CHOICES:
+            self._date_calendar_combo.addItem(label, key)
+        self._date_calendar_combo.setToolTip("Kalender som datumet är skrivet i")
+
+        layout.addWidget(self._date_qualifier_combo)
+        layout.addWidget(self._date_to_label)
+        layout.addWidget(self._date_to_input)
+        layout.addWidget(self._date_calendar_combo)
+        self._date_qualifier_combo.currentIndexChanged.connect(
+            self._update_date_range_enabled
+        )
+        self._update_date_range_enabled()
+
+        # Read-only notice for a date that the import could not interpret.
+        self._unparsed_notice = QLabel(self._ui.date_group.parentWidget())
+        self._unparsed_notice.setWordWrap(True)
+        self._unparsed_notice.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._unparsed_notice.setVisible(False)
+        main_layout = self._ui.main_layout
+        main_layout.insertWidget(
+            main_layout.indexOf(self._ui.date_group) + 1, self._unparsed_notice
+        )
+
+    def _update_date_range_enabled(self) -> None:
+        """Enable the range-end field only for "Mellan" and "Från–till"."""
+        is_range = self._date_qualifier_combo.currentData() in _RANGE_QUALIFIER_KEYS
+        self._date_to_label.setEnabled(is_range)
+        self._date_to_input.setEnabled(is_range)
+
+    def _setup_from_place_section(self) -> None:
+        """Add the "Från plats" selector, shown only for ``flytt`` events."""
+        self._from_place_group = QGroupBox("Från plats")
+        layout = QHBoxLayout(self._from_place_group)
+        label = QLabel("Från plats:", self._from_place_group)
+        self._from_place_combo = QComboBox(self._from_place_group)
+        layout.addWidget(label)
+        layout.addWidget(self._from_place_combo)
+        main_layout = self._ui.main_layout
+        main_layout.insertWidget(
+            main_layout.indexOf(self._ui.place_group) + 1, self._from_place_group
+        )
+        self._from_place_group.setVisible(False)
 
     def _setup_reference_paste(self) -> None:
         """Add a paste-reference row below the source combo for matching by reference text.
@@ -345,6 +568,22 @@ class EventEditor(QWidget):
         self._new_place_button = QPushButton("Ny plats...", self._ui.place_group)
         # Add the button to the place group layout (after the place combo)
         self._ui.place_group_layout.addWidget(self._new_place_button)
+
+    def _setup_research_section(self) -> None:
+        """Add a compact "Forskning" section for cases linked to this event.
+
+        Opening or creating a case goes through the application and leaves this
+        editor, with its unsaved changes, open underneath. A new event has no id
+        yet, so the section asks the user to save first.
+        """
+        self._research_section = ResearchSection(
+            self._project_data,
+            "event",
+            lambda: self._event.id if self._event is not None else None,
+        )
+        main_layout = self._ui.main_layout
+        status_index = main_layout.indexOf(self._ui.status_label)
+        main_layout.insertWidget(status_index, self._research_section)
 
     def _setup_photo_section(self) -> None:
         """Create the "Foton" section for death/funeral events.
@@ -444,32 +683,13 @@ class EventEditor(QWidget):
         for event_type in ALL_EVENT_TYPES:
             self._ui.type_combo.addItem(get_event_type_label(event_type), event_type)
 
-        # Person combo for participants
-        self._ui.participant_person_combo.clear()
-        self._ui.participant_person_combo.addItem("", "")
-        for person in self._project_data.persons:
-            display = self._get_person_display(person.id)
-            self._ui.participant_person_combo.addItem(display, person.id)
+        # Person combo for participants (candidate list, possibly filtered to
+        # plausible parents when adding a Parent_Role to a placement event).
+        self._refresh_participant_person_combo()
 
         # Place combo (full hierarchy, sorted alphabetically, searchable)
-        self._ui.place_combo.clear()
-        self._ui.place_combo.setEditable(True)
-        self._ui.place_combo.setInsertPolicy(self._ui.place_combo.InsertPolicy.NoInsert)
-        self._ui.place_combo.addItem("(ingen plats)", "")
-        places_with_display: list[tuple[str, str]] = []
-        for place in self._project_data.places:
-            display = self._format_place_hierarchy(place)
-            places_with_display.append((display, place.id))
-        places_with_display.sort(key=lambda x: x[0].lower())
-        place_names: list[str] = []
-        for display, place_id in places_with_display:
-            self._ui.place_combo.addItem(display, place_id)
-            place_names.append(display)
-        # Substring completer for searching
-        place_completer = QCompleter(place_names, self._ui.place_combo)
-        place_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        place_completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        self._ui.place_combo.setCompleter(place_completer)
+        self._fill_place_combo(self._ui.place_combo)
+        self._fill_place_combo(self._from_place_combo)
 
         # Source combo (searchable, sorted alphabetically by title)
         self._ui.source_combo.clear()
@@ -504,10 +724,39 @@ class EventEditor(QWidget):
         self._ui.source_quality_combo.addItem("Sekundär", "secondary")
         self._ui.source_quality_combo.addItem("Tertiär", "tertiary")
 
-        # Date precision combo (Swedish labels, English keys as data)
-        self._ui.date_precision_combo.clear()
-        for key, label in DATE_PRECISION_LABELS.items():
-            self._ui.date_precision_combo.addItem(label, key)
+    def _fill_place_combo(self, combo: QComboBox) -> None:
+        """Fill ``combo`` with "(ingen plats)" and every place, searchable."""
+        combo.clear()
+        combo.setEditable(True)
+        combo.setInsertPolicy(combo.InsertPolicy.NoInsert)
+        combo.addItem("(ingen plats)", "")
+        places_with_display: list[tuple[str, str]] = []
+        for place in self._project_data.places:
+            display = self._format_place_hierarchy(place)
+            places_with_display.append((display, place.id))
+        places_with_display.sort(key=lambda x: x[0].lower())
+        place_names: list[str] = []
+        for display, place_id in places_with_display:
+            combo.addItem(display, place_id)
+            place_names.append(display)
+        # Substring completer for searching
+        place_completer = QCompleter(place_names, combo)
+        place_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        place_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        combo.setCompleter(place_completer)
+
+    @staticmethod
+    def _select_place(combo: QComboBox, place_id: str) -> None:
+        """Select ``place_id`` in ``combo``; add a stand-in for a missing place.
+
+        A dangling place id must not be dropped by opening and saving, so it
+        gets its own entry instead of falling back to "(ingen plats)".
+        """
+        index = combo.findData(place_id)
+        if index < 0:
+            combo.addItem(f"(okänd plats: {place_id})", place_id)
+            index = combo.findData(place_id)
+        combo.setCurrentIndex(index)
 
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
@@ -568,6 +817,10 @@ class EventEditor(QWidget):
         self._ui.cause_of_death_label.setVisible(is_death)
         self._ui.cause_of_death_input.setVisible(is_death)
 
+        # "Från plats" selector: only while the type is flytt. Hiding it never
+        # touches the stored from_place (the form state keeps its value).
+        self._from_place_group.setVisible(current_type == "flytt")
+
         # Photo and Annan media sections: visible for all event types
         self._event_media_group.setVisible(True)
         self._refresh_photo_section()
@@ -590,27 +843,173 @@ class EventEditor(QWidget):
         """
         current_type = self._ui.type_combo.currentData() or ""
         is_family_event = current_type in FAMILY_EVENT_TYPES
+        is_placement_event = current_type in PLACEMENT_PARENT_ROLES
 
         if self._subject_person_id and not self._event:
-            # New event from person editor: hide participants for individual events
-            self._ui.participants_group.setVisible(is_family_event)
+            # New event from person editor: hide participants for individual
+            # events, but show them for placement events so a foster/adoptive
+            # parent can be added alongside the auto-added child subject.
+            self._ui.participants_group.setVisible(is_family_event or is_placement_event)
 
-            # For family events, update the subject's role and ensure they're added
-            if is_family_event:
+            # For family and placement events, update the subject's role and
+            # ensure they're added. For placement events the subject is the
+            # child, so use the child role from EVENT_TYPE_ROLES
+            # ("fosterbarn"/"adopterad").
+            if is_family_event or is_placement_event:
                 role = EVENT_TYPE_ROLES.get(current_type, "deltagare")
-                # Clear and re-add subject with correct role
+                # Preserve any additional (parent) participants already added;
+                # only re-role the subject row.
+                extras = [
+                    Participant(
+                        person_id=self._ui.participants_table.item(r, 0).data(
+                            Qt.ItemDataRole.UserRole
+                        ),
+                        role=self._ui.participants_table.item(r, 1).text(),
+                    )
+                    for r in range(self._ui.participants_table.rowCount())
+                    if self._ui.participants_table.item(r, 0).data(
+                        Qt.ItemDataRole.UserRole
+                    )
+                    != self._subject_person_id
+                ]
                 self._ui.participants_table.setRowCount(0)
                 self._add_participant_row(
                     Participant(person_id=self._subject_person_id, role=role)
                 )
+                for extra in extras:
+                    self._add_participant_row(extra)
         elif self._event and not is_family_event:
             # Editing an individual event: hide participants if only one
-            # (the sole participant is implicit — it's the person being edited)
+            # (the sole participant is implicit — it's the person being edited),
+            # except for placement events where a parent participant is expected.
             has_multiple = self._ui.participants_table.rowCount() > 1
-            self._ui.participants_group.setVisible(has_multiple)
+            self._ui.participants_group.setVisible(has_multiple or is_placement_event)
         else:
             # Family events or standalone: always show participants
             self._ui.participants_group.setVisible(True)
+
+        # Offer the correct parent role for placement events so the "add
+        # participant" flow suggests "fosterförälder"/"adoptivförälder".
+        self._offer_placement_parent_role()
+
+        # The type (and thus whether/what to filter) may have changed; rebuild
+        # the parent-candidate list. This only touches the PERSON combo, never
+        # the role input, so it does not clobber the role suggestion above.
+        self._refresh_participant_person_combo()
+
+    def _offer_placement_parent_role(self) -> None:
+        """Pre-fill the participant role field with the placement parent role.
+
+        For a placement event type the additional participant the user adds is a
+        parent, so offer the matching Parent_Role ("fosterförälder" for foster
+        types, "adoptivförälder" for adoptive types) in the role input when it is
+        empty. The user remains free to override the suggestion.
+        """
+        current_type = self._ui.type_combo.currentData() or ""
+        parent_role = PLACEMENT_PARENT_ROLES.get(current_type)
+        current_text = self._ui.participant_role_input.text().strip()
+
+        # The field is "available" for a suggestion when it is empty or still
+        # holds the role this editor offered previously (a stale suggestion from
+        # another placement type). A role the user typed is never overwritten.
+        is_available = current_text == "" or current_text == self._offered_parent_role
+
+        if parent_role and is_available:
+            self._ui.participant_role_input.setText(parent_role)
+            self._offered_parent_role = parent_role
+        elif not parent_role and current_text == self._offered_parent_role:
+            # Left a placement type: drop our stale suggestion.
+            self._ui.participant_role_input.clear()
+            self._offered_parent_role = None
+
+    # ------------------------------------------------------------------
+    # Private: parent-candidate plausibility filtering
+    # ------------------------------------------------------------------
+
+    def _current_placement_child_birth_year(self) -> int | None:
+        """Return the child's birth year for plausibility filtering, or None.
+
+        Returns the birth year (int) of the Child_Role participant of the
+        current placement event when one is present and its birth year is
+        known; otherwise None, which disables filtering (Requirement 1B.9).
+
+        The current type must be a placement type. The child is the
+        participant whose role equals the Child_Role for that type
+        (``fosterbarn`` for foster, ``adopterad`` for adoptive) as read from
+        the participants table. As a fallback, when the table has not yet been
+        populated but a subject is set, the subject is treated as the child.
+        The birth year reuses the existing year-derivation helper.
+        """
+        current_type = self._ui.type_combo.currentData() or ""
+        if current_type not in PLACEMENT_PARENT_ROLES:
+            return None
+
+        child_role = EVENT_TYPE_ROLES.get(current_type)
+        child_person_id: str | None = None
+
+        table = self._ui.participants_table
+        for row in range(table.rowCount()):
+            person_item = table.item(row, 0)
+            role_item = table.item(row, 1)
+            if person_item is None or role_item is None:
+                continue
+            if role_item.text() == child_role:
+                child_person_id = person_item.data(Qt.ItemDataRole.UserRole)
+                break
+
+        # Fallback: no child row found yet, but the subject is the child for a
+        # new placement event opened from the person editor.
+        if child_person_id is None and self._subject_person_id:
+            child_person_id = self._subject_person_id
+
+        if not child_person_id:
+            return None
+
+        return self._year_text_to_int(
+            self._person_event_year(child_person_id, "birth")
+        )
+
+    @staticmethod
+    def _year_text_to_int(year_text: str) -> int | None:
+        """Convert a four-digit year string to an int, or None when empty."""
+        return int(year_text) if year_text else None
+
+    def _refresh_participant_person_combo(self) -> None:
+        """Rebuild the participant person combo, filtering implausible parents.
+
+        Keeps the combo structure unchanged: a leading empty ``("", "")`` entry
+        followed by one item per person (display label from
+        ``_get_person_display``, person id as data), and resets the selection to
+        the leading empty entry.
+
+        Filtering applies ONLY when the current type is a placement type, a
+        Child_Role participant is present, and the child's birth year is known.
+        In that case any person failing ``is_plausible_parent`` is skipped
+        (Requirements 1B.6, 1B.7, 1B.10). In every other case the full person
+        list is shown exactly as before (Requirement 1B.9). The Child_Role
+        picker is never filtered because filtering only engages once a child is
+        present in the table.
+        """
+        child_birth_year = self._current_placement_child_birth_year()
+
+        combo = self._ui.participant_person_combo
+        combo.clear()
+        combo.addItem("", "")
+        for person in self._project_data.persons:
+            if child_birth_year is not None:
+                candidate_birth = self._year_text_to_int(
+                    self._person_event_year(person.id, "birth")
+                )
+                candidate_death = self._year_text_to_int(
+                    self._person_event_year(person.id, "death")
+                )
+                if not is_plausible_parent(
+                    candidate_birth, candidate_death, child_birth_year
+                ):
+                    continue
+            display = self._get_person_display(person.id)
+            combo.addItem(display, person.id)
+        combo.setCurrentIndex(0)
 
     # ------------------------------------------------------------------
     # Private: load event data
@@ -639,24 +1038,19 @@ class EventEditor(QWidget):
             self._add_participant_row(participant)
 
         # Date
-        if self._event.date:
-            self._ui.date_value_input.setText(self._event.date.value)
-            precision_index = self._ui.date_precision_combo.findData(
-                self._event.date.precision
-            )
-            if precision_index >= 0:
-                self._ui.date_precision_combo.setCurrentIndex(precision_index)
+        self._load_date(self._event.date)
 
-        # Place
+        # Place and from-place
         if self._event.place:
-            place_index = self._ui.place_combo.findData(self._event.place.place_id)
-            if place_index >= 0:
-                self._ui.place_combo.setCurrentIndex(place_index)
+            self._select_place(self._ui.place_combo, self._event.place.place_id)
+        if self._event.from_place:
+            self._select_place(
+                self._from_place_combo, self._event.from_place.place_id
+            )
 
-        # Source refs (on the event level)
-        if self._event.date and self._event.date.source_refs:
-            for source_ref in self._event.date.source_refs:
-                self._add_source_row(source_ref)
+        # Source refs of the event, its date, its place and its from-place
+        for citation in event_citations(self._event):
+            self._add_source_row(citation.ref, citation.context)
 
         # Media
         for media_id in self._event.media_ids:
@@ -665,6 +1059,43 @@ class EventEditor(QWidget):
         # Load event media (photos and non-photo media) for all event types
         self._refresh_photo_section()
         self._load_event_media()
+
+    def _load_date(self, date: Optional[DateValue]) -> None:
+        """Show ``date`` in the date widgets as ``DateFormState.from_date`` sees it."""
+        self._loaded_unparsed = False
+        self._unparsed_notice.setVisible(False)
+        if date is None:
+            return
+        state = DateFormState.from_date(date)
+        self._ui.date_value_input.setToolTip(format_date_sv(date))
+
+        if effective_qualifier(date) == "unparsed":
+            # Read-only: the original text and an explanation; a new date typed
+            # into the field replaces it, an empty field keeps it.
+            self._loaded_unparsed = True
+            text = UNPARSED_DATE_EXPLANATION_SV.format(
+                text=(date.original_text or "").strip()
+            )
+            self._unparsed_notice.setText(f"<b>{UNPARSED_DATE_TITLE_SV}</b><br>{_escape(text)}")
+            self._unparsed_notice.setVisible(True)
+            self._ui.date_value_input.setPlaceholderText(
+                "Ange ett nytt datum för att ersätta det"
+            )
+            return
+
+        self._ui.date_value_input.setText(state.text)
+        index = self._date_qualifier_combo.findData(state.qualifier)
+        if index < 0 and state.qualifier == "interpreted":
+            # Not offered for new dates, but a loaded one must stay shown as is.
+            self._date_qualifier_combo.addItem("Tolkat", "interpreted")
+            index = self._date_qualifier_combo.findData("interpreted")
+        if index >= 0:
+            self._date_qualifier_combo.setCurrentIndex(index)
+        self._date_to_input.setText(state.value_to or "")
+        calendar_index = self._date_calendar_combo.findData(state.calendar)
+        if calendar_index >= 0:
+            self._date_calendar_combo.setCurrentIndex(calendar_index)
+        self._update_date_range_enabled()
 
     # ------------------------------------------------------------------
     # Private: participants management
@@ -706,8 +1137,13 @@ class EventEditor(QWidget):
 
         participant = Participant(person_id=person_id, role=role)
         self._add_participant_row(participant)
-        self._ui.participant_person_combo.setCurrentIndex(0)
         self._ui.participant_role_input.clear()
+        # Re-offer the placement parent role so adding a second parent is easy.
+        self._offer_placement_parent_role()
+        # Adding this row may have introduced (or changed) the child used for
+        # plausibility filtering; rebuild the parent-candidate list. This also
+        # resets the person combo to the leading empty entry.
+        self._refresh_participant_person_combo()
         self._clear_status()
 
     def _on_remove_participant(self) -> None:
@@ -719,17 +1155,25 @@ class EventEditor(QWidget):
 
         row = selected[0].row()
         self._ui.participants_table.removeRow(row)
+        # Removing a row may have removed the child used for plausibility
+        # filtering; rebuild the parent-candidate list accordingly.
+        self._refresh_participant_person_combo()
         self._clear_status()
 
     # ------------------------------------------------------------------
     # Private: source references management
     # ------------------------------------------------------------------
 
-    def _add_source_row(self, source_ref: SourceRef) -> None:
+    def _add_source_row(
+        self,
+        source_ref: SourceRef,
+        context: CitationContext = CitationContext.EVENT,
+    ) -> None:
         """Append a source reference row to the table.
 
         Args:
             source_ref: The SourceRef to display.
+            context: What the citation applies to (the "Gäller" column).
         """
         table = self._ui.sources_table
         row = table.rowCount()
@@ -754,6 +1198,21 @@ class EventEditor(QWidget):
         table.setItem(row, 1, quality_item)
         table.setItem(row, 2, note_item)
 
+        context_combo = QComboBox()
+        for option in _CONTEXT_ORDER:
+            context_combo.addItem(context_label_sv(option), option.value)
+        context_combo.setCurrentIndex(
+            context_combo.findData(CitationContext(context).value)
+        )
+        table.setCellWidget(row, _CONTEXT_COLUMN, context_combo)
+
+    def _row_context(self, row: int) -> CitationContext:
+        """The citation context chosen in the "Gäller" combo of ``row``."""
+        combo = self._ui.sources_table.cellWidget(row, _CONTEXT_COLUMN)
+        if combo is None:
+            return CitationContext.EVENT
+        return CitationContext(combo.currentData())
+
     def _on_add_source(self) -> None:
         """Add a new source reference from the edit fields."""
         source_id = self._ui.source_combo.currentData()
@@ -765,7 +1224,7 @@ class EventEditor(QWidget):
             return
 
         source_ref = SourceRef(source_id=source_id, quality=quality, note=note)
-        self._add_source_row(source_ref)
+        self._add_source_row(source_ref, CitationContext.EVENT)
         self._ui.source_combo.setCurrentIndex(0)
         self._ui.source_quality_combo.setCurrentIndex(0)
         self._ui.source_note_input.clear()
@@ -828,6 +1287,7 @@ class EventEditor(QWidget):
             parent=dialog,
         )
         layout.addWidget(editor)
+        editor.set_person_filter_available(False)
 
         editor.save_requested.connect(dialog.accept)
         editor.cancel_requested.connect(dialog.reject)
@@ -1004,6 +1464,7 @@ class EventEditor(QWidget):
             parent=dialog,
         )
         layout.addWidget(editor)
+        editor.set_person_filter_available(False)
 
         # Connect editor signals to dialog accept/reject
         editor.save_requested.connect(dialog.accept)
@@ -1074,6 +1535,7 @@ class EventEditor(QWidget):
             # Add to combo and select it
             display = self._format_place_hierarchy(saved_place)
             self._ui.place_combo.addItem(display, saved_place.id)
+            self._from_place_combo.addItem(display, saved_place.id)
             idx = self._ui.place_combo.findData(saved_place.id)
             if idx >= 0:
                 self._ui.place_combo.setCurrentIndex(idx)
@@ -1453,12 +1915,42 @@ class EventEditor(QWidget):
         if media_item is None:
             return
 
-        file_path = Path(media_item.file)
-        if not file_path.is_absolute() and self._project_folder:
-            file_path = self._project_folder / file_path
+        from PySide6.QtWidgets import QMessageBox
+
+        # The media reference comes from project data, which may be shared. An
+        # absolute path or a ``..`` sequence stored there would resolve outside
+        # the project folder, so "view this file" could display or launch an
+        # arbitrary file on disk. Resolve it strictly within the project folder
+        # and refuse anything that escapes it.
+        if not self._project_folder:
+            logger.warning(
+                "Ingen projektmapp satt; kan inte öppna media säkert: %s",
+                media_item.file,
+            )
+            QMessageBox.warning(
+                self,
+                "Kan inte öppna fil",
+                "Mediafilen kunde inte öppnas eftersom ingen projektmapp är satt.",
+            )
+            return
+
+        resolved = resolve_within(Path(self._project_folder), media_item.file)
+        if resolved is None:
+            logger.warning(
+                "Vägrade att öppna media utanför projektmappen: %s",
+                media_item.file,
+            )
+            QMessageBox.warning(
+                self,
+                "Osäker filsökväg",
+                "Mediafilen kunde inte öppnas eftersom dess sökväg pekar "
+                "utanför projektmappen.",
+            )
+            return
+
+        file_path = resolved
 
         if not file_path.exists():
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self,
                 "Fil saknas",
@@ -1491,7 +1983,24 @@ class EventEditor(QWidget):
             layout.addWidget(close_btn)
             dialog.exec()
         else:
-            # For video, audio, documents: open with OS default application
+            # For video, audio, documents: open with the OS default handler.
+            # The handler launches whatever application is registered for the
+            # file's type, so a project-referenced executable/script/shortcut
+            # could run code rather than open a document. Only known-safe media
+            # types open directly; anything else needs explicit confirmation.
+            if not is_safe_media_extension(file_path.name):
+                proceed = QMessageBox.question(
+                    self,
+                    "Öppna okänd filtyp?",
+                    "Filen är inte en känd mediatyp och kan vara ett program "
+                    "eller skript som körs när den öppnas:\n\n"
+                    f"{file_path.name}\n\n"
+                    "Vill du öppna den ändå?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if proceed != QMessageBox.StandardButton.Yes:
+                    return
             try:
                 os.startfile(str(file_path))
             except AttributeError:
@@ -1550,6 +2059,126 @@ class EventEditor(QWidget):
     # Private: save / cancel
     # ------------------------------------------------------------------
 
+    def _find_matching_placement_start(
+        self, candidate_end: Event
+    ) -> Optional[Event]:
+        """Return the Placement_Start_Event that *candidate_end* pairs to.
+
+        An end event (``foster_home_ended`` / ``adoption_ended``) pairs to a
+        start of its mapped type (``foster_home`` / ``adoption``) naming the
+        SAME single child (child role) and the SAME set of parents (parent
+        role), order-independent (Requirements 2A.1, 2A.5). The child/parent
+        roles come from the validators' ``_PLACEMENT_START`` table so the match
+        stays consistent with orphan detection.
+
+        Returns the first matching start event in ``self._project_data.events``,
+        or ``None`` when none matches (i.e. the end is an orphan).
+        """
+        from slaktbusken.model.validators import (
+            _PLACEMENT_END,
+            _PLACEMENT_START,
+            _placement_pairing_key,
+        )
+
+        end_spec = _PLACEMENT_END.get(candidate_end.type)
+        if end_spec is None:
+            return None
+
+        start_spec = _PLACEMENT_START[end_spec.start_type]
+        end_key = _placement_pairing_key(
+            candidate_end, start_spec.child_role, start_spec.parent_role
+        )
+        if end_key is None:
+            return None
+
+        for event in self._project_data.events:
+            if event.type != end_spec.start_type:
+                continue
+            start_key = _placement_pairing_key(
+                event, start_spec.child_role, start_spec.parent_role
+            )
+            if start_key is not None and start_key == end_key:
+                return event
+        return None
+
+    def _build_matching_placement_start(self, candidate_end: Event) -> Event:
+        """Build a dateless Placement_Start_Event pairing to *candidate_end*.
+
+        The start is of the mapped start type (``foster_home`` for
+        ``foster_home_ended``, ``adoption`` for ``adoption_ended``) and names
+        the SAME child (child role) and SAME parents (parent role) as the end
+        event, with no date and no place (Requirement 2A.5). A fresh uuid id is
+        assigned so the new start is distinct.
+        """
+        from slaktbusken.model.validators import _PLACEMENT_END, _PLACEMENT_START
+
+        end_spec = _PLACEMENT_END[candidate_end.type]
+        start_spec = _PLACEMENT_START[end_spec.start_type]
+
+        participants: list[Participant] = []
+        for participant in candidate_end.participants:
+            if participant.role == start_spec.child_role:
+                participants.append(
+                    Participant(
+                        person_id=participant.person_id,
+                        role=start_spec.child_role,
+                    )
+                )
+            elif participant.role == start_spec.parent_role:
+                participants.append(
+                    Participant(
+                        person_id=participant.person_id,
+                        role=start_spec.parent_role,
+                    )
+                )
+
+        return Event(
+            id=str(uuid.uuid4()),
+            type=end_spec.start_type,
+            participants=participants,
+            date=None,
+            place=None,
+        )
+
+    def _offer_create_matching_placement_start(
+        self, candidate_end: Event
+    ) -> bool:
+        """Offer to create the matching dateless start for an orphan end.
+
+        Shows a confirmation dialog (Requirement 2A.5). On accept, builds the
+        matching dateless Placement_Start_Event (same child, same parents),
+        appends it to ``self._project_data.events`` so the end is no longer
+        orphaned, and returns ``True`` so the caller proceeds to save the end.
+        On decline, returns ``False`` and sets a status message so the caller
+        can abort the save.
+
+        The QMessageBox lives here only; the orphan detection and start-building
+        logic are factored into ``_find_matching_placement_start`` and
+        ``_build_matching_placement_start`` so they are testable without a modal
+        dialog.
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        answer = QMessageBox.question(
+            self,
+            "Ingen placering att avsluta",
+            "Det finns ingen placering som den här händelsen avslutar.\n\n"
+            "Vill du skapa en matchande placering (utan datum) med samma barn "
+            "och samma föräldrar så att avslutet hör ihop med den?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+
+        if answer == QMessageBox.StandardButton.Yes:
+            start_event = self._build_matching_placement_start(candidate_end)
+            self._project_data.events.append(start_event)
+            return True
+
+        self._update_status(
+            "Avslutet har ingen matchande placering att avsluta."
+        )
+        return False
+
     def _on_save(self) -> None:
         """Validate and save the event data.
 
@@ -1585,14 +2214,22 @@ class EventEditor(QWidget):
         participants: list[Participant] = []
         is_family_event = event_type in FAMILY_EVENT_TYPES
 
-        if self._subject_person_id and not self._event and not is_family_event:
+        is_placement_event = event_type in PLACEMENT_PARENT_ROLES
+
+        if (
+            self._subject_person_id
+            and not self._event
+            and not is_family_event
+            and not is_placement_event
+        ):
             # Individual event from person editor: subject is the sole participant
             role = EVENT_TYPE_ROLES.get(event_type, "huvudperson")
             participants.append(
                 Participant(person_id=self._subject_person_id, role=role)
             )
         else:
-            # Collect from table (family events, editing existing, standalone)
+            # Collect from table (family + placement events, editing existing,
+            # standalone)
             table = self._ui.participants_table
             for row in range(table.rowCount()):
                 person_id = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -1604,22 +2241,20 @@ class EventEditor(QWidget):
             self._update_status("Minst en deltagare krävs.")
             return
 
-        # Date
-        date: Optional[DateValue] = None
-        date_value = self._ui.date_value_input.text().strip()
-        if date_value:
-            precision = self._ui.date_precision_combo.currentData()
-            # Collect source refs from the sources table as date source refs
-            source_refs = self._collect_source_refs()
-            date = DateValue(
-                value=date_value, precision=precision, source_refs=source_refs
-            )
+        # Date (a changed date must be real in the chosen calendar)
+        form_date = self._current_date_form()
+        loaded_date = DateFormState.from_date(
+            self._event.date if self._event is not None else None
+        )
+        if not form_date.same_as(loaded_date):
+            date_errors = validate_date_form(form_date)
+            if date_errors:
+                self._update_status(" ".join(date_errors))
+                return
 
-        # Place
-        place: Optional[PlaceRef] = None
-        place_id = self._ui.place_combo.currentData()
-        if place_id:
-            place = PlaceRef(place_id=place_id)
+        # Place and from-place
+        place_id = self._ui.place_combo.currentData() or None
+        from_place_id = self._from_place_combo.currentData() or None
 
         # Media IDs
         media_ids: list[str] = []
@@ -1646,22 +2281,52 @@ class EventEditor(QWidget):
                 if i < len(self._photo_section._photo_ids):
                     photo_media_ids.append(self._photo_section._photo_ids[i])
 
-        # Determine event ID
-        event_id = self._event.id if self._event else str(uuid.uuid4())
-
         # Merge regular media_ids with event media_ids and photo_ids
         all_media_ids = media_ids + event_media_ids + photo_media_ids
 
-        self._saved_event = Event(
-            id=event_id,
+        form = EventFormState(
             type=event_type,
-            participants=participants,
-            date=date,
-            place=place,
-            media_ids=all_media_ids,
             custom_type_name=custom_type_name,
             cause_of_death=cause_of_death,
+            date=form_date,
+            place_id=place_id,
+            from_place_id=from_place_id,
+            citation_rows=self._collect_citation_rows(),
+            participants=participants,
+            media_ids=all_media_ids,
         )
+
+        # Ask every needed question first; nothing changes until all are
+        # answered, and "Avbryt" in any of them aborts the whole save.
+        choices: dict[CitationContext, CitationChoice] = {}
+        for need in prompts_needed(self._event, form):
+            choice = self._ask_citation_choice(need)
+            if choice == CitationChoice.CANCEL:
+                return
+            choices[need.context] = choice
+
+        try:
+            assembled = assemble_event(self._event, form, choices)
+        except ValueError as exc:
+            self._update_status(str(exc))
+            return
+        event_id = assembled.id
+        self._saved_event = assembled
+
+        # One-click fix for an orphan placement end event (Requirement 2A.5).
+        # When saving a Placement_End_Event that pairs to no existing
+        # Placement_Start_Event, offer to create a dateless matching start (same
+        # child, same parents) in this same save step rather than only rejecting
+        # the end. On accept, the start is created so the end is no longer
+        # orphaned; on decline, the save is aborted so the user can correct it.
+        if event_type in PLACEMENT_END_TO_START:
+            if self._find_matching_placement_start(self._saved_event) is None:
+                if not self._offer_create_matching_placement_start(
+                    self._saved_event
+                ):
+                    # User declined — abort the save, leaving the editor open.
+                    self._saved_event = None
+                    return
 
         # Link newly added event media items via EventMediaService
         for media_item in self._event_media_items:
@@ -1703,6 +2368,70 @@ class EventEditor(QWidget):
             )
         return source_refs
 
+    def _collect_citation_rows(self) -> list[CitationRow]:
+        """Rows of the Källor table with the context chosen in "Gäller"."""
+        refs = self._collect_source_refs()
+        return [
+            CitationRow(context=self._row_context(row), ref=ref)
+            for row, ref in enumerate(refs)
+        ]
+
+    def _current_date_form(self) -> DateFormState:
+        """The date fields as the form shows them.
+
+        An unparsed date loaded from the file stays as loaded while the date
+        field is empty; typing a date replaces it.
+        """
+        text = self._ui.date_value_input.text().strip()
+        if self._loaded_unparsed and not text and self._event is not None:
+            return DateFormState.from_date(self._event.date)
+        qualifier = self._date_qualifier_combo.currentData() or "exact"
+        value_to = None
+        if qualifier in _RANGE_QUALIFIER_KEYS:
+            value_to = self._date_to_input.text().strip() or None
+        return DateFormState(
+            text=text,
+            qualifier=qualifier,
+            value_to=value_to,
+            calendar=self._date_calendar_combo.currentData() or "gregorian",
+        )
+
+    def _build_citation_prompt(
+        self, need: PromptNeed
+    ) -> tuple[QMessageBox, dict[QPushButton, CitationChoice]]:
+        """Build the question for ``need`` with Swedish texts.
+
+        "Flytta till händelsen" is the default button; "Avbryt" is also what
+        Esc and the window close button answer.
+        """
+        message, informative = prompt_text_sv(need)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Källhänvisningar")
+        box.setText(message)
+        if informative:
+            box.setInformativeText(informative)
+        buttons: dict[QPushButton, CitationChoice] = {}
+        for choice in need.allowed:
+            role = (
+                QMessageBox.ButtonRole.RejectRole
+                if choice == CitationChoice.CANCEL
+                else QMessageBox.ButtonRole.ActionRole
+            )
+            button = box.addButton(CHOICE_LABELS_SV[choice], role)
+            buttons[button] = choice
+            if choice == DEFAULT_CHOICE:
+                box.setDefaultButton(button)
+            if choice == CitationChoice.CANCEL:
+                box.setEscapeButton(button)
+        return box, buttons
+
+    def _ask_citation_choice(self, need: PromptNeed) -> CitationChoice:
+        """Show the prompt for ``need`` and return the answer."""
+        box, buttons = self._build_citation_prompt(need)
+        box.exec()
+        return buttons.get(box.clickedButton(), CitationChoice.CANCEL)
+
     def _get_person_display(self, person_id: str) -> str:
         """Get a human-readable display string for a person.
 
@@ -1722,9 +2451,65 @@ class EventEditor(QWidget):
                     if name.surname:
                         parts.append(name.surname)
                     if parts:
-                        return " ".join(parts)
+                        return " ".join(parts) + self._life_year_suffix(person_id)
                 return person_id
         return person_id
+
+    def _life_year_suffix(self, person_id: str) -> str:
+        """Build the " (birth–death)" life-years suffix for a person.
+
+        Derives the birth and death year from the four-digit year portion of
+        the person's birth/death event ``date.value`` (looked up the same way
+        the Ansedel report does). Degrades gracefully:
+
+        - both years known  -> " (1914–1978)"
+        - birth year only    -> " (1914–)"
+        - death year only    -> " (–1978)"
+        - neither known      -> "" (no parentheses)
+
+        The separator is the EN DASH (U+2013), matching the project's date-range
+        formatting in ``swedish_locale.py``.
+
+        Args:
+            person_id: The person ID to build the suffix for.
+
+        Returns:
+            The parenthesised life-years suffix, or an empty string when neither
+            year is known.
+        """
+        birth_year = self._person_event_year(person_id, "birth")
+        death_year = self._person_event_year(person_id, "death")
+
+        if not birth_year and not death_year:
+            return ""
+        return f" ({birth_year}\u2013{death_year})"
+
+    def _person_event_year(self, person_id: str, event_type: str) -> str:
+        """Return the four-digit year of a person's event, or "" if unknown.
+
+        Scans the project events for an event of ``event_type`` that has the
+        person as a participant (same lookup as ``reports/ansedel.py``), then
+        takes the first four characters of ``date.value`` as the year. Values
+        shorter than four characters or whose first four characters are not all
+        digits are treated as unknown rather than raising.
+
+        Args:
+            person_id: The person whose event year is wanted.
+            event_type: The event type to look up (e.g. "birth" or "death").
+
+        Returns:
+            The four-digit year string, or "" when the event or a usable year
+            is missing.
+        """
+        for event in self._project_data.events:
+            if event.type != event_type:
+                continue
+            if not any(p.person_id == person_id for p in event.participants):
+                continue
+            # Only exact (and legacy "about") dates give a plain year; before,
+            # after, ranges, estimates and unparsed dates never do.
+            return display_year(event.date) or ""
+        return ""
 
     def _get_source_display(self, source_id: str) -> str:
         """Get a human-readable display string for a source.

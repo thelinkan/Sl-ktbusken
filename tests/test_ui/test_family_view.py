@@ -229,11 +229,17 @@ class TestFamilyViewRender:
         assert len(parent_placeholders) == 0
 
     def test_render_father_placeholder_when_missing(self) -> None:
-        """Father placeholder appears when no father in parent family."""
+        """Father placeholder appears when no father parent link exists."""
         data = _make_project_data()
-        # Remove father from parent family
+        # Parenthood is link-based: drop the father's parent_child_link for p3
+        # (and the matching partner) so only the mother parents p3.
         data.families[0].partners = [
             FamilyPartner(person_id="p2", role="mother"),
+        ]
+        data.families[0].parent_child_links = [
+            link
+            for link in data.families[0].parent_child_links
+            if not (link.child_id == "p3" and link.parent_id == "p1")
         ]
         scene = QGraphicsScene()
         config = PersonBoxConfig()
@@ -248,11 +254,17 @@ class TestFamilyViewRender:
         assert len(father_placeholders) == 1
 
     def test_render_mother_placeholder_when_missing(self) -> None:
-        """Mother placeholder appears when no mother in parent family."""
+        """Mother placeholder appears when no mother parent link exists."""
         data = _make_project_data()
-        # Remove mother from parent family
+        # Parenthood is link-based: drop the mother's parent_child_link for p3
+        # (and the matching partner) so only the father parents p3.
         data.families[0].partners = [
             FamilyPartner(person_id="p1", role="father"),
+        ]
+        data.families[0].parent_child_links = [
+            link
+            for link in data.families[0].parent_child_links
+            if not (link.child_id == "p3" and link.parent_id == "p2")
         ]
         scene = QGraphicsScene()
         config = PersonBoxConfig()
@@ -340,7 +352,7 @@ class TestFamilyViewRender:
         data = _make_project_data()
         data.persons.extend([grandfather, grandmother])
 
-        # Mother's parent family
+        # Mother's parent family (parenthood is link-based)
         mother_parent_family = Family(
             id="f3",
             partners=[
@@ -348,6 +360,10 @@ class TestFamilyViewRender:
                 FamilyPartner(person_id="p8", role="wife"),
             ],
             children=["p2"],
+            parent_child_links=[
+                ParentChildLink(child_id="p2", parent_id="p7", parentage_type="biological"),
+                ParentChildLink(child_id="p2", parent_id="p8", parentage_type="biological"),
+            ],
         )
         data.families.append(mother_parent_family)
 
@@ -585,3 +601,618 @@ class TestFamilyViewSelection:
         assert view.selected_person_id is None
         for box in view.get_person_boxes():
             assert not box.is_selected
+
+
+# ---------------------------------------------------------------------------
+# FamilyView foster/adoptive parent-set rendering (task 6.1)
+# ---------------------------------------------------------------------------
+
+
+from slaktbusken.persistence.settings_io import DiagramSettings  # noqa: E402
+from slaktbusken.ui.widgets.connection_line import (  # noqa: E402
+    ConnectionLineItem,
+    ConnectionType,
+)
+
+
+def _make_foster_project(
+    *, two_parents: bool, parentage: str = "foster"
+) -> ProjectData:
+    """Create a project where the active person (c1) has a derived parent set.
+
+    The active person belongs to a single derived (foster/adoptive) family with
+    one or two parents and no biological family, so the resolver's
+    non-biological / fallback path draws that set.
+
+    Args:
+        two_parents: When True the derived set holds two parents; otherwise one.
+        parentage: The derived parentage type, "foster" or "adoptive".
+    """
+    child = Person(id="c1", sex="male", names=[Name(type="birth", given="Kalle", surname="Barn")])
+    pa = Person(id="fa", sex="male", names=[Name(type="birth", given="Per", surname="Foster")])
+    pb = Person(id="fb", sex="female", names=[Name(type="birth", given="Pia", surname="Foster")])
+
+    partners = [FamilyPartner(person_id="fa", role="partner")]
+    links = [ParentChildLink(child_id="c1", parent_id="fa", parentage_type=parentage)]
+    persons = [child, pa]
+    if two_parents:
+        partners.append(FamilyPartner(person_id="fb", role="partner"))
+        links.append(
+            ParentChildLink(child_id="c1", parent_id="fb", parentage_type=parentage)
+        )
+        persons.append(pb)
+
+    derived_family = Family(
+        id="df1",
+        partners=partners,
+        children=["c1"],
+        parent_child_links=links,
+        event_ids=["ev1"],
+    )
+
+    return ProjectData(
+        project=ProjectMetadata(title="Foster", main_person_id="c1"),
+        persons=persons,
+        families=[derived_family],
+    )
+
+
+def _conn_lines(scene: QGraphicsScene) -> list[ConnectionLineItem]:
+    """Return every ConnectionLineItem in the scene."""
+    return [it for it in scene.items() if isinstance(it, ConnectionLineItem)]
+
+
+def _render(data: ProjectData, active: str, settings: DiagramSettings) -> tuple:
+    """Render a FamilyView and return (view, scene)."""
+    scene = QGraphicsScene()
+    config = PersonBoxConfig()
+    view = FamilyView()
+    view.render(scene, data, active, config, diagram_settings=settings)
+    return view, scene
+
+
+class TestFamilyViewParentSets:
+    """Foster/adoptive Parent_Set rendering per Requirement 3.8–3.10."""
+
+    def test_one_parent_foster_single_box_no_partner_no_placeholder(self) -> None:
+        """A one-parent foster set draws a single parent box, no PARTNER, no placeholder."""
+        data = _make_foster_project(two_parents=False)
+        settings = DiagramSettings(parentage_show_level="non_biological")
+        view, scene = _render(data, "c1", settings)
+
+        # The single foster parent box is drawn.
+        person_ids = {b.person_id for b in view.get_person_boxes()}
+        assert "fa" in person_ids
+
+        # No father/mother placeholder is drawn for the single derived parent
+        # row. (The active person still gets its own "Lägg till partner"
+        # placeholder with family_id=None, which is unrelated to the parent row.)
+        parent_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role in (PlaceholderRole.FATHER, PlaceholderRole.MOTHER)
+        ]
+        assert parent_phs == []
+        # The derived set contributes no PARTNER placeholder either.
+        derived_partner_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role == PlaceholderRole.PARTNER and p.family_id == "df1"
+        ]
+        assert derived_partner_phs == []
+
+    def test_one_parent_foster_drop_uses_foster_connection_type(self) -> None:
+        """The parent-child drop for a foster set uses ConnectionType.FOSTER."""
+        data = _make_foster_project(two_parents=False)
+        settings = DiagramSettings(parentage_show_level="non_biological")
+        _, scene = _render(data, "c1", settings)
+
+        foster_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.FOSTER
+        ]
+        assert len(foster_lines) >= 1
+
+    def test_one_parent_adoptive_drop_uses_adoptive_connection_type(self) -> None:
+        """A one-parent adoptive set draws an ADOPTIVE connector."""
+        data = _make_foster_project(two_parents=False, parentage="adoptive")
+        settings = DiagramSettings(parentage_show_level="non_biological")
+        _, scene = _render(data, "c1", settings)
+
+        adoptive_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.ADOPTIVE
+        ]
+        assert len(adoptive_lines) >= 1
+
+    def test_two_parent_foster_draws_two_boxes_and_partner(self) -> None:
+        """A two-parent foster set draws both parent boxes and a PARTNER connector."""
+        data = _make_foster_project(two_parents=True)
+        settings = DiagramSettings(parentage_show_level="non_biological")
+        view, scene = _render(data, "c1", settings)
+
+        person_ids = {b.person_id for b in view.get_person_boxes()}
+        assert "fa" in person_ids
+        assert "fb" in person_ids
+
+        # Both parents present, so no father/mother placeholder is drawn.
+        parent_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role in (PlaceholderRole.FATHER, PlaceholderRole.MOTHER)
+        ]
+        assert parent_phs == []
+
+        # The partner connector between the two foster parents is present.
+        partner_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.PARTNER
+        ]
+        assert len(partner_lines) >= 1
+
+        # The parent-child drop is a FOSTER connector.
+        foster_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.FOSTER
+        ]
+        assert len(foster_lines) >= 1
+
+    def test_badge_only_when_enabled(self) -> None:
+        """badge_text is set on the foster drop only when parentage_badge is True."""
+        data = _make_foster_project(two_parents=False)
+
+        # Badge off: no foster connector carries a badge.
+        off = DiagramSettings(parentage_show_level="non_biological", parentage_badge=False)
+        _, scene_off = _render(data, "c1", off)
+        foster_off = [
+            c for c in _conn_lines(scene_off)
+            if c.connection_type == ConnectionType.FOSTER
+        ]
+        assert foster_off and all(c.badge_text is None for c in foster_off)
+
+        # Badge on: the foster connector carries the "foster" badge.
+        on = DiagramSettings(parentage_show_level="non_biological", parentage_badge=True)
+        _, scene_on = _render(data, "c1", on)
+        foster_on = [
+            c for c in _conn_lines(scene_on)
+            if c.connection_type == ConnectionType.FOSTER
+        ]
+        assert foster_on and any(c.badge_text == "foster" for c in foster_on)
+
+    def test_adoptive_badge_text(self) -> None:
+        """An adoptive drop carries the 'adoptiv' badge when enabled."""
+        data = _make_foster_project(two_parents=False, parentage="adoptive")
+        on = DiagramSettings(parentage_show_level="non_biological", parentage_badge=True)
+        _, scene = _render(data, "c1", on)
+        adoptive = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.ADOPTIVE
+        ]
+        assert adoptive and any(c.badge_text == "adoptiv" for c in adoptive)
+
+    def test_biological_single_known_parent_keeps_placeholder_and_partner(self) -> None:
+        """A biological pair with one unknown parent keeps the placeholder + PARTNER (unchanged)."""
+        data = _make_project_data()
+        # Remove the father so only the mother (biological) is known. Parenthood
+        # is link-based, so drop the father's parent_child_link for p3 too.
+        data.families[0].partners = [FamilyPartner(person_id="p2", role="mother")]
+        data.families[0].parent_child_links = [
+            link
+            for link in data.families[0].parent_child_links
+            if not (link.child_id == "p3" and link.parent_id == "p1")
+        ]
+
+        settings = DiagramSettings(parentage_show_level="biological")
+        view, scene = _render(data, "p3", settings)
+
+        # The missing biological father still shows a FATHER placeholder.
+        father_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role == PlaceholderRole.FATHER
+        ]
+        assert len(father_phs) == 1
+
+        # The biological drop uses the solid PARENT_CHILD style with no badge.
+        pc_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.PARENT_CHILD
+        ]
+        assert pc_lines and all(c.badge_text is None for c in pc_lines)
+
+        # A PARTNER connector between the two parent slots is still drawn.
+        partner_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.PARTNER
+        ]
+        assert len(partner_lines) >= 1
+
+    def test_sibling_derived_single_parent_partner_family_suppresses_placeholder(self) -> None:
+        """STEP 4: a sibling's foster single-parent partner family draws no spouse placeholder."""
+        # Active person p3 (biological child of p1/p2); sibling p4 fosters child p6
+        # alone via a derived single-parent family.
+        data = _make_project_data()
+        # Replace p4's / existing own family with a derived single-parent foster
+        # family where sibling p4 is the sole foster parent of p6.
+        data.families = [
+            data.families[0],  # keep biological parent family f1 (p3, p4)
+            Family(
+                id="fd",
+                partners=[FamilyPartner(person_id="p4", role="partner")],
+                children=["p6"],
+                parent_child_links=[
+                    ParentChildLink(child_id="p6", parent_id="p4", parentage_type="foster"),
+                ],
+                event_ids=["evx"],
+            ),
+        ]
+
+        settings = DiagramSettings(parentage_show_level="biological")
+        view, _ = _render(data, "p3", settings)
+
+        # p4's foster partner family must NOT produce a missing-spouse placeholder.
+        spouse_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role in (
+                PlaceholderRole.FATHER,
+                PlaceholderRole.MOTHER,
+                PlaceholderRole.PARTNER,
+            )
+            and p.family_id == "fd"
+        ]
+        assert spouse_phs == []
+
+
+def _make_merged_partner_project() -> ProjectData:
+    """Project where Janne + Ärla have a biological child AND a foster child.
+
+    Janne (p_j) and Ärla (p_a) share the same partner set across TWO derived
+    Family objects:
+      * a biological family (p_j father, p_a mother, child c_rut biological), and
+      * a derived foster family (p_j + p_a partners, child c_bertil foster).
+
+    Janne is the active person, so STEP 4 must merge the two families with the
+    identical other-partner set {p_a} into ONE spouse block drawing Ärla once
+    with both children beneath her.
+    """
+    janne = Person(id="p_j", sex="male", names=[Name(type="birth", given="Janne", surname="Larsson")])
+    arla = Person(id="p_a", sex="female", names=[Name(type="birth", given="Ärla", surname="Larsson")])
+    rut = Person(id="c_rut", sex="female", names=[Name(type="birth", given="Rut", surname="Larsson")])
+    bertil = Person(id="c_bertil", sex="male", names=[Name(type="birth", given="Bertil", surname="Larsson")])
+
+    biological_family = Family(
+        id="fbio",
+        partners=[
+            FamilyPartner(person_id="p_j", role="father"),
+            FamilyPartner(person_id="p_a", role="mother"),
+        ],
+        children=["c_rut"],
+        parent_child_links=[
+            ParentChildLink(child_id="c_rut", parent_id="p_j", parentage_type="biological"),
+            ParentChildLink(child_id="c_rut", parent_id="p_a", parentage_type="biological"),
+        ],
+    )
+
+    foster_family = Family(
+        id="ffos",
+        partners=[
+            FamilyPartner(person_id="p_j", role="partner"),
+            FamilyPartner(person_id="p_a", role="partner"),
+        ],
+        children=["c_bertil"],
+        parent_child_links=[
+            ParentChildLink(child_id="c_bertil", parent_id="p_j", parentage_type="foster"),
+            ParentChildLink(child_id="c_bertil", parent_id="p_a", parentage_type="foster"),
+        ],
+        event_ids=["evx"],
+    )
+
+    return ProjectData(
+        project=ProjectMetadata(title="Merge", main_person_id="p_j"),
+        persons=[janne, arla, rut, bertil],
+        families=[biological_family, foster_family],
+    )
+
+
+class TestFamilyViewMergedPartnerFamilies:
+    """STEP 4 merges partner families sharing the same partner set (BUG 1/2)."""
+
+    def test_spouse_drawn_once_across_merged_families(self) -> None:
+        """Ärla appears as exactly ONE PersonBoxItem despite two partner families."""
+        data = _make_merged_partner_project()
+        settings = DiagramSettings(parentage_show_level="all")
+        view, _ = _render(data, "p_j", settings)
+
+        arla_boxes = [b for b in view.get_person_boxes() if b.person_id == "p_a"]
+        assert len(arla_boxes) == 1
+
+    def test_both_children_drawn_under_merged_spouse(self) -> None:
+        """Both the biological and foster child are drawn as child boxes."""
+        data = _make_merged_partner_project()
+        settings = DiagramSettings(parentage_show_level="all")
+        view, _ = _render(data, "p_j", settings)
+
+        person_ids = {b.person_id for b in view.get_person_boxes()}
+        assert "c_rut" in person_ids
+        assert "c_bertil" in person_ids
+
+    def test_child_connectors_reflect_parentage_type(self) -> None:
+        """Foster child uses FOSTER connector, biological child uses PARENT_CHILD."""
+        data = _make_merged_partner_project()
+        settings = DiagramSettings(parentage_show_level="all")
+        _, scene = _render(data, "p_j", settings)
+
+        foster_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.FOSTER
+        ]
+        # The foster child Bertil gets a dashed FOSTER connector.
+        assert len(foster_lines) >= 1
+
+        # The biological child Rut keeps a solid PARENT_CHILD connector. (Many
+        # PARENT_CHILD lines exist from the sibling bar; this asserts they are
+        # present and that no biological child connector became FOSTER.)
+        pc_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type == ConnectionType.PARENT_CHILD
+        ]
+        assert len(pc_lines) >= 1
+
+    def test_foster_child_badge_gated_by_setting(self) -> None:
+        """The foster child's connector carries the 'foster' badge only when enabled."""
+        data = _make_merged_partner_project()
+
+        on = DiagramSettings(parentage_show_level="all", parentage_badge=True)
+        _, scene_on = _render(data, "p_j", on)
+        foster_on = [
+            c for c in _conn_lines(scene_on)
+            if c.connection_type == ConnectionType.FOSTER
+        ]
+        assert foster_on and any(c.badge_text == "foster" for c in foster_on)
+
+        off = DiagramSettings(parentage_show_level="all", parentage_badge=False)
+        _, scene_off = _render(data, "p_j", off)
+        foster_off = [
+            c for c in _conn_lines(scene_off)
+            if c.connection_type == ConnectionType.FOSTER
+        ]
+        assert foster_off and all(c.badge_text is None for c in foster_off)
+
+    def test_ordinary_biological_layout_unchanged(self) -> None:
+        """Regression: an ordinary biological spouse/children layout is a no-op merge."""
+        data = _make_project_data()
+        settings = DiagramSettings(parentage_show_level="all")
+        view, scene = _render(data, "p3", settings)
+
+        # Exactly one spouse box (p5) and one child box (p6) as before the merge.
+        spouse_boxes = [b for b in view.get_person_boxes() if b.person_id == "p5"]
+        child_boxes = [b for b in view.get_person_boxes() if b.person_id == "p6"]
+        assert len(spouse_boxes) == 1
+        assert len(child_boxes) == 1
+
+        # The child connector stays biological (no FOSTER/ADOPTIVE connectors).
+        derived_lines = [
+            c for c in _conn_lines(scene)
+            if c.connection_type in (ConnectionType.FOSTER, ConnectionType.ADOPTIVE)
+        ]
+        assert derived_lines == []
+
+        # The "Lägg till barn" placeholder keeps the biological family_id f2.
+        child_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role == PlaceholderRole.CHILD
+        ]
+        assert any(p.family_id == "f2" for p in child_phs)
+
+
+# ---------------------------------------------------------------------------
+# Regression: parents come from parent_child_links + sex, never partner role
+# ---------------------------------------------------------------------------
+
+
+def _parent_row_boxes(view: "FamilyView", parent_ids: set[str]) -> dict[str, PersonBoxItem]:
+    """Return the drawn PersonBoxItems whose id is one of ``parent_ids``."""
+    return {
+        b.person_id: b
+        for b in view.get_person_boxes()
+        if b.person_id in parent_ids
+    }
+
+
+def _make_parents_project(
+    *,
+    father_role: str,
+    mother_role: str,
+    father_sex: str = "male",
+    mother_sex: str = "female",
+    marriage_event: bool = True,
+    father_link: bool = True,
+    mother_link: bool = True,
+) -> ProjectData:
+    """Build a child (p3) with two parents (p1, p2) via parent_child_links.
+
+    The partner roles and whether a marriage event exists are configurable so a
+    test can prove that the parent row no longer depends on them. Parenthood is
+    expressed purely through ``parent_child_links``.
+    """
+    father = Person(id="p1", sex=father_sex, names=[Name(type="birth", given="Erik", surname="Svensson")])
+    mother = Person(id="p2", sex=mother_sex, names=[Name(type="birth", given="Anna", surname="Karlsson")])
+    active = Person(id="p3", sex="male", names=[Name(type="birth", given="Karl", surname="Svensson")])
+
+    partners: list[FamilyPartner] = []
+    if father_role:
+        partners.append(FamilyPartner(person_id="p1", role=father_role))
+    if mother_role:
+        partners.append(FamilyPartner(person_id="p2", role=mother_role))
+
+    links: list[ParentChildLink] = []
+    if father_link:
+        links.append(ParentChildLink(child_id="p3", parent_id="p1", parentage_type="biological"))
+    if mother_link:
+        links.append(ParentChildLink(child_id="p3", parent_id="p2", parentage_type="biological"))
+
+    event_ids = ["m1"] if marriage_event else []
+    parent_family = Family(
+        id="f1",
+        partners=partners,
+        children=["p3"],
+        parent_child_links=links,
+        event_ids=event_ids,
+    )
+
+    events = []
+    if marriage_event:
+        events.append(Event(
+            id="m1",
+            type="marriage",
+            participants=[
+                Participant(person_id="p1", role="spouse"),
+                Participant(person_id="p2", role="spouse"),
+            ],
+        ))
+
+    return ProjectData(
+        project=ProjectMetadata(title="Parents", main_person_id="p3"),
+        persons=[father, mother, active],
+        families=[parent_family],
+        events=events,
+    )
+
+
+class TestParentRowFromLinksAndSex:
+    """The parent row derives parents from parent_child_links + sex (not role)."""
+
+    def test_make_maka_roles_still_draw_both_parents(self) -> None:
+        """Reported bug: role 'make'/'maka' must still draw BOTH parent boxes."""
+        data = _make_parents_project(father_role="make", mother_role="maka")
+        scene = QGraphicsScene()
+        view = FamilyView()
+        view.render(scene, data, "p3", PersonBoxConfig())
+
+        boxes = _parent_row_boxes(view, {"p1", "p2"})
+        assert set(boxes) == {"p1", "p2"}, (
+            "Both parents must be drawn even with 'make'/'maka' roles"
+        )
+        # No father/mother placeholder — both slots are filled.
+        parent_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role in (PlaceholderRole.FATHER, PlaceholderRole.MOTHER)
+        ]
+        assert parent_phs == []
+        # Male (p1) on the left, female (p2) on the right.
+        assert boxes["p1"].x() < boxes["p2"].x()
+
+    def test_no_marriage_and_empty_partner_role_still_draws_both(self) -> None:
+        """No marriage event and empty/'partner' roles: both parents drawn."""
+        data = _make_parents_project(
+            father_role="partner",
+            mother_role="",
+            marriage_event=False,
+        )
+        scene = QGraphicsScene()
+        view = FamilyView()
+        view.render(scene, data, "p3", PersonBoxConfig())
+
+        boxes = _parent_row_boxes(view, {"p1", "p2"})
+        assert set(boxes) == {"p1", "p2"}
+        # Male left, female right regardless of absent/partner roles.
+        assert boxes["p1"].x() < boxes["p2"].x()
+
+    def test_equal_sex_falls_back_to_link_order(self) -> None:
+        """Two same-sex parents fall back to link order: first link -> left."""
+        data = _make_parents_project(
+            father_role="make",
+            mother_role="maka",
+            father_sex="male",
+            mother_sex="male",
+        )
+        scene = QGraphicsScene()
+        view = FamilyView()
+        view.render(scene, data, "p3", PersonBoxConfig())
+
+        boxes = _parent_row_boxes(view, {"p1", "p2"})
+        assert set(boxes) == {"p1", "p2"}
+        # First link (p1) on the left, second link (p2) on the right.
+        assert boxes["p1"].x() < boxes["p2"].x()
+
+    def test_unknown_sex_falls_back_to_link_order(self) -> None:
+        """Both-unknown-sex parents fall back to link order."""
+        data = _make_parents_project(
+            father_role="make",
+            mother_role="maka",
+            father_sex="U",
+            mother_sex="U",
+        )
+        scene = QGraphicsScene()
+        view = FamilyView()
+        view.render(scene, data, "p3", PersonBoxConfig())
+
+        boxes = _parent_row_boxes(view, {"p1", "p2"})
+        assert set(boxes) == {"p1", "p2"}
+        assert boxes["p1"].x() < boxes["p2"].x()
+
+    def test_female_first_link_still_placed_right(self) -> None:
+        """Even when the female parent is the first link, sex wins: she goes right."""
+        father = Person(id="p1", sex="male", names=[Name(type="birth", given="Erik", surname="S")])
+        mother = Person(id="p2", sex="female", names=[Name(type="birth", given="Anna", surname="K")])
+        active = Person(id="p3", sex="male", names=[Name(type="birth", given="Karl", surname="S")])
+        family = Family(
+            id="f1",
+            partners=[
+                FamilyPartner(person_id="p2", role="make"),
+                FamilyPartner(person_id="p1", role="maka"),
+            ],
+            children=["p3"],
+            # Female parent is listed FIRST in the links.
+            parent_child_links=[
+                ParentChildLink(child_id="p3", parent_id="p2", parentage_type="biological"),
+                ParentChildLink(child_id="p3", parent_id="p1", parentage_type="biological"),
+            ],
+        )
+        data = ProjectData(
+            project=ProjectMetadata(title="Parents", main_person_id="p3"),
+            persons=[father, mother, active],
+            families=[family],
+        )
+        scene = QGraphicsScene()
+        view = FamilyView()
+        view.render(scene, data, "p3", PersonBoxConfig())
+
+        boxes = _parent_row_boxes(view, {"p1", "p2"})
+        assert set(boxes) == {"p1", "p2"}
+        # Sex still decides: male p1 left, female p2 right.
+        assert boxes["p1"].x() < boxes["p2"].x()
+
+    def test_father_husband_mother_wife_not_regressed(self) -> None:
+        """Existing father/husband + mother/wife families render father-left/mother-right."""
+        for f_role, m_role in (("father", "mother"), ("husband", "wife")):
+            data = _make_parents_project(father_role=f_role, mother_role=m_role)
+            scene = QGraphicsScene()
+            view = FamilyView()
+            view.render(scene, data, "p3", PersonBoxConfig())
+
+            boxes = _parent_row_boxes(view, {"p1", "p2"})
+            assert set(boxes) == {"p1", "p2"}, (f_role, m_role)
+            assert boxes["p1"].x() < boxes["p2"].x(), (f_role, m_role)
+
+    def test_single_biological_parent_shows_one_box_and_one_placeholder(self) -> None:
+        """A biological pair with only one parent link: one box + one placeholder."""
+        # Only the father links to p3; mother role present but no mother link.
+        data = _make_parents_project(
+            father_role="make",
+            mother_role="maka",
+            mother_link=False,
+        )
+        scene = QGraphicsScene()
+        view = FamilyView()
+        view.render(scene, data, "p3", PersonBoxConfig())
+
+        boxes = _parent_row_boxes(view, {"p1", "p2"})
+        assert set(boxes) == {"p1"}, "Only the linked parent is drawn"
+        # Exactly one mother placeholder fills the empty slot.
+        mother_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role == PlaceholderRole.MOTHER
+        ]
+        father_phs = [
+            p for p in view.get_placeholder_boxes()
+            if p.role == PlaceholderRole.FATHER
+        ]
+        assert len(mother_phs) == 1
+        assert father_phs == []

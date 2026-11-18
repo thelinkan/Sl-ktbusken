@@ -121,9 +121,10 @@ class TestBug1SwedishOnlyValidationWarnings:
         translation_subdir = project_path / "translation"
         translation_subdir.mkdir()
 
-        result = import_service.run(
-            empty_project, gedcom_file, project_path
-        )
+        from slaktbusken.services.project_service import ProjectService
+        ps = ProjectService()
+        ps._project_data = empty_project
+        result = import_service.run(empty_project, gedcom_file, project_path, ps)
 
         # County should now have a country parent (auto-added "Sverige")
         kopparberg = next(

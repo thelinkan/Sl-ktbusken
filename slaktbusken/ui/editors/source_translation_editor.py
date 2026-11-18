@@ -7,6 +7,9 @@ source records exist before persisting changes. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 from pathlib import Path
 
@@ -26,7 +29,7 @@ from slaktbusken.ui.generated.ui_source_translation_editor import (
 logger = logging.getLogger(__name__)
 
 
-class SourceTranslationEditor(QWidget):
+class SourceTranslationEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for GEDCOM source → App_JSON source translation mappings.
 
     Displays a searchable table of existing source mappings and provides
@@ -46,6 +49,8 @@ class SourceTranslationEditor(QWidget):
         project_data: ProjectData,
         project_path: Path,
         parent: QWidget | None = None,
+        registry: EditorRegistry | None = None,
+        project_service: object | None = None,
     ) -> None:
         """Initialise the source translation editor.
 
@@ -56,7 +61,9 @@ class SourceTranslationEditor(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Källöversättningsredigerare")
 
+        self._project_service = project_service
         self._translation_service = translation_service
         self._project_data = project_data
         self._project_path = project_path
@@ -321,6 +328,15 @@ class SourceTranslationEditor(QWidget):
         displays a Swedish-language error message and retains unsaved
         changes in the editor.
         """
+        if self._project_service is not None:
+            from slaktbusken.ui.merge.recovery_dialogs import translation_edit_refusal
+
+            refusal = translation_edit_refusal(self._project_service)
+            if refusal:
+                self._update_status(refusal)
+                QMessageBox.warning(self, "Sparfel", refusal)
+                return
+
         if self._translation_data is None:
             self._update_status("Inga data att spara.")
             return

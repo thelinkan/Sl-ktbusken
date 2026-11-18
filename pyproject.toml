@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "slaktbusken"
-version = "0.2.0"
+version = "0.3.0"
 description = "A desktop genealogy application for Swedish genealogical research"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,9 +29,7 @@ slaktbusken = "slaktbusken.__main__:main"
 [tool.setuptools.packages.find]
 include = ["slaktbusken*"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "--strict-markers"
+# pytest configuration lives in pytest.ini (single source, see tests/MANDATORY_TESTS.md)
 
 [tool.coverage.run]
 source = ["slaktbusken"]

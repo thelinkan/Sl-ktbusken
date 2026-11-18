@@ -28,6 +28,7 @@ from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData, ProjectMetadata
 from slaktbusken.model.research_note import ResearchNote
+from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import (
     ArkivReferens,
     Repository,
@@ -43,9 +44,11 @@ from slaktbusken.model.validators import (
     validate_dna_triangulation,
     validate_event,
     validate_family,
+    placement_end_findings,
     validate_media_item,
     validate_person,
     validate_place,
+    validate_placement_end_events,
     validate_repository,
     validate_source,
 )
@@ -86,6 +89,10 @@ __all__ = [
     "DnaTriangulation",
     # Research notes
     "ResearchNote",
+    # Residence
+    "Endpoint",
+    "Observation",
+    "ResidenceFact",
     # Project
     "ProjectData",
     "ProjectMetadata",
@@ -100,6 +107,8 @@ __all__ = [
     "validate_media_item",
     "validate_person",
     "validate_place",
+    "validate_placement_end_events",
+    "placement_end_findings",
     "validate_repository",
     "validate_source",
 ]

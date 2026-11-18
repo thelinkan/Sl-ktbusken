@@ -7,12 +7,16 @@ before save. All UI text is in Swedish.
 
 from __future__ import annotations
 
+from slaktbusken.services.editor_registry import EditorRegistry
+from slaktbusken.ui.editors.registry_participation import EditorRegistryParticipant
+
 import logging
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -25,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QStyleOptionViewItem,
     QStyledItemDelegate,
@@ -38,9 +43,15 @@ from slaktbusken.model.event import Participant
 from slaktbusken.model.name_parser import validate_given_name_markers
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.project import ProjectData
-from slaktbusken.services.parent_service import ParentInfo, ParentService
+from slaktbusken.services.foster_sync import sync_parentage_links
+from slaktbusken.services.parent_service import (
+    ParentInfo,
+    ParentService,
+    _format_person_name,
+)
 from slaktbusken.services.photo_service import PhotoService
 from slaktbusken.services.project_service import ValidationError
+from slaktbusken.services.safe_io import read_text_capped, resolve_within
 from slaktbusken.ui.editors.dna_editor import (
     resolve_company_logo_icon,
     resolve_profile_logo_icon,
@@ -51,9 +62,24 @@ from slaktbusken.services.name_event_service import (
     is_event_id_valid,
 )
 from slaktbusken.ui.generated.ui_person_editor import Ui_PersonEditor
+from slaktbusken.ui.merge.candidate_section import CandidatesSection
 from slaktbusken.ui.icons.icon_registry import icon_registry
 from slaktbusken.ui.swedish_locale import get_event_type_label
+from slaktbusken.ui.widgets.boenden_tab import BoendenTab
+from slaktbusken.model.residence import Endpoint, ResidenceFact
 from slaktbusken.ui.widgets.foto_tab import FotoTab
+from slaktbusken.services.research_index import ResearchIndex
+from slaktbusken.services.source_stats import event_cited_sources
+from slaktbusken.ui.research_gateway import connect_research_tab
+from slaktbusken.ui.widgets.list_icon_delegate import (
+    HAS_COORDS_ROLE,
+    HAS_SOURCE_ROLE,
+    SOURCE_TITLES_ROLE,
+    ListIconDelegate,
+)
+from slaktbusken.ui.widgets.research_marker import apply_research_marker
+from slaktbusken.ui.widgets.family_research_panel import FamilyResearchPanel
+from slaktbusken.ui.widgets.research_tab import ResearchTab
 
 logger = logging.getLogger(__name__)
 
@@ -68,74 +94,34 @@ _PARENTAGE_TYPE_LABELS: dict[str, str] = {
 # Reverse mapping for combo selection
 _PARENTAGE_LABEL_TO_TYPE: dict[str, str] = {v: k for k, v in _PARENTAGE_TYPE_LABELS.items()}
 
+# Parentage types that are derived from a Placement_Event (Fosterhem / Adoption)
+# and are therefore read-only in the person editor (Requirements 2.6, 2.7).
+# They cannot be added, retyped, or removed directly; the user is routed to the
+# corresponding placement event instead.
+_EVENT_DERIVED_PARENTAGE_TYPES: frozenset[str] = frozenset({"foster", "adoptive"})
+
+# Suffix appended to the type label of an event-derived (read-only) parent row.
+_EVENT_DERIVED_LABEL_SUFFIX = " (via händelse)"
+
+# The placement event type that backs each derived parentage type, with the
+# Swedish name used in user-facing messages (Requirement 2.7).
+_PARENTAGE_TYPE_TO_PLACEMENT: dict[str, tuple[str, str]] = {
+    "foster": ("foster_home", "Fosterhem"),
+    "adoptive": ("adoption", "Adoption"),
+}
+
 # Custom role for storing the has-coordinates flag on event list items
-_HAS_COORDS_ROLE = Qt.ItemDataRole.UserRole + 1
+_HAS_COORDS_ROLE = HAS_COORDS_ROLE
 
 
-class EventListMapIconDelegate(QStyledItemDelegate):
-    """Delegate that draws a trailing map icon on event list items with coordinates.
+class EventListMapIconDelegate(ListIconDelegate):
+    """Delegate drawing trailing map pin, source icon and research dot on list items.
 
-    When an item has data set at _HAS_COORDS_ROLE == True, the map icon is drawn
-    after the item text, providing a visual indicator that the event's place is
-    mappable.
+    See :class:`ListIconDelegate`; the pin is drawn when ``_HAS_COORDS_ROLE`` is
+    set and the source icon when ``HAS_SOURCE_ROLE`` is set.
     """
 
-    _ICON_SIZE = 14
-    _ICON_SPACING = 8
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._map_pixmap: QPixmap | None = None
-
-    def _get_map_pixmap(self) -> QPixmap:
-        """Lazily load and cache the map icon pixmap."""
-        if self._map_pixmap is None:
-            self._map_pixmap = icon_registry.get_map_icon()
-        return self._map_pixmap
-
-    def paint(
-        self,
-        painter: QPainter,
-        option: QStyleOptionViewItem,
-        index,
-    ) -> None:
-        """Paint the item, appending a map icon after the text when flagged."""
-        super().paint(painter, option, index)
-
-        has_coords = index.data(_HAS_COORDS_ROLE)
-        if not has_coords:
-            return
-
-        # Calculate text width to position the icon after it
-        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
-        font_metrics = option.fontMetrics
-        text_width = font_metrics.horizontalAdvance(text)
-
-        # Account for the item's decoration (event icon) width + spacing
-        icon_offset = 0
-        item_icon = index.data(Qt.ItemDataRole.DecorationRole)
-        if item_icon is not None:
-            # Standard icon size used in list items (16px) + spacing
-            icon_offset = 16 + 4
-
-        style = option.widget.style() if option.widget else None
-        text_margin = (
-            style.pixelMetric(
-                style.PixelMetric.PM_FocusFrameHMargin, option, option.widget
-            )
-            + 1
-            if style
-            else 4
-        )
-
-        map_pixmap = self._get_map_pixmap()
-        x = option.rect.left() + text_margin + icon_offset + text_width + self._ICON_SPACING
-        y = option.rect.top() + (option.rect.height() - self._ICON_SIZE) // 2
-
-        painter.drawPixmap(x, y, self._ICON_SIZE, self._ICON_SIZE, map_pixmap)
-
-
-class PersonEditor(QWidget):
+class PersonEditor(EditorRegistryParticipant, QWidget):
     """Editor widget for Person records with tabs for names, events, photos, and DNA.
 
     Displays and edits a Person record with associated names, sex, profile photo,
@@ -161,6 +147,8 @@ class PersonEditor(QWidget):
         person: Optional[Person] = None,
         parent: QWidget | None = None,
         project_folder: Path | None = None,
+        project_service=None,
+        registry: EditorRegistry | None = None,
     ) -> None:
         """Initialise the person editor.
 
@@ -169,9 +157,13 @@ class PersonEditor(QWidget):
             person: Optional existing Person to edit. If None, creates a new person.
             parent: Optional parent widget.
             project_folder: Optional path to the project folder for resolving media files.
+            project_service: Optional ProjectService used to create merge candidates
+                and to refresh the candidate section on merge notifications.
         """
         super().__init__(parent)
+        self._join_registry(registry, "Personredigerare")
 
+        self._project_service = project_service
         self._project_data = project_data
         self._project_folder = project_folder
         self._person = person
@@ -179,7 +171,6 @@ class PersonEditor(QWidget):
             p.id == person.id for p in project_data.persons
         )
         self._saved_person: Optional[Person] = None
-        self._editing_name_row: Optional[int] = None
         self._profile_media_id: Optional[str] = None
 
         # Set up UI from generated form
@@ -194,7 +185,7 @@ class PersonEditor(QWidget):
         self._ui.sex_combo.clear()
         self._ui.sex_combo.addItems(["Man", "Kvinna", "Annat", "Okänt"])
 
-        # Override name type combo with Swedish labels
+        # Swedish labels for the inline name-type dropdown shown in the Typ column
         self._name_type_label_to_internal = {
             "Födelsenamn": "birth",
             "Gift namn": "married",
@@ -202,8 +193,7 @@ class PersonEditor(QWidget):
             "Annat": "other",
         }
         self._name_type_internal_to_label = {v: k for k, v in self._name_type_label_to_internal.items()}
-        self._ui.name_type_combo.clear()
-        self._ui.name_type_combo.addItems(["Födelsenamn", "Gift namn", "Adoptivnamn", "Annat"])
+        self._name_type_labels = ["Födelsenamn", "Gift namn", "Adoptivnamn", "Annat"]
 
         # Parent service for managing parent relationships
         self._parent_service = ParentService(project_data)
@@ -212,6 +202,7 @@ class PersonEditor(QWidget):
         foto_mapp = (project_folder / "media" / "photos") if project_folder else Path("media/photos")
         self._photo_service = PhotoService(project_data, foto_mapp)
         self._foto_tab: FotoTab | None = None
+        self._boenden_tab: BoendenTab | None = None
 
         self._setup_table()
         self._setup_edit_event_button()
@@ -221,10 +212,78 @@ class PersonEditor(QWidget):
         self._setup_triangulation_section()
         self._setup_parents_section()
         self._setup_foto_tab()
+        self._setup_boenden_tab()
+        self._setup_forskning_tab()
         self._connect_signals()
 
         if self._person is not None:
             self._load_person()
+            self.editor_title = (
+                f"Personredigerare: {_format_person_name(self._person)} "
+                f"({self._person.id})"
+            )
+        else:
+            self.editor_title = "Personredigerare: ny person"
+
+        # Baseline for has_unsaved_changes(): the widgets as just loaded.
+        self._baseline = self._form_snapshot()
+
+    # ------------------------------------------------------------------
+    # Editor registry participation (Requirement 26.14, 27.23)
+    # ------------------------------------------------------------------
+
+    def _form_snapshot(self) -> tuple:
+        """Return the editable form content as a comparable value."""
+        table = self._ui.names_table
+        names = []
+        for row in range(table.rowCount()):
+            type_combo = table.cellWidget(row, 0)
+            name_type = type_combo.currentText() if isinstance(type_combo, QComboBox) else ""
+            given_item = table.item(row, 1)
+            surname_item = table.item(row, 2)
+            event_combo = table.cellWidget(row, 3)
+            event_id = (
+                event_combo.currentData() if isinstance(event_combo, QComboBox) else None
+            )
+            names.append((
+                name_type,
+                given_item.text() if given_item else "",
+                surname_item.text() if surname_item else "",
+                event_id,
+            ))
+        return (
+            self._ui.sex_combo.currentText(),
+            self._ui.title_input.text(),
+            self._ui.occupation_input.text(),
+            self._ui.notes_input.toPlainText(),
+            self._profile_media_id,
+            tuple(names),
+        )
+
+    def has_unsaved_changes(self) -> bool:
+        """True when the widgets differ from the loaded (or last saved) person."""
+        baseline = getattr(self, "_baseline", None)
+        if baseline is None:
+            return False
+        return self._form_snapshot() != baseline
+
+    def _discard_for_resolution(self) -> None:
+        """Reset the widgets to the loaded person and close the editor."""
+        self._ui.title_input.clear()
+        self._ui.occupation_input.clear()
+        self._ui.notes_input.clear()
+        self._profile_media_id = None
+        if self._person is not None:
+            self._load_person()
+        else:
+            self._ui.names_table.setRowCount(0)
+            self._ui.sex_combo.setCurrentIndex(0)
+        self._baseline = self._form_snapshot()
+        self._on_cancel()
+
+    def _save_for_resolution(self) -> None:
+        """Run the normal save; validation failures leave the editor unsaved."""
+        self._on_save()
 
     # ------------------------------------------------------------------
     # Public API
@@ -248,17 +307,41 @@ class PersonEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _setup_table(self) -> None:
-        """Configure the names table appearance."""
+        """Configure the names table for inline editing.
+
+        Columns: Typ (combo widget), Förnamn (editable), Efternamn (editable),
+        Händelse (combo widget for non-birth names). Förnamn and Efternamn stretch
+        to take the available width; Typ fits its content and Händelse stays compact.
+        """
+        from PySide6.QtWidgets import QHeaderView
+
         table = self._ui.names_table
         # Add a 4th column for event association
         table.setColumnCount(4)
         header_item = QTableWidgetItem("Händelse")
         table.setHorizontalHeaderItem(3, header_item)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.setEditTriggers(table.EditTrigger.NoEditTriggers)
 
-        # Enforce maximum 100 characters for given-name input
-        self._ui.given_name_input.setMaxLength(100)
+        # Förnamn/Efternamn cells are edited directly in the table; the Typ and
+        # Händelse columns use embedded combo widgets rather than text editing.
+        table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.AnyKeyPressed
+        )
+
+        header = table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Typ
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Förnamn
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)           # Efternamn
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)             # Händelse
+        table.setColumnWidth(3, 170)
+
+        # Validate given-name markers when a Förnamn edit is committed (focus loss
+        # or Enter). itemChanged also fires for programmatic changes, so edits made
+        # by our own code guard against re-entrancy via _suppress_item_changed.
+        self._suppress_item_changed = False
+        table.itemChanged.connect(self._on_name_item_changed)
 
     def _setup_edit_event_button(self) -> None:
         """Add an 'Redigera händelse' button to the events tab button layout."""
@@ -516,15 +599,95 @@ class PersonEditor(QWidget):
         # Add FotoTab to the photos tab layout
         self._ui.photos_tab_layout.addWidget(self._foto_tab)
 
+    def _setup_boenden_tab(self) -> None:
+        """Set up the Boenden tab programmatically.
+
+        Inserts a new "Boenden" tab after the Foton tab, following the
+        FotoTab pattern of programmatic insertion. The tab shows the
+        person's residence facts in a list, allows creating a new fact,
+        and provides an entry point to the ResidentsDialog.
+        """
+        if self._person is None:
+            return
+
+        self._boenden_tab = BoendenTab(
+            project_data=self._project_data,
+            person=self._person,
+            parent=None,
+        )
+
+        # Insert the Boenden tab before the Foton (photos) tab
+        photos_index = self._ui.tab_widget.indexOf(self._ui.photos_tab)
+        self._ui.tab_widget.insertTab(
+            photos_index, self._boenden_tab, "Boenden"
+        )
+
+        # Connect Boenden tab signals
+        self._boenden_tab.create_requested.connect(self._on_create_residence)
+        self._boenden_tab.edit_requested.connect(self._on_edit_residence)
+        self._boenden_tab.delete_requested.connect(self._on_delete_residence)
+
+    def _setup_forskning_tab(self) -> None:
+        """Insert the "Forskning" tab listing research cases linked to the person.
+
+        Follows the programmatic insertion of the Boenden tab. Opening, creating,
+        linking and unlinking go through the application's research gateway, so
+        the person editor's unsaved edits are not touched.
+        """
+        person_id = self._person.id if self._person is not None else ""
+        self._forskning_tab = ResearchTab(self._project_data, "person", person_id)
+        connect_research_tab(self._forskning_tab)
+
+        # Research about the person's families (parentage, marriage, adoption).
+        self._family_research = FamilyResearchPanel(self._project_data, person_id)
+        family_group = QGroupBox("Familjens forskning")
+        family_layout = QVBoxLayout(family_group)
+        family_layout.addWidget(self._family_research)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.addWidget(self._forskning_tab)
+        container_layout.addWidget(family_group)
+
+        # Merge candidates of this person (Requirement 16).
+        self._candidates_section = CandidatesSection(
+            self._project_data,
+            self._edited_person_id,
+            lambda: self._project_service,
+        )
+        self._candidates_section.connect_service(self._project_service)
+        container_layout.addWidget(self._candidates_section)
+        # Enable creation after the first save, once the application stored the person.
+        self.save_requested.connect(
+            lambda: QTimer.singleShot(0, self._candidates_section.refresh)
+        )
+
+        photos_index = self._ui.tab_widget.indexOf(self._ui.photos_tab)
+        self._ui.tab_widget.insertTab(photos_index, container, "Forskning")
+
+    def _edited_person_id(self) -> str:
+        """Id of the edited person; "" while a new person has none yet."""
+        if self._person is not None:
+            return self._person.id
+        if self._saved_person is not None:
+            return self._saved_person.id
+        return ""
+
+    def refresh_candidates(self) -> None:
+        """Rebuild the candidate section (e.g. after the person was stored)."""
+        self._candidates_section.refresh()
+
+    def set_project_service(self, project_service) -> None:
+        """Provide the ProjectService used by the candidate section."""
+        self._project_service = project_service
+        self._candidates_section.connect_service(project_service)
+
     def _connect_signals(self) -> None:
         """Wire up UI signals to handler slots."""
-        # Name management
+        # Name management (inline editing; the names_table itemChanged signal is
+        # wired in _setup_table for marker validation).
         self._ui.add_name_button.clicked.connect(self._on_add_name)
-        self._ui.edit_name_button.clicked.connect(self._on_edit_name)
         self._ui.remove_name_button.clicked.connect(self._on_remove_name)
-        self._ui.names_table.itemSelectionChanged.connect(
-            self._on_name_selection_changed
-        )
 
         # Events
         self._ui.add_event_button.clicked.connect(self._on_add_event)
@@ -650,33 +813,118 @@ class PersonEditor(QWidget):
             self._add_name_row(name)
 
     def _add_name_row(self, name: Name) -> None:
-        """Append a single name row to the table.
+        """Append a single inline-editable name row to the table.
+
+        Column 0 (Typ) holds a Namntyp dropdown, columns 1-2 (Förnamn/Efternamn)
+        are directly editable cells, and column 3 (Händelse) holds the event combo
+        for non-birth names.
 
         Args:
             name: The Name entry to display.
         """
         table = self._ui.names_table
+        # Suppress itemChanged while we populate the row programmatically so the
+        # marker validation doesn't fire on our own inserts.
+        self._suppress_item_changed = True
         row = table.rowCount()
         table.insertRow(row)
 
-        # Display Swedish label in type column, store internal key as data
-        type_label = self._name_type_internal_to_label.get(name.type, name.type)
-        type_item = QTableWidgetItem(type_label)
-        type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-        type_item.setData(Qt.ItemDataRole.UserRole, name.type)
-
+        # Förnamn / Efternamn are editable text cells.
         given_item = QTableWidgetItem(name.given)
-        given_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-
         surname_item = QTableWidgetItem(name.surname)
-        surname_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-
-        table.setItem(row, 0, type_item)
         table.setItem(row, 1, given_item)
         table.setItem(row, 2, surname_item)
 
+        # Placeholder item for the Typ column so the cell is selectable; the
+        # actual value lives in the embedded combo widget set up below.
+        type_item = QTableWidgetItem("")
+        type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+        table.setItem(row, 0, type_item)
+
+        self._suppress_item_changed = False
+
+        # Namntyp dropdown embedded in the Typ column.
+        self._setup_type_combo_for_row(row, name)
+
         # Add event association control for non-birth name types
         self._setup_event_combo_for_row(row, name)
+
+    def _setup_type_combo_for_row(self, row: int, name: Name) -> None:
+        """Embed a Namntyp dropdown in the Typ column for the given row.
+
+        Changing the type re-runs the Händelse-column setup, since only non-birth
+        names get an event association control.
+
+        Args:
+            row: The table row index to configure.
+            name: The Name record whose type sets the initial selection.
+        """
+        table = self._ui.names_table
+        combo = QComboBox()
+        combo.addItems(self._name_type_labels)
+        combo.setProperty("row", row)
+
+        type_label = self._name_type_internal_to_label.get(name.type, None)
+        if type_label is not None:
+            index = combo.findText(type_label)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+
+        combo.currentIndexChanged.connect(
+            lambda _idx, c=combo: self._on_name_type_changed(c)
+        )
+        table.setCellWidget(row, 0, combo)
+
+    def _on_name_type_changed(self, combo: QComboBox) -> None:
+        """Re-configure the Händelse cell when a row's Namntyp changes.
+
+        Switching to/from Födelsenamn toggles whether the row has an event
+        association control, so rebuild it while preserving any current event_id.
+        """
+        table = self._ui.names_table
+        row = combo.property("row")
+        if row is None:
+            return
+
+        label = combo.currentText()
+        name_type = self._name_type_label_to_internal.get(label, label)
+
+        # Preserve an existing event_id if the current Händelse combo has one.
+        existing_event_id = None
+        existing_combo = table.cellWidget(row, 3)
+        if isinstance(existing_combo, QComboBox) and existing_combo.isEnabled():
+            current_data = existing_combo.currentData()
+            if current_data:
+                existing_event_id = current_data
+
+        given_item = table.item(row, 1)
+        surname_item = table.item(row, 2)
+        name = Name(
+            type=name_type,
+            given=given_item.text() if given_item else "",
+            surname=surname_item.text() if surname_item else "",
+            event_id=existing_event_id,
+        )
+        self._setup_event_combo_for_row(row, name)
+
+    def _on_name_item_changed(self, item: QTableWidgetItem) -> None:
+        """Validate tilltalsnamn markers when a Förnamn cell is committed.
+
+        Fires on both user edits and programmatic changes; the latter are guarded
+        by _suppress_item_changed. On an invalid Förnamn marker, show the error in
+        the status label (the value is left in place so the user can correct it).
+        """
+        if self._suppress_item_changed:
+            return
+        # Only the Förnamn column (1) carries marker validation.
+        if item.column() != 1:
+            return
+
+        errors = validate_given_name_markers(item.text())
+        if errors:
+            self._update_status(errors[0])
+        else:
+            self._clear_status()
 
     def _setup_event_combo_for_row(self, row: int, name: Name) -> None:
         """Set up the event association combo box for a name table row.
@@ -692,10 +940,14 @@ class PersonEditor(QWidget):
         table = self._ui.names_table
 
         if name.type == "birth":
-            # Birth names don't get event association
+            # Birth names don't get event association. Clear any combo left over
+            # from a previous non-birth type before placing the empty cell.
+            table.removeCellWidget(row, 3)
+            self._suppress_item_changed = True
             empty_item = QTableWidgetItem("")
             empty_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             table.setItem(row, 3, empty_item)
+            self._suppress_item_changed = False
             return
 
         # Get events where person is participant
@@ -745,71 +997,22 @@ class PersonEditor(QWidget):
         table.setCellWidget(row, 3, combo)
 
     def _on_add_name(self) -> None:
-        """Add a new name entry from the edit fields."""
-        name_type_label = self._ui.name_type_combo.currentText()
-        name_type = self._name_type_label_to_internal.get(name_type_label, name_type_label)
-        given = self._ui.given_name_input.text().strip()
-        surname = self._ui.surname_input.text().strip()
+        """Append a new, blank name row and focus its Förnamn cell.
 
-        if not given and not surname:
-            self._update_status("Ange förnamn eller efternamn.")
-            return
-
-        # Validate tilltalsnamn markers before adding
-        if given:
-            errors = validate_given_name_markers(given)
-            if errors:
-                self._update_status(errors[0])
-                return
-
-        name = Name(type=name_type, given=given, surname=surname)
-        self._add_name_row(name)
-        self._clear_name_fields()
-        self._clear_status()
-
-    def _on_edit_name(self) -> None:
-        """Update the selected name entry with current field values."""
-        selected = self._ui.names_table.selectedItems()
-        if not selected:
-            self._update_status("Välj ett namn att redigera.")
-            return
-
-        row = selected[0].row()
-        name_type_label = self._ui.name_type_combo.currentText()
-        name_type = self._name_type_label_to_internal.get(name_type_label, name_type_label)
-        given = self._ui.given_name_input.text().strip()
-        surname = self._ui.surname_input.text().strip()
-
-        if not given and not surname:
-            self._update_status("Ange förnamn eller efternamn.")
-            return
-
-        # Validate tilltalsnamn markers before updating
-        if given:
-            errors = validate_given_name_markers(given)
-            if errors:
-                self._update_status(errors[0])
-                return
-
+        The row defaults to Födelsenamn. The researcher types the names directly
+        into the table cells rather than into a separate field panel.
+        """
         table = self._ui.names_table
-        table.item(row, 0).setText(name_type_label)
-        table.item(row, 1).setText(given)
-        table.item(row, 2).setText(surname)
-
-        # Re-setup event combo in case name type changed (birth <-> non-birth)
-        # Preserve existing event_id if the combo already exists
-        existing_event_id = None
-        existing_combo = table.cellWidget(row, 3)
-        if isinstance(existing_combo, QComboBox) and existing_combo.isEnabled():
-            current_data = existing_combo.currentData()
-            if current_data:
-                existing_event_id = current_data
-
-        name = Name(type=name_type, given=given, surname=surname, event_id=existing_event_id)
-        self._setup_event_combo_for_row(row, name)
-
-        self._clear_name_fields()
+        self._add_name_row(Name(type="birth", given="", surname=""))
         self._clear_status()
+
+        # Select and begin editing the Förnamn cell of the new row.
+        new_row = table.rowCount() - 1
+        table.selectRow(new_row)
+        given_item = table.item(new_row, 1)
+        if given_item is not None:
+            table.setCurrentItem(given_item)
+            table.editItem(given_item)
 
     def _on_remove_name(self) -> None:
         """Remove the currently selected name entry."""
@@ -821,27 +1024,6 @@ class PersonEditor(QWidget):
         row = selected[0].row()
         self._ui.names_table.removeRow(row)
         self._clear_status()
-
-    def _on_name_selection_changed(self) -> None:
-        """Populate edit fields when a name row is selected."""
-        selected = self._ui.names_table.selectedItems()
-        if not selected:
-            return
-
-        row = selected[0].row()
-        table = self._ui.names_table
-
-        name_type = table.item(row, 0).text()
-        given = table.item(row, 1).text()
-        surname = table.item(row, 2).text()
-
-        # Set type combo
-        type_index = self._ui.name_type_combo.findText(name_type)
-        if type_index >= 0:
-            self._ui.name_type_combo.setCurrentIndex(type_index)
-
-        self._ui.given_name_input.setText(given)
-        self._ui.surname_input.setText(surname)
 
     # ------------------------------------------------------------------
     # Private: parent relationship management
@@ -859,14 +1041,35 @@ class PersonEditor(QWidget):
             row = self._parents_table.rowCount()
             self._parents_table.insertRow(row)
 
+            is_derived = info.parentage_type in _EVENT_DERIVED_PARENTAGE_TYPES
+
             name_item = QTableWidgetItem(info.parent_name)
             name_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             name_item.setData(Qt.ItemDataRole.UserRole, info.parent_id)
 
-            type_label = _PARENTAGE_TYPE_LABELS.get(info.parentage_type, info.parentage_type)
+            # Event-derived rows get a "(via händelse)" suffix and read-only styling
+            # (Requirement 2.6). The raw parentage_type stays in UserRole so the
+            # selection handler and the guards can detect derived rows.
+            base_label = _PARENTAGE_TYPE_LABELS.get(info.parentage_type, info.parentage_type)
+            type_label = base_label + _EVENT_DERIVED_LABEL_SUFFIX if is_derived else base_label
             type_item = QTableWidgetItem(type_label)
             type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             type_item.setData(Qt.ItemDataRole.UserRole, info.parentage_type)
+
+            if is_derived:
+                # Grey out derived rows to signal they are read-only.
+                disabled_colour = self.palette().color(
+                    self.palette().ColorGroup.Disabled,
+                    self.palette().ColorRole.Text,
+                )
+                name_item.setForeground(disabled_colour)
+                type_item.setForeground(disabled_colour)
+                tooltip = (
+                    "Härledd från en händelse och kan inte ändras här. "
+                    "Redigera motsvarande Fosterhem-/Adoption-händelse under Händelser."
+                )
+                name_item.setToolTip(tooltip)
+                type_item.setToolTip(tooltip)
 
             self._parents_table.setItem(row, 0, name_item)
             self._parents_table.setItem(row, 1, type_item)
@@ -874,11 +1077,29 @@ class PersonEditor(QWidget):
         self._edit_parent_button.setEnabled(False)
         self._remove_parent_button.setEnabled(False)
 
+    def _selected_parent_is_derived(self) -> bool:
+        """Return True if the selected parent row is an event-derived (read-only) link."""
+        selected = self._parents_table.selectedItems()
+        if not selected:
+            return False
+        row = selected[0].row()
+        type_item = self._parents_table.item(row, 1)
+        if type_item is None:
+            return False
+        parentage_type = type_item.data(Qt.ItemDataRole.UserRole)
+        return parentage_type in _EVENT_DERIVED_PARENTAGE_TYPES
+
     def _on_parent_selection_changed(self) -> None:
-        """Enable/disable edit and remove buttons based on parent row selection."""
+        """Enable/disable edit and remove buttons based on parent row selection.
+
+        Event-derived foster/adoptive rows are read-only: the "Ändra typ" and
+        "Ta bort" buttons stay disabled for them (Requirement 2.6).
+        """
         has_selection = len(self._parents_table.selectedItems()) > 0
-        self._edit_parent_button.setEnabled(has_selection)
-        self._remove_parent_button.setEnabled(has_selection)
+        # Derived (foster/adoptive) links cannot be retyped or removed here.
+        editable = has_selection and not self._selected_parent_is_derived()
+        self._edit_parent_button.setEnabled(editable)
+        self._remove_parent_button.setEnabled(editable)
 
     def _on_add_parent(self) -> None:
         """Add a parent relationship using ParentService."""
@@ -900,6 +1121,12 @@ class PersonEditor(QWidget):
         type_label = self._parent_type_combo.currentText()
         parentage_type = _PARENTAGE_LABEL_TO_TYPE.get(type_label, "biological")
 
+        # Foster/adoptive links are event-derived: decline the direct add and
+        # offer to create the backing placement event instead (Requirement 2.7).
+        if parentage_type in _EVENT_DERIVED_PARENTAGE_TYPES:
+            self._offer_create_placement_event(parentage_type, parent_id)
+            return
+
         try:
             self._parent_service.add_parent(
                 child_id=self._person.id,
@@ -911,6 +1138,118 @@ class PersonEditor(QWidget):
             self._clear_status()
         except ValidationError as e:
             self._update_status(e.errors[0] if e.errors else str(e))
+
+    def _offer_create_placement_event(
+        self, parentage_type: str, parent_id: str | None = None
+    ) -> None:
+        """Offer to create the placement event backing a foster/adoptive link.
+
+        Foster and adoptive parentage is derived from a Fosterhem/Adoption event
+        (the single source of truth), so it cannot be added directly in the
+        person editor. This declines the direct add and, after confirmation,
+        opens the event editor pre-populated with this person as the child in
+        the correct child role (Requirement 2.7).
+
+        Args:
+            parentage_type: Either "foster" or "adoptive".
+            parent_id: Optional pre-selected parent to add to the placement event.
+        """
+        if self._person is None:
+            return
+
+        placement = _PARENTAGE_TYPE_TO_PLACEMENT.get(parentage_type)
+        if placement is None:
+            return
+        event_type, event_label = placement
+
+        answer = QMessageBox.question(
+            self,
+            "Skapa händelse",
+            (
+                f"{event_label} hanteras som en händelse och kan inte läggas till "
+                "direkt här.\n\n"
+                f"Vill du skapa en {event_label}-händelse för den här personen istället?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._update_status(
+                f"{event_label} läggs till via en händelse under Händelser."
+            )
+            return
+
+        self._open_placement_event_editor(event_type, parent_id)
+
+    def _open_placement_event_editor(
+        self, event_type: str, parent_id: str | None = None
+    ) -> None:
+        """Open the event editor to create a placement event for this person.
+
+        The editor is pre-populated with this person as the child (child role
+        derived from the placement type) and the requested placement event type
+        pre-selected. On save the new event is added to the project and the
+        parents table is refreshed so the derived link appears read-only once
+        link sync runs (Requirement 2.7).
+
+        Args:
+            event_type: "foster_home" or "adoption".
+            parent_id: Optional parent to pre-add to the event's participants.
+        """
+        from slaktbusken.ui.editors.event_editor import (
+            EventEditor,
+            PLACEMENT_PARENT_ROLES,
+        )
+
+        if self._person is None:
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Ny händelse")
+        dialog.setMinimumSize(750, 650)
+        layout = QVBoxLayout(dialog)
+
+        editor = EventEditor(
+            project_data=self._project_data,
+            event=None,
+            subject_person_id=self._person.id,
+            parent=dialog,
+            project_folder=self._project_folder,
+            photo_service=self._photo_service,
+        )
+        layout.addWidget(editor)
+
+        # Pre-select the placement event type; this re-roles the subject as the
+        # child and reveals the participants section so a parent can be added.
+        type_index = editor._ui.type_combo.findData(event_type)
+        if type_index >= 0:
+            editor._ui.type_combo.setCurrentIndex(type_index)
+
+        # Pre-add the chosen parent with the matching parent role, if any.
+        if parent_id:
+            parent_role = PLACEMENT_PARENT_ROLES.get(event_type, "deltagare")
+            editor._add_participant_row(
+                Participant(person_id=parent_id, role=parent_role)
+            )
+
+        editor.save_requested.connect(dialog.accept)
+        editor.cancel_requested.connect(dialog.reject)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            saved_event = editor.saved_event
+            if saved_event is not None:
+                self._project_data.events.append(saved_event)
+
+                # Reconcile derived foster/adoptive links so the newly created
+                # placement event derives its link immediately (Requirement 2.3),
+                # before the parents table is refreshed below.
+                sync_parentage_links(self._project_data)
+
+                self._ensure_family_for_event(saved_event)
+                self._refresh_events_list()
+                self._refresh_parents_table()
+                self._parent_person_combo.setCurrentIndex(0)
+                self._clear_status()
 
     def _on_edit_parent(self) -> None:
         """Change the parentage type of the selected parent relationship."""
@@ -924,6 +1263,16 @@ class PersonEditor(QWidget):
         row = selected[0].row()
         parent_id = self._parents_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         old_type = self._parents_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+
+        # Defensive guard: event-derived foster/adoptive links are read-only and
+        # must never be retyped here, even if this is reached by a path that
+        # bypasses the disabled button (Requirement 2.6).
+        if old_type in _EVENT_DERIVED_PARENTAGE_TYPES:
+            self._update_status(
+                "Fosterförälder och adoptivförälder är härledda från en händelse "
+                "och kan inte ändras här. Redigera motsvarande händelse under Händelser."
+            )
+            return
 
         # Show a dialog to select new parentage type
         dialog = QDialog(self)
@@ -977,6 +1326,16 @@ class PersonEditor(QWidget):
         parent_id = self._parents_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         parentage_type = self._parents_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
 
+        # Defensive guard: event-derived foster/adoptive links are read-only and
+        # must never be removed here, even if this is reached by a path that
+        # bypasses the disabled button (Requirement 2.6).
+        if parentage_type in _EVENT_DERIVED_PARENTAGE_TYPES:
+            self._update_status(
+                "Fosterförälder och adoptivförälder är härledda från en händelse "
+                "och kan inte tas bort här. Redigera motsvarande händelse under Händelser."
+            )
+            return
+
         self._parent_service.remove_parent(
             child_id=self._person.id,
             parent_id=parent_id,
@@ -1002,10 +1361,11 @@ class PersonEditor(QWidget):
 
         # Build a places lookup for resolving event place references
         places_by_id = {p.id: p for p in self._project_data.places}
+        source_titles = {s.id: s.title for s in self._project_data.sources}
 
         # Collect events for this person
         # (date_sort_key, display, event_id, event_type, has_coords)
-        person_events: list[tuple[str, str, str, str, bool]] = []
+        person_events: list[tuple[str, str, str, str, bool, list[str]]] = []
         for event in self._project_data.events:
             for participant in event.participants:
                 if participant.person_id == self._person.id:
@@ -1027,18 +1387,30 @@ class PersonEditor(QWidget):
                                 and place.longitude is not None
                             )
 
-                    person_events.append((date_key, display, event.id, event.type, has_coords))
+                    cited = [
+                        title for _sid, title in event_cited_sources(event, source_titles)
+                    ]
+                    person_events.append(
+                        (date_key, display, event.id, event.type, has_coords, cited)
+                    )
                     break
 
         # Sort by date (empty dates last)
         person_events.sort(key=lambda x: (x[0] == "", x[0]))
 
-        for _date_key, display, event_id, event_type, has_coords in person_events:
+        research_index = ResearchIndex(self._project_data)
+        for _date_key, display, event_id, event_type, has_coords, cited in person_events:
             item = QListWidgetItem(display)
             item.setIcon(QIcon(icon_registry.get_event_icon(event_type)))
             item.setData(Qt.ItemDataRole.UserRole, event_id)
             if has_coords:
                 item.setData(_HAS_COORDS_ROLE, True)
+            if cited:
+                item.setData(HAS_SOURCE_ROLE, True)
+                item.setData(SOURCE_TITLES_ROLE, cited)
+            apply_research_marker(
+                item, research_index.counts_for_entity("event", event_id)
+            )
             self._ui.events_list.addItem(item)
 
     def _on_add_event(self) -> None:
@@ -1082,6 +1454,12 @@ class PersonEditor(QWidget):
             if saved_event is not None:
                 # Add the event to project data
                 self._project_data.events.append(saved_event)
+
+                # Reconcile derived foster/adoptive links from placement events
+                # so a newly created Fosterhem/Adoption event derives its links
+                # immediately (Requirement 2.3). Idempotent and cheap for
+                # non-placement events.
+                sync_parentage_links(self._project_data)
 
                 # For family events (marriage, divorce, etc.), ensure a Family
                 # record exists linking the participants as partners so they
@@ -1169,6 +1547,11 @@ class PersonEditor(QWidget):
                         self._project_data.events[i] = saved_event
                         break
 
+                # Re-derive foster/adoptive links so editing a placement
+                # event's child or parents re-syncs its derived links
+                # (Requirement 2.3).
+                sync_parentage_links(self._project_data)
+
                 # Refresh the events list
                 self._refresh_events_list()
                 self._clear_status()
@@ -1193,6 +1576,10 @@ class PersonEditor(QWidget):
         self._project_data.events = [
             e for e in self._project_data.events if e.id != event_id
         ]
+
+        # Re-derive foster/adoptive links so deleting a placement start event
+        # removes its derived links (Requirement 2.3).
+        sync_parentage_links(self._project_data)
 
         # Refresh the events list
         self._refresh_events_list()
@@ -1346,18 +1733,24 @@ class PersonEditor(QWidget):
         # Normalize the file path to NFC for consistent Swedish character handling
         normalized_file = unicodedata.normalize("NFC", media_item.file)
 
-        # Resolve file path — try multiple strategies for backward compatibility
+        # Resolve file path — try multiple strategies for backward compatibility.
+        # The project-relative strategies are routed through resolve_within so a
+        # ``..`` sequence in the stored reference cannot climb out of the
+        # project folder / foto_mapp; the explicit absolute-path strategy is
+        # preserved for media that legitimately lives outside the project.
         file_path: Path | None = None
         if self._project_folder:
             # Strategy 1: file path relative to project folder (e.g. "media/photos/photo.jpg")
-            candidate = self._project_folder / Path(normalized_file)
-            if candidate.is_file():
-                file_path = candidate
+            contained = resolve_within(self._project_folder, normalized_file)
+            if contained is not None and contained.is_file():
+                file_path = contained
             else:
                 # Strategy 2: file path relative to foto_mapp (legacy, e.g. just "photo.jpg")
-                candidate = self._photo_service._foto_mapp / Path(normalized_file)
-                if candidate.is_file():
-                    file_path = candidate
+                contained = resolve_within(
+                    self._photo_service._foto_mapp, normalized_file
+                )
+                if contained is not None and contained.is_file():
+                    file_path = contained
         else:
             candidate = Path(normalized_file)
             if candidate.is_file():
@@ -1379,6 +1772,149 @@ class PersonEditor(QWidget):
             Qt.TransformationMode.SmoothTransformation,
         )
         self._ui.profile_photo_display.setPixmap(scaled)
+
+    # ------------------------------------------------------------------
+    # Private: Boenden tab handlers
+    # ------------------------------------------------------------------
+
+    def _on_create_residence(self) -> None:
+        """Handle 'Nytt boende' — create a new Residence_Fact and open the editor."""
+        from slaktbusken.model.id_generator import IDGenerator
+
+        if self._person is None:
+            return
+
+        existing_ids: set[str] = set()
+        for r in self._project_data.residences:
+            existing_ids.add(r.id)
+
+        id_gen = IDGenerator(existing_ids)
+        new_id = id_gen.generate("residence")
+
+        new_fact = ResidenceFact(
+            id=new_id,
+            person_id=self._person.id,
+            place_id="",
+            start=Endpoint(),
+            end=Endpoint(),
+        )
+        self._project_data.residences.append(new_fact)
+
+        if self._boenden_tab:
+            self._boenden_tab.refresh()
+
+        self._dirty = True
+
+        # Open the editor immediately so the user can fill in details
+        self._on_edit_residence(new_id)
+
+    def _on_edit_residence(self, residence_id: str) -> None:
+        """Handle edit request — open the ResidenceEditor in a dialog."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QScrollArea, QVBoxLayout
+
+        from slaktbusken.ui.editors.residence_editor import ResidenceEditor
+
+        fact = next(
+            (r for r in self._project_data.residences if r.id == residence_id),
+            None,
+        )
+        if fact is None:
+            return
+
+        # Build a modal dialog wrapping the ResidenceEditor
+        from PySide6.QtWidgets import QScrollArea
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Redigera boende")
+        dialog.setMinimumSize(750, 850)
+        dialog.resize(750, 950)
+        layout = QVBoxLayout(dialog)
+
+        # Wrap the editor in a scroll area so it never gets cramped
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        editor = ResidenceEditor(
+            project_data=self._project_data,
+            residence=fact,
+            person_id=self._person.id if self._person else None,
+        )
+        editor.setMaximumWidth(720)
+        scroll.setWidget(editor)
+        layout.addWidget(scroll)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.button(QDialogButtonBox.StandardButton.Save).setText("Spara")
+        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText("Avbryt")
+        layout.addWidget(button_box)
+
+        def on_save():
+            # Validate role length
+            if not editor.validate_role():
+                return
+            # Build the updated fact from the editor fields
+            updated = editor.build_fact_from_fields()
+            # Preserve the place_id — the editor doesn't have a place selector yet,
+            # so keep the original or allow the user to type it.
+            if not updated.place_id and fact.place_id:
+                updated = replace(updated, place_id=fact.place_id)
+            # Replace in project
+            for i, r in enumerate(self._project_data.residences):
+                if r.id == residence_id:
+                    self._project_data.residences[i] = updated
+                    break
+            self._dirty = True
+            if self._boenden_tab:
+                self._boenden_tab.refresh()
+            dialog.accept()
+
+        # When the residence editor emits save_requested (e.g. after creating
+        # a flytt event), refresh the events list so it appears immediately.
+        editor.save_requested.connect(self._refresh_events_list)
+
+        button_box.accepted.connect(on_save)
+        button_box.rejected.connect(dialog.reject)
+
+        dialog.exec()
+
+    def _on_delete_residence(self, residence_id: str) -> None:
+        """Handle delete request — confirm and remove the residence fact."""
+        fact = next(
+            (r for r in self._project_data.residences if r.id == residence_id),
+            None,
+        )
+        if fact is None:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Radera boende",
+            "Är du säker på att du vill radera detta boende?\n\n"
+            "Åtgärden kan inte ångras.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._project_data.residences = [
+            r for r in self._project_data.residences if r.id != residence_id
+        ]
+        self._dirty = True
+        if self._boenden_tab:
+            self._boenden_tab.refresh()
+
+    def _on_open_residents_dialog(self) -> None:
+        """Handle 'Boende på plats' — open the ResidentsDialog."""
+        from slaktbusken.ui.dialogs.residents_dialog import ResidentsDialog
+
+        dialog = ResidentsDialog(parent=self, project_data=self._project_data)
+        dialog.exec()
 
     # ------------------------------------------------------------------
     # Private: DNA
@@ -1619,13 +2155,19 @@ class PersonEditor(QWidget):
         records: list[RawSnpRecord] | None = None
 
         try:
-            # Resolve the full path: project_folder / "dna" / raw_data_file
-            if self._project_folder is not None:
-                raw_path = self._project_folder / "dna" / selected_profile.raw_data_file
-            else:
-                raw_path = Path("dna") / selected_profile.raw_data_file
+            # Resolve the full path strictly within the project's "dna" folder.
+            # ``raw_data_file`` comes from project data; an absolute path or a
+            # ``..`` sequence must not let the load read an arbitrary file off
+            # disk, so a reference that escapes the dna folder is treated as
+            # unreadable (records stays None → error state).
+            dna_root = (self._project_folder or Path(".")) / "dna"
+            raw_path = resolve_within(dna_root, selected_profile.raw_data_file)
+            if raw_path is None:
+                raise OSError(
+                    f"DNA-sökväg utanför dna-mappen: {selected_profile.raw_data_file!r}"
+                )
 
-            data = json.loads(raw_path.read_text(encoding="utf-8"))
+            data = json.loads(read_text_capped(raw_path))
             raw_records = data.get("records", [])
             records = [
                 RawSnpRecord(
@@ -2247,6 +2789,16 @@ class PersonEditor(QWidget):
         """
         from PySide6.QtWidgets import QMessageBox
 
+        # Commit any in-progress inline cell edit so its text is harvested below.
+        # If the user typed into a cell and clicked Spara without pressing Enter
+        # or tabbing out, the editor is still open; closing it flushes the value.
+        table = self._ui.names_table
+        if table.state() == QAbstractItemView.State.EditingState:
+            current = table.currentItem()
+            if current is not None:
+                table.closePersistentEditor(current)
+            table.setCurrentItem(table.currentItem())
+
         # --- Hard validation: block save entirely if requirements not met ---
 
         # Validate: at least one name row required
@@ -2269,37 +2821,19 @@ class PersonEditor(QWidget):
             self._ui.tab_widget.setCurrentWidget(self._ui.names_tab)
             return
 
+        # Validate tilltalsnamn markers across all rows at save time. This catches
+        # edits the user made without triggering focus-loss validation (e.g. typing
+        # and clicking Spara directly).
+        for row in range(self._ui.names_table.rowCount()):
+            given = self._ui.names_table.item(row, 1).text()
+            errors = validate_given_name_markers(given)
+            if errors:
+                self._update_status(errors[0])
+                self._ui.tab_widget.setCurrentWidget(self._ui.names_tab)
+                self._ui.names_table.selectRow(row)
+                return
+
         # --- Soft warnings: ask user to confirm potential mistakes ---
-
-        # Check for unsaved name field text (applies to both new and existing persons)
-        pending_given = self._ui.given_name_input.text().strip()
-        pending_surname = self._ui.surname_input.text().strip()
-        if pending_given or pending_surname:
-            # Don't warn if the text matches a currently selected row (user is just viewing it)
-            is_viewing_existing = False
-            selected = self._ui.names_table.selectedItems()
-            if selected:
-                row = selected[0].row()
-                existing_given = self._ui.names_table.item(row, 1).text().strip()
-                existing_surname = self._ui.names_table.item(row, 2).text().strip()
-                if pending_given == existing_given and pending_surname == existing_surname:
-                    is_viewing_existing = True
-
-            if not is_viewing_existing:
-                msg = (
-                    "Namnfälten innehåller text som inte lagts till i namnlistan.\n\n"
-                    "Vill du spara utan att lägga till namnet?"
-                )
-                box = QMessageBox(self)
-                box.setWindowTitle("Bekräfta")
-                box.setText(msg)
-                box.setIcon(QMessageBox.Icon.Question)
-                ja_button = box.addButton("Ja", QMessageBox.ButtonRole.YesRole)
-                nej_button = box.addButton("Nej", QMessageBox.ButtonRole.NoRole)
-                box.setDefaultButton(nej_button)
-                box.exec()
-                if box.clickedButton() != ja_button:
-                    return
 
         # Additional new-person warnings
         if self._is_new:
@@ -2331,14 +2865,12 @@ class PersonEditor(QWidget):
         names: list[Name] = []
         table = self._ui.names_table
         for row in range(table.rowCount()):
-            # Get internal name type from stored data, fallback to label conversion
-            type_item = table.item(row, 0)
-            name_type_internal = type_item.data(Qt.ItemDataRole.UserRole)
-            if not name_type_internal:
-                # Fallback: convert displayed label to internal
-                name_type_internal = self._name_type_label_to_internal.get(
-                    type_item.text(), type_item.text()
-                )
+            # Internal name type comes from the Namntyp combo embedded in column 0.
+            name_type_internal = "birth"
+            type_combo = table.cellWidget(row, 0)
+            if isinstance(type_combo, QComboBox):
+                label = type_combo.currentText()
+                name_type_internal = self._name_type_label_to_internal.get(label, label)
             given = table.item(row, 1).text()
             surname = table.item(row, 2).text()
 
@@ -2383,6 +2915,7 @@ class PersonEditor(QWidget):
             occupation=occupation,
         )
 
+        self._baseline = self._form_snapshot()
         self._clear_status()
         logger.info("Person sparad: %s", person_id)
         self.save_requested.emit()
@@ -2395,12 +2928,6 @@ class PersonEditor(QWidget):
     # ------------------------------------------------------------------
     # Private: helpers
     # ------------------------------------------------------------------
-
-    def _clear_name_fields(self) -> None:
-        """Reset the name edit input fields to empty state."""
-        self._ui.name_type_combo.setCurrentIndex(0)
-        self._ui.given_name_input.clear()
-        self._ui.surname_input.clear()
 
     def _update_status(self, message: str) -> None:
         """Update the status label text with an error/info message.

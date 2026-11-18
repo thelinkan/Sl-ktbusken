@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -110,6 +111,8 @@ class SettingsDialog(QDialog):
             cause_of_death=self._check_cause_of_death.isChecked(),
             clusters=self._check_clusters.isChecked(),
             age=self._check_age.isChecked(),
+            research=self._check_research.isChecked(),
+            merge_candidates=self._check_merge_candidates.isChecked(),
         )
 
     @property
@@ -120,6 +123,9 @@ class SettingsDialog(QDialog):
             descendants_depth=self._spin_descendants.value(),
             ancestry_compact=self._check_compact.isChecked(),
             background_color=self._bg_color,
+            parentage_show_level=self._combo_parentage_show_level.currentData(),
+            parentage_badge=self._check_parentage_badge.isChecked(),
+            parentage_fallback=self._check_parentage_fallback.isChecked(),
         )
 
     @property
@@ -137,6 +143,7 @@ class SettingsDialog(QDialog):
             occupation=self._pl_check_occupation.isChecked(),
             clusters=self._pl_check_clusters.isChecked(),
             dna=self._pl_check_dna.isChecked(),
+            research=self._pl_check_research.isChecked(),
         )
 
     @property
@@ -304,6 +311,7 @@ class SettingsDialog(QDialog):
         self._pl_check_occupation = QCheckBox("Yrke")
         self._pl_check_clusters = QCheckBox("Kluster")
         self._pl_check_dna = QCheckBox("DNA")
+        self._pl_check_research = QCheckBox("Forskningsuppslag och dubletter")
 
         for cb in [
             self._pl_check_sex, self._pl_check_relation,
@@ -312,6 +320,7 @@ class SettingsDialog(QDialog):
             self._pl_check_death_date, self._pl_check_death_place,
             self._pl_check_title, self._pl_check_occupation,
             self._pl_check_clusters, self._pl_check_dna,
+            self._pl_check_research,
         ]:
             group_layout.addWidget(cb)
 
@@ -327,6 +336,7 @@ class SettingsDialog(QDialog):
         self._pl_check_occupation.setChecked(config.occupation)
         self._pl_check_clusters.setChecked(config.clusters)
         self._pl_check_dna.setChecked(config.dna)
+        self._pl_check_research.setChecked(config.research)
 
         layout.addWidget(group)
         layout.addStretch()
@@ -346,7 +356,8 @@ class SettingsDialog(QDialog):
 
         # --- Personruta group ---
         person_group = QGroupBox("Personruta – synliga fält", tab)
-        person_layout = QVBoxLayout(person_group)
+        # Two columns keep the dialog from growing taller than a normal screen.
+        person_layout = QGridLayout(person_group)
 
         self._check_name = QCheckBox("Namn")
         self._check_birth_date = QCheckBox("Födelsedatum")
@@ -362,16 +373,22 @@ class SettingsDialog(QDialog):
         self._check_cause_of_death = QCheckBox("Dödsorsak")
         self._check_clusters = QCheckBox("DNA-kluster")
         self._check_age = QCheckBox("Ålder")
+        self._check_research = QCheckBox("Forskningsuppslag")
+        self._check_merge_candidates = QCheckBox("Sammanslagningskandidater")
 
-        for cb in [
+        person_checks = [
             self._check_name, self._check_birth_date, self._check_birth_place,
             self._check_death_date, self._check_death_place,
             self._check_marriage_date, self._check_marriage_place,
             self._check_occupation, self._check_photo, self._check_dna_info,
             self._check_notes, self._check_cause_of_death,
-            self._check_clusters, self._check_age,
-        ]:
-            person_layout.addWidget(cb)
+            self._check_clusters, self._check_age, self._check_research,
+            self._check_merge_candidates,
+        ]
+        rows = (len(person_checks) + 1) // 2
+        for position, cb in enumerate(person_checks):
+            # Fill the left column first, then the right, so reading order is kept.
+            person_layout.addWidget(cb, position % rows, position // rows)
 
         # Load config values
         self._check_name.setChecked(config.name)
@@ -388,6 +405,8 @@ class SettingsDialog(QDialog):
         self._check_cause_of_death.setChecked(config.cause_of_death)
         self._check_clusters.setChecked(config.clusters)
         self._check_age.setChecked(config.age)
+        self._check_research.setChecked(config.research)
+        self._check_merge_candidates.setChecked(config.merge_candidates)
 
         layout.addWidget(person_group)
 
@@ -415,6 +434,36 @@ class SettingsDialog(QDialog):
         depth_layout.addRow("Antal generationer nedåt (ättlingar):", self._spin_descendants)
 
         layout.addWidget(depth_group)
+
+        # --- Släktskapstyper group (foster/adoptive diagram controls) ---
+        parentage_group = QGroupBox("Släktskapstyper i diagram", tab)
+        parentage_layout = QFormLayout(parentage_group)
+
+        # Maps internal Show_Level values to their Swedish labels and back.
+        self._parentage_show_level_values = ["biological", "non_biological", "all"]
+        self._combo_parentage_show_level = QComboBox()
+        self._combo_parentage_show_level.addItem("Biologiska", "biological")
+        self._combo_parentage_show_level.addItem("Icke-biologiska", "non_biological")
+        self._combo_parentage_show_level.addItem("Alla", "all")
+        show_level_index = self._combo_parentage_show_level.findData(
+            settings.parentage_show_level
+        )
+        if show_level_index < 0:
+            show_level_index = self._combo_parentage_show_level.findData("biological")
+        self._combo_parentage_show_level.setCurrentIndex(show_level_index)
+        parentage_layout.addRow("Visa föräldrar:", self._combo_parentage_show_level)
+
+        self._check_parentage_badge = QCheckBox("Visa etikett (foster/adoptiv)")
+        self._check_parentage_badge.setChecked(settings.parentage_badge)
+        parentage_layout.addRow("", self._check_parentage_badge)
+
+        self._check_parentage_fallback = QCheckBox(
+            "Visa icke-biologiska när biologiska saknas"
+        )
+        self._check_parentage_fallback.setChecked(settings.parentage_fallback)
+        parentage_layout.addRow("", self._check_parentage_fallback)
+
+        layout.addWidget(parentage_group)
 
         # --- Bakgrundsfärg group ---
         bg_group = QGroupBox("Bakgrundsfärg", tab)

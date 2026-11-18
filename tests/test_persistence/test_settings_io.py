@@ -233,3 +233,46 @@ class TestRoundTrip:
         assert loaded == original
         assert loaded.ui_state.window_height is None
         assert loaded.ui_state.splitter_position is None
+
+
+class TestParentageSettings:
+    """Tests for the parentage-related DiagramSettings fields."""
+
+    def test_default_parentage_fields(self) -> None:
+        settings = create_default_settings()
+        assert settings.diagram_settings.parentage_show_level == "biological"
+        assert settings.diagram_settings.parentage_badge is False
+        assert settings.diagram_settings.parentage_fallback is True
+
+    def test_parentage_fields_round_trip_non_default(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "settings.json"
+        original = ProjectSettings(
+            diagram_settings=DiagramSettings(
+                parentage_show_level="non_biological",
+                parentage_badge=True,
+                parentage_fallback=False,
+            )
+        )
+        write_settings(original, path)
+        loaded = read_settings(path)
+        assert loaded.diagram_settings.parentage_show_level == "non_biological"
+        assert loaded.diagram_settings.parentage_badge is True
+        assert loaded.diagram_settings.parentage_fallback is False
+
+    def test_missing_parentage_keys_default(self, tmp_path: Path) -> None:
+        path = tmp_path / "settings.json"
+        # A diagram_settings payload that predates the parentage fields.
+        data = {
+            "diagram_settings": {
+                "ancestry_depth": 5,
+                "descendants_depth": 3,
+            }
+        }
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+        result = read_settings(path)
+        assert result.diagram_settings.parentage_show_level == "biological"
+        assert result.diagram_settings.parentage_badge is False
+        assert result.diagram_settings.parentage_fallback is True

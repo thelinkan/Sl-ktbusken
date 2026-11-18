@@ -20,12 +20,14 @@ from slaktbusken.model.dna import (
     DnaTriangulation,
 )
 from slaktbusken.model.event import Event
+from slaktbusken.model.event_citations import context_label_sv, event_citations
 from slaktbusken.model.family import Family
 from slaktbusken.model.media import MediaItem
 from slaktbusken.model.person import Person
 from slaktbusken.model.place import Place
 from slaktbusken.model.project import ProjectData
 from slaktbusken.model.research_note import ResearchNote
+from slaktbusken.model.residence import ResidenceFact
 from slaktbusken.model.source import Repository, Source
 from slaktbusken.model.validators import (
     validate_dna_cluster,
@@ -39,6 +41,7 @@ from slaktbusken.model.validators import (
     validate_person,
     validate_place,
     validate_repository,
+    validate_residence,
     validate_source,
 )
 
@@ -117,6 +120,8 @@ class ValidationService:
         errors: list[ValidationError] = []
         id_sets = self._build_id_sets(project_data)
 
+        errors.extend(self._validate_place_id_uniqueness(project_data))
+
         for person in project_data.persons:
             errors.extend(self._validate_single(person, id_sets, project_data))
 
@@ -125,6 +130,9 @@ class ValidationService:
 
         for event in project_data.events:
             errors.extend(self._validate_single(event, id_sets, project_data))
+
+        for residence in project_data.residences:
+            errors.extend(self._validate_single(residence, id_sets, project_data))
 
         for place in project_data.places:
             errors.extend(self._validate_single(place, id_sets, project_data))
@@ -159,6 +167,29 @@ class ValidationService:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _validate_place_id_uniqueness(
+        self, project_data: ProjectData
+    ) -> list[ValidationError]:
+        """Report any place id that appears on more than one Place record.
+
+        Place ids are assumed unique throughout the app; duplicates make the
+        same id resolve to different records (and different parent chains) in
+        different views. Loading and saving de-duplicate automatically, so this
+        check is defense in depth for data assembled in memory.
+        """
+        errors: list[ValidationError] = []
+        seen: set[str] = set()
+        reported: set[str] = set()
+        for place in project_data.places:
+            if place.id in seen and place.id not in reported:
+                reported.add(place.id)
+                errors.append(ValidationError(
+                    "Place", place.id,
+                    "Plats-id förekommer på flera platsposter (dubblett)."
+                ))
+            seen.add(place.id)
+        return errors
+
     def _build_id_sets(self, project_data: ProjectData) -> _IdSets:
         """Build lookup sets of all entity IDs in the project."""
         return _IdSets(
@@ -186,6 +217,8 @@ class ValidationService:
             return self._validate_family(entity, id_sets)
         elif isinstance(entity, Event):
             return self._validate_event(entity, id_sets)
+        elif isinstance(entity, ResidenceFact):
+            return self._validate_residence(entity, id_sets)
         elif isinstance(entity, Place):
             return self._validate_place(entity, id_sets, project_data)
         elif isinstance(entity, Source):
@@ -268,23 +301,20 @@ class ValidationService:
                     "Event", event.id,
                     f"place.place_id '{event.place.place_id}' refererar inte till en giltig plats."
                 ))
-            # Source refs within place
-            for sr_idx, sr in enumerate(event.place.source_refs):
-                if sr.source_id not in id_sets.source_ids:
-                    errors.append(ValidationError(
-                        "Event", event.id,
-                        f"place.source_refs[{sr_idx}] source_id '{sr.source_id}' refererar inte till en giltig källa."
-                    ))
 
-        # Date source refs
-        if event.date is not None:
-            for sr_idx, sr in enumerate(event.date.source_refs):
-                if sr.source_id not in id_sets.source_ids:
-                    errors.append(ValidationError(
-                        "Event", event.id,
-                        f"date.source_refs[{sr_idx}] source_id '{sr.source_id}' refererar inte till en giltig källa."
-                    ))
-
+        # Citations in every context (event, date, place, from_place)
+        positions: dict[str, int] = {}
+        for citation in event_citations(event):
+            context = citation.context.value
+            sr_idx = positions.get(context, 0)
+            positions[context] = sr_idx + 1
+            if citation.ref.source_id not in id_sets.source_ids:
+                errors.append(ValidationError(
+                    "Event", event.id,
+                    f"{context}.source_refs[{sr_idx}] source_id "
+                    f"'{citation.ref.source_id}' refererar inte till en giltig källa "
+                    f"({context_label_sv(citation.context)})."
+                ))
         # media_ids references
         for media_id in event.media_ids:
             if media_id not in id_sets.media_ids:
@@ -292,6 +322,30 @@ class ValidationService:
                     "Event", event.id,
                     f"media_id '{media_id}' refererar inte till ett giltigt mediaobjekt."
                 ))
+
+        return errors
+
+    def _validate_residence(
+        self, residence: ResidenceFact, id_sets: _IdSets
+    ) -> list[ValidationError]:
+        """Validate a Residence_Fact ("Boende"): structural + all references.
+
+        ``validate_residence`` already covers every person, place, source and
+        event reference the fact holds, so nothing is checked again here — that
+        would duplicate the exact Swedish messages the requirements pin to a
+        single occurrence.
+        """
+        errors: list[ValidationError] = []
+
+        structural = validate_residence(
+            residence,
+            valid_person_ids=id_sets.person_ids,
+            valid_place_ids=id_sets.place_ids,
+            valid_source_ids=id_sets.source_ids,
+            valid_event_ids=id_sets.event_ids,
+        )
+        for msg in structural:
+            errors.append(ValidationError("Boende", residence.id, msg))
 
         return errors
 

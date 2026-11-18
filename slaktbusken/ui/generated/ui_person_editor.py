@@ -98,11 +98,6 @@ class Ui_PersonEditor(object):
 
         self.names_buttons_layout.addWidget(self.add_name_button)
 
-        self.edit_name_button = QPushButton(self.names_tab)
-        self.edit_name_button.setObjectName(u"edit_name_button")
-
-        self.names_buttons_layout.addWidget(self.edit_name_button)
-
         self.remove_name_button = QPushButton(self.names_tab)
         self.remove_name_button.setObjectName(u"remove_name_button")
 
@@ -114,47 +109,6 @@ class Ui_PersonEditor(object):
 
 
         self.names_tab_layout.addLayout(self.names_buttons_layout)
-
-        self.name_edit_layout = QHBoxLayout()
-        self.name_edit_layout.setObjectName(u"name_edit_layout")
-        self.name_type_label = QLabel(self.names_tab)
-        self.name_type_label.setObjectName(u"name_type_label")
-
-        self.name_edit_layout.addWidget(self.name_type_label)
-
-        self.name_type_combo = QComboBox(self.names_tab)
-        self.name_type_combo.addItem("")
-        self.name_type_combo.addItem("")
-        self.name_type_combo.addItem("")
-        self.name_type_combo.addItem("")
-        self.name_type_combo.setObjectName(u"name_type_combo")
-
-        self.name_edit_layout.addWidget(self.name_type_combo)
-
-        self.given_name_label = QLabel(self.names_tab)
-        self.given_name_label.setObjectName(u"given_name_label")
-
-        self.name_edit_layout.addWidget(self.given_name_label)
-
-        self.given_name_input = QLineEdit(self.names_tab)
-        self.given_name_input.setObjectName(u"given_name_input")
-        self.given_name_input.setMaxLength(100)
-
-        self.name_edit_layout.addWidget(self.given_name_input)
-
-        self.surname_label = QLabel(self.names_tab)
-        self.surname_label.setObjectName(u"surname_label")
-
-        self.name_edit_layout.addWidget(self.surname_label)
-
-        self.surname_input = QLineEdit(self.names_tab)
-        self.surname_input.setObjectName(u"surname_input")
-        self.surname_input.setMaxLength(100)
-
-        self.name_edit_layout.addWidget(self.surname_input)
-
-
-        self.names_tab_layout.addLayout(self.name_edit_layout)
 
         self.notes_label = QLabel(self.names_tab)
         self.notes_label.setObjectName(u"notes_label")
@@ -334,16 +288,7 @@ class Ui_PersonEditor(object):
         ___qtablewidgetitem2 = self.names_table.horizontalHeaderItem(2)
         ___qtablewidgetitem2.setText(QCoreApplication.translate("PersonEditor", u"Efternamn", None))
         self.add_name_button.setText(QCoreApplication.translate("PersonEditor", u"L\u00e4gg till namn", None))
-        self.edit_name_button.setText(QCoreApplication.translate("PersonEditor", u"Redigera namn", None))
         self.remove_name_button.setText(QCoreApplication.translate("PersonEditor", u"Ta bort namn", None))
-        self.name_type_label.setText(QCoreApplication.translate("PersonEditor", u"Namntyp:", None))
-        self.name_type_combo.setItemText(0, QCoreApplication.translate("PersonEditor", u"birth", None))
-        self.name_type_combo.setItemText(1, QCoreApplication.translate("PersonEditor", u"married", None))
-        self.name_type_combo.setItemText(2, QCoreApplication.translate("PersonEditor", u"adopted", None))
-        self.name_type_combo.setItemText(3, QCoreApplication.translate("PersonEditor", u"other", None))
-
-        self.given_name_label.setText(QCoreApplication.translate("PersonEditor", u"F\u00f6rnamn:", None))
-        self.surname_label.setText(QCoreApplication.translate("PersonEditor", u"Efternamn:", None))
         self.notes_label.setText(QCoreApplication.translate("PersonEditor", u"Anteckningar:", None))
         self.tab_widget.setTabText(self.tab_widget.indexOf(self.names_tab), QCoreApplication.translate("PersonEditor", u"Namn", None))
         self.add_event_button.setText(QCoreApplication.translate("PersonEditor", u"L\u00e4gg till h\u00e4ndelse", None))
@@ -357,8 +302,8 @@ class Ui_PersonEditor(object):
         self.tab_widget.setTabText(self.tab_widget.indexOf(self.photos_tab), QCoreApplication.translate("PersonEditor", u"Foton", None))
         self.dna_profiles_label.setText(QCoreApplication.translate("PersonEditor", u"DNA-profiler:", None))
         self.dna_matches_label.setText(QCoreApplication.translate("PersonEditor", u"DNA-matchningar:", None))
-        self.dna_clusters_label.setText(QCoreApplication.translate("PersonEditor", u"Klustermedlemskap:", None))
         self.tab_widget.setTabText(self.tab_widget.indexOf(self.dna_tab), QCoreApplication.translate("PersonEditor", u"DNA", None))
+        self.dna_clusters_label.setText(QCoreApplication.translate("PersonEditor", u"Klustermedlemskap:", None))
         self.tab_widget.setTabText(self.tab_widget.indexOf(self.cluster_tab), QCoreApplication.translate("PersonEditor", u"Kluster", None))
         self.status_label.setText("")
         self.status_label.setStyleSheet(QCoreApplication.translate("PersonEditor", u"color: red;", None))

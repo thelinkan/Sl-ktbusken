@@ -282,7 +282,7 @@ def _family_duplicate_children(draw: DrawFn) -> Family:
 def _family_invalid_partner_role(draw: DrawFn) -> Family:
     """Generate a Family with an invalid partner role."""
     invalid_role = draw(st.text(min_size=1, max_size=20).filter(
-        lambda r: r not in {"father", "mother", "husband", "wife", "partner"}
+        lambda r: r not in {"father", "mother", "husband", "wife", "partner", "make/maka"}
     ))
     partner = FamilyPartner(person_id="person_1", role=invalid_role)
     return Family(

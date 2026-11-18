@@ -76,11 +76,30 @@ class TestPropertyAppSettingsRoundTrip:
     """
 
     @given(
+        # Exclude NUL and other control characters (Cc/Cs): a path containing a
+        # null byte is not a valid filesystem path and cannot round-trip. The
+        # property is scoped to valid path strings.
         recent_projects=st.lists(
-            st.text(min_size=1, max_size=100), min_size=0, max_size=10, unique=True
+            st.text(
+                alphabet=st.characters(
+                    exclude_categories=("Cc", "Cs"), exclude_characters="\x00"
+                ),
+                min_size=1,
+                max_size=100,
+            ),
+            min_size=0,
+            max_size=10,
+            unique=True,
         ),
         default_project_path=st.one_of(
-            st.none(), st.text(min_size=1, max_size=100)
+            st.none(),
+            st.text(
+                alphabet=st.characters(
+                    exclude_categories=("Cc", "Cs"), exclude_characters="\x00"
+                ),
+                min_size=1,
+                max_size=100,
+            ),
         ),
         cv_titel=st.booleans(),
         cv_yrke=st.booleans(),

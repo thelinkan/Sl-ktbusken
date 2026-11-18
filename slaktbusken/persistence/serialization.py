@@ -19,12 +19,29 @@ from slaktbusken.model.dna import (
     DnaTriangulation,
 )
 from slaktbusken.model.event import DateValue, Event, Participant, PlaceRef, SourceRef
+from slaktbusken.model.record_origin import RecordOrigin
 from slaktbusken.model.family import Family, FamilyPartner, ParentChildLink
 from slaktbusken.model.media import Annotation, LinkedEntity, MediaItem
+from slaktbusken.model.merge_candidate import (
+    ArchivedCandidate,
+    LoadFinding,
+    MergeCandidate,
+    MergeCandidateComment,
+    MergedIdentityMapping,
+    MergeHistoryEntry,
+)
 from slaktbusken.model.person import Name, Person
 from slaktbusken.model.place import CustomFieldDef, ExternalId, Place, RegionLevel
 from slaktbusken.model.project import ProjectData, ProjectMetadata
+from slaktbusken.model.research_case import (
+    HypothesisComment,
+    ResearchAction,
+    ResearchCase,
+    ResearchEntityLink,
+    ResearchHypothesis,
+)
 from slaktbusken.model.research_note import ResearchNote
+from slaktbusken.model.residence import Endpoint, Observation, ResidenceFact
 from slaktbusken.model.source import ArkivReferens, Kalltyp, Leverantor, Repository, RepositoryRef, Source, StructuredReference
 
 
@@ -52,19 +69,46 @@ def serialize(data: ProjectData) -> str:
 
     # All entity arrays.
     entity_fields = [
-        "persons", "families", "events", "places", "sources",
+        "persons", "families", "events", "residences", "places", "sources",
         "media", "repositories", "dna_companies", "dna_profiles",
         "dna_matches", "dna_segments", "dna_clusters",
         "dna_triangulations", "research_notes", "leverantorer", "kalltyper",
+        "research_cases", "research_hypotheses", "research_actions",
     ]
     for field_name in entity_fields:
         items = getattr(data, field_name, [])
+        if field_name == "places":
+            # Never persist duplicate place ids. Dedupe a local copy so
+            # serialize() stays a pure read of the passed-in ProjectData.
+            from slaktbusken.services.place_dedupe import deduplicate_places
+
+            items, _ = deduplicate_places(list(items))
         output[field_name] = [_serialize_dataclass(item) for item in items]
+
+    # Merge sections: omitted when empty so a project without merge data is
+    # identical to its 0.3 output except for the version fields. Unreadable
+    # items found on load are written back verbatim after the readable ones.
+    for section in _MERGE_SECTIONS:
+        entries = [_serialize_dataclass(item) for item in getattr(data, section, [])]
+        entries.extend(data.unreadable_merge_items.get(section, []))
+        if entries:
+            output[section] = entries
+
+    # Per-child connection overrides map. Omit the key entirely when empty so
+    # projects that never used the feature are unchanged on disk
+    # (Requirement 13.2).
+    if data.connection_overrides:
+        output["connection_overrides"] = dict(data.connection_overrides)
+
+    # Highest id suffix ever issued per research prefix, so a deleted research
+    # id is not reused after reopening. Omitted when empty, like the map above.
+    if data.id_high_water_marks:
+        output["id_high_water_marks"] = dict(data.id_high_water_marks)
 
     return json.dumps(output, ensure_ascii=False, indent=2)
 
 
-def deserialize(json_str: str) -> ProjectData:
+def deserialize(json_str: str, log: list[str] | None = None) -> ProjectData:
     """Deserialize a JSON string into a ProjectData instance.
 
     Expects the JSON structure produced by serialize(), with
@@ -72,6 +116,8 @@ def deserialize(json_str: str) -> ProjectData:
 
     Args:
         json_str: The JSON string to deserialize.
+        log: Optional list to receive load-time diagnostic messages (unknown
+            fields, unresolved references). ``None`` disables logging.
 
     Returns:
         A ProjectData instance populated from the JSON data.
@@ -85,12 +131,49 @@ def deserialize(json_str: str) -> ProjectData:
     )
 
     # Deserialize entity arrays with proper nested type reconstruction.
-    _deserialize_entities(project_data, raw)
+    _deserialize_entities(project_data, raw, log=log)
+
+    # Per-child connection overrides map. A pre-feature project has no such
+    # key; default to an empty dict so it loads successfully with no overrides
+    # (Requirement 13.1).
+    overrides = raw.get("connection_overrides")
+    if isinstance(overrides, dict):
+        project_data.connection_overrides = {
+            str(k): str(v) for k, v in overrides.items()
+        }
+
+    # Highest research id suffix ever issued per prefix. Absent on a project
+    # that predates the feature; non-integer values are ignored rather than
+    # failing the load. Then make sure no mark lies below a live research id,
+    # so a project holding research data but no stored marks still never
+    # reuses an id.
+    marks = raw.get("id_high_water_marks")
+    if isinstance(marks, dict):
+        project_data.id_high_water_marks = {
+            str(prefix): value
+            for prefix, value in marks.items()
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+    from slaktbusken.services.research_service import reconcile_id_high_water_marks
+
+    reconcile_id_high_water_marks(project_data)
+
+    # Report research references that do not resolve; they are kept as stored.
+    if log is not None:
+        _log_unresolved_research_references(project_data, log)
 
     # Normalize Unicode in file paths to NFC for consistent handling of
     # Swedish characters (å, ä, ö). File systems on Windows use NFC but
     # data may arrive in NFD form from macOS or GEDCOM imports.
     _normalize_media_file_paths(project_data)
+
+    # Guard against duplicate place ids that older data / GEDCOM re-imports
+    # could introduce. Duplicates make different code resolve the same id to
+    # different parent chains (e.g. one hierarchy ending at "Sverige, Europa"
+    # and another at "Stockholm"). Keep the most complete record per id.
+    from slaktbusken.services.place_dedupe import deduplicate_project_places
+
+    deduplicate_project_places(project_data, log=log)
 
     return project_data
 
@@ -128,8 +211,19 @@ def _serialize_dataclass(obj: Any) -> dict[str, Any]:
         # Omit empty strings for fields that have default="".
         if value == "" and _has_default_empty_string(f):
             continue
+        # Omit the date qualifier and calendar at their defaults.
+        if (
+            isinstance(obj, DateValue)
+            and f.name in _DATE_DEFAULT_OMITTED
+            and value == f.default
+        ):
+            continue
         result[f.name] = _serialize_value(value)
     return result
+
+
+# DateValue fields written only when they differ from their default.
+_DATE_DEFAULT_OMITTED = frozenset({"qualifier", "calendar"})
 
 
 def _serialize_value(value: Any) -> Any:
@@ -201,6 +295,7 @@ _ENTITY_MAP: dict[str, type] = {
     "persons": Person,
     "families": Family,
     "events": Event,
+    "residences": ResidenceFact,
     "places": Place,
     "sources": Source,
     "repositories": Repository,
@@ -214,6 +309,16 @@ _ENTITY_MAP: dict[str, type] = {
     "research_notes": ResearchNote,
     "leverantorer": Leverantor,
     "kalltyper": Kalltyp,
+    "research_cases": ResearchCase,
+    "research_hypotheses": ResearchHypothesis,
+    "research_actions": ResearchAction,
+}
+
+# The research sections and how a corrupt one is named to the user.
+_RESEARCH_SECTION_NAMES: dict[str, str] = {
+    "research_cases": "forskningsärenden",
+    "research_hypotheses": "hypoteser",
+    "research_actions": "forskningsåtgärder",
 }
 
 # Mapping of (parent_class, field_name) -> element type for list fields
@@ -228,37 +333,377 @@ _NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (MediaItem, "linked_entities"): LinkedEntity,
     (MediaItem, "annotations"): Annotation,
     (ResearchNote, "linked_entities"): LinkedEntity,
+    (ResearchCase, "linked_entities"): ResearchEntityLink,
+    (ResearchHypothesis, "linked_entities"): ResearchEntityLink,
+    (ResearchHypothesis, "comments"): HypothesisComment,
+    (ResearchAction, "source_refs"): SourceRef,
     (Place, "external_ids"): ExternalId,
     (Place, "region_levels"): RegionLevel,
+    (ResidenceFact, "observations"): Observation,
+    (ResidenceFact, "origins"): RecordOrigin,
+    (Event, "extra_origins"): RecordOrigin,
+    (MergeCandidate, "comments"): MergeCandidateComment,
+    (MergeHistoryEntry, "archived_candidates"): ArchivedCandidate,
+    (ArchivedCandidate, "comments"): MergeCandidateComment,
+    (MergeHistoryEntry, "identity_mappings"): MergedIdentityMapping,
+}
+
+# Merge sections and the dataclass of their items (loaded tolerantly).
+_MERGE_SECTIONS: dict[str, type] = {
+    "merge_candidates": MergeCandidate,
+    "merge_history": MergeHistoryEntry,
+}
+
+_MERGE_SECTION_NAMES: dict[str, str] = {
+    "merge_candidates": "dubblettkandidater",
+    "merge_history": "sammanslagningshistorik",
 }
 
 # Mapping of (parent_class, field_name) -> type for optional nested dataclass fields.
 _NESTED_OPTIONAL_TYPES: dict[tuple[type, str], type] = {
     (Event, "date"): DateValue,
     (Event, "place"): PlaceRef,
+    (Event, "from_place"): PlaceRef,
+    (Event, "origin"): RecordOrigin,
     (Source, "structured_reference"): StructuredReference,
+    (ResidenceFact, "start"): Endpoint,
+    (ResidenceFact, "end"): Endpoint,
+    (Observation, "source_ref"): SourceRef,
+    (ResearchCase, "primary_entity_ref"): ResearchEntityLink,
 }
 
 # Mapping of nested list fields within nested types.
 _DEEP_NESTED_LIST_TYPES: dict[tuple[type, str], type] = {
     (DateValue, "source_refs"): SourceRef,
+    (Event, "source_refs"): SourceRef,
     (PlaceRef, "source_refs"): SourceRef,
     (RegionLevel, "custom_fields"): CustomFieldDef,
 }
 
 
-def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any]) -> None:
+def _deserialize_entities(project_data: ProjectData, raw: dict[str, Any], *, log: list[str] | None = None) -> None:
     """Deserialize entity arrays from raw JSON dict into ProjectData.
+
+    For the ``residences`` collection, unknown fields on a serialized
+    Residence_Fact are ignored (and logged with the fact ``id`` when *log* is
+    provided). Unresolved ``person_id``, ``place_id``,
+    ``source_ref.source_id``, and ``event_id`` values are kept as stored and
+    left for the validator to report.
+
+    A ``residences`` key that is absent or ``null`` yields zero elements with
+    no error (Requirement 13.3). A present non-list value raises
+    ``CorruptedFileError`` before any state is replaced (Requirement 13.6).
 
     Args:
         project_data: The ProjectData instance to populate.
         raw: The full parsed JSON dictionary.
+        log: Optional list to receive diagnostic messages.
+
+    Raises:
+        CorruptedFileError: If the ``residences`` value is present and not a
+            list (Requirement 13.6).
     """
+    from slaktbusken.persistence.file_io import CorruptedFileError
+
+    # Pre-check: abort before any state changes if residences is malformed.
+    if "residences" in raw:
+        residences_value = raw["residences"]
+        if residences_value is not None and not isinstance(residences_value, list):
+            raise CorruptedFileError(
+                "Filens boendeavsnitt har ett ogiltigt format och kunde inte läsas."
+            )
+
+    # Same for the research sections: a present, non-list value aborts the load
+    # naming the section, before any state is replaced.
+    for section_key, section_name in _RESEARCH_SECTION_NAMES.items():
+        section_value = raw.get(section_key)
+        if section_value is not None and not isinstance(section_value, list):
+            raise CorruptedFileError(
+                f"Filens avsnitt för {section_name} har ett ogiltigt format "
+                f"och kunde inte läsas."
+            )
+
+    # Merge sections: a present, non-list value aborts the load naming the
+    # section. Items are then read tolerantly (Requirement 7.7).
+    for section_key, section_name in _MERGE_SECTION_NAMES.items():
+        section_value = raw.get(section_key)
+        if section_value is not None and not isinstance(section_value, list):
+            raise CorruptedFileError(
+                f"Filens avsnitt för {section_name} har ett ogiltigt format "
+                f"och kunde inte läsas."
+            )
+    for section_key, section_cls in _MERGE_SECTIONS.items():
+        section_value = raw.get(section_key)
+        if section_value:
+            _deserialize_merge_section(
+                project_data, section_key, section_cls, section_value
+            )
+
     for field_name, cls in _ENTITY_MAP.items():
-        raw_items = raw.get(field_name, [])
+        raw_items = raw.get(field_name)
+        if raw_items is None:
+            # Key absent or value is null — leave the default empty collection.
+            continue
+        if not isinstance(raw_items, list):
+            # Non-list values for other entity fields are skipped silently.
+            continue
         if raw_items:
-            deserialized = [_deserialize_typed(cls, item) for item in raw_items]
+            if field_name == "residences" and log is not None:
+                deserialized = _deserialize_residences(raw_items, log)
+            elif field_name in _RESEARCH_SECTION_NAMES and log is not None:
+                deserialized = _deserialize_research(cls, raw_items, log)
+            else:
+                deserialized = [_deserialize_typed(cls, item) for item in raw_items]
             setattr(project_data, field_name, deserialized)
+
+
+def _annotation_accepts(annotation: Any, value: Any) -> bool:
+    """Whether *value* has the JSON type a string annotation describes.
+
+    Only the shapes used by the merge dataclasses are checked: ``str``,
+    ``bool``, ``Optional[...]``, ``list[...]``. Anything else is accepted.
+    """
+    text = annotation if isinstance(annotation, str) else str(annotation)
+    text = text.replace(" ", "")
+    if text.startswith("Optional[") and text.endswith("]"):
+        return value is None or _annotation_accepts(text[9:-1], value)
+    if text == "list[str]":
+        return isinstance(value, list) and all(isinstance(v, str) for v in value)
+    if text.startswith("list["):
+        return isinstance(value, list)
+    if text == "str":
+        return isinstance(value, str)
+    if text == "bool":
+        return isinstance(value, bool)
+    return True
+
+
+def _neutral_default(annotation: Any) -> Any:
+    """Neutral value for a missing required field: ``""``, ``None`` or ``[]``."""
+    text = (annotation if isinstance(annotation, str) else str(annotation)).replace(" ", "")
+    if text.startswith("Optional["):
+        return None
+    if text.startswith("list["):
+        return []
+    if text == "bool":
+        return False
+    return ""
+
+
+def _build_merge_item(
+    cls: type,
+    item: dict[str, Any],
+    section: str,
+    findings: list[LoadFinding],
+    entry_id: Optional[str],
+) -> Any:
+    """Build one merge dataclass from a dict, recording findings.
+
+    A missing required field gets a neutral default (``missing_field``); a
+    field of the wrong JSON type keeps its raw value (``wrong_type``). Unknown
+    keys are ignored. Nested lists are built recursively.
+    """
+    import dataclasses
+
+    kwargs: dict[str, Any] = {}
+    missing: list[str] = []
+    wrong: list[str] = []
+    for f in dc_fields(cls):
+        required = (
+            f.default is dataclasses.MISSING
+            and f.default_factory is dataclasses.MISSING
+        )
+        if f.name not in item:
+            if required:
+                kwargs[f.name] = _neutral_default(f.type)
+                missing.append(f.name)
+            continue
+        value = item[f.name]
+        nested = _NESTED_LIST_TYPES.get((cls, f.name))
+        if not _annotation_accepts(f.type, value):
+            kwargs[f.name] = value
+            wrong.append(f.name)
+        elif nested is not None and isinstance(value, list):
+            kwargs[f.name] = [
+                _build_merge_item(nested, sub, section, findings, entry_id)
+                if isinstance(sub, dict)
+                else sub
+                for sub in value
+            ]
+            for sub in value:
+                if not isinstance(sub, dict):
+                    wrong.append(f.name)
+                    break
+        else:
+            kwargs[f.name] = value
+    if missing:
+        findings.append(LoadFinding(section, entry_id, tuple(missing), "missing_field"))
+    if wrong:
+        findings.append(LoadFinding(section, entry_id, tuple(wrong), "wrong_type"))
+    return cls(**kwargs)
+
+
+def _deserialize_merge_section(
+    project_data: ProjectData, section: str, cls: type, raw_items: list[Any]
+) -> None:
+    """Load a merge section tolerantly into *project_data*.
+
+    Readable fields are kept, problems become ``LoadFinding`` entries on
+    ``project_data.merge_load_findings``, and items that are not objects (or
+    cannot be built) are preserved verbatim in
+    ``project_data.unreadable_merge_items[section]``.
+    """
+    items: list[Any] = []
+    unreadable: list[Any] = []
+    findings: list[LoadFinding] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            unreadable.append(raw_item)
+            findings.append(LoadFinding(section, None, (), "unreadable_item"))
+            continue
+        entry_id = raw_item.get("id") if isinstance(raw_item.get("id"), str) else None
+        local: list[LoadFinding] = []
+        try:
+            items.append(_build_merge_item(cls, raw_item, section, local, entry_id))
+        except Exception:
+            unreadable.append(raw_item)
+            findings.append(LoadFinding(section, entry_id, (), "unreadable_item"))
+            continue
+        findings.extend(local)
+    setattr(project_data, section, items)
+    if unreadable:
+        project_data.unreadable_merge_items[section] = unreadable
+    project_data.merge_load_findings.extend(findings)
+
+
+def _deserialize_residences(raw_items: list[Any], log: list[str]) -> list[Any]:
+    """Deserialize residence items with tolerant-loading semantics.
+
+    Unknown fields are ignored and logged together with the fact ``id``.
+    Unresolved references are kept as stored and left for the validator.
+
+    Args:
+        raw_items: The raw JSON list of residence dicts.
+        log: List to receive diagnostic messages about unknown fields.
+
+    Returns:
+        A list of deserialized ResidenceFact instances.
+    """
+    from dataclasses import fields as dc_fields_fn
+
+    valid_field_names = {f.name for f in dc_fields_fn(ResidenceFact)}
+    results = []
+
+    for item in raw_items:
+        if not isinstance(item, dict):
+            results.append(_deserialize_typed(ResidenceFact, item))
+            continue
+
+        fact_id = item.get("id", "<unknown>")
+
+        # Log unknown fields (Requirement 13.5).
+        unknown_fields = set(item.keys()) - valid_field_names
+        for field_name in sorted(unknown_fields):
+            log.append(
+                f"Residence {fact_id}: ignored unknown field '{field_name}'"
+            )
+
+        # Deserialize normally — _deserialize_typed already skips unknown
+        # fields because it only reads fields present on the dataclass.
+        results.append(_deserialize_typed(ResidenceFact, item))
+
+    return results
+
+
+def _deserialize_research(cls: type, raw_items: list[Any], log: list[str]) -> list[Any]:
+    """Deserialize research items with tolerant-loading semantics.
+
+    Unknown top-level fields are ignored and logged together with the entity
+    ``id``. Unresolved references are kept as stored (see
+    ``_log_unresolved_research_references``). An empty or blank
+    ``completed_date`` is normalized to ``None`` by ``ResearchAction`` itself.
+
+    Args:
+        cls: The research dataclass to build.
+        raw_items: The raw JSON list of dicts.
+        log: List to receive diagnostic messages about unknown fields.
+
+    Returns:
+        A list of deserialized instances of *cls*.
+    """
+    valid_field_names = {f.name for f in dc_fields(cls)}
+    results = []
+
+    for item in raw_items:
+        if isinstance(item, dict):
+            entity_id = item.get("id", "<unknown>")
+            for field_name in sorted(set(item.keys()) - valid_field_names):
+                log.append(
+                    f"{cls.__name__} {entity_id}: ignored unknown field '{field_name}'"
+                )
+        results.append(_deserialize_typed(cls, item))
+
+    return results
+
+
+def _log_unresolved_research_references(
+    project_data: ProjectData, log: list[str]
+) -> None:
+    """Append a line to *log* for each research reference that does not resolve.
+
+    Covers entity links on cases and hypotheses, the case a hypothesis or action
+    belongs to, and the sources an action cites. Nothing is changed or dropped:
+    the validator and the consistency report decide what to do about them.
+    Links with an unsupported type or a blank id are left to the validator.
+    """
+    ids_by_type: dict[str, set[str]] = {
+        "person": {x.id for x in project_data.persons},
+        "family": {x.id for x in project_data.families},
+        "event": {x.id for x in project_data.events},
+        "place": {x.id for x in project_data.places},
+        "source": {x.id for x in project_data.sources},
+        "media": {x.id for x in project_data.media},
+        "dna_match": {x.id for x in project_data.dna_matches},
+        "dna_cluster": {x.id for x in project_data.dna_clusters},
+    }
+    case_ids = {case.id for case in project_data.research_cases}
+
+    def check_link(owner: str, link: ResearchEntityLink) -> None:
+        known = ids_by_type.get(link.entity_type)
+        if known is not None and link.entity_id and link.entity_id not in known:
+            log.append(
+                f"{owner}: unresolved reference to {link.entity_type} "
+                f"'{link.entity_id}'"
+            )
+
+    for case in project_data.research_cases:
+        links = list(case.linked_entities)
+        if case.primary_entity_ref is not None:
+            links.insert(0, case.primary_entity_ref)
+        for link in links:
+            check_link(f"ResearchCase {case.id}", link)
+
+    for hypothesis in project_data.research_hypotheses:
+        if hypothesis.research_case_id not in case_ids:
+            log.append(
+                f"ResearchHypothesis {hypothesis.id}: unresolved reference to "
+                f"research case '{hypothesis.research_case_id}'"
+            )
+        for link in hypothesis.linked_entities:
+            check_link(f"ResearchHypothesis {hypothesis.id}", link)
+
+    for action in project_data.research_actions:
+        if action.research_case_id not in case_ids:
+            log.append(
+                f"ResearchAction {action.id}: unresolved reference to "
+                f"research case '{action.research_case_id}'"
+            )
+        for source_ref in action.source_refs:
+            if source_ref.source_id not in ids_by_type["source"]:
+                log.append(
+                    f"ResearchAction {action.id}: unresolved reference to "
+                    f"source '{source_ref.source_id}'"
+                )
 
 
 def _normalize_media_file_paths(project_data: ProjectData) -> None:

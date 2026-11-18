@@ -69,11 +69,43 @@ class SwedishKinshipTerms:
         Returns:
             The Swedish kinship term string.
         """
+        # A relationship that travels through a partner link keeps the
+        # existing in-law/partner behaviour. A foster relationship that is
+        # also via_partner is out of scope, so we never foster-prefix here.
         if via_partner and partner_term_base:
             return self._get_in_law_or_partner_term(
                 partner_term_base, sex_of_relative
             )
 
+        # Compute the base structural term exactly as for a blood relationship.
+        # relationship_type does not influence this computation; "blood",
+        # "legal" and "adoption" all render this plain structural term and
+        # must stay exactly as-is (Req 9.4: adoption must not regress).
+        base_term = self._compute_structural_term(
+            generations_a, generations_b, sex_of_relative
+        )
+
+        # Only the "foster" relationship type adds a transformation on top of
+        # the structural term (Req 9.2). All other types return it unchanged.
+        if relationship_type == "foster":
+            return self._to_foster_term(
+                base_term, generations_a, generations_b, sex_of_relative
+            )
+
+        return base_term
+
+    def _compute_structural_term(
+        self,
+        generations_a: int,
+        generations_b: int,
+        sex_of_relative: str,
+    ) -> str:
+        """Compute the plain blood/structural kinship term.
+
+        This is the historical body of :meth:`get_term`; it is factored out so
+        the foster transformation can wrap its result without changing any of
+        the existing code paths.
+        """
         # Direct ancestor/descendant line
         if generations_a == 0 and generations_b == 0:
             return "samma person"
@@ -118,6 +150,60 @@ class SwedishKinshipTerms:
             return self._get_cousin_term(generations_a, generations_b)
 
         return "släkting"
+
+    def _to_foster_term(
+        self,
+        base_term: str,
+        generations_a: int,
+        generations_b: int,
+        sex_of_relative: str,
+    ) -> str:
+        """Transform a structural term into its foster equivalent (Req 9.2).
+
+        Rule (applied to the already-computed ``base_term``):
+
+        - Immediate foster parent (one generation up, ``generations_a >= 1``
+          and ``generations_b == 0`` with ``generations_a == 1``) gets a
+          dedicated word: ``"fosterfar"`` (M), ``"fostermor"`` (F), or
+          ``"fosterförälder"`` when the sex is unknown.
+        - Immediate foster child (``generations_a == 0`` and
+          ``generations_b == 1``) is rendered as ``"fosterbarn"`` regardless
+          of sex, as the requirement names that single term.
+        - For the other well-known close-kin words produced by the base
+          computation (``bror``/``syster``) we form the natural closed word
+          (``"fosterbror"``/``"fostersyster"``).
+        - Every remaining relation - including compound or slash/dual terms
+          such as ``farbror/morbror``, ``kusin``, ``barnbarn`` - is given the
+          hyphenated ``"foster-"`` prefix applied to the whole string
+          (e.g. ``"foster-farbror/morbror"``, ``"foster-kusin"``). We prefix
+          the whole slash term rather than splitting it, to keep the rule
+          simple and predictable.
+        """
+        # Immediate foster parent: one generation straight up.
+        if generations_a == 1 and generations_b == 0:
+            if sex_of_relative == "M":
+                return "fosterfar"
+            if sex_of_relative == "F":
+                return "fostermor"
+            return "fosterförälder"
+
+        # Immediate foster child: one generation straight down.
+        if generations_a == 0 and generations_b == 1:
+            return "fosterbarn"
+
+        # Well-known close-kin words form a natural closed compound.
+        _CLOSED_FORMS = {
+            "bror": "fosterbror",
+            "syster": "fostersyster",
+            "son": "fosterson",
+            "dotter": "fosterdotter",
+        }
+        if base_term in _CLOSED_FORMS:
+            return _CLOSED_FORMS[base_term]
+
+        # Everything else: hyphenated "foster-" prefix on the whole term,
+        # including compound and slash/dual terms.
+        return f"foster-{base_term}"
 
     def _get_ancestor_term(self, generations: int, sex: str) -> str:
         """Get term for a direct ancestor at given generation distance.

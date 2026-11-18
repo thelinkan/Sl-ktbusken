@@ -289,7 +289,9 @@ def check_min_age_at_childbirth(
     if birth_date is None:
         return []
 
-    children_ids = context.children_of.get(person.id, [])
+    # Age-at-childbirth is a biological constraint; a foster or adoptive
+    # parent's age relative to the child's birth is meaningless (Req 12.4).
+    children_ids = context.biological_children_of(person.id)
     if not children_ids:
         return []
 
@@ -330,7 +332,9 @@ def check_max_age_at_childbirth(
     if birth_date is None:
         return []
 
-    children_ids = context.children_of.get(person.id, [])
+    # Age-at-childbirth is a biological constraint; a foster or adoptive
+    # parent's age relative to the child's birth is meaningless (Req 12.4).
+    children_ids = context.biological_children_of(person.id)
     if not children_ids:
         return []
 
@@ -373,7 +377,9 @@ def check_min_days_between_births(
     if person.sex != "F":
         return []
 
-    children_ids = context.children_of.get(person.id, [])
+    # Birth-spacing is a biological constraint; foster/adoptive children must
+    # not count toward the interval between the mother's own births (Req 12.4).
+    children_ids = context.biological_children_of(person.id)
     if len(children_ids) < 2:
         return []
 
