@@ -21,6 +21,8 @@ def build() -> None:
         "--clean",
         # Application icon (shown on .exe and taskbar)
         "--icon=assets/slaktbusken.ico",
+        # Windows file properties (description, version, copyright)
+        "--version-file=assets/version_info.txt",
         # Bundle the .ico for Qt window icon at runtime
         "--add-data=assets/slaktbusken.ico;assets",
         # Bundle SVG icon directories
