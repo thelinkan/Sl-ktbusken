@@ -191,6 +191,40 @@ class _SessionDialog(QDialog):
         return "save" if box.clickedButton() is save_btn else "keep"
 
 
+def _write_abort_log(aborted: ImportAborted, gedcom_path: Path, project_folder: Path) -> Path | None:
+    """Write an aborted import to the project's log folder.
+
+    The message box shows only the first findings, so the full list (and the
+    traceback of an unexpected error) goes to ``<project>/log``, next to the
+    normal import log. Returns the file, or None if it could not be written;
+    a missing diagnostic file never hides the abort itself.
+    """
+    from datetime import datetime
+
+    try:
+        log_dir = project_folder / "log"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f"import-avbruten-{datetime.now():%Y%m%d-%H%M%S}.log"
+        lines = [
+            f"GEDCOM Import Log — {datetime.now():%Y-%m-%d %H:%M:%S}",
+            f"Fil: {gedcom_path.name}",
+            "",
+            "IMPORTEN AVBRÖTS. Ingenting har ändrats i projektet.",
+            f"Fas: {aborted.phase or 'okänd'}",
+            "",
+            aborted.message_sv,
+            "",
+            "== Detaljer ==",
+            aborted.traceback_text or "(inga)",
+            "",
+        ]
+        log_file.write_text("\n".join(lines), encoding="utf-8")
+        return log_file
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Kunde inte skriva avbrottslogg: %s", exc)
+        return None
+
+
 class Application:
     """Application shell that wires services to the UI.
 
@@ -1382,7 +1416,13 @@ class Application:
                 e.message_sv,
                 e.traceback_text,
             )
-            QMessageBox.critical(self.main_window, "Importen avbröts", e.message_sv)
+            message = e.message_sv
+            project_path = self.project_service.project_path
+            if project_path is not None:
+                abort_log = _write_abort_log(e, Path(path), project_path.parent)
+                if abort_log is not None:
+                    message += f"\n\nAlla detaljer finns i:\n{abort_log}"
+            QMessageBox.critical(self.main_window, "Importen avbröts", message)
         except ImportServiceError as e:
             QMessageBox.critical(self.main_window, "Importfel", e.message)
         except Exception as e:

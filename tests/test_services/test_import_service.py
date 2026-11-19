@@ -464,3 +464,84 @@ class TestValidationAbort:
             "Boendet måste ange både person och plats." in w for w in result.warnings
         )
         assert any("överordnad plats" in w for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Place hierarchy findings (regression: real files could not be imported)
+# ---------------------------------------------------------------------------
+
+PLACE_SHAPE_GEDCOM = """\
+0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Erik /Svensson/
+1 SEX M
+1 BIRT
+2 DATE 1 JAN 1850
+2 PLAC Ljusdal, Hälsingland
+1 DEAT
+2 DATE 1 JAN 1920
+2 PLAC Ljusdal, Gävleborgs län
+0 TRLR
+"""
+
+
+class TestPlaceShapeFindings:
+    def test_guessed_place_types_that_do_not_fit_only_warn(self, tmp_path: Path) -> None:
+        """"Ljusdal, Hälsingland" makes Hälsingland a country without a continent.
+
+        Release 0.2.0 imported this with a warning; the import must not abort.
+        """
+        service = _make_service()
+        data = _make_project_data()
+        ps = _ps(data)
+
+        result = service.run(data, _write_gedcom(tmp_path, PLACE_SHAPE_GEDCOM), tmp_path, ps)
+
+        assert result.persons_added == 1
+        assert any(p.name == "Hälsingland" for p in data.places)
+        assert any(
+            w.startswith("Valideringsvarning (Place") and "kontinent" in w
+            for w in result.warnings
+        )
+        # The place that was understood is complete: Sverige, Europa and all.
+        by_id = {p.id: p for p in data.places}
+        gavleborg = next(p for p in data.places if p.name.startswith("G") and p.name.endswith("län"))
+        chain = []
+        current = gavleborg
+        while current is not None:
+            chain.append(current.name)
+            current = by_id.get(current.parent_place_id) if current.parent_place_id else None
+        assert chain[-2:] == ["Sverige", "Europa"]
+
+    def test_a_missing_parent_place_still_aborts(self, tmp_path: Path) -> None:
+        """A parent that does not exist is a broken reference, not a shape problem."""
+        from slaktbusken.gedcom.errors import ImportAborted
+        from slaktbusken.services.validation_service import ValidationError
+
+        def findings(data):  # type: ignore[no-untyped-def]
+            return [
+                ValidationError("Place", p.id, "Överordnad plats 'place_999' hittades inte.")
+                for p in data.places[:1]
+            ]
+
+        service, data, ps, ged, proj, before = _run_with_validator(
+            tmp_path, _FakeValidation(findings)
+        )
+        with pytest.raises(ImportAborted):
+            service.run(data, ged, proj, ps)
+        assert data.persons == [] and data.places == []
+        assert not ps.is_dirty
+
+    def test_a_shape_finding_on_another_entity_type_still_aborts(self, tmp_path: Path) -> None:
+        from slaktbusken.gedcom.errors import ImportAborted
+        from slaktbusken.services.validation_service import ValidationError
+
+        def findings(data):  # type: ignore[no-untyped-def]
+            return [ValidationError("Person", p.id, "måste ha en överordnad plats") for p in data.persons[:1]]
+
+        service, data, ps, ged, proj, _ = _run_with_validator(
+            tmp_path, _FakeValidation(findings)
+        )
+        with pytest.raises(ImportAborted):
+            service.run(data, ged, proj, ps)

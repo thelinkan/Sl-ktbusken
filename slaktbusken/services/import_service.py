@@ -76,16 +76,47 @@ _MSG_RESIDENCE_WITHOUT_PLACE = "Boendet måste ange både person och plats."
 _MSG_PLACE_WITHOUT_PARENT_SUFFIX = "måste ha en överordnad plats."
 
 
+# Findings about the *shape* of a place hierarchy (type and parent rules). The
+# importer builds places from free text such as "Ljusdal, Hälsingland" and has
+# to guess a type for each level, so real-world files regularly produce a
+# country without a continent, a parish without a region-level parent and so
+# on. Release 0.2.0 imported such files and showed these findings as warnings;
+# aborting on them made ordinary GEDCOM files impossible to import. A parent
+# that does not exist at all is a broken reference, not a shape problem, and
+# still aborts.
+_PLACE_SHAPE_MARKERS = (
+    "måste ha en kontinent som överordnad plats",
+    "måste vara av typen 'kontinent'",
+    "måste ha en överordnad plats",
+    "som överordnad plats.",  # "(ordning 1) måste ha ett land som överordnad plats"
+    "måste ha en överordnad plats av typen",
+)
+
+
+def _is_place_shape_finding(error: ValidationError, work: ProjectData) -> bool:
+    """True for a hierarchy-shape finding about a place of the working copy."""
+    if error.entity_type != "Place":
+        return False
+    if "hittades inte" in error.message or "refererar inte" in error.message:
+        return False
+    if not any(marker in error.message for marker in _PLACE_SHAPE_MARKERS):
+        return False
+    return any(p.id == error.entity_id for p in work.places)
+
+
 def _is_tolerated_import_finding(error: ValidationError, work: ProjectData) -> bool:
-    """True for the two findings the importer produces on purpose.
+    """True for the findings the importer produces on purpose.
 
     Temporary exemption until the importer stops producing them:
 
     * a residence from a RESI without a usable PLAC (person set, place empty);
-    * a place from a place string without a usable hierarchy (no parent).
+    * a place from a place string without a usable hierarchy (no parent);
+    * a place whose guessed type does not fit its parent (hierarchy shape).
 
     These stay warnings; any other finding introduced by the import aborts.
     """
+    if _is_place_shape_finding(error, work):
+        return True
     if error.message == _MSG_RESIDENCE_WITHOUT_PLACE:
         residence = next(
             (r for r in work.residences if r.id == error.entity_id), None
