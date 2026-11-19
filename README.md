@@ -4,7 +4,7 @@ Släktbusken är ett svenskt släktforskningsprogram för Windows. Det har byggt
 
 Målgruppen för programmet är jag själv, så funktionerna byggs upp för att passa mig och mina behov. Om någon annan tycker att programmet verkar användbart så är det bara att ladda ner och börja använda. Om du känner att det är något som inte är riktigt som du vill är det fritt fram att ändra i källkoden hos dig.
 
-**Status:** version 0.3.0 är en betaversion. Programmet fungerar och används, men det finns ännu ingen färdig 1.0. Ta kopior av dina projektmappar innan du uppgraderar, eftersom ett projekt som sparats i en nyare version inte går att öppna i en äldre.
+**Status:** version 0.3.1 är en betaversion. Programmet fungerar och används, men det finns ännu ingen färdig 1.0. Ta kopior av dina projektmappar innan du uppgraderar, eftersom ett projekt som sparats i en nyare version inte går att öppna i en äldre.
 
 # Ladda ner och kom igång
 
